@@ -12,7 +12,8 @@ import {
   VisualGuidelinesCard, 
   CopywritingCard, 
   ProductionCard,
-  ProductionSelectCard 
+  ProductionSelectCard,
+  GenerationCard
 } from './ActionCards';
 
 interface ChatStudioProps {
@@ -34,6 +35,9 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasInitialized = useRef(false);
+  const [genStatus, setGenStatus] = useState<'idle' | 'generating' | 'completed' | 'error'>('idle');
+  const [genResult, setGenResult] = useState<string | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
 
   // Sync messagesRef with messages state for async access
   useEffect(() => {
@@ -389,6 +393,30 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
       }
     }
     return '';
+  };
+
+  const extractGenParams = (content: string) => {
+    try {
+        const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonBlock) return JSON.parse(jsonBlock[1]);
+        const match = content.match(/(\{[\s\S]*"prompt"[\s\S]*\})/);
+        if (match) return JSON.parse(match[0]);
+    } catch(e) {}
+    return null;
+  }
+
+  const handleGenerateImage = async (prompt: string, aspectRatio: string) => {
+      setGenStatus('generating');
+      setGenError(null);
+      try {
+          // Pass initialImages as reference
+          const result = await gemini.generateImage(prompt, initialImages);
+          setGenResult(result);
+          setGenStatus('completed');
+      } catch (e) {
+          setGenStatus('error');
+          setGenError((e as Error).message);
+      }
   };
 
   // Helper to extract list items after a header
@@ -939,6 +967,19 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             onSelectAplus={() => handleProductionSelect('aplus')}
             onSelectAll={() => handleProductionSelect('all')}
         />;
+      case WorkflowStep.MODEL_TRY_ON:
+          const genParams = extractGenParams(lastMsg.content);
+          if (genParams && genParams.prompt) {
+             return <GenerationCard 
+                prompt={genParams.prompt}
+                aspectRatio={genParams.aspect_ratio}
+                onGenerate={() => handleGenerateImage(genParams.prompt, genParams.aspect_ratio || "1:1")}
+                status={genStatus}
+                resultImage={genResult}
+                errorMsg={genError || undefined}
+             />
+          }
+          return null;
       case WorkflowStep.PRODUCTION_P3_P5:
       case WorkflowStep.P3_MAIN_IMAGE:
       case WorkflowStep.P4_SECONDARY:

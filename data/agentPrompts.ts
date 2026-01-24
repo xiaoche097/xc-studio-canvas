@@ -877,7 +877,17 @@ Only when all checks pass, output a "Ready for Production" confirmation.`,
 - 图片1：模特照片（需要上身展示的人物）
 - 图片2：产品照片（需要被穿戴的商品）
 
-收到图片后，直接生成合成效果图。`,
+收到图片后，请分析图片并生成一段用于图像生成的详细英文提示词（Prompt）。
+**请务必以 JSON 格式输出，不要直接生成图片，也不要输出其他无关废话。**
+JSON 格式如下：
+\`\`\`json
+{
+  "prompt": "A realistic photo of...",
+  "aspect_ratio": "3:4"
+}
+\`\`\`
+我将使用你提供的这个 JSON 来调用绘图工具。
+请确保 prompt 包含对产品细节、模特姿态、光影和融合效果的极致详细描述。`,
     constraints: [
       "No product deformation",
       "Perfect lighting match",

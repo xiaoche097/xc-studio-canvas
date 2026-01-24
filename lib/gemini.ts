@@ -93,6 +93,34 @@ class GeminiClient {
     // For safety in this demo step, let's return a mock or description.
     return { url: "https://placehold.co/600x400?text=Gemini+Preview+" + encodeURIComponent(prompt.slice(0,10)) };
   }
+
+  /**
+   * Generates an image based on the prompt.
+   * INTEGRATION: Currently uses Pollinations.ai for immediate demo capability without requiring valid Imagen credentials.
+   * TODO: Replace with actual DALL-E 3 / Imagen API call for production.
+   */
+  async generateImage(prompt: string, referenceImages: string[] = []): Promise<string> {
+    console.log("Generating image for:", prompt);
+    
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    try {
+      // Clean prompt for URL
+      const cleanPrompt = prompt.replace(/[^\w\s,]/gi, '').slice(0, 300);
+      const encoded = encodeURIComponent(cleanPrompt);
+      const seed = Math.floor(Math.random() * 1000000);
+      
+      // Use Pollinations AI (Flux model often used)
+      // We append some quality boosters
+      const fullUrl = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+      
+      return fullUrl;
+    } catch (e) {
+      console.error("Image Generation Failed:", e);
+      throw new Error("Failed to generate image. Please check API configuration.");
+    }
+  }
 }
 
 export const gemini = new GeminiClient();

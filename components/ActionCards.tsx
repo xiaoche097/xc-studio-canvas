@@ -437,3 +437,99 @@ export const ProductionSelectCard: React.FC<ProductionSelectCardProps> = ({
     </p>
   </div>
 );
+
+// --- 7. Generation Card (通用生图卡片) ---
+interface GenerationCardProps {
+  prompt: string;
+  aspectRatio?: string;
+  onGenerate: () => void;
+  status: 'idle' | 'generating' | 'completed' | 'error';
+  resultImage?: string | null;
+  errorMsg?: string;
+}
+
+export const GenerationCard: React.FC<GenerationCardProps> = ({ 
+  prompt, 
+  aspectRatio = "1:1",
+  onGenerate, 
+  status, 
+  resultImage, 
+  errorMsg 
+}) => {
+  return (
+    <div className="space-y-4 font-sans border border-gray-200 dark:border-white/10 rounded-2xl p-5 bg-white dark:bg-[#1a1a1a] shadow-sm">
+       <div className="flex items-center gap-3 border-b border-gray-100 dark:border-white/5 pb-3">
+          <div className="w-10 h-10 rounded-full bg-brand-orange/10 flex items-center justify-center text-brand-orange">
+            <span className="text-xl">✨</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-gray-900 dark:text-white">图像生成准备就绪</h3>
+            <div className="text-xs text-gray-500">AI 已优化提示词 · 比例 {aspectRatio}</div>
+          </div>
+       </div>
+       
+       {/* Prompt Preview */}
+       <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-4 border border-gray-100 dark:border-white/5">
+          <div className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Reference Prompt</div>
+          <p className="text-sm text-gray-700 dark:text-gray-300 font-mono leading-relaxed line-clamp-4 hover:line-clamp-none transition-all cursor-text">
+            {prompt}
+          </p>
+       </div>
+
+       {/* Result Display */}
+       {status === 'completed' && resultImage && (
+          <div className="relative rounded-xl overflow-hidden shadow-lg border border-gray-100 dark:border-white/10 group">
+             <img src={resultImage} alt="Generated Result" className="w-full h-auto" />
+             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                <a 
+                  href={resultImage} 
+                  download={`skysper_gen_${Date.now()}.png`}
+                  className="px-4 py-2 bg-white text-black rounded-lg text-sm font-bold hover:scale-105 transition-transform"
+                >
+                  下载原图
+                </a>
+                <button 
+                  onClick={() => window.open(resultImage, '_blank')}
+                  className="px-4 py-2 bg-white/20 backdrop-blur text-white rounded-lg text-sm font-bold hover:scale-105 transition-transform"
+                >
+                  放大查看
+                </button>
+             </div>
+          </div>
+       )}
+
+       {/* Error Message */}
+       {status === 'error' && (
+         <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm rounded-lg border border-red-100 dark:border-red-900/30 flex items-center gap-2">
+           <span>⚠️</span> {errorMsg || "生成失败，请稍后重试"}
+         </div>
+       )}
+
+       {/* Action Button */}
+       <button 
+          onClick={onGenerate} 
+          disabled={status === 'generating'}
+          className={`
+            w-full py-3.5 rounded-xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2
+            ${status === 'generating' 
+              ? 'bg-gray-400 cursor-wait' 
+              : 'bg-brand-orange hover:-translate-y-0.5 hover:shadow-brand-orange/30 active:scale-[0.98]'}
+          `}
+       >
+          {status === 'generating' ? (
+            <>
+              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              正在绘图...
+            </>
+          ) : (
+            <>
+              {status === 'completed' ? '重新生成' : '开始生成'}
+            </>
+          )}
+       </button>
+    </div>
+  );
+};
