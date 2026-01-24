@@ -99,7 +99,7 @@ class GeminiClient {
    * STRICTLY uses 'gemini-3-pro-image-preview' as requested.
    */
   async generateImage(prompt: string, referenceImages: string[] = []): Promise<string> {
-    console.log("Generating image with gemini-3-pro-image-preview for:", prompt);
+    console.log(`Generating image. Prompt len: ${prompt.length}. User Images: ${referenceImages.length}`);
     
     
     // If getApiKey is not exposed (private), use our stored one or import.meta.env
