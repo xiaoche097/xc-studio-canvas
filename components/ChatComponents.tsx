@@ -55,11 +55,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, ima
                <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words">
                    <ReactMarkdown 
                      components={{
-                       strong: ({node, ...props}) => <span className="font-bold" {...props} />,
+                       strong: ({node, ...props}) => <span className="font-bold text-gray-900 dark:text-white" {...props} />,
                        ul: ({node, ...props}) => <ul className="list-disc list-outside ml-4 space-y-1 my-2" {...props} />,
                        ol: ({node, ...props}) => <ol className="list-decimal list-outside ml-4 space-y-1 my-2" {...props} />,
                        li: ({node, ...props}) => <li className="pl-1" {...props} />,
                        p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                       // Fix for overflow: Custom code block
+                       code: ({node, inline, className, children, ...props}: any) => {
+                          const match = /language-(\w+)/.exec(className || '')
+                          return !inline ? (
+                            <pre className="block w-full p-3 my-2 rounded-lg bg-gray-100 dark:bg-black/30 overflow-x-auto text-xs font-mono whitespace-pre-wrap break-words border border-gray-200 dark:border-white/5" {...props}>
+                              <code className={className} {...props}>{children}</code>
+                            </pre>
+                          ) : (
+                            <code className="bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded text-xs font-mono text-brand-orange" {...props}>{children}</code>
+                          )
+                       },
                        // Simple table styling
                        table: ({node, ...props}) => <div className="overflow-x-auto my-2"><table className="min-w-full divide-y divide-gray-200 dark:divide-white/10 border dark:border-white/10" {...props} /></div>,
                        th: ({node, ...props}) => <th className="px-3 py-2 bg-gray-50 dark:bg-white/5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left" {...props} />,
