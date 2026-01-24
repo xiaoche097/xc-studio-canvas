@@ -12,14 +12,19 @@ class GeminiClient {
   // private imageModel: GenerativeModel; 
 
   constructor() {
-    this.genAI = new GoogleGenerativeAI(apiKey || "");
+    const storedKey = localStorage.getItem('user_gemini_api_key');
+    this.genAI = new GoogleGenerativeAI(storedKey || apiKey || "");
     
     this.textModel = this.genAI.getGenerativeModel({ 
       model: import.meta.env.VITE_GEMINI_MODEL || "gemini-1.5-pro-latest" 
     });
+  }
 
-    // Placeholder if we strictly separate models
-    // this.imageModel = ...
+  updateApiKey(newKey: string) {
+    this.genAI = new GoogleGenerativeAI(newKey);
+    this.textModel = this.genAI.getGenerativeModel({
+      model: import.meta.env.VITE_GEMINI_MODEL || "gemini-1.5-pro-latest"
+    });
   }
 
   async generateContentStream(

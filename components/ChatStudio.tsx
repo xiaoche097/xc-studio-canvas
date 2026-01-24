@@ -54,6 +54,13 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     scrollToBottom();
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'; // Reset to calculate new height
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 128) + 'px'; // 128px is max-h-32
+    }
+  }, [inputValue]);
+
   // Initialization Sequence
   useEffect(() => {
     if (hasInitialized.current) return;
@@ -938,11 +945,18 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         // 判断是单步还是全部，单步完成后显示"继续生成其他"选项
         const isSingleStep = workflowStep !== WorkflowStep.PRODUCTION_P3_P5;
         
+        // Determine mode based on step
+        let mode: 'p3' | 'p4' | 'p5' | 'all' = 'all';
+        if (workflowStep === WorkflowStep.P3_MAIN_IMAGE) mode = 'p3';
+        else if (workflowStep === WorkflowStep.P4_SECONDARY) mode = 'p4';
+        else if (workflowStep === WorkflowStep.P5_APLUS) mode = 'p5';
+        
         return (
           <div className="space-y-4">
             <ProductionCard 
               image={prodImage} 
               productionData={prodExtracted}
+              mode={mode}
               onConfirm={() => handleUserConfirm(WorkflowStep.COMPLETED)} 
             />
             {isSingleStep && (

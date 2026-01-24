@@ -192,9 +192,11 @@ export const CopywritingCard: React.FC<CardProps> = ({ onConfirm, onRegenerate, 
 };
 
 // --- 5. Production Gallery (P3-P5) ---
+// --- 5. Production Gallery (P3-P5) ---
 interface ProductionCardProps {
   image?: string | null;
   onConfirm?: () => void;
+  mode?: 'p3' | 'p4' | 'p5' | 'all';
   productionData?: {
     mainImage?: string;
     subImages?: string[];
@@ -202,7 +204,7 @@ interface ProductionCardProps {
   };
 }
 
-export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productionData }) => {
+export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productionData, mode = 'all' }) => {
   const { 
     mainImage = "主图Prompt生成中...", 
     subImages = [],
@@ -223,7 +225,12 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between border-b border-gray-100 dark:border-white/10 pb-2">
-          <h3 className="font-bold text-xl text-gray-900 dark:text-white">🚀 生产完成：P3-P5 资产</h3>
+          <h3 className="font-bold text-xl text-gray-900 dark:text-white">
+            {mode === 'p3' && "🚀 生产完成：P3 主图资产"}
+            {mode === 'p4' && "🚀 生产完成：P4 副图序列"}
+            {mode === 'p5' && "🚀 生产完成：P5 A+ 模块"}
+            {mode === 'all' && "🚀 生产完成：P3-P5 全套资产"}
+          </h3>
           <span className={`text-xs px-2 py-1 rounded border ${
             status === 'completed' 
               ? 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20' 
@@ -233,31 +240,50 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
           </span>
       </div>
       
-      <div className="grid grid-cols-2 gap-4">
+      <div className={`grid gap-4 ${mode === 'all' ? 'grid-cols-2' : 'grid-cols-1'}`}>
         {/* P3 Card - 使用提取的prompt */}
-        <div className="col-span-2 md:col-span-1">
-          <Visualizer 
-              label="P3 MAIN IMAGE" 
-              prompt={hasRealPrompt ? mainImage : "SKYSPER Product, Pure White Background, Soft Contact Shadow, 15-degree tilt, levitation effect"}
-              initialImage={!hasRealPrompt ? image : undefined}
-              autoGenerate={false}
-          />
-        </div>
+        {(mode === 'p3' || mode === 'all') && (
+            <div className={`col-span-1 ${mode === 'all' ? '' : 'w-full'}`}>
+              <Visualizer 
+                  label="P3 MAIN IMAGE" 
+                  prompt={hasRealPrompt ? mainImage : "SKYSPER Product, Pure White Background, Soft Contact Shadow, 15-degree tilt, levitation effect"}
+                  initialImage={!hasRealPrompt ? image : undefined}
+                  autoGenerate={false}
+              />
+              {/* Show Prompt details for P3 only in P3/All mode */}
+              {hasRealPrompt && (
+                <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 relative group">
+                  <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1 flex justify-between items-center">
+                    <span>📝 主图Prompt:</span>
+                    <button 
+                      onClick={() => navigator.clipboard.writeText(mainImage)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] bg-white dark:bg-black/50 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 hover:bg-blue-100"
+                    >
+                      复制
+                    </button>
+                  </div>
+                  <div className="text-xs text-blue-600 dark:text-blue-400 font-mono line-clamp-3 hover:line-clamp-none cursor-text transition-all">{mainImage}</div>
+                </div>
+              )}
+            </div>
+        )}
 
         {/* P4 Card - 使用选中的副图描述 */}
-        <div className="col-span-2 md:col-span-1">
-          <Visualizer 
-              key={`p4-${activeSubIndex}-${triggerCount}`}
-              label={`P4 SUB-IMAGE S${activeSubIndex + 1}`} 
-              prompt={subImages.length > activeSubIndex ? subImages[activeSubIndex] : "SKYSPER Product lifestyle scene, sunny outdoor, 10AM natural lighting"}
-              initialImage={subImages.length === 0 ? image : undefined}
-              autoGenerate={triggerCount > 0} // Only auto-generate if user explicitly clicked a sub-item
-          />
-        </div>
+        {(mode === 'p4' || mode === 'all') && (
+            <div className={`col-span-1 ${mode === 'all' ? '' : 'w-full'}`}>
+              <Visualizer 
+                  key={`p4-${activeSubIndex}-${triggerCount}`}
+                  label={`P4 SUB-IMAGE S${activeSubIndex + 1}`} 
+                  prompt={subImages.length > activeSubIndex ? subImages[activeSubIndex] : "SKYSPER Product lifestyle scene, sunny outdoor, 10AM natural lighting"}
+                  initialImage={subImages.length === 0 ? image : undefined}
+                  autoGenerate={triggerCount > 0} // Only auto-generate if user explicitly clicked a sub-item
+              />
+            </div>
+        )}
       </div>
 
-      {/* 显示可点击的副图列表 */}
-      {subImages.length > 0 && (
+      {/* 显示可点击的副图列表 - P4 only or All */}
+      {(mode === 'p4' || mode === 'all') && subImages.length > 0 && (
         <div className="space-y-2">
           <div className="text-sm font-medium text-gray-700 dark:text-gray-300">📷 副图序列 (点击生成/预览):</div>
           <div className="grid gap-2">
@@ -286,30 +312,26 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
         </div>
       )}
 
-      {/* P5 A+ 模块 */}
-      <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/10 flex justify-between items-center hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer">
-        <div>
-          <div className="font-bold text-gray-900 dark:text-white">P5 A+ 模块</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">杂志级排版 / 6个模块</div>
-        </div>
-        <button className="px-4 py-2 border border-brand-orange text-brand-orange rounded-lg text-sm hover:bg-brand-orange hover:text-white transition-colors">
-          查看详情
-        </button>
-      </div>
-
-      {/* 显示主图Prompt预览 */}
-      {hasRealPrompt && (
-        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-          <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">📝 主图Prompt:</div>
-          <div className="text-xs text-blue-600 dark:text-blue-400 font-mono line-clamp-3">{mainImage}</div>
-        </div>
+      {/* P5 A+ 模块 - P5 only or All */}
+      {(mode === 'p5' || mode === 'all') && (
+          <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/10 flex justify-between items-center hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer">
+            <div>
+              <div className="font-bold text-gray-900 dark:text-white">P5 A+ 模块</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">杂志级排版 / 6个模块</div>
+            </div>
+            <button className="px-4 py-2 border border-brand-orange text-brand-orange rounded-lg text-sm hover:bg-brand-orange hover:text-white transition-colors">
+              查看详情
+            </button>
+          </div>
       )}
       
-      <div className="flex justify-center pt-2">
-        <button className="px-8 py-3 bg-brand-orange text-white rounded-full font-bold shadow-lg shadow-orange-500/20 hover:-translate-y-1 hover:shadow-orange-500/40 transition-all w-full md:w-auto">
-          导出所有资产包 (Zip)
-        </button>
-      </div>
+      {mode === 'all' && (
+        <div className="flex justify-center pt-2">
+            <button className="px-8 py-3 bg-brand-orange text-white rounded-full font-bold shadow-lg shadow-orange-500/20 hover:-translate-y-1 hover:shadow-orange-500/40 transition-all w-full md:w-auto">
+            导出所有资产包 (Zip)
+            </button>
+        </div>
+      )}
     </div>
   );
 };

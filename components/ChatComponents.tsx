@@ -52,7 +52,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, ima
               : 'bg-brand-blue text-white border border-brand-blue rounded-2xl rounded-tr-none'}`}
           >
             {isAI ? (
-               <div className="markdown-body prose prose-sm dark:prose-invert max-w-none">
+               <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words">
                    <ReactMarkdown 
                      components={{
                        strong: ({node, ...props}) => <span className="font-bold" {...props} />,
@@ -70,7 +70,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, ima
                    </ReactMarkdown>
                </div>
             ) : (
-                <div className="whitespace-pre-wrap">{content}</div>
+                <div className="whitespace-pre-wrap break-words">{content}</div>
             )}
           </div>
         )}
