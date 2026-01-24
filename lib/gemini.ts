@@ -150,9 +150,10 @@ class GeminiClient {
          body: JSON.stringify({
             contents: contents,
             generationConfig: {
-                 response_modalities: ["IMAGE"],
+                 // Try camelCase attributes for JSON API conformance
+                 responseModalities: ["IMAGE"],
                  temperature: 0.9,
-                 candidate_count: 1
+                 candidateCount: 1
             },
             safetySettings: [
                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
@@ -173,11 +174,10 @@ class GeminiClient {
       console.log("Gemini Image Gen Response:", data);
       
       const candidate = data.candidates?.[0];
-      if (!candidate) throw new Error("No candidates returned");
+      if (!candidate) throw new Error("No candidates returned. Response: " + JSON.stringify(data));
 
       if (candidate.finishReason !== "STOP" && candidate.finishReason !== undefined) {
-          // If blocked by safety or other reason
-          throw new Error(`Generation stopped: ${candidate.finishReason}. Try modifying the prompt.`);
+          throw new Error(`Generation stopped: ${candidate.finishReason}. Response: ${JSON.stringify(data)}`);
       }
 
       const imagePart = candidate.content?.parts?.find((p: any) => p.inline_data || p.image_data);
@@ -188,13 +188,11 @@ class GeminiClient {
           return `data:${mimeType};base64,${base64Data}`;
       }
       
-      // Check if text was returned explaining why image failed
       const textPart = candidate.content?.parts?.find((p: any) => p.text);
-      if (textPart) {
-          throw new Error(`Model returned text instead of image: "${textPart.text.slice(0, 100)}..."`);
-      }
       
-      throw new Error("No image data found in Gemini response");
+      // Dump full content for debugging
+      throw new Error(`No image data found. Content: ${JSON.stringify(candidate.content)}. Full: ${JSON.stringify(data)}`);
+
 
     } catch (e: any) {
       console.error("Gemini Image Gen Failed:", e);
