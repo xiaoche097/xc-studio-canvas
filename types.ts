@@ -24,7 +24,8 @@ export enum WorkflowStep {
   P5_APLUS = 8,           // P5 A+生成
   PRODUCTION_P3_P5 = 9,   // 兼容旧版：全部生成
   COMPLETED = 10,
-  MODEL_TRY_ON = 11
+  MODEL_TRY_ON = 11,
+  VIDEO_GENERATION = 12
 }
 
 // 生产选择类型

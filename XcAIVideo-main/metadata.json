@@ -1,0 +1,5 @@
+{
+  "name": "XcAIVideo - Infinite Canvas",
+  "description": "A high-performance infinite canvas environment for AI video workflows, featuring pan, zoom, and a spatial grid system.",
+  "requestFramePermissions": []
+}

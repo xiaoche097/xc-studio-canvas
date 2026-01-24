@@ -5,7 +5,7 @@ import {
   SendIcon,
   ModelVisual,
   MarketingVisual,
-  BackgroundVisual,
+  VideoVisual,
   StyleVisual,
   TranslateVisual
 } from './Icons';
@@ -14,6 +14,7 @@ import { MarketingModal } from './MarketingModal';
 import { BackgroundModal } from './BackgroundModal';
 import { StyleModal } from './StyleModal';
 import { TranslateModal } from './TranslateModal';
+import { VideoModal } from './VideoModal';
 
 import { WorkflowStep } from '../types';
 
@@ -28,6 +29,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showTryOnModal, setShowTryOnModal] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
+  const [showVideoModal, setShowVideoModal] = useState(false);
   const [showBackgroundModal, setShowBackgroundModal] = useState(false);
   const [showStyleModal, setShowStyleModal] = useState(false);
   const [showTranslateModal, setShowTranslateModal] = useState(false);
@@ -78,8 +80,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
         setShowTryOnModal(true);
     } else if (title === "营销图生成") {
         setShowMarketingModal(true);
-    } else if (title === "背景图生成") {
-        setShowBackgroundModal(true);
+    } else if (title === "视频工作站") {
+        setShowVideoModal(true);
     } else if (title === "风格模仿") {
         setShowStyleModal(true);
     } else if (title === "图片翻译") {
@@ -104,6 +106,16 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       onStart("/marketing 生成亚马逊黑五风格的营销海报，突出促销氛围", [productImg], selectedModel);
   };
 
+  const handleVideoConfirm = (image: string, duration: string, camera: string) => {
+      setShowVideoModal(false);
+      onStart(
+          `/video 生成一段产品视频 (时长: ${duration}, 运镜: ${camera})`,
+          [image],
+          selectedModel,
+          WorkflowStep.VIDEO_GENERATION
+      );
+  };
+  
   const handleBackgroundConfirm = (productImg: string, bgImg: string) => {
       setShowBackgroundModal(false);
       onStart("/background 将左侧商品自然融合到右侧场景中，保持光影自然，生成高品质背景图", [productImg, bgImg], selectedModel);
@@ -139,13 +151,13 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: MarketingVisual
     },
     {
-      title: "背景图生成",
-      prompt: "/background 生成产品场景图",
-      bgClass: "from-white to-rose-50/50 dark:from-white/5 dark:to-pink-900/20",
-      borderClass: "hover:border-pink-200 dark:hover:border-pink-500/30",
+      title: "视频工作站",
+      prompt: "/video 生成一段产品展示视频",
+      bgClass: "from-white to-violet-50/50 dark:from-white/5 dark:to-violet-900/20",
+      borderClass: "hover:border-violet-200 dark:hover:border-violet-500/30",
       textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-pink-500",
-      Visual: BackgroundVisual
+      visualColor: "text-violet-500",
+      Visual: VideoVisual
     },
     {
       title: "风格模仿",
@@ -307,6 +319,12 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             isOpen={showMarketingModal} 
             onClose={() => setShowMarketingModal(false)} 
             onConfirm={handleMarketingConfirm} 
+        />
+
+        <VideoModal 
+            isOpen={showVideoModal}
+            onClose={() => setShowVideoModal(false)}
+            onConfirm={handleVideoConfirm}
         />
 
         <BackgroundModal 

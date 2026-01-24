@@ -158,3 +158,18 @@ export const TranslateVisual = ({ className }: { className?: string }) => (
     <path d="M30 60L50 60" stroke="currentColor" strokeWidth="2"/>
   </svg>
 );
+
+export const VideoVisual = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="15" y="25" width="70" height="50" rx="4" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+    <path d="M45 40L65 50L45 60V40Z" fill="currentColor" stroke="currentColor" strokeWidth="2"/>
+    <path d="M25 25V75" stroke="currentColor" strokeWidth="2"/>
+    <path d="M75 25V75" stroke="currentColor" strokeWidth="2"/>
+    <circle cx="20" cy="35" r="2" fill="currentColor"/>
+    <circle cx="20" cy="50" r="2" fill="currentColor"/>
+    <circle cx="20" cy="65" r="2" fill="currentColor"/>
+    <circle cx="80" cy="35" r="2" fill="currentColor"/>
+    <circle cx="80" cy="50" r="2" fill="currentColor"/>
+    <circle cx="80" cy="65" r="2" fill="currentColor"/>
+  </svg>
+);
