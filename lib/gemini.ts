@@ -150,30 +150,48 @@ class GeminiClient {
          body: JSON.stringify({
             contents: contents,
             generationConfig: {
-                 // The key parameter the user requested implicitly via python example
                  response_modalities: ["IMAGE"],
-                 temperature: 0.9 // Creativity
-            }
+                 temperature: 0.9,
+                 candidate_count: 1
+            },
+            safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" }
+            ]
          })
       });
 
       if (!response.ok) {
           const errText = await response.text();
+          console.error("Gemini API Error details:", errText);
           throw new Error(`Gemini API Error (${response.status}): ${errText}`);
       }
 
       const data = await response.json();
+      console.log("Gemini Image Gen Response:", data);
       
-      // Extract Image from Response
-      // Expected format: candidates[0].content.parts[0].inline_data.data (Base64)
-      // Or sometimes file_uri? But standard gen is usually base64.
-      
-      const imagePart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inline_data || p.image_data);
+      const candidate = data.candidates?.[0];
+      if (!candidate) throw new Error("No candidates returned");
+
+      if (candidate.finishReason !== "STOP" && candidate.finishReason !== undefined) {
+          // If blocked by safety or other reason
+          throw new Error(`Generation stopped: ${candidate.finishReason}. Try modifying the prompt.`);
+      }
+
+      const imagePart = candidate.content?.parts?.find((p: any) => p.inline_data || p.image_data);
       
       if (imagePart && imagePart.inline_data) {
           const mimeType = imagePart.inline_data.mime_type || 'image/png';
           const base64Data = imagePart.inline_data.data;
           return `data:${mimeType};base64,${base64Data}`;
+      }
+      
+      // Check if text was returned explaining why image failed
+      const textPart = candidate.content?.parts?.find((p: any) => p.text);
+      if (textPart) {
+          throw new Error(`Model returned text instead of image: "${textPart.text.slice(0, 100)}..."`);
       }
       
       throw new Error("No image data found in Gemini response");
