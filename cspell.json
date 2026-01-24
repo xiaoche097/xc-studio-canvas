@@ -1,0 +1,31 @@
+{
+  "version": "0.2",
+  "language": "en,zh",
+  "words": [
+    "nanobanana",
+    "nanobanana2pro",
+    "SKYSPER",
+    "skysper",
+    "BOGDA",
+    "LANTC",
+    "ISHELL",
+    "ALPEN",
+    "TENGGER",
+    "Anker",
+    "Soundcore",
+    "TOZO",
+    "INIU",
+    "Baseus",
+    "Amazfit",
+    "Fitbit",
+    "Zulay",
+    "Houseware",
+    "emph",
+    "aplus"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    "dist",
+    ".git"
+  ]
+}

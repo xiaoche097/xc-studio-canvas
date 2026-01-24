@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SKYSPER AI Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@100;300;400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"Noto Sans SC"', "sans-serif"],
+            },
+            colors: {
+              brand: {
+                dark: "#050505",
+                surface: "#121212",
+                orange: "#ED6D46",
+                blue: "#C8E1EF", // Light Mode User Bubble / Accents
+              },
+              sky: {
+                light: "#F0F7FF",
+                dark: "#E6F0FF",
+              },
+            },
+            animation: {
+              "fade-in": "fadeIn 0.4s ease-out",
+              "slide-up": "slideUp 0.5s ease-out",
+              "pulse-slow": "pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+            },
+            keyframes: {
+              fadeIn: {
+                "0%": { opacity: "0" },
+                "100%": { opacity: "1" },
+              },
+              slideUp: {
+                "0%": { transform: "translateY(10px)", opacity: "0" },
+                "100%": { transform: "translateY(0)", opacity: "1" },
+              },
+            },
+            boxShadow: {
+              glow: "0 0 20px rgba(237, 109, 70, 0.15)",
+              float: "0 20px 40px -5px rgba(200, 225, 239, 0.4)",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; /* Light mode scrollbar */
+        border-radius: 3px;
+      }
+      .dark ::-webkit-scrollbar-thumb {
+        background: #333; /* Dark mode scrollbar */
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
+        background: #444;
+      }
+
+      /* Glass Panel Utilities */
+      .glass-panel-dark {
+        background: rgba(30, 30, 30, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .glass-panel-light {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        box-shadow: 0 4px 6px -1px rgba(200, 225, 239, 0.2);
+      }
+
+      body {
+        transition:
+          background-color 0.5s ease,
+          color 0.5s ease;
+      }
+    </style>
+
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+  <body
+    class="bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white h-screen overflow-hidden transition-colors duration-500"
+  >
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
