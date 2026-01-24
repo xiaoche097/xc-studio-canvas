@@ -9,6 +9,11 @@ import {
   StyleVisual,
   TranslateVisual
 } from './Icons';
+import { ModelTryOnModal } from './ModelTryOnModal';
+import { MarketingModal } from './MarketingModal';
+import { BackgroundModal } from './BackgroundModal';
+import { StyleModal } from './StyleModal';
+import { TranslateModal } from './TranslateModal';
 
 interface AgentHomeProps {
   onStart: (text: string, image: string | string[] | null, model: string) => void;
@@ -19,6 +24,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [images, setImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3-pro-preview'); // Default to Pro
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [showTryOnModal, setShowTryOnModal] = useState(false);
+  const [showMarketingModal, setShowMarketingModal] = useState(false);
+  const [showBackgroundModal, setShowBackgroundModal] = useState(false);
+  const [showStyleModal, setShowStyleModal] = useState(false);
+  const [showTranslateModal, setShowTranslateModal] = useState(false);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -60,11 +70,44 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   };
 
   const handleCardClick = (prompt: string, title?: string) => {
-    if (title && ["模特上身", "营销图生成", "背景图生成", "风格模仿", "图片翻译"].includes(title)) {
-        alert(`🚧 [${title}] 功能正在独立 Feature 分支开发中。\n\n请切换到对应分支进行配置和测试！`);
+    if (title === "模特上身") {
+        setShowTryOnModal(true);
+    } else if (title === "营销图生成") {
+        setShowMarketingModal(true);
+    } else if (title === "背景图生成") {
+        setShowBackgroundModal(true);
+    } else if (title === "风格模仿") {
+        setShowStyleModal(true);
+    } else if (title === "图片翻译") {
+        setShowTranslateModal(true);
     } else {
         setInput(prompt);
     }
+  };
+
+  const handleModalConfirm = (modelImg: string, garmentImg: string) => {
+      setShowTryOnModal(false);
+      onStart("/model 模特上身生成", [modelImg, garmentImg], selectedModel);
+  };
+
+  const handleMarketingConfirm = (productImg: string) => {
+      setShowMarketingModal(false);
+      onStart("/marketing 生成亚马逊黑五风格的营销海报，突出促销氛围", [productImg], selectedModel);
+  };
+
+  const handleBackgroundConfirm = (productImg: string, bgImg: string) => {
+      setShowBackgroundModal(false);
+      onStart("/background 将左侧商品自然融合到右侧场景中，保持光影自然，生成高品质背景图", [productImg, bgImg], selectedModel);
+  };
+
+  const handleStyleConfirm = (productImg: string, styleImg: string) => {
+      setShowStyleModal(false);
+      onStart("/style 参考右侧图片的视觉风格（配色、光影、构图），重新生成左侧商品的展示图", [productImg, styleImg], selectedModel);
+  };
+
+  const handleTranslateConfirm = (img: string) => {
+      setShowTranslateModal(false);
+      onStart("/translate 将图片中的文案翻译为英语，保持原文排版和风格", [img], selectedModel);
   };
 
   const FEATURE_CARDS = [
@@ -210,8 +253,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             </div>
           </div>
         </div>
-        
-        {/* Feature Cards Grid - Restored for Visual Purpose */}
+
+        {/* ... Feature Cards Grid ... */}
         <div className="w-full max-w-5xl grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 animate-slide-up [animation-delay:150ms]">
             {FEATURE_CARDS.map((card, idx) => (
                 <div 
@@ -245,6 +288,35 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             ))}
         </div>
         
+        <ModelTryOnModal 
+            isOpen={showTryOnModal} 
+            onClose={() => setShowTryOnModal(false)} 
+            onConfirm={handleModalConfirm} 
+        />
+
+        <MarketingModal 
+            isOpen={showMarketingModal} 
+            onClose={() => setShowMarketingModal(false)} 
+            onConfirm={handleMarketingConfirm} 
+        />
+
+        <BackgroundModal 
+            isOpen={showBackgroundModal} 
+            onClose={() => setShowBackgroundModal(false)} 
+            onConfirm={handleBackgroundConfirm} 
+        />
+
+        <StyleModal 
+            isOpen={showStyleModal} 
+            onClose={() => setShowStyleModal(false)} 
+            onConfirm={handleStyleConfirm} 
+        />
+
+        <TranslateModal 
+            isOpen={showTranslateModal} 
+            onClose={() => setShowTranslateModal(false)} 
+            onConfirm={handleTranslateConfirm} 
+        />
       </div>
     </div>
   );
