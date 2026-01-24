@@ -180,11 +180,12 @@ class GeminiClient {
           throw new Error(`Generation stopped: ${candidate.finishReason}. Response: ${JSON.stringify(data)}`);
       }
 
-      const imagePart = candidate.content?.parts?.find((p: any) => p.inline_data || p.image_data);
+      const imagePart = candidate.content?.parts?.find((p: any) => p.inline_data || p.inlineData || p.image_data);
       
-      if (imagePart && imagePart.inline_data) {
-          const mimeType = imagePart.inline_data.mime_type || 'image/png';
-          const base64Data = imagePart.inline_data.data;
+      if (imagePart) {
+          const dataObj = imagePart.inline_data || imagePart.inlineData;
+          const mimeType = dataObj.mime_type || dataObj.mimeType || 'image/png';
+          const base64Data = dataObj.data;
           return `data:${mimeType};base64,${base64Data}`;
       }
       
