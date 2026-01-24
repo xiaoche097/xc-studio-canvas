@@ -21,7 +21,8 @@
     "Zulay",
     "Houseware",
     "emph",
-    "aplus"
+    "aplus",
+    "Glassmorphism"
   ],
   "ignorePaths": [
     "node_modules",
