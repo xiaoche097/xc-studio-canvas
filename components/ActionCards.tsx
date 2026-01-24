@@ -456,7 +456,10 @@ export const GenerationCard: React.FC<GenerationCardProps> = ({
   resultImage, 
   errorMsg 
 }) => {
+  const [isZoomed, setIsZoomed] = React.useState(false);
+
   return (
+    <>
     <div className="space-y-4 font-sans border border-gray-200 dark:border-white/10 rounded-2xl p-5 bg-white dark:bg-[#1a1a1a] shadow-sm">
        <div className="flex items-center gap-3 border-b border-gray-100 dark:border-white/5 pb-3">
           <div className="w-10 h-10 rounded-full bg-brand-orange/10 flex items-center justify-center text-brand-orange">
@@ -479,18 +482,23 @@ export const GenerationCard: React.FC<GenerationCardProps> = ({
        {/* Result Display */}
        {status === 'completed' && resultImage && (
           <div className="relative rounded-xl overflow-hidden shadow-lg border border-gray-100 dark:border-white/10 group">
-             <img src={resultImage} alt="Generated Result" className="w-full h-auto" />
-             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+             <img 
+               src={resultImage} 
+               alt="Generated Result" 
+               className="w-full h-auto cursor-zoom-in" 
+               onClick={() => setIsZoomed(true)}
+             />
+             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 pointer-events-none">
                 <a 
                   href={resultImage} 
                   download={`skysper_gen_${Date.now()}.png`}
-                  className="px-4 py-2 bg-white text-black rounded-lg text-sm font-bold hover:scale-105 transition-transform"
+                  className="px-4 py-2 bg-white text-black rounded-lg text-sm font-bold hover:scale-105 transition-transform pointer-events-auto"
                 >
                   下载原图
                 </a>
                 <button 
-                  onClick={() => window.open(resultImage, '_blank')}
-                  className="px-4 py-2 bg-white/20 backdrop-blur text-white rounded-lg text-sm font-bold hover:scale-105 transition-transform"
+                  onClick={() => setIsZoomed(true)}
+                  className="px-4 py-2 bg-white/20 backdrop-blur text-white rounded-lg text-sm font-bold hover:scale-105 transition-transform pointer-events-auto"
                 >
                   放大查看
                 </button>
@@ -531,5 +539,31 @@ export const GenerationCard: React.FC<GenerationCardProps> = ({
           )}
        </button>
     </div>
+
+    {/* Zoom Modal */}
+    {isZoomed && resultImage && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setIsZoomed(false)}
+        >
+          <img 
+            src={resultImage} 
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()} // Prevent close when clicking image itself? Or allow close? Usually allow close.
+            // Actually nice UX is clicking anywhere closes it, or clicking image keeps it open but clicking background closes.
+            // But let's keep simple: Click background closes.
+            // If user wants to right click image to save, we shouldn't close on image click.
+          />
+          <button 
+            className="absolute top-6 right-6 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+            onClick={() => setIsZoomed(false)}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+    )}
+    </>
   );
 };
