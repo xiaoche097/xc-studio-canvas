@@ -95,30 +95,92 @@ class GeminiClient {
   }
 
   /**
-   * Generates an image based on the prompt.
-   * INTEGRATION: Currently uses Pollinations.ai for immediate demo capability without requiring valid Imagen credentials.
-   * TODO: Replace with actual DALL-E 3 / Imagen API call for production.
+   * Generates an image using the native Gemini 3 Pro Image Preview model.
+   * STRICTLY uses 'gemini-3-pro-image-preview' as requested.
    */
   async generateImage(prompt: string, referenceImages: string[] = []): Promise<string> {
-    console.log("Generating image for:", prompt);
+    console.log("Generating image with gemini-3-pro-image-preview for:", prompt);
     
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
     
+    // If getApiKey is not exposed (private), use our stored one or import.meta.env
+    // But this.genAI was init with key. 
+    // We'll trust import.meta.env.VITE_GEMINI_API_KEY or localStorage for this specific call 
+    // if we can't extract it from the instance easily without type hacking.
+    const activeKey = localStorage.getItem('user_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
+
+    if (!activeKey) throw new Error("API Key not found for Image Generation");
+
+    // Construct Multimedia Content
+    const contents = [
+      {
+        parts: [
+          { text: prompt }
+        ]
+      }
+    ];
+
+    // Add Reference Images if any
+    if (referenceImages && referenceImages.length > 0) {
+       for (const imgData of referenceImages) {
+          const match = imgData.match(/^data:(image\/\w+);base64,(.+)$/);
+          if (match) {
+             // For REST API, inline data format
+             // The structure might need to be specific for the model type, 
+             // but usually it's inline_data
+             // However, for generateContent endpoint:
+             contents[0].parts.push({
+                inline_data: { // Note snake_case for REST JSON
+                    mime_type: match[1],
+                    data: match[2]
+                }
+             } as any);
+          }
+       }
+    }
+
     try {
-      // Clean prompt for URL
-      const cleanPrompt = prompt.replace(/[^\w\s,]/gi, '').slice(0, 300);
-      const encoded = encodeURIComponent(cleanPrompt);
-      const seed = Math.floor(Math.random() * 1000000);
+      // Direct REST call to support 'response_modalities' which might be missing in some SDK versions
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${activeKey}`;
       
-      // Use Pollinations AI (Flux model often used)
-      // We append some quality boosters
-      const fullUrl = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+      const response = await fetch(url, {
+         method: 'POST',
+         headers: {
+            'Content-Type': 'application/json'
+         },
+         body: JSON.stringify({
+            contents: contents,
+            generationConfig: {
+                 // The key parameter the user requested implicitly via python example
+                 response_modalities: ["IMAGE"],
+                 temperature: 0.9 // Creativity
+            }
+         })
+      });
+
+      if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Gemini API Error (${response.status}): ${errText}`);
+      }
+
+      const data = await response.json();
       
-      return fullUrl;
-    } catch (e) {
-      console.error("Image Generation Failed:", e);
-      throw new Error("Failed to generate image. Please check API configuration.");
+      // Extract Image from Response
+      // Expected format: candidates[0].content.parts[0].inline_data.data (Base64)
+      // Or sometimes file_uri? But standard gen is usually base64.
+      
+      const imagePart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inline_data || p.image_data);
+      
+      if (imagePart && imagePart.inline_data) {
+          const mimeType = imagePart.inline_data.mime_type || 'image/png';
+          const base64Data = imagePart.inline_data.data;
+          return `data:${mimeType};base64,${base64Data}`;
+      }
+      
+      throw new Error("No image data found in Gemini response");
+
+    } catch (e: any) {
+      console.error("Gemini Image Gen Failed:", e);
+      throw new Error(e.message || "Failed to generate image with Gemini");
     }
   }
 }
