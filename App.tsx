@@ -4,7 +4,9 @@ import { ChatStudio } from './components/ChatStudio';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { SettingsModal } from './components/SettingsModal';
 
-type ViewState = 'home' | 'chat';
+import VideoStationApp from './XcAIVideo-main/App';
+
+type ViewState = 'home' | 'chat' | 'video';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -83,12 +85,27 @@ const App: React.FC = () => {
 
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
-      {view === 'home' ? (
+      {view === 'video' ? (
+        <div className="relative w-full h-full bg-black z-[100]">
+             <VideoStationApp /> 
+             <button 
+               onClick={() => setView('home')}
+               className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all font-medium text-sm flex items-center gap-2"
+             >
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+               Back to Studio
+             </button>
+        </div>
+      ) : view === 'home' ? (
         <AgentHome onStart={(text, img, model, step) => {
-            if (Array.isArray(img)) {
-                 handleStartAgent(text, img, model, step);
+            if (step === 12) { // WorkflowStep.VIDEO_GENERATION
+                 setView('video');
             } else {
-                 handleStartAgent(text, img ? [img] : [], model, step);
+                if (Array.isArray(img)) {
+                     handleStartAgent(text, img, model, step);
+                } else {
+                     handleStartAgent(text, img ? [img] : [], model, step);
+                }
             }
         }} />
       ) : (

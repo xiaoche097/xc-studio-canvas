@@ -27,7 +27,11 @@ interface HistoryState {
   connections: Connection[];
 }
 
-const App: React.FC = () => {
+interface AppProps {
+  onExit?: () => void;
+}
+
+const App: React.FC<AppProps> = ({ onExit }) => {
   // Routing
   const [view, setView] = useState<'home' | 'workspace' | 'canvas'>('home');
 
