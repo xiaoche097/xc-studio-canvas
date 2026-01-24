@@ -5,13 +5,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface ModelTryOnModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (modelImage: string, garmentImage: string, aspectRatio: string) => void;
+  onConfirm: (modelImage: string, garmentImage: string, aspectRatio: string, resolution: string) => void;
 }
 
 export const ModelTryOnModal: React.FC<ModelTryOnModalProps> = ({ isOpen, onClose, onConfirm }) => {
   const [modelImage, setModelImage] = useState<string | null>(null);
   const [garmentImage, setGarmentImage] = useState<string | null>(null);
   const [aspectRatio, setAspectRatio] = useState<string>("3:4");
+  const [resolution, setResolution] = useState<string>("1K");
   const modelInputRef = useRef<HTMLInputElement>(null);
   const garmentInputRef = useRef<HTMLInputElement>(null);
 
@@ -22,6 +23,8 @@ export const ModelTryOnModal: React.FC<ModelTryOnModalProps> = ({ isOpen, onClos
     { label: "16:9", value: "16:9" },
     { label: "9:16", value: "9:16" },
   ];
+
+  const resolutions = ["1K", "2K", "4K"];
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isModel: boolean) => {
     if (e.target.files && e.target.files[0]) {
@@ -181,12 +184,33 @@ export const ModelTryOnModal: React.FC<ModelTryOnModalProps> = ({ isOpen, onClos
                                 ))}
                              </div>
                         </div>
+
+                        {/* Resolution Selector */}
+                        <div className="flex items-center gap-2">
+                             <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">清晰度:</span>
+                             <div className="flex bg-gray-100 dark:bg-white/5 rounded-lg p-1">
+                                {resolutions.map(r => (
+                                    <button
+                                        key={r}
+                                        onClick={() => setResolution(r)}
+                                        className={`
+                                            px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                                            ${resolution === r 
+                                                ? 'bg-white dark:bg-white/10 text-brand-orange shadow-sm' 
+                                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}
+                                        `}
+                                    >
+                                        {r}
+                                    </button>
+                                ))}
+                             </div>
+                        </div>
                     </div>
 
                     {/* Action Button */}
                     <div className="mt-8 flex justify-end">
                         <button 
-                            onClick={() => modelImage && garmentImage && onConfirm(modelImage, garmentImage, aspectRatio)}
+                            onClick={() => modelImage && garmentImage && onConfirm(modelImage, garmentImage, aspectRatio, resolution)}
                             disabled={!modelImage || !garmentImage}
                             className={`
                                 px-8 py-3 rounded-xl font-bold text-white shadow-xl transition-all

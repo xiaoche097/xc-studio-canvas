@@ -89,10 +89,10 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     }
   };
 
-  const handleModalConfirm = (modelImg: string, garmentImg: string, aspectRatio: string) => {
+  const handleModalConfirm = (modelImg: string, garmentImg: string, aspectRatio: string, resolution: string) => {
       setShowTryOnModal(false);
       onStart(
-        `/model 模特上身生成 (比例: ${aspectRatio})`, 
+        `/model 模特上身生成 (比例: ${aspectRatio}, 清晰度: ${resolution})`, 
         [modelImg, garmentImg], 
         selectedModel,
         WorkflowStep.MODEL_TRY_ON
