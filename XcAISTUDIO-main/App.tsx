@@ -9,6 +9,12 @@ import { SketchEditor } from './components/SketchEditor';
 import { SmartSequenceDock } from './components/SmartSequenceDock';
 import { SonicStudio } from './components/SonicStudio'; 
 import { SettingsModal } from './components/SettingsModal';
+
+declare global {
+  interface Window {
+    aistudio: any;
+  }
+}
 import { AppNode, NodeType, NodeStatus, Connection, ContextMenuState, Group, Workflow, SmartSequenceItem } from './types';
 import { generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio } from './services/geminiService';
 import { getGenerationStrategy } from './services/videoStrategies';
@@ -436,7 +442,7 @@ export const App = () => {
       try { saveHistory(); } catch (e) { }
 
       const defaults: any = { 
-          model: type === NodeType.VIDEO_GENERATOR ? 'veo-3.1-fast-generate-preview' :
+          model: type === NodeType.VIDEO_GENERATOR ? 'veo-3.0-fast-generate-001' :
                  type === NodeType.VIDEO_ANALYZER ? 'gemini-3-pro-preview' :
                  type === NodeType.AUDIO_GENERATOR ? 'gemini-2.5-flash-preview-tts' :
                  type.includes('IMAGE') ? 'gemini-2.5-flash-image' :

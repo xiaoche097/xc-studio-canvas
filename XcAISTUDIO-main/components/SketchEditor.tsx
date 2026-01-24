@@ -249,7 +249,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                 if (activeMode === 'video') {
                     const res = await generateVideo(
                         prompt, 
-                        'veo-3.1-fast-generate-preview', 
+                        'veo-3.0-fast-generate-001', 
                         { aspectRatio: '16:9' }, 
                         compositeBase64
                     );
@@ -425,7 +425,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                 {/* Settings & Generate */}
                 <div className="flex items-center gap-3">
                     <div className="h-11 px-4 flex items-center gap-2 bg-black/30 border border-white/10 rounded-xl text-xs text-slate-300 font-medium">
-                        <span>{activeMode === 'pose' ? 'Gemini 2.5 (Pose)' : activeMode === 'video' ? 'Veo 3.1 Fast' : 'Gemini 2.5'}</span>
+                        <span>{activeMode === 'pose' ? 'Gemini 2.5 (Pose)' : activeMode === 'video' ? 'Veo 3.0 Fast' : 'Gemini 2.5'}</span>
                         <ChevronDown size={12} className="text-slate-500" />
                     </div>
 

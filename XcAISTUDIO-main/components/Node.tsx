@@ -567,8 +567,8 @@ const NodeComponent: React.FC<NodeProps> = ({
      let models: {l: string, v: string}[] = [];
      if (node.type === NodeType.VIDEO_GENERATOR) {
         models = [
-            {l: 'Veo 极速版 (Fast)', v: 'veo-3.1-fast-generate-preview'},
-            {l: 'Veo 专业版 (Pro)', v: 'veo-3.1-generate-preview'},
+            {l: 'Veo 极速版 (Fast)', v: 'veo-3.0-fast-generate-001'},
+            {l: 'Veo 专业版 (Pro)', v: 'veo-3.0-generate-001'},
             {l: 'Wan 2.1 (Animate)', v: 'wan-2.1-t2v-14b'}
         ];
      } else if (node.type === NodeType.VIDEO_ANALYZER) {

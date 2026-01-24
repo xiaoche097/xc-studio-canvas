@@ -456,7 +456,7 @@ export const generateVideo = async (
         resolution: resolution as any
     };
 
-    if (referenceImages && referenceImages.length > 0 && model === 'veo-3.1-generate-preview') {
+    if (referenceImages && referenceImages.length > 0 && model === 'veo-3.0-generate-001') {
          // Some Veo models support referenceImages config
          // Converting references
          const refsPayload = [];
