@@ -15,8 +15,10 @@ import { BackgroundModal } from './BackgroundModal';
 import { StyleModal } from './StyleModal';
 import { TranslateModal } from './TranslateModal';
 
+import { WorkflowStep } from '../types';
+
 interface AgentHomeProps {
-  onStart: (text: string, image: string | string[] | null, model: string) => void;
+  onStart: (text: string, image: string | string[] | null, model: string, step?: number) => void;
 }
 
 export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
@@ -29,6 +31,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [showBackgroundModal, setShowBackgroundModal] = useState(false);
   const [showStyleModal, setShowStyleModal] = useState(false);
   const [showTranslateModal, setShowTranslateModal] = useState(false);
+
+  // ... (handleImageUpload and removeImage are unchanged)
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -85,9 +89,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     }
   };
 
-  const handleModalConfirm = (modelImg: string, garmentImg: string) => {
+  const handleModalConfirm = (modelImg: string, garmentImg: string, aspectRatio: string) => {
       setShowTryOnModal(false);
-      onStart("/model 模特上身生成", [modelImg, garmentImg], selectedModel);
+      onStart(
+        `/model 模特上身生成 (比例: ${aspectRatio})`, 
+        [modelImg, garmentImg], 
+        selectedModel,
+        WorkflowStep.MODEL_TRY_ON
+      );
   };
 
   const handleMarketingConfirm = (productImg: string) => {

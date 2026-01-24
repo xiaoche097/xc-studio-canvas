@@ -8,7 +8,7 @@ type ViewState = 'home' | 'chat';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
-  const [initialData, setInitialData] = useState<{ text: string; images: string[]; model: string }>({ 
+  const [initialData, setInitialData] = useState<{ text: string; images: string[]; model: string; step?: number }>({ 
     text: '', 
     images: [],
     model: 'gemini-1.5-pro'
@@ -20,6 +20,7 @@ const App: React.FC = () => {
   // Theme Initialization
   useEffect(() => {
     setMounted(true);
+    // ... same code ...
     // Check localStorage or system preference
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -45,8 +46,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartAgent = (text: string, images: string[], model: string) => {
-    setInitialData({ text, images, model });
+  const handleStartAgent = (text: string, images: string[], model: string, step?: number) => {
+    setInitialData({ text, images, model, step });
     setView('chat');
   };
 
@@ -83,11 +84,11 @@ const App: React.FC = () => {
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
       {view === 'home' ? (
-        <AgentHome onStart={(text, img, model) => {
+        <AgentHome onStart={(text, img, model, step) => {
             if (Array.isArray(img)) {
-                 handleStartAgent(text, img, model);
+                 handleStartAgent(text, img, model, step);
             } else {
-                 handleStartAgent(text, img ? [img] : [], model);
+                 handleStartAgent(text, img ? [img] : [], model, step);
             }
         }} />
       ) : (
@@ -95,6 +96,7 @@ const App: React.FC = () => {
           initialInput={initialData.text} 
           initialImages={initialData.images} 
           initialModel={initialData.model}
+          initialStep={initialData.step}
           onBack={handleBackToHome}
         />
       )}

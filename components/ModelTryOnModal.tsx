@@ -5,14 +5,23 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface ModelTryOnModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (modelImage: string, garmentImage: string) => void;
+  onConfirm: (modelImage: string, garmentImage: string, aspectRatio: string) => void;
 }
 
 export const ModelTryOnModal: React.FC<ModelTryOnModalProps> = ({ isOpen, onClose, onConfirm }) => {
   const [modelImage, setModelImage] = useState<string | null>(null);
   const [garmentImage, setGarmentImage] = useState<string | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<string>("3:4");
   const modelInputRef = useRef<HTMLInputElement>(null);
   const garmentInputRef = useRef<HTMLInputElement>(null);
+
+  const ratios = [
+    { label: "1:1", value: "1:1" },
+    { label: "3:4", value: "3:4" },
+    { label: "4:3", value: "4:3" },
+    { label: "16:9", value: "16:9" },
+    { label: "9:16", value: "9:16" },
+  ];
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isModel: boolean) => {
     if (e.target.files && e.target.files[0]) {
@@ -132,10 +141,11 @@ export const ModelTryOnModal: React.FC<ModelTryOnModalProps> = ({ isOpen, onClos
                         </div>
                     </div>
 
-                    {/* Examples */}
-                    <div className="mt-8 border-t border-gray-100 dark:border-white/5 pt-6">
-                        <p className="text-xs text-gray-500 mb-4 text-center">快速尝试以下案例</p>
-                        <div className="flex justify-center gap-4">
+                    {/* Controls Row */}
+                    <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+                        {/* Examples */}
+                        <div className="flex gap-4">
+                            <span className="text-xs text-gray-500 self-center">快速案例:</span>
                             {[1, 2].map((i) => (
                                 <button 
                                     key={i}
@@ -143,21 +153,40 @@ export const ModelTryOnModal: React.FC<ModelTryOnModalProps> = ({ isOpen, onClos
                                         "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400", // Model
                                         "https://images.unsplash.com/photo-1551232864-3f52236a3f29?w=400"  // Product
                                     )}
-                                    className="group relative w-32 h-20 rounded-lg overflow-hidden border border-gray-200 dark:border-white/10 opacity-70 hover:opacity-100 hover:scale-105 transition-all"
+                                    className="w-12 h-8 rounded border border-gray-200 dark:border-white/10 overflow-hidden opacity-70 hover:opacity-100 transition-all flex"
                                 >
-                                    <div className="absolute inset-0 flex">
-                                        <div className="w-1/2 h-full bg-gray-100"><img src="https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400" className="w-full h-full object-cover" /></div>
-                                        <div className="w-1/2 h-full bg-gray-200"><img src="https://images.unsplash.com/photo-1551232864-3f52236a3f29?w=400" className="w-full h-full object-cover" /></div>
-                                    </div>
+                                     <div className="w-1/2 h-full bg-gray-200"></div>
+                                     <div className="w-1/2 h-full bg-gray-300"></div>
                                 </button>
                             ))}
+                        </div>
+
+                        {/* Aspect Ratio Selector */}
+                        <div className="flex items-center gap-2">
+                             <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">生成比例:</span>
+                             <div className="flex bg-gray-100 dark:bg-white/5 rounded-lg p-1">
+                                {ratios.map(r => (
+                                    <button
+                                        key={r.value}
+                                        onClick={() => setAspectRatio(r.value)}
+                                        className={`
+                                            px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                                            ${aspectRatio === r.value 
+                                                ? 'bg-white dark:bg-white/10 text-brand-orange shadow-sm' 
+                                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}
+                                        `}
+                                    >
+                                        {r.label}
+                                    </button>
+                                ))}
+                             </div>
                         </div>
                     </div>
 
                     {/* Action Button */}
                     <div className="mt-8 flex justify-end">
                         <button 
-                            onClick={() => modelImage && garmentImage && onConfirm(modelImage, garmentImage)}
+                            onClick={() => modelImage && garmentImage && onConfirm(modelImage, garmentImage, aspectRatio)}
                             disabled={!modelImage || !garmentImage}
                             className={`
                                 px-8 py-3 rounded-xl font-bold text-white shadow-xl transition-all

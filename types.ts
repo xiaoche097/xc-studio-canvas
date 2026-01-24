@@ -23,7 +23,8 @@ export enum WorkflowStep {
   P4_SECONDARY = 7,       // P4 副图生成
   P5_APLUS = 8,           // P5 A+生成
   PRODUCTION_P3_P5 = 9,   // 兼容旧版：全部生成
-  COMPLETED = 10
+  COMPLETED = 10,
+  MODEL_TRY_ON = 11
 }
 
 // 生产选择类型

@@ -19,15 +19,16 @@ interface ChatStudioProps {
   initialInput: string;
   initialImages: string[];
   initialModel: string;
+  initialStep?: WorkflowStep;
   onBack: () => void;
 }
 
-export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialImages, initialModel, onBack }) => {
+export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialImages, initialModel, initialStep, onBack }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesRef = useRef<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
-  const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(WorkflowStep.INIT);
+  const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(initialStep || WorkflowStep.INIT);
   const [isTyping, setIsTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -85,15 +86,19 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     messagesRef.current = [initUserMsg];
 
     setTimeout(() => {
-       // Context-aware Prompting:
-       // If user provided text, we command the agent to respect it.
-       // If not, we command the agent to auto-infer.
-       const isAutoMode = !initialInput; 
-       const prompt = isAutoMode
-        ? "用户未提供文本描述。请基于上传的图片，全自动智能推断该产品的名称、品类、材质、核心卖点及最适合的全球目标市场，生成启动包。"
-        : "请严格基于用户的上述具体需求描述，并结合图片分析，生成启动包。重要原则：用户的文本指令（如特定市场、特定材质、特定卖点）拥有最高优先级，必须被包含在启动包中。";
-
-       triggerStep(WorkflowStep.LAUNCH_PACKAGE, prompt, initialImages); 
+       if (initialStep === WorkflowStep.MODEL_TRY_ON) {
+           triggerStep(WorkflowStep.MODEL_TRY_ON, initialInput, initialImages);
+       } else {
+           // Context-aware Prompting:
+           // If user provided text, we command the agent to respect it.
+           // If not, we command the agent to auto-infer.
+           const isAutoMode = !initialInput; 
+           const prompt = isAutoMode
+            ? "用户未提供文本描述。请基于上传的图片，全自动智能推断该产品的名称、品类、材质、核心卖点及最适合的全球目标市场，生成启动包。"
+            : "请严格基于用户的上述具体需求描述，并结合图片分析，生成启动包。重要原则：用户的文本指令（如特定市场、特定材质、特定卖点）拥有最高优先级，必须被包含在启动包中。";
+    
+           triggerStep(WorkflowStep.LAUNCH_PACKAGE, prompt, initialImages); 
+       }
     }, 800);
   }, []); // Remove dependencies to run once exactly
 
