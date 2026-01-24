@@ -4,7 +4,7 @@ import { ChatStudio } from './components/ChatStudio';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { SettingsModal } from './components/SettingsModal';
 
-import VideoStationApp from './XcAIVideo-main/App';
+import { App as VideoStationApp } from './XcAISTUDIO-main/App';
 
 type ViewState = 'home' | 'chat' | 'video';
 
