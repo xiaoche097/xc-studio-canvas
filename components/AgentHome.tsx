@@ -2,18 +2,8 @@ import React, { useState } from 'react';
 import { 
   ImageIcon, 
   SettingsIcon, 
-  SendIcon,
-  ModelVisual,
-  MarketingVisual,
-  BackgroundVisual,
-  StyleVisual,
-  TranslateVisual
+  SendIcon
 } from './Icons';
-import { ModelTryOnModal } from './ModelTryOnModal';
-import { MarketingModal } from './MarketingModal';
-import { BackgroundModal } from './BackgroundModal';
-import { StyleModal } from './StyleModal';
-import { TranslateModal } from './TranslateModal';
 
 interface AgentHomeProps {
   onStart: (text: string, image: string | string[] | null, model: string) => void;
@@ -24,11 +14,6 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [images, setImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3-pro-preview'); // Default to Pro
   const [showModelMenu, setShowModelMenu] = useState(false);
-  const [showTryOnModal, setShowTryOnModal] = useState(false);
-  const [showMarketingModal, setShowMarketingModal] = useState(false);
-  const [showBackgroundModal, setShowBackgroundModal] = useState(false);
-  const [showStyleModal, setShowStyleModal] = useState(false);
-  const [showTranslateModal, setShowTranslateModal] = useState(false);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -68,95 +53,6 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       handleStart();
     }
   };
-
-  const handleCardClick = (prompt: string, title?: string) => {
-    if (title === "模特上身") {
-        setShowTryOnModal(true);
-    } else if (title === "营销图生成") {
-        setShowMarketingModal(true);
-    } else if (title === "背景图生成") {
-        setShowBackgroundModal(true);
-    } else if (title === "风格模仿") {
-        setShowStyleModal(true);
-    } else if (title === "图片翻译") {
-        setShowTranslateModal(true);
-    } else {
-        setInput(prompt);
-    }
-  };
-
-  const handleModalConfirm = (modelImg: string, garmentImg: string) => {
-      setShowTryOnModal(false);
-      onStart("/model 模特上身生成", [modelImg, garmentImg], selectedModel);
-  };
-
-  const handleMarketingConfirm = (productImg: string) => {
-      setShowMarketingModal(false);
-      onStart("/marketing 生成亚马逊黑五风格的营销海报，突出促销氛围", [productImg], selectedModel);
-  };
-
-  const handleBackgroundConfirm = (productImg: string, bgImg: string) => {
-      setShowBackgroundModal(false);
-      onStart("/background 将左侧商品自然融合到右侧场景中，保持光影自然，生成高品质背景图", [productImg, bgImg], selectedModel);
-  };
-
-  const handleStyleConfirm = (productImg: string, styleImg: string) => {
-      setShowStyleModal(false);
-      onStart("/style 参考右侧图片的视觉风格（配色、光影、构图），重新生成左侧商品的展示图", [productImg, styleImg], selectedModel);
-  };
-
-  const handleTranslateConfirm = (img: string) => {
-      setShowTranslateModal(false);
-      onStart("/translate 将图片中的文案翻译为英语，保持原文排版和风格", [img], selectedModel);
-  };
-
-  const FEATURE_CARDS = [
-    {
-      title: "模特上身",
-      prompt: "/model 模特上身生成，请上传服装平铺图",
-      bgClass: "from-white to-orange-50/50 dark:from-white/5 dark:to-orange-900/20",
-      borderClass: "hover:border-orange-200 dark:hover:border-orange-500/30",
-      textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-brand-orange",
-      Visual: ModelVisual
-    },
-    {
-      title: "营销图生成",
-      prompt: "/marketing 生成节日促销海报",
-      bgClass: "from-white to-red-50/50 dark:from-white/5 dark:to-red-900/20",
-      borderClass: "hover:border-red-200 dark:hover:border-red-500/30",
-      textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-red-500",
-      Visual: MarketingVisual
-    },
-    {
-      title: "背景图生成",
-      prompt: "/background 生成产品场景图",
-      bgClass: "from-white to-rose-50/50 dark:from-white/5 dark:to-pink-900/20",
-      borderClass: "hover:border-pink-200 dark:hover:border-pink-500/30",
-      textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-pink-500",
-      Visual: BackgroundVisual
-    },
-    {
-      title: "风格模仿",
-      prompt: "/style 学习并模仿上传图片的视觉风格",
-      bgClass: "from-white to-sky-50/50 dark:from-white/5 dark:to-sky-900/20",
-      borderClass: "hover:border-sky-200 dark:hover:border-sky-500/30",
-      textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-sky-500",
-      Visual: StyleVisual
-    },
-    {
-      title: "图片翻译",
-      prompt: "/translate 将图片中的文案翻译为英语",
-      bgClass: "from-white to-amber-50/50 dark:from-white/5 dark:to-amber-900/20",
-      borderClass: "hover:border-amber-200 dark:hover:border-amber-500/30",
-      textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-amber-500",
-      Visual: TranslateVisual
-    }
-  ];
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-[#F8FAFC] dark:bg-[#050505] transition-colors duration-500 font-sans">
@@ -253,70 +149,9 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             </div>
           </div>
         </div>
-
-        {/* ... Feature Cards Grid ... */}
-        <div className="w-full max-w-5xl grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 animate-slide-up [animation-delay:150ms]">
-            {FEATURE_CARDS.map((card, idx) => (
-                <div 
-                    key={idx}
-                    onClick={() => handleCardClick(card.prompt, card.title)}
-                    className={`
-                        group relative h-48 md:h-56 rounded-3xl p-5 cursor-pointer overflow-hidden transition-all duration-300 ease-out
-                        bg-gradient-to-br ${card.bgClass}
-                        border border-transparent ${card.borderClass}
-                        hover:-translate-y-1 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/50
-                    `}
-                >
-                    <div className="relative z-10 flex flex-col h-full">
-                        <h3 className={`font-bold text-lg leading-tight ${card.textClass}`}>
-                            {card.title}
-                        </h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            Create now →
-                        </p>
-                    </div>
-
-                    <div className={`
-                        absolute -bottom-6 -right-6 w-32 h-32 
-                        transition-transform duration-500 ease-out 
-                        group-hover:scale-110 group-hover:-rotate-3
-                        ${card.visualColor} opacity-90 dark:opacity-80
-                    `}>
-                        <card.Visual className="w-full h-full drop-shadow-sm" />
-                    </div>
-                </div>
-            ))}
-        </div>
         
-        <ModelTryOnModal 
-            isOpen={showTryOnModal} 
-            onClose={() => setShowTryOnModal(false)} 
-            onConfirm={handleModalConfirm} 
-        />
-
-        <MarketingModal 
-            isOpen={showMarketingModal} 
-            onClose={() => setShowMarketingModal(false)} 
-            onConfirm={handleMarketingConfirm} 
-        />
-
-        <BackgroundModal 
-            isOpen={showBackgroundModal} 
-            onClose={() => setShowBackgroundModal(false)} 
-            onConfirm={handleBackgroundConfirm} 
-        />
-
-        <StyleModal 
-            isOpen={showStyleModal} 
-            onClose={() => setShowStyleModal(false)} 
-            onConfirm={handleStyleConfirm} 
-        />
-
-        <TranslateModal 
-            isOpen={showTranslateModal} 
-            onClose={() => setShowTranslateModal(false)} 
-            onConfirm={handleTranslateConfirm} 
-        />
+        {/* Removed Feature Cards and Modals as requested by user to keep main branch clean */}
+        
       </div>
     </div>
   );
