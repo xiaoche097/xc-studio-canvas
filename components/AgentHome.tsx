@@ -100,11 +100,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       );
   };
 
-  const handleMarketingConfirm = (productImages: string[], aspectRatio: string, description: string) => {
+  const handleMarketingConfirm = (productImages: string[], aspectRatio: string, description: string, resolution: string) => {
       setShowMarketingModal(false);
       const promptDescription = description.trim() ? ` 详细要求: ${description}` : '';
       onStart(
-          `/marketing 生成节日促销海报 (比例: ${aspectRatio})${promptDescription}`, 
+          `/marketing 生成节日促销海报 (比例: ${aspectRatio}, 分辨率: ${resolution})${promptDescription}`, 
           productImages, 
           selectedModel,
           WorkflowStep.MARKETING_IMAGE_GENERATION

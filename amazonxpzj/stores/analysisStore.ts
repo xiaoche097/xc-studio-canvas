@@ -17,7 +17,7 @@ interface AnalysisState {
   // Actions
   setView: (view: 'landing' | 'analysis') => void;
   setFilters: (filters: Partial<FilterFormData>) => void;
-  startSearch: (keyword: string) => Promise<void>;
+  startSearch: (keyword: string, images?: string[], isInternetSearch?: boolean) => Promise<void>;
   selectKeyword: (id: string) => Promise<void>;
   reset: () => void;
 }
@@ -47,11 +47,11 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     currentReport: null
   }),
 
-  startSearch: async (keyword: string) => {
+  startSearch: async (keyword: string, images: string[] = [], isInternetSearch: boolean = false) => {
     set({ 
       view: 'analysis', 
       status: 'searching', 
-      filters: { ...get().filters, keyword },
+      filters: { ...get().filters, keyword, images, isInternetSearch },
       relatedKeywords: [],
       selectedKeywordId: null,
       currentReport: null

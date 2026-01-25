@@ -37,12 +37,35 @@ export const LANDING_FEATURES: AnalysisType[] = [
 
 export const ANALYSIS_TYPES = LANDING_FEATURES;
 
-export const COUNTRIES = [
-  { code: 'US', name: '美国', flag: '🇺🇸' },
-  { code: 'GB', name: '英国', flag: '🇬🇧' },
-  { code: 'DE', name: '德国', flag: '🇩🇪' },
-  { code: 'JP', name: '日本', flag: '🇯🇵' },
-];
+export const SITE_OPTIONS: Record<string, { code: string; name: string; flag: string }[]> = {
+  'Amazon': [
+    { code: 'US', name: 'United States', flag: '🇺🇸' },
+    { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+    { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+    { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+    { code: 'FR', name: 'France', flag: '🇫🇷' },
+    { code: 'IT', name: 'Italy', flag: '🇮🇹' },
+    { code: 'ES', name: 'Spain', flag: '🇪🇸' },
+    { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+    { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+    { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
+    { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
+    { code: 'IN', name: 'India', flag: '🇮🇳' },
+    { code: 'NL', name: 'Netherlands', flag: '🇳🇱' },
+  ],
+  'TikTok': [
+    { code: 'US', name: 'United States', flag: '🇺🇸' },
+    { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+    { code: 'ID', name: 'Indonesia', flag: '🇮🇩' },
+    { code: 'TH', name: 'Thailand', flag: '🇹🇭' },
+    { code: 'VN', name: 'Vietnam', flag: '🇻🇳' },
+    { code: 'MY', name: 'Malaysia', flag: '🇲🇾' },
+    { code: 'PH', name: 'Philippines', flag: '🇵🇭' },
+    { code: 'SG', name: 'Singapore', flag: '🇸🇬' },
+  ]
+};
+
+export const COUNTRIES = SITE_OPTIONS['Amazon'];
 
 export const LANDING_CASES: LandingCase[] = [
   {
