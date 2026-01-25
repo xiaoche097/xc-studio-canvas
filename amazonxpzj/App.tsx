@@ -9,7 +9,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-bg-page font-sans text-text-primary">
-      {showSidebar && <Sidebar />}
       <MainContent />
     </div>
   );

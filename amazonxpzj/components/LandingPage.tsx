@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useAnalysisStore } from '../stores/analysisStore';
 import { LANDING_FEATURES, SITE_OPTIONS } from '../constants';
 import { ChevronDown, ArrowUp, Zap, Sparkles, TrendingUp, ArrowLeftRight, Globe, LucideIcon, Image as ImageIcon, X, Link as LinkIcon, Check } from 'lucide-react';
+import { RequirementsForm } from './RequirementsForm';
+import { AnalysisType } from '../types';
 
 const iconMap: Record<string, LucideIcon> = {
   Sparkles,
@@ -16,6 +18,7 @@ export const LandingPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [isInternetSearch, setIsInternetSearch] = useState(false);
+  const [selectedFeature, setSelectedFeature] = useState<AnalysisType | null>(null);
   
   const [showPlatformMenu, setShowPlatformMenu] = useState(false);
   const [showCountryMenu, setShowCountryMenu] = useState(false);
@@ -54,6 +57,20 @@ export const LandingPage: React.FC = () => {
       startSearch(inputValue, images, isInternetSearch);
     }
   };
+
+  if (selectedFeature) {
+    return (
+      <RequirementsForm 
+         featureId={selectedFeature.id}
+         featureTitle={selectedFeature.title}
+         onBack={() => setSelectedFeature(null)}
+         onSubmit={(data) => {
+            setFilters(data); // Store filters
+            startSearch(data.keyword || (data.images?.length ? 'Image Search' : ''), data.images, false);
+         }}
+      />
+    );
+  }
 
   const currentPlatformSites = SITE_OPTIONS[filters.platform] || SITE_OPTIONS['Amazon'];
   const currentSite = currentPlatformSites.find(s => s.name === filters.country) || currentPlatformSites[0];
@@ -234,7 +251,11 @@ export const LandingPage: React.FC = () => {
            {LANDING_FEATURES.map((feature, idx) => {
              const Icon = iconMap[feature.icon];
              return (
-               <div key={idx} className="bg-white dark:bg-[#121212] border border-gray-100 dark:border-white/5 p-5 rounded-2xl hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/50 hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden text-center md:text-left">
+               <div 
+                  key={idx} 
+                  onClick={() => setSelectedFeature(feature)}
+                  className="bg-white dark:bg-[#121212] border border-gray-100 dark:border-white/5 p-5 rounded-2xl hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/50 hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden text-center md:text-left"
+               >
                   {feature.isHot && (
                     <span className="absolute top-0 right-0 bg-red-50 dark:bg-red-900/30 text-red-500 text-[10px] px-2 py-1 rounded-bl-lg font-bold">HOT</span>
                   )}

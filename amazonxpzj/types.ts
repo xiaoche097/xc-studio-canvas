@@ -1,5 +1,5 @@
 export interface AnalysisType {
-  id: 'new_product' | 'improvement' | 'platform_migration' | 'country_migration';
+  id: string;
   icon: string;
   title: string;
   subtitle: string;
@@ -60,6 +60,22 @@ export interface Metric {
   suffix?: string;
 }
 
+export interface KeywordData {
+  keyword: string;
+  searchRank: number;
+  trendData: number[];
+  categoryDistribution: {
+    category: string;
+    percentage: number;
+  }[];
+}
+
+export interface TaskResult {
+  summary: string;
+  detailType?: 'keywords' | 'products' | 'report';
+  data?: any;
+}
+
 export interface Product {
   id: string;
   image: string;
@@ -70,20 +86,21 @@ export interface Product {
   price: string;
   listingDate: string;
   rank?: string;
+  salesRank?: number;
+  country?: string;
+  platform?: string;
+  category?: string;
   highlights?: string[];
 }
 
-export interface ComparisonProduct {
+export interface ExecutionStep {
   id: string;
-  isMain?: boolean;
   title: string;
-  image: string;
-  attributes: {
-    price: string;
-    listingDate: string;
-    material: string;
-    style: string;
-    rating: string | number;
-    reviews: string | number;
-  };
+  description?: string;
+  status: 'pending' | 'loading' | 'completed' | 'error';
+  type: 'plan' | 'search' | 'analysis' | 'report';
+  content?: any;
+  products?: Product[];
+  result?: TaskResult;
+  timestamp: number;
 }

@@ -24,7 +24,9 @@
     "aplus",
     "Glassmorphism",
     "amazonxpzj",
-    "Lululemon"
+    "Lululemon",
+    "Sparkline",
+    "Daypack"
   ],
   "ignorePaths": [
     "node_modules",

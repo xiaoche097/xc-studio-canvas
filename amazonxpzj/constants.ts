@@ -2,14 +2,14 @@ import { AnalysisType, LandingCase, KeywordNode, MarketReport } from './types';
 
 export const LANDING_FEATURES: AnalysisType[] = [
   {
-    id: 'new_product',
+    id: 'image_search',
     icon: 'Sparkles',
     title: '图搜全球商机',
     subtitle: '上传图片一键分析全球',
     isHot: true
   },
   {
-    id: 'new_product', // Using same ID for demo
+    id: 'new_product_text',
     icon: 'Zap',
     title: '新品机会分析',
     subtitle: '秒级对比百款新品',

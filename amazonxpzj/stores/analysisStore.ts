@@ -1,18 +1,19 @@
 import { create } from 'zustand';
-import { FilterFormData, KeywordNode, MarketReport } from '../types';
-import { MOCK_KEYWORDS, MOCK_REPORT } from '../constants';
+import { FilterFormData, ExecutionStep, KeywordNode, MarketReport, Product } from '../types';
+import { orchestrator } from '../services/agents/orchestrator';
 
 interface AnalysisState {
   view: 'landing' | 'analysis';
   filters: FilterFormData;
   
   // Status
-  status: 'idle' | 'searching' | 'analyzing' | 'completed';
+  status: 'idle' | 'searching' | 'analyzing' | 'completed' | 'error';
   
   // Data
   relatedKeywords: KeywordNode[];
   selectedKeywordId: string | null;
   currentReport: MarketReport | null;
+  executionSteps: ExecutionStep[]; 
 
   // Actions
   setView: (view: 'landing' | 'analysis') => void;
@@ -22,64 +23,129 @@ interface AnalysisState {
   reset: () => void;
 }
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   view: 'landing',
   filters: {
     keyword: '',
     platform: 'Amazon',
-    country: '美国',
+    country: 'USA'
   },
   status: 'idle',
   relatedKeywords: [],
   selectedKeywordId: null,
   currentReport: null,
+  executionSteps: [],
 
   setView: (view) => set({ view }),
-  setFilters: (newFilters) => set((state) => ({ filters: { ...state.filters, ...newFilters } })),
+  setFilters: (filters) => set(state => ({ filters: { ...state.filters, ...filters } })),
 
   reset: () => set({
     view: 'landing',
     status: 'idle',
     relatedKeywords: [],
     selectedKeywordId: null,
-    currentReport: null
+    currentReport: null,
+    executionSteps: []
   }),
 
   startSearch: async (keyword: string, images: string[] = [], isInternetSearch: boolean = false) => {
+    // 1. Initialize State
     set({ 
       view: 'analysis', 
       status: 'searching', 
       filters: { ...get().filters, keyword, images, isInternetSearch },
       relatedKeywords: [],
       selectedKeywordId: null,
-      currentReport: null
+      currentReport: null,
+      executionSteps: []
     });
 
-    await delay(1500); // Simulate AI searching keywords
+    try {
+      // 2. Planning Phase with Orchestrator
+      const planId = 'plan-' + Date.now();
+      set(state => ({
+        executionSteps: [...state.executionSteps, {
+          id: planId,
+          type: 'plan',
+          title: '任务拆解规划',
+          status: 'loading',
+          content: '正在拆解用户需求并制定执行计划...',
+          timestamp: Date.now()
+        }]
+      }));
 
-    set({ 
-      relatedKeywords: MOCK_KEYWORDS,
-      status: 'idle' 
-    });
-    
-    // Automatically select the recommended one or first one
-    const recommended = MOCK_KEYWORDS.find(k => k.isRecommended) || MOCK_KEYWORDS[0];
-    get().selectKeyword(recommended.id);
+      // Call Orchestrator Plan
+      const plan = await orchestrator.plan(keyword, get().filters);
+
+      // Update Plan Step
+      set(state => ({
+        executionSteps: state.executionSteps.map(s => s.id === planId ? {
+          ...s,
+          status: 'completed',
+          content: {
+             description: '根据您的需求，我将执行以下任务：',
+             tasks: plan.tasks.map(t => t.task_name)
+          }
+        } : s)
+      }));
+
+      // 3. Execution Phase
+      for (const task of plan.tasks) {
+         const stepId = task.task_id;
+         
+         // Map task_type to ExecutionStep type
+         let stepType: 'analysis' | 'search' | 'report' = 'analysis';
+         if (task.task_type.includes('search') || task.task_type.includes('product')) stepType = 'search';
+         if (task.task_type.includes('report')) stepType = 'report';
+
+         // Add Step to UI
+         set(state => ({
+           executionSteps: [...state.executionSteps, {
+             id: stepId,
+             type: stepType,
+             title: task.task_name,
+             status: 'loading',
+             content: task.description,
+             timestamp: Date.now()
+           }]
+         }));
+
+         // Execute via Orchestrator
+         const response = await orchestrator.dispatch(task);
+
+         // Update Step with Result
+         set(state => ({
+           executionSteps: state.executionSteps.map(s => s.id === stepId ? {
+             ...s,
+             status: 'completed',
+             result: response.result
+           } : s)
+         }));
+      }
+
+      set({ status: 'completed' });
+
+    } catch (error) {
+      console.error("Agent Execution Failed:", error);
+      set({ status: 'error' });
+      // Optionally add an error step
+      set(state => ({
+         executionSteps: [...state.executionSteps, {
+            id: 'error-' + Date.now(),
+            type: 'analysis',
+            title: '执行出错',
+            status: 'error',
+            content: '系统运行遇到问题，请重试。',
+            timestamp: Date.now()
+         }]
+      }));
+    }
   },
 
   selectKeyword: async (id: string) => {
+    // Legacy support or placeholder
     const currentId = get().selectedKeywordId;
     if (currentId === id) return;
-
-    set({ selectedKeywordId: id, status: 'analyzing', currentReport: null });
-    
-    await delay(1200); // Simulate generating report
-
-    set({ 
-      currentReport: MOCK_REPORT,
-      status: 'completed'
-    });
+    set({ selectedKeywordId: id });
   }
 }));
