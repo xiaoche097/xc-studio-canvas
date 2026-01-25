@@ -25,7 +25,9 @@ export enum WorkflowStep {
   PRODUCTION_P3_P5 = 9,   // 兼容旧版：全部生成
   COMPLETED = 10,
   MODEL_TRY_ON = 11,
-  VIDEO_GENERATION = 12
+  VIDEO_GENERATION = 12,
+  MARKETING_IMAGE_GENERATION = 13,
+  AMAZON_SELECTION = 14
 }
 
 // 生产选择类型

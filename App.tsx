@@ -5,8 +5,9 @@ import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { SettingsModal } from './components/SettingsModal';
 
 import { App as VideoStationApp } from './XcAISTUDIO-main/App';
+import AmazonSelectionApp from './amazonxpzj/App';
 
-type ViewState = 'home' | 'chat' | 'video';
+type ViewState = 'home' | 'chat' | 'video' | 'selection';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -96,10 +97,24 @@ const App: React.FC = () => {
                Back to Studio
              </button>
         </div>
+      ) : view === 'selection' ? (
+        <div className="relative w-full h-full bg-[#F8FAFC] dark:bg-[#050505] z-[100] overflow-y-auto">
+             {/* Use Amazon Selection App */}
+             <AmazonSelectionApp />
+             <button 
+               onClick={() => setView('home')}
+               className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/80 dark:bg-black/50 backdrop-blur-md border border-gray-200 dark:border-white/10 text-gray-800 dark:text-white rounded-lg hover:bg-white dark:hover:bg-white/10 transition-all font-medium text-sm flex items-center gap-2 shadow-sm"
+             >
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+               Back to Studio
+             </button>
+        </div>
       ) : view === 'home' ? (
         <AgentHome onStart={(text, img, model, step) => {
             if (step === 12) { // WorkflowStep.VIDEO_GENERATION
                  setView('video');
+            } else if (step === 14) { // WorkflowStep.AMAZON_SELECTION
+                 setView('selection');
             } else {
                 if (Array.isArray(img)) {
                      handleStartAgent(text, img, model, step);

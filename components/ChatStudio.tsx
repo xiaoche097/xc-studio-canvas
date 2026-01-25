@@ -127,6 +127,8 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     setTimeout(() => {
        if (initialStep === WorkflowStep.MODEL_TRY_ON) {
            triggerStep(WorkflowStep.MODEL_TRY_ON, initialInput, initialImages);
+       } else if (initialStep === WorkflowStep.MARKETING_IMAGE_GENERATION) {
+           triggerStep(WorkflowStep.MARKETING_IMAGE_GENERATION, initialInput, initialImages);
        } else {
            // Context-aware Prompting:
            // If user provided text, we command the agent to respect it.
@@ -433,24 +435,89 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
 
   const extractGenParams = (content: string) => {
     try {
-        // 1. Try Markdown code block first (Most reliable)
-        const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/i);
+        let parsed: any = null;
+
+        // 1. Try Markdown code block first
+        const jsonBlock = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
         if (jsonBlock) {
-             const cleaned = jsonBlock[1].replace(/,\s*}/g, '}').replace(/,\s*]/g, ']'); // Simple comma cleanup
-             return JSON.parse(cleaned);
+             try {
+                const cleaned = jsonBlock[1]
+                    .replace(/,\s*}/g, '}')
+                    .replace(/,\s*]/g, ']')
+                    .replace(/\\n/g, "\\n")
+                    .replace(/[\n\r]/g, " ");
+                parsed = JSON.parse(cleaned);
+             } catch (e) { /* continue */ }
         }
 
-        // 2. Loose JSON with specific known keys, try to capture the widest possible object
-        // Match from first { to last }
-        const start = content.indexOf('{');
-        const end = content.lastIndexOf('}');
-        if (start !== -1 && end !== -1 && end > start) {
-             const candidate = content.substring(start, end + 1);
-             // Check if it looks like our target JSON
-             if (candidate.match(/"(?:prompt|subImages|mainImage|prompts)"/i)) {
-                 return JSON.parse(candidate);
-             }
+        // 2. Ultra-Permissive Regex Extraction
+        if (!parsed) {
+            // Pattern A: Strict boundary check (Preferred)
+            // Matches key "prompt" (with/without quotes) : "VALUE" (or 'VALUE') followed by comma or brace
+            const strictRegex = /(?:["']?prompt["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1\s*(?:,|}|$)/i;
+            let match = content.match(strictRegex);
+
+            // Pattern B: Loose check (Fallback)
+            // Matches key ... : "VALUE", ignoring what follows (Use if A fails)
+            if (!match) {
+                 const looseRegex = /(?:["']?prompt["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1/i;
+                 match = content.match(looseRegex);
+            }
+
+            if (match) {
+                const rawPrompt = match[2];
+                const cleanPrompt = rawPrompt
+                    .replace(/\\"/g, '"')
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\t/g, '\t');
+                
+                // Extract aspect ratio
+                const ratioRegex = /(?:["']?(?:aspect_ratio|size)["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1/i;
+                const ratioMatch = content.match(ratioRegex);
+                
+                return {
+                    prompt: cleanPrompt,
+                    aspect_ratio: ratioMatch ? ratioMatch[2] : "1:1"
+                };
+            }
         }
+
+        // 3. Fallback: JSON.parse on candidate block
+        if (!parsed) {
+            const start = content.indexOf('{');
+            const end = content.lastIndexOf('}');
+            if (start !== -1 && end !== -1 && end > start) {
+                 try {
+                    const candidate = content.substring(start, end + 1)
+                        .replace(/,\s*}/g, '}')
+                        .replace(/,\s*]/g, ']')
+                        .replace(/\/\/.*$/gm, '') 
+                        .replace(/[\n\r]/g, " ");
+                    parsed = JSON.parse(candidate);
+                 } catch (e) { }
+            }
+        }
+
+        // 4. Normalize Parsed Object
+        if (parsed) {
+            const keys = Object.keys(parsed);
+            const promptKey = keys.find(k => k.toLowerCase() === 'prompt');
+            
+            if (promptKey) {
+                return {
+                    prompt: parsed[promptKey],
+                    aspect_ratio: parsed.aspect_ratio || parsed.size || "1:1"
+                };
+            }
+            
+            if (parsed.params && parsed.params.prompt) {
+                 return {
+                    prompt: parsed.params.prompt,
+                    aspect_ratio: parsed.params.aspect_ratio || parsed.params.size || "1:1"
+                };
+            }
+        }
+
     } catch(e) {
         console.error("JSON Extraction Failed:", e);
     }
@@ -1062,6 +1129,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             onSelectAplus={() => handleProductionSelect('aplus')}
             onSelectAll={() => handleProductionSelect('all')}
         />;
+      case WorkflowStep.MARKETING_IMAGE_GENERATION:
       case WorkflowStep.MODEL_TRY_ON:
           const genParams = extractGenParams(lastMsg.content);
           if (genParams && genParams.prompt) {

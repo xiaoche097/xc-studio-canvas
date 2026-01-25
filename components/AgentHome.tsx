@@ -6,13 +6,12 @@ import {
   ModelVisual,
   MarketingVisual,
   VideoVisual,
-  StyleVisual,
+  AmazonSelectionVisual,
   TranslateVisual
 } from './Icons';
 import { ModelTryOnModal } from './ModelTryOnModal';
 import { MarketingModal } from './MarketingModal';
 import { BackgroundModal } from './BackgroundModal';
-import { StyleModal } from './StyleModal';
 import { TranslateModal } from './TranslateModal';
 
 import { WorkflowStep } from '../types';
@@ -30,7 +29,6 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   // Video Modal removed for direct access
   const [showBackgroundModal, setShowBackgroundModal] = useState(false);
-  const [showStyleModal, setShowStyleModal] = useState(false);
   const [showTranslateModal, setShowTranslateModal] = useState(false);
 
   // ... (handleImageUpload and removeImage are unchanged)
@@ -82,8 +80,9 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     } else if (title === "视频工作站") {
         // Direct jump to Video Station, bypassing modal
         onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
-    } else if (title === "风格模仿") {
-        setShowStyleModal(true);
+    } else if (title === "选品专家") {
+        // Direct jump to Amazon Selection, bypassing modal
+        onStart("/selection", [], selectedModel, WorkflowStep.AMAZON_SELECTION);
     } else if (title === "图片翻译") {
         setShowTranslateModal(true);
     } else {
@@ -101,19 +100,20 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       );
   };
 
-  const handleMarketingConfirm = (productImg: string) => {
+  const handleMarketingConfirm = (productImages: string[], aspectRatio: string, description: string) => {
       setShowMarketingModal(false);
-      onStart("/marketing 生成亚马逊黑五风格的营销海报，突出促销氛围", [productImg], selectedModel);
+      const promptDescription = description.trim() ? ` 详细要求: ${description}` : '';
+      onStart(
+          `/marketing 生成节日促销海报 (比例: ${aspectRatio})${promptDescription}`, 
+          productImages, 
+          selectedModel,
+          WorkflowStep.MARKETING_IMAGE_GENERATION
+      );
   };
 
   const handleBackgroundConfirm = (productImg: string, bgImg: string) => {
       setShowBackgroundModal(false);
       onStart("/background 将左侧商品自然融合到右侧场景中，保持光影自然，生成高品质背景图", [productImg, bgImg], selectedModel);
-  };
-
-  const handleStyleConfirm = (productImg: string, styleImg: string) => {
-      setShowStyleModal(false);
-      onStart("/style 参考右侧图片的视觉风格（配色、光影、构图），重新生成左侧商品的展示图", [productImg, styleImg], selectedModel);
   };
 
   const handleTranslateConfirm = (img: string) => {
@@ -150,13 +150,13 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: VideoVisual
     },
     {
-      title: "风格模仿",
-      prompt: "/style 学习并模仿上传图片的视觉风格",
+      title: "选品专家",
+      prompt: "/selection 亚马逊数据选品分析",
       bgClass: "from-white to-sky-50/50 dark:from-white/5 dark:to-sky-900/20",
       borderClass: "hover:border-sky-200 dark:hover:border-sky-500/30",
       textClass: "text-gray-800 dark:text-gray-100",
       visualColor: "text-sky-500",
-      Visual: StyleVisual
+      Visual: AmazonSelectionVisual
     },
     {
       title: "图片翻译",
@@ -317,11 +317,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             onConfirm={handleBackgroundConfirm} 
         />
 
-        <StyleModal 
-            isOpen={showStyleModal} 
-            onClose={() => setShowStyleModal(false)} 
-            onConfirm={handleStyleConfirm} 
-        />
+
 
         <TranslateModal 
             isOpen={showTranslateModal} 

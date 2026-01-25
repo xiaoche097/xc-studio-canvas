@@ -152,12 +152,16 @@ export const BackgroundVisual = ({ className }: { className?: string }) => (
   </svg>
 );
 
-export const StyleVisual = ({ className }: { className?: string }) => (
+export const AmazonSelectionVisual = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M20 50C20 30 40 10 60 30C80 50 40 70 80 80" stroke="currentColor" strokeWidth="2"/>
-    <circle cx="50" cy="50" r="30" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4"/>
-    <circle cx="80" cy="20" r="5" fill="currentColor"/>
-    <circle cx="20" cy="80" r="5" fill="currentColor"/>
+    <rect x="20" y="20" width="60" height="60" rx="4" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+    <path d="M30 65L45 50L60 60L80 40" stroke="currentColor" strokeWidth="2"/>
+    <circle cx="30" cy="65" r="3" fill="currentColor"/>
+    <circle cx="45" cy="50" r="3" fill="currentColor"/>
+    <circle cx="60" cy="60" r="3" fill="currentColor"/>
+    <circle cx="80" cy="40" r="3" fill="currentColor"/>
+    <path d="M70 20V30" stroke="currentColor" strokeWidth="2"/>
+    <path d="M30 20V30" stroke="currentColor" strokeWidth="2"/>
   </svg>
 );
 
