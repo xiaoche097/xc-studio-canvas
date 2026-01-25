@@ -192,14 +192,18 @@ export const CopywritingCard: React.FC<CardProps> = ({ onConfirm, onRegenerate, 
 };
 
 // --- 5. Production Gallery (P3-P5) ---
-// --- 5. Production Gallery (P3-P5) ---
+interface ProductionItem {
+  title: string;
+  prompt: string;
+}
+
 interface ProductionCardProps {
   image?: string | null;
   onConfirm?: () => void;
   mode?: 'p3' | 'p4' | 'p5' | 'all';
   productionData?: {
     mainImage?: string;
-    subImages?: string[];
+    subImages?: (string | ProductionItem)[];
     status?: string;
   };
 }
@@ -213,6 +217,11 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
 
   const [activeSubIndex, setActiveSubIndex] = useState(0);
   const [triggerCount, setTriggerCount] = useState(0);
+  const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
+
+  const handleImageUpdate = (key: string, url: string) => {
+    setGeneratedImages(prev => ({...prev, [key]: url}));
+  };
 
   // 判断是否有真正的prompt内容（不是占位符）
   const hasRealPrompt = mainImage && !mainImage.includes("生成中");
@@ -221,6 +230,15 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
     setActiveSubIndex(idx);
     setTriggerCount(prev => prev + 1); // Forcing re-generation on click
   };
+
+  const getSubItem = (index: number) => {
+    const item = subImages[index];
+    if (!item) return { title: `S${index + 1}`, prompt: "Waiting..." };
+    if (typeof item === 'string') return { title: `S${index + 1}`, prompt: item };
+    return item;
+  };
+
+  const currentSubItem = getSubItem(activeSubIndex);
 
   return (
     <div className="space-y-6">
@@ -247,8 +265,10 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
               <Visualizer 
                   label="P3 MAIN IMAGE" 
                   prompt={hasRealPrompt ? mainImage : "SKYSPER Product, Pure White Background, Soft Contact Shadow, 15-degree tilt, levitation effect"}
-                  initialImage={!hasRealPrompt ? image : undefined}
+                  initialImage={generatedImages['p3-main'] || (!hasRealPrompt ? image : undefined)}
+                  onImageGenerated={(url) => handleImageUpdate('p3-main', url)}
                   autoGenerate={false}
+                  allowedRatios={['1:1', '3:4']}
               />
               {/* Show Prompt details for P3 only in P3/All mode */}
               {hasRealPrompt && (
@@ -273,10 +293,12 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
             <div className={`col-span-1 ${mode === 'all' ? '' : 'w-full'}`}>
               <Visualizer 
                   key={`p4-${activeSubIndex}-${triggerCount}`}
-                  label={`P4 SUB-IMAGE S${activeSubIndex + 1}`} 
-                  prompt={subImages.length > activeSubIndex ? subImages[activeSubIndex] : "SKYSPER Product lifestyle scene, sunny outdoor, 10AM natural lighting"}
-                  initialImage={subImages.length === 0 ? image : undefined}
-                  autoGenerate={triggerCount > 0} // Only auto-generate if user explicitly clicked a sub-item
+                  label={`P4 SUB-IMAGE S${activeSubIndex + 1} - ${currentSubItem.title}`} 
+                  prompt={currentSubItem.prompt}
+                  initialImage={generatedImages[`p4-${activeSubIndex}`] || (subImages.length === 0 ? image : undefined)}
+                  onImageGenerated={(url) => handleImageUpdate(`p4-${activeSubIndex}`, url)}
+                  autoGenerate={false} // Force manual generation
+                  allowedRatios={['1:1', '3:4']}
               />
             </div>
         )}
@@ -287,7 +309,12 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
         <div className="space-y-2">
           <div className="text-sm font-medium text-gray-700 dark:text-gray-300">📷 副图序列 (点击生成/预览):</div>
           <div className="grid gap-2">
-            {subImages.slice(0, 6).map((desc, idx) => (
+            {subImages.map((item, idx) => {
+              const data = typeof item === 'string' 
+                  ? { title: `序列 S${idx + 1}`, prompt: item, desc: item } 
+                  : { title: item.title, prompt: item.prompt, desc: item.prompt };
+              
+              return (
               <button 
                 key={idx} 
                 onClick={() => handleSubClick(idx)}
@@ -298,30 +325,51 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${activeSubIndex === idx ? 'bg-brand-orange text-white' : 'bg-gray-200 dark:bg-white/10 text-gray-500'}`}>
+                  <span className={`w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${activeSubIndex === idx ? 'bg-brand-orange text-white' : 'bg-gray-200 dark:bg-white/10 text-gray-500'}`}>
                     S{idx + 1}
                   </span>
-                  {activeSubIndex === idx && <span className="text-brand-orange font-bold">正在预览</span>}
+                  <div>
+                      <div className={`font-bold ${activeSubIndex === idx ? 'text-brand-orange' : 'text-gray-900 dark:text-white'}`}>
+                          {data.title}
+                      </div>
+                      {activeSubIndex === idx && <span className="text-[10px] text-brand-orange opacity-80">正在预览</span>}
+                  </div>
                 </div>
-                <div className="text-gray-600 dark:text-gray-400 line-clamp-2">
-                   {desc}
+                <div className="text-gray-500 dark:text-gray-400 line-clamp-2 pl-8 opacity-80">
+                   {data.desc}
                 </div>
               </button>
-            ))}
+            )})}
           </div>
         </div>
       )}
 
       {/* P5 A+ 模块 - P5 only or All */}
       {(mode === 'p5' || mode === 'all') && (
-          <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/10 flex justify-between items-center hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer">
-            <div>
-              <div className="font-bold text-gray-900 dark:text-white">P5 A+ 模块</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">杂志级排版 / 6个模块</div>
-            </div>
-            <button className="px-4 py-2 border border-brand-orange text-brand-orange rounded-lg text-sm hover:bg-brand-orange hover:text-white transition-colors">
-              查看详情
-            </button>
+          <div className="space-y-4">
+              <h3 className="font-bold text-gray-900 dark:text-white">P5 A+ 页面资产 (6-7张)</h3>
+              <div className="grid grid-cols-1 gap-4">
+                 {subImages.length > 0 ? subImages.map((item, idx) => {
+                    const data = typeof item === 'string' 
+                        ? { title: `M${idx + 1}`, prompt: item } 
+                        : { title: item.title, prompt: item.prompt };
+                    return (
+                    <Visualizer 
+                        key={`p5-${idx}`}
+                        label={`P5 MODULE M${idx + 1} - ${data.title}`}
+                        prompt={data.prompt}
+                        initialImage={generatedImages[`p5-${idx}`]}
+                        onImageGenerated={(url) => handleImageUpdate(`p5-${idx}`, url)}
+                        autoGenerate={false}
+                        allowedRatios={['16:9']}
+                        aspectRatio="16:9"
+                    />
+                 )}) : (
+                    <div className="p-4 bg-gray-50 dark:bg-white/5 rounded text-center text-gray-500">
+                        等待生成 P5 A+ 描述...
+                    </div>
+                 )}
+              </div>
           </div>
       )}
       

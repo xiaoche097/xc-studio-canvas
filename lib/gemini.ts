@@ -41,7 +41,7 @@ class GeminiClient {
           model: selectedModelName,
           systemInstruction: systemInstruction,
           generationConfig: {
-            maxOutputTokens: 4096,
+            maxOutputTokens: 8192,
             temperature: 0.7,
             topP: 0.8,
             topK: 40,
@@ -50,7 +50,7 @@ class GeminiClient {
       : this.genAI.getGenerativeModel({
           model: selectedModelName,
           generationConfig: {
-            maxOutputTokens: 4096,
+            maxOutputTokens: 8192,
             temperature: 0.7,
             topP: 0.8,
             topK: 40,

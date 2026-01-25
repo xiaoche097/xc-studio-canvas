@@ -3,6 +3,7 @@ import { RobotIcon, UserIcon } from './Icons';
 import { Role } from '../types';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface MessageBubbleProps {
   role: Role;
@@ -32,13 +33,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, ima
         className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm mt-1
         ${isAI 
           ? 'bg-white border border-gray-100 overflow-hidden p-1' 
-          : 'bg-brand-blue text-white'}`}
+          : 'bg-brand-orange text-white'}`}
       >
         {isAI ? <RobotIcon className="text-gray-700 w-5 h-5" /> : <UserIcon className="w-5 h-5" />}
       </div>
       
       {/* Content */}
-      <div className={`flex flex-col max-w-[85%] md:max-w-[75%] space-y-2 ${isAI ? 'items-start' : 'items-end'}`}>
+      <div className={`flex flex-col max-w-[85%] md:max-w-[75%] space-y-2 min-w-0 ${isAI ? 'items-start' : 'items-end'}`}>
         
         {/* Name (Optional, good for Lobe style) */}
         {isAI && <span className="text-xs font-bold text-gray-500 ml-1">Gemini</span>}
@@ -46,14 +47,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, ima
         {/* Text Bubble */}
         {content && (
           <div 
-            className={`px-4 py-3 text-sm leading-relaxed shadow-sm transition-all
+            className={`px-4 py-3 text-sm leading-relaxed shadow-sm transition-all overflow-hidden w-full
             ${isAI 
               ? 'bg-white dark:bg-[#1e1e1e] border border-gray-100 dark:border-white/10 text-gray-800 dark:text-gray-200 rounded-2xl rounded-tl-none' 
-              : 'bg-brand-blue text-white border border-brand-blue rounded-2xl rounded-tr-none'}`}
+              : 'bg-brand-orange text-white border border-brand-orange shadow-md rounded-2xl rounded-tr-none'}`}
           >
             {isAI ? (
-               <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words">
+               <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words overflow-hidden w-full">
                    <ReactMarkdown 
+                     remarkPlugins={[remarkGfm]}
                      components={{
                        strong: ({node, ...props}) => <span className="font-bold text-gray-900 dark:text-white" {...props} />,
                        ul: ({node, ...props}) => <ul className="list-disc list-outside ml-4 space-y-1 my-2" {...props} />,

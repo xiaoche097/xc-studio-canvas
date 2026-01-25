@@ -1,11 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Message, WorkflowStep } from '../types';
-import { AGENT_PROMPTS } from '../data/agentPrompts';
-import { SendIcon, UploadIcon } from './Icons';
+import { AGENT_PROMPTS as DEFAULT_AGENT_PROMPTS, AgentPrompt } from '../data/agentPrompts';
+import { SendIcon, UploadIcon, RefreshIcon } from './Icons';
 import { MessageBubble, TypingIndicator } from './ChatComponents';
 import { PromptInspector } from './PromptInspector';
 import { gemini } from '../lib/gemini';
+// @ts-ignore
+import launchPrompt from '../src/prompts/launch.md?raw';
+// @ts-ignore
+import p0Prompt from '../src/prompts/p0.md?raw';
+// @ts-ignore
+import p1Prompt from '../src/prompts/p1.md?raw';
+// @ts-ignore
+import p2Prompt from '../src/prompts/p2.md?raw';
+// @ts-ignore
+import p3Prompt from '../src/prompts/p3.md?raw';
+// @ts-ignore
+import p4Prompt from '../src/prompts/p4.md?raw';
+// @ts-ignore
+import p5Prompt from '../src/prompts/p5.md?raw';
 import { 
   LaunchPackageCard, 
   StrategyCard, 
@@ -15,6 +29,27 @@ import {
   ProductionSelectCard,
   GenerationCard
 } from './ActionCards';
+
+const LOCAL_PROMPTS: Partial<Record<WorkflowStep, string>> = {
+  [WorkflowStep.LAUNCH_PACKAGE]: launchPrompt,
+  [WorkflowStep.STRATEGY_P0]: p0Prompt,
+  [WorkflowStep.VISUAL_P1]: p1Prompt,
+  [WorkflowStep.COPY_P2]: p2Prompt,
+  [WorkflowStep.P3_MAIN_IMAGE]: p3Prompt,
+  [WorkflowStep.P4_SECONDARY]: p4Prompt,
+  [WorkflowStep.P5_APLUS]: p5Prompt,
+  [WorkflowStep.PRODUCTION_P3_P5]: p3Prompt + "\n\n" + p4Prompt + "\n\n" + p5Prompt,
+};
+
+const AGENT_PROMPTS: Record<WorkflowStep, AgentPrompt> = { ...DEFAULT_AGENT_PROMPTS };
+(Object.keys(LOCAL_PROMPTS) as unknown as WorkflowStep[]).forEach((step) => {
+  if (AGENT_PROMPTS[step]) {
+    AGENT_PROMPTS[step] = {
+      ...AGENT_PROMPTS[step],
+      systemPrompt: LOCAL_PROMPTS[step] || AGENT_PROMPTS[step].systemPrompt
+    };
+  }
+});
 
 interface ChatStudioProps {
   initialInput: string;
@@ -110,7 +145,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     setWorkflowStep(step);
     setIsTyping(true);
 
-    const systemPrompt = AGENT_PROMPTS[step].systemPrompt;
+    const systemPrompt = AGENT_PROMPTS[step]?.systemPrompt || "";
     
     const aiMsgId = Date.now().toString();
     const newAiMsg: Message = {
@@ -279,24 +314,24 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     switch (choice) {
       case 'main':
         nextStep = WorkflowStep.P3_MAIN_IMAGE;
-        prompt = "生成P3主图设计方案和提示词。要求：纯白背景、产品占比≥85%、左偏15°悬浮效果、接触软阴影。输出完整的图像生成prompt和nanobanana2pro JSON。";
+        prompt = "生成P3主图设计方案。要求：纯白背景、产品占比≥85%、左偏15°悬浮效果。请务必将结果包裹在 ```json 代码块中，格式：{ \"mainImage\": \"完整Prompt\" }";
         choiceLabel = "📸 P3 主图";
         break;
       case 'secondary':
         nextStep = WorkflowStep.P4_SECONDARY;
-        prompt = "生成P4副图序列设计方案。包括6张：S1核心卖点信息图、S2功能细节图、S3使用场景图、S4材质细节图、S5规格图、S6包装信任图。每张图输出完整prompt。";
+        prompt = "生成P4副图序列设计方案(6张)。包括：S1核心卖点、S2功能细节、S3使用场景、S4材质细节、S5规格、S6包装。请务必将结果包裹在 ```json 代码块中，格式：{ \"subImages\": [\"S1 Prompt\", \"S2 Prompt\", \"S3 Prompt\", \"S4 Prompt\", \"S5 Prompt\", \"S6 Prompt\"] }";
         choiceLabel = "🖼️ P4 副图序列";
         break;
       case 'aplus':
         nextStep = WorkflowStep.P5_APLUS;
-        prompt = "生成P5 A+页面设计方案。包括6个Premium模块：M1品牌宣言头图(1464x600)、M2系列身份卡、M3核心卖点可视化、M4场景矩阵、M5细节特写、M6品牌足迹。每个模块输出完整prompt。";
+        prompt = "生成P5 A+页面设计方案(7张)。包括7个Premium模块。请务必将结果包裹在 ```json 代码块中，格式：{ \"subImages\": [\"M1 Prompt\", \"M2 Prompt\", \"M3 Prompt\", \"M4 Prompt\", \"M5 Prompt\", \"M6 Prompt\", \"M7 Prompt\"] }";
         choiceLabel = "🏗️ P5 A+ 页面";
         break;
       case 'all':
       default:
         nextStep = WorkflowStep.PRODUCTION_P3_P5;
-        prompt = "执行完整生产：按顺序生成P3主图、P4副图序列、P5 A+页面的全部设计方案和提示词。严格遵循品牌规范。";
-        choiceLabel = "🚀 全部生成（P3+P4+P5）";
+        prompt = "执行完整生产。请务必将结果包裹在 ```json 代码块中，格式：{ \"mainImage\": \"P3 Prompt\", \"subImages\": [\"P4 S1\", \"P4 S2\", \"P4 S3\", \"P4 S4\", \"P4 S5\", \"P4 S6\"] }";
+        choiceLabel = "🚀 全部生成（P3+P4）";
         break;
     }
 
@@ -368,7 +403,8 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           // Get next non-empty line as the value
           for (let j = i + 1; j < lines.length && j < i + 4; j++) {
             const nextLine = lines[j].trim();
-            if (nextLine && !nextLine.startsWith('#') && nextLine.length > 2) {
+            // Ignore table separator lines, table headers that are just structure, or image markdown
+            if (nextLine && !nextLine.startsWith('#') && nextLine.length > 2 && !nextLine.match(/^\|?[\s-:|]+\|?$/) && !nextLine.match(/^!\[/)) {
               return cleanValue(nextLine);
             }
           }
@@ -397,13 +433,29 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
 
   const extractGenParams = (content: string) => {
     try {
-        const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonBlock) return JSON.parse(jsonBlock[1]);
-        const match = content.match(/(\{[\s\S]*"prompt"[\s\S]*\})/);
-        if (match) return JSON.parse(match[0]);
-    } catch(e) {}
+        // 1. Try Markdown code block first (Most reliable)
+        const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/i);
+        if (jsonBlock) {
+             const cleaned = jsonBlock[1].replace(/,\s*}/g, '}').replace(/,\s*]/g, ']'); // Simple comma cleanup
+             return JSON.parse(cleaned);
+        }
+
+        // 2. Loose JSON with specific known keys, try to capture the widest possible object
+        // Match from first { to last }
+        const start = content.indexOf('{');
+        const end = content.lastIndexOf('}');
+        if (start !== -1 && end !== -1 && end > start) {
+             const candidate = content.substring(start, end + 1);
+             // Check if it looks like our target JSON
+             if (candidate.match(/"(?:prompt|subImages|mainImage|prompts)"/i)) {
+                 return JSON.parse(candidate);
+             }
+        }
+    } catch(e) {
+        console.error("JSON Extraction Failed:", e);
+    }
     return null;
-  }
+  };
 
   const handleGenerateImage = async (prompt: string, aspectRatio: string) => {
       setGenStatus('generating');
@@ -519,28 +571,31 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         for (const line of lines) {
           const trimmed = line.trim();
           
-          // Table format with P-tag
-          const tableMatch = trimmed.match(/\|\s*\*?\*?[Pp][012]\*?\*?\s*\|\s*(.+?)\s*\|/);
+          // Table format with P-tag OR generic table row in features section
+          const tableMatch = trimmed.match(/\|\s*(?:.*?)\s*\|\s*(.+?)\s*\|/);
           // Key-value format
           const kvMatch = trimmed.match(/^(?:\*\*)?[Pp][012](?:\*\*)?[：:|\s]+(.+?)(?:\||$)/);
           // Bold format
           const boldMatch = trimmed.match(/\*\*[Pp][012]\*\*[：:\s]*(.+)/);
-          
+          // Generic bullet point (if short enough to be a feature)
+          const genericBullet = trimmed.match(/^[-*•]\s+([^\n]+)/);
+
           if (tableMatch && features.length < 5) {
-            const featureText = cleanValue(tableMatch[1]);
-            if (featureText && featureText.length > 2 && !featureText.match(/^[Pp][012]$/)) {
-              features.push(featureText.substring(0, 45));
-            }
+             // Avoid capturing table headers or separators
+             if (!tableMatch[1].match(/^[-: ]+$/) && !tableMatch[1].includes('卖点') && !tableMatch[1].includes('Feature')) {
+                 const featureText = cleanValue(tableMatch[1]);
+                 if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
+             }
           } else if (kvMatch && features.length < 5) {
             const featureText = cleanValue(kvMatch[1]);
-            if (featureText && featureText.length > 2) {
-              features.push(featureText.substring(0, 45));
-            }
+            if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
           } else if (boldMatch && features.length < 5) {
             const featureText = cleanValue(boldMatch[1]);
-            if (featureText && featureText.length > 2) {
-              features.push(featureText.substring(0, 45));
-            }
+            if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
+          } else if (genericBullet && features.length < 5 && lines.slice(Math.max(0, lines.indexOf(line)-3), lines.indexOf(line)).some(l => l.match(/卖点|Features|Highlights/))) {
+             // Only accept generic bullets if we recently saw a "Features" header
+             const featureText = cleanValue(genericBullet[1]);
+             if (featureText && featureText.length > 2 && featureText.length < 50) features.push(featureText.substring(0, 45));
           }
         }
         
@@ -611,13 +666,14 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           // Format 3: - P0：卖点 or * P1: 卖点
           const bulletMatch = trimmed.match(/^[-*•]\s*[Pp][012][：:]\s*(.+)/);
           // Format 4: P0：卖点 (standalone)
-          const simpleMatch = trimmed.match(/^[Pp][012][：:]\s*(.+)/);
+          const simpleMatch = trimmed.match(/^[Pp][012][：:\-]\s*(.+)/);
           // Format 5: **P0** 卖点描述 or **P1**: 卖点
           const boldMatch = trimmed.match(/\*\*[Pp][012]\*\*[：:\s]*(.+)/);
           // Format 6: 卖点1：xxx or 卖点一：xxx
           const numberedSP = trimmed.match(/卖点\s*[1-3一二三][：:]\s*(.+)/);
-          // Format 7: - 轻量化设计 (without P tag but in selling point section)
-          const genericBullet = trimmed.match(/^[-*•]\s+(.{5,40})$/);
+          // Format 8: [P0] 卖点 or 【P0】 卖点
+          const bracketMatch = trimmed.match(/^\[[Pp][012]\][：:\s]*(.+)/);
+          const wideBracketMatch = trimmed.match(/^【[Pp][012]】[：:\s]*(.+)/);
           
           if (priorityMatch && sellingPoints.length < 5) {
             const pTag = trimmed.match(/[Pp][012]/)?.[0]?.toUpperCase() || '';
@@ -632,6 +688,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             sellingPoints.push(cleanValue(boldMatch[1]));
           } else if (numberedSP && sellingPoints.length < 5) {
             sellingPoints.push(cleanValue(numberedSP[1]));
+          } else if (bracketMatch && sellingPoints.length < 5) {
+            sellingPoints.push(cleanValue(bracketMatch[1]));
+          } else if (wideBracketMatch && sellingPoints.length < 5) {
+            sellingPoints.push(cleanValue(wideBracketMatch[1]));
           }
         }
         
@@ -782,6 +842,9 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           // Pattern 4: **Feature**: Benefit format
           const featureBenefitMatch = line.match(/\*\*(.{2,15})\*\*[：:]\s*(.+)/);
           
+          // Pattern 5: Markdown Table Row | Title | Content |
+          const tableRowMatch = line.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/);
+          
           if (sectionMatch && sellingPoints.length < 5) {
             currentTitle = cleanValue(sectionMatch[1]);
             // Check if next line has the content
@@ -795,6 +858,21 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
                 currentTitle = '';
               }
             }
+          } else if (titleContentMatch && sellingPoints.length < 5) {
+            sellingPoints.push({
+              title: cleanValue(titleContentMatch[1]),
+              content: cleanValue(titleContentMatch[2])
+            });
+          } else if (tableRowMatch && sellingPoints.length < 5) {
+             // Check if it's a header or separator row
+             const c1 = tableRowMatch[1].trim();
+             const c2 = tableRowMatch[2].trim();
+             if (!c1.match(/^[-: ]+$/) && !c1.match(/标题|Title|卖点/) && c2.length > 2) {
+                 sellingPoints.push({
+                     title: cleanValue(c1),
+                     content: cleanValue(c2)
+                 });
+             }
           } else if (titleContentMatch && sellingPoints.length < 5) {
             sellingPoints.push({
               title: cleanValue(titleContentMatch[1]),
@@ -849,50 +927,67 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         step === WorkflowStep.P4_SECONDARY || 
         step === WorkflowStep.P5_APLUS
       ) {
-        // P3-P5 Production - Enhanced extraction for prompts and image descriptions
+        // P3-P5 Production - Enhanced extraction including JSON parsing
+        let mainImagePrompt = "";
+        let subImages: any[] = [];
         
-        // Main image prompt extraction
-        let mainImagePrompt = extractByKey(content, ['主图Prompt', '主图描述', 'Main Image', 'P3 Prompt', 'Hero Image', '主图生成']);
-        if (!mainImagePrompt) {
-          // Try to find JSON prompt or full_prompt section
-          const jsonMatch = content.match(/full_prompt[：:]\s*["']?([^"'\n]+)/i);
-          const promptMatch = content.match(/prompt[：:]\s*["']?(.{20,200})/i);
-          if (jsonMatch) {
-            mainImagePrompt = cleanValue(jsonMatch[1]);
-          } else if (promptMatch) {
-            mainImagePrompt = cleanValue(promptMatch[1]);
-          }
-        }
-        
-        // Sub images extraction
-        let subImages = extractListAfterHeader(content, ['副图', '副图序列', 'Sub Images', 'P4', 'S1', 'S2', '信息图', '场景图'], 6);
-        
-        // If no sub images found, try to find S1-S6 patterns
-        if (subImages.length === 0) {
-          for (const line of lines) {
-            const trimmed = line.trim();
-            const sMatch = trimmed.match(/^(?:\*\*)?S[1-6][：:]\s*(.+?)(?:\*\*)?$/);
-            const typeMatch = trimmed.match(/^(?:#{1,4}\s*)?(信息图|场景图|细节图|规格图|对比图|包装图)[：:]?\s*(.+)?/);
-            if (sMatch && subImages.length < 6) {
-              subImages.push(cleanValue(sMatch[1]));
-            } else if (typeMatch && subImages.length < 6) {
-              subImages.push(cleanValue(typeMatch[1]) + (typeMatch[2] ? ': ' + cleanValue(typeMatch[2]) : ''));
+        // 1. Try JSON parsing first (Priority for full prompts)
+        try {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.full_prompt) mainImagePrompt = parsed.full_prompt;
+                if (parsed.mainImage) mainImagePrompt = parsed.mainImage;
+                
+                if (parsed.subImages && Array.isArray(parsed.subImages)) {
+                    subImages = parsed.subImages;
+                }
+                // Handle P5 modules if structured as array
+                if (parsed.modules && Array.isArray(parsed.modules)) {
+                    subImages = parsed.modules.map((m: any) => typeof m === 'string' ? m : (m.prompt || m.description || JSON.stringify(m)));
+                }
             }
-          }
+        } catch (e) {
+            // Ignore JSON parse errors
+        }
+
+        // 2. Fallback to Regex Extraction for Main Image
+        if (!mainImagePrompt) {
+            mainImagePrompt = extractByKey(content, ['主图Prompt', '主图描述', 'Main Image', 'P3 Prompt', 'Hero Image', '主图生成']) || "";
+            if (!mainImagePrompt) {
+                const jsonMatch = content.match(/full_prompt[：:]\s*["']?([^"'\n]+)/i);
+                const promptMatch = content.match(/prompt[：:]\s*["']?(.{20,200})/i);
+                if (jsonMatch) mainImagePrompt = cleanValue(jsonMatch[1]);
+                else if (promptMatch) mainImagePrompt = cleanValue(promptMatch[1]);
+            }
+        }
+
+        // 3. Fallback to Regex Extraction for Sub Images
+        if (subImages.length === 0) {
+             subImages = extractListAfterHeader(content, ['副图', '副图序列', 'Sub Images', 'P4', 'S1', 'S2', '信息图', '场景图', 'A+', 'M1', 'M2'], 6);
+             
+             if (subImages.length === 0) {
+                 for (const line of lines) {
+                    const trimmed = line.trim();
+                    const sMatch = trimmed.match(/^(?:\*\*)?(?:S|M)[1-6][：:]\s*(.+?)(?:\*\*)?$/i);
+                    const typeMatch = trimmed.match(/^(?:#{1,4}\s*)?(信息图|场景图|细节图|规格图|对比图|包装图|品牌宣言|系列身份)[：:]?\s*(.+)?/);
+                    if (sMatch && subImages.length < 6) {
+                        subImages.push(cleanValue(sMatch[1]));
+                    } else if (typeMatch && subImages.length < 6) {
+                        subImages.push(cleanValue(typeMatch[1]) + (typeMatch[2] ? ': ' + cleanValue(typeMatch[2]) : ''));
+                    }
+                 }
+             }
         }
         
-        // A+ module extraction
-        const aplusModules = extractListAfterHeader(content, ['A+', 'M1', 'M2', '模块', 'Premium'], 6);
-        
-        // Determine status
-        const hasContent = mainImagePrompt || subImages.length > 0 || aplusModules.length > 0;
-        const isComplete = content.includes('完成') || content.includes('Done') || content.includes('complete');
+        const hasContent = mainImagePrompt || subImages.length > 0;
+        const isComplete = content.includes('完成') || content.includes('Done') || content.includes('complete') || (subImages.length >= 6);
         
         return {
           type: 'production',
           data: {
             mainImage: mainImagePrompt || "主图Prompt生成中...",
-            subImages: subImages.length > 0 ? subImages.slice(0, 6) : (aplusModules.length > 0 ? aplusModules : ["设计描述生成中..."]),
+            subImages: subImages.length > 0 ? subImages.slice(0, 6) : ["设计描述生成中..."],
             status: isComplete ? 'completed' : (hasContent ? 'processing' : 'pending')
           }
         };
@@ -1005,22 +1100,33 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
               mode={mode}
               onConfirm={() => handleUserConfirm(WorkflowStep.COMPLETED)} 
             />
-            {isSingleStep && (
-              <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-white/10">
+            <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-white/10 mt-2">
+               <button 
+                  onClick={handleRegenerate}
+                  className="px-4 py-2.5 border border-gray-200 dark:border-white/10 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                  title="重新生成方案"
+               >
+                  <RefreshIcon />
+               </button>
+              
+              {isSingleStep ? (
                 <button 
                   onClick={() => handleContinueProduction()}
                   className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                 >
                   🔄 继续生成其他图片
                 </button>
+              ) : (
+                 <div className="flex-1"></div>
+              )}
+              
                 <button 
                   onClick={() => handleUserConfirm(WorkflowStep.COMPLETED)}
-                  className="py-2.5 px-4 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors"
+                  className="py-2.5 px-6 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors shadow-lg shadow-green-500/20"
                 >
                   ✅ 完成
                 </button>
-              </div>
-            )}
+            </div>
           </div>
         );
       default:
