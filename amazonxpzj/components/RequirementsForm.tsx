@@ -61,7 +61,7 @@ export const RequirementsForm: React.FC<RequirementsFormProps> = ({ featureId, f
   return (
     <div className="w-full h-full flex flex-col">
       {/* Header bar with Back Button */}
-      <div className="flex items-center justify-between pl-48 pr-8 py-5 bg-transparent z-10 sticky top-0">
+      <div className="flex items-center justify-between px-8 py-5 bg-transparent z-10 sticky top-0">
           <button 
             onClick={onBack}
             className="flex items-center gap-2 px-4 py-2 text-brand-orange bg-brand-orange/10 hover:bg-brand-orange/20 rounded-lg transition-colors text-sm font-bold"

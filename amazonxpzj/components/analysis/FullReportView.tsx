@@ -8,113 +8,178 @@ interface FullReportViewProps {
 }
 
 export const FullReportView: React.FC<FullReportViewProps> = ({ data }) => {
+  // Extract data with fallbacks
+  const summary = data?.summary || '选品分析报告已生成';
+  const marketOverview = data?.market_overview || {};
+  const segmentAnalysis = data?.segment_analysis || {};
+  const keywordInsights = data?.keyword_insights || {};
+  const productInsights = data?.product_insights || {};
+  const recommendations = data?.recommendations || {};
+
   return (
     <div className="max-w-4xl mx-auto bg-white dark:bg-[#121212] min-h-screen p-8 md:p-12 shadow-sm rounded-none md:rounded-xl">
        {/* Report Header */}
        <div className="mb-10 text-center">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-            美国亚马逊户外背包市场分析与选品建议
+            深度市场选品分析报告
           </h1>
           <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl p-4 text-purple-800 dark:text-purple-200 text-sm leading-relaxed border border-purple-100 dark:border-purple-500/10">
-            <span className="font-bold">核心结论：</span> 户外背包市场在2024年Q1保持稳健增长，"轻量化" 与 "通勤兼容" 成为最显著的增长点。建议重点布局 Hydration Backpack 及 Daypack 细分赛道，避开头部垄断严重的专业登山包市场。
+            <span className="font-bold">核心结论：</span> {summary}
           </div>
        </div>
 
        {/* Section 1: Market Overview */}
-       <div className="mb-12">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-             <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
-             一、市场概况与趋势
-          </h2>
-          <p className="text-gray-600 dark:text-gray-300 text-sm leading-7 mb-6">
-             根据最近一年的销售数据，该品类呈现明显的季节性波动，夏季为销售高峰。整体市场容量约 1.2亿美金/月，平均客单价在 $35-$55 区间。
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-             <DataCard label="月均搜索量" value="450K+" trend="+12%" />
-             <DataCard label="平均转化率" value="8.5%" trend="-2%" negative />
-             <DataCard label="新品成功率" value="15%" trend="+3%" />
-          </div>
-       </div>
+       {marketOverview.title && (
+         <div className="mb-12">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+               <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
+               {marketOverview.title}
+            </h2>
+            <p className="text-gray-600 dark:text-gray-300 text-sm leading-7 mb-6">
+               {marketOverview.content}
+            </p>
 
-       {/* Section 2: Opportunity Analysis */}
-       <div className="mb-12">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-             <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
-             二、机会细分：Hydration Backpack (水袋包)
-          </h2>
-          
-          {/* Detailed Metric Card */}
-          <div className="bg-gray-50 dark:bg-white/5 rounded-2xl p-6 border border-gray-100 dark:border-white/5 mb-6">
-             <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                   <div className="w-12 h-12 bg-white dark:bg-white/10 rounded-xl flex items-center justify-center text-2xl shadow-sm">💧</div>
-                   <div>
-                      <h3 className="font-bold text-gray-900 dark:text-white">Hydration Backpack</h3>
-                      <p className="text-xs text-gray-500">竞争程度: 中 | 利润空间: 高</p>
+            {marketOverview.metrics && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                 {marketOverview.metrics.monthly_sales && (
+                   <DataCard label="月销量" value={marketOverview.metrics.monthly_sales} trend="+12%" />
+                 )}
+                 {marketOverview.metrics.active_products && (
+                   <DataCard label="活跃商品数" value={marketOverview.metrics.active_products} trend="+5%" />
+                 )}
+                 {marketOverview.metrics.chinese_seller_ratio && (
+                   <DataCard label="中国卖家占比" value={marketOverview.metrics.chinese_seller_ratio} trend="+3%" />
+                 )}
+              </div>
+            )}
+         </div>
+       )}
+
+       {/* Section 2: Segment Analysis */}
+       {segmentAnalysis.segments && segmentAnalysis.segments.length > 0 && (
+         <div className="mb-12">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+               <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
+               {segmentAnalysis.title || '二、细分赛道与机会地图'}
+            </h2>
+
+            <div className="space-y-6">
+              {segmentAnalysis.segments.map((segment: any, idx: number) => (
+                <div key={idx} className="bg-gray-50 dark:bg-white/5 rounded-2xl p-6 border border-gray-100 dark:border-white/5">
+                   <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                         <div className="w-12 h-12 bg-white dark:bg-white/10 rounded-xl flex items-center justify-center text-2xl shadow-sm">
+                           {idx === 0 ? '💧' : idx === 1 ? '🎒' : '🏔️'}
+                         </div>
+                         <div>
+                            <h3 className="font-bold text-gray-900 dark:text-white">{segment.name}</h3>
+                            <p className="text-xs text-gray-500">
+                              竞争程度: {segment.competition} | 机会评级: {segment.opportunity}
+                            </p>
+                         </div>
+                      </div>
+                      {segment.avg_price && (
+                        <div className="text-right">
+                           <div className="text-xl font-bold text-gray-900 dark:text-white">{segment.avg_price}</div>
+                           <div className="text-xs text-gray-400">平均价格</div>
+                        </div>
+                      )}
                    </div>
+                   <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">
+                      {segment.description}
+                   </p>
                 </div>
-                <div className="text-right">
-                   <div className="text-2xl font-bold text-gray-900 dark:text-white">4.5w+</div>
-                   <div className="text-xs text-gray-400">月搜索量</div>
+              ))}
+            </div>
+         </div>
+       )}
+
+       {/* Section 3: Keyword Insights */}
+       {keywordInsights.top_keywords && keywordInsights.top_keywords.length > 0 && (
+         <div className="mb-12">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+               <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
+               {keywordInsights.title || '三、关键词洞察'}
+            </h2>
+
+            <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-6 border border-gray-100 dark:border-white/5">
+              <div className="space-y-3">
+                {keywordInsights.top_keywords.map((kw: any, idx: number) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-white dark:bg-black/20 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-mono text-gray-400">#{kw.rank || idx + 1}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{kw.keyword}</span>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      kw.opportunity === '高' ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' :
+                      kw.opportunity === '中' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400' :
+                      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                    }`}>
+                      机会: {kw.opportunity}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+         </div>
+       )}
+
+       {/* Section 4: Product Insights */}
+       {productInsights.key_findings && productInsights.key_findings.length > 0 && (
+         <div className="mb-12">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+               <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
+               {productInsights.title || '四、竞品分析'}
+            </h2>
+
+            <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-6 border border-gray-100 dark:border-white/5 mb-4">
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                {productInsights.top_products && (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">分析商品数</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{productInsights.top_products}</div>
+                  </div>
+                )}
+                {productInsights.avg_price && (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">平均价格</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{productInsights.avg_price}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {productInsights.key_findings.map((finding: string, idx: number) => (
+                <div key={idx} className="flex gap-3 p-3 bg-white dark:bg-black/20 rounded-lg border border-gray-100 dark:border-white/5">
+                  <div className="text-brand-orange mt-0.5">•</div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{finding}</p>
                 </div>
-             </div>
-             
-             <div className="grid grid-cols-2 gap-4">
-                 <div className="p-4 bg-white dark:bg-black/20 rounded-xl border border-gray-100 dark:border-white/5">
-                    <div className="text-xs text-gray-500 mb-1">价格带分布</div>
-                    <div className="h-16 flex items-end gap-1">
-                       {[30, 60, 45, 80, 50, 20].map((h, i) => (
-                          <div key={i} className="flex-1 bg-brand-orange/20 rounded-t-sm relative group">
-                             <div className="absolute bottom-0 w-full bg-brand-orange rounded-t-sm transition-all duration-500" style={{ height: `${h}%` }}></div>
-                          </div>
-                       ))}
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-400 mt-2">
-                       <span>$20</span>
-                       <span>$80+</span>
-                    </div>
-                 </div>
-                 
-                 <div className="p-4 bg-white dark:bg-black/20 rounded-xl border border-gray-100 dark:border-white/5">
-                    <div className="text-xs text-gray-500 mb-1">评论星级趋势</div>
-                    <div className="h-16 flex items-center justify-center">
-                        <div className="w-full text-center text-gray-400 text-xs">暂无趋势数据</div>
-                    </div>
-                 </div>
-             </div>
-          </div>
+              ))}
+            </div>
+         </div>
+       )}
 
-          <p className="text-gray-600 dark:text-gray-300 text-sm leading-7">
-             <span className="font-bold text-gray-900 dark:text-white">分析结论：</span> 该细分市场头部品牌稍弱，用户对于 "漏水" 和 "清洁难" 的痛点非常集中。能够解决这两个痛点，且定价在 $35-$45 的产品更有机会突围。
-          </p>
-       </div>
+       {/* Section 5: Recommendations */}
+       {recommendations.actions && recommendations.actions.length > 0 && (
+         <div className="mb-12">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+               <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
+               {recommendations.title || '五、行动建议'}
+            </h2>
 
-       {/* Section 3: Recommendations */}
-       <div className="mb-12">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-             <span className="w-1 h-6 bg-brand-orange rounded-full"></span>
-             三、选品建议与行动指南
-          </h2>
-          
-          <div className="space-y-4">
-             <RecommendationItem 
-               type="success" 
-               title="产品定位" 
-               content="建议定位为 '短途徒步水袋包'，主打轻量化与防漏水设计。材质建议选用 420D 尼龙以平衡耐用与重量。" 
-             />
-             <RecommendationItem 
-               type="info" 
-               title="营销卖点" 
-               content="重点宣传 'BPA Free 材质'、'大开口易清洗' 以及 '2L 黄金容量'。视频广告展示跑步时不晃动的稳定性。" 
-             />
-             <RecommendationItem 
-               type="warning" 
-               title="供应链风险" 
-               content="水袋属于食品接触类产品，需确保通过 FDA 认证，且出厂前需进行 100% 试水测试，避免差评灾难。" 
-             />
-          </div>
-       </div>
+            <div className="space-y-4">
+              {recommendations.actions.map((action: any, idx: number) => (
+                <RecommendationItem
+                  key={idx}
+                  type={action.priority === '高' ? 'success' : action.priority === '中' ? 'info' : 'warning'}
+                  title={`${action.priority === '高' ? '🔥 ' : action.priority === '中' ? '💡 ' : '⚠️ '}${action.action}`}
+                  content={action.details}
+                />
+              ))}
+            </div>
+         </div>
+       )}
 
     </div>
   );

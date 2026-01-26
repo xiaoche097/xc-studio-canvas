@@ -11,10 +11,10 @@ type ViewState = 'home' | 'chat' | 'video' | 'selection';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
-  const [initialData, setInitialData] = useState<{ text: string; images: string[]; model: string; step?: number }>({ 
-    text: '', 
+  const [initialData, setInitialData] = useState<{ text: string; images: string[]; model: string; step?: number }>({
+    text: '',
     images: [],
-    model: 'gemini-1.5-pro'
+    model: 'gemini-3-pro-preview'
   });
   const [isDark, setIsDark] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -27,7 +27,7 @@ const App: React.FC = () => {
     // Check localStorage or system preference
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
+
     if (savedTheme === 'light') {
       setIsDark(false);
       document.documentElement.classList.remove('dark');
@@ -55,7 +55,7 @@ const App: React.FC = () => {
   };
 
   const handleBackToHome = () => {
-    setInitialData({ text: '', images: [], model: 'gemini-1.5-pro' });
+    setInitialData({ text: '', images: [], model: 'gemini-3-pro-preview' });
     setView('home');
   };
 
@@ -66,7 +66,7 @@ const App: React.FC = () => {
       {/* Top Right Controls */}
       <div className="fixed top-6 right-6 z-50 flex gap-2">
         {/* Settings Button */}
-        <button 
+        <button
           onClick={() => setIsSettingsOpen(true)}
           className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20"
           aria-label="Settings"
@@ -75,7 +75,7 @@ const App: React.FC = () => {
         </button>
 
         {/* Theme Toggle Button */}
-        <button 
+        <button
           onClick={toggleTheme}
           className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-yellow-400 hover:bg-white dark:hover:bg-white/20"
           aria-label="Toggle Theme"
@@ -88,45 +88,38 @@ const App: React.FC = () => {
 
       {view === 'video' ? (
         <div className="relative w-full h-full bg-black z-[100]">
-             <VideoStationApp /> 
-             <button 
-               onClick={() => setView('home')}
-               className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all font-medium text-sm flex items-center gap-2"
-             >
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-               Back to Studio
-             </button>
+          <VideoStationApp />
+          <button
+            onClick={() => setView('home')}
+            className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all font-medium text-sm flex items-center gap-2"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+            Back to Studio
+          </button>
         </div>
       ) : view === 'selection' ? (
         <div className="relative w-full h-full bg-[#F8FAFC] dark:bg-[#050505] z-[100] overflow-y-auto">
-             {/* Use Amazon Selection App */}
-             <AmazonSelectionApp />
-             <button 
-               onClick={() => setView('home')}
-               className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/80 dark:bg-black/50 backdrop-blur-md border border-gray-200 dark:border-white/10 text-gray-800 dark:text-white rounded-lg hover:bg-white dark:hover:bg-white/10 transition-all font-medium text-sm flex items-center gap-2 shadow-sm"
-             >
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-               Back to Studio
-             </button>
+          {/* Use Amazon Selection App - No Back button here, handled inside AmazonSelectionApp */}
+          <AmazonSelectionApp />
         </div>
       ) : view === 'home' ? (
         <AgentHome onStart={(text, img, model, step) => {
-            if (step === 12) { // WorkflowStep.VIDEO_GENERATION
-                 setView('video');
-            } else if (step === 14) { // WorkflowStep.AMAZON_SELECTION
-                 setView('selection');
+          if (step === 12) { // WorkflowStep.VIDEO_GENERATION
+            setView('video');
+          } else if (step === 14) { // WorkflowStep.AMAZON_SELECTION
+            setView('selection');
+          } else {
+            if (Array.isArray(img)) {
+              handleStartAgent(text, img, model, step);
             } else {
-                if (Array.isArray(img)) {
-                     handleStartAgent(text, img, model, step);
-                } else {
-                     handleStartAgent(text, img ? [img] : [], model, step);
-                }
+              handleStartAgent(text, img ? [img] : [], model, step);
             }
+          }
         }} />
       ) : (
-        <ChatStudio 
-          initialInput={initialData.text} 
-          initialImages={initialData.images} 
+        <ChatStudio
+          initialInput={initialData.text}
+          initialImages={initialData.images}
           initialModel={initialData.model}
           initialStep={initialData.step}
           onBack={handleBackToHome}

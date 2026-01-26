@@ -68,6 +68,11 @@ export interface KeywordData {
     category: string;
     percentage: number;
   }[];
+  monthlySearchVolume?: string;
+  productCount?: string;
+  chineseSellerRatio?: string;
+  competitionIndex?: number;
+  products?: Product[];
 }
 
 export interface TaskResult {
@@ -91,6 +96,7 @@ export interface Product {
   platform?: string;
   category?: string;
   highlights?: string[];
+  salesRankLast30Days?: string;
 }
 
 export interface ExecutionStep {

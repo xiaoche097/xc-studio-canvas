@@ -113,12 +113,38 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
          // Execute via Orchestrator
          const response = await orchestrator.dispatch(task);
 
+         // Determine detailType and extract data based on task type
+         let detailType: 'keywords' | 'products' | 'report' | undefined;
+         let data: any;
+         let summary: string;
+
+         if (task.task_type.includes('keyword') || task.agent === 'keyword_agent') {
+           detailType = 'keywords';
+           data = response.result?.keywords || [];
+           summary = response.result?.summary || '关键词分析完成';
+         } else if (task.task_type.includes('product') || task.agent === 'product_agent') {
+           detailType = 'products';
+           data = response.result?.products || [];
+           summary = response.result?.summary || '商品数据获取完成';
+         } else if (task.task_type.includes('report') || task.agent === 'report_agent') {
+           detailType = 'report';
+           data = response.result || {};
+           summary = response.result?.summary || '报告生成完成';
+         } else {
+           data = response.result;
+           summary = task.description;
+         }
+
          // Update Step with Result
          set(state => ({
            executionSteps: state.executionSteps.map(s => s.id === stepId ? {
              ...s,
              status: 'completed',
-             result: response.result
+             result: {
+               detailType,
+               data,
+               summary
+             }
            } : s)
          }));
       }
