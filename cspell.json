@@ -32,7 +32,9 @@
     "Deuter",
     "breathability",
     "softbox",
-    "octabox"
+    "octabox",
+    "dify",
+    "Dify"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

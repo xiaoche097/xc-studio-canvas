@@ -96,7 +96,18 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3-pro-preview'); // Default to Pro
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-pro'); // Default to 2.5 Pro
+
+// ... inside the JSX ...
+                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : 'Gemini 2.5 Pro'}
+// ...
+                      <button
+                        onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
+                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-2.5-pro' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
+                      >
+                        Gemini 2.5 Pro
+                        {selectedModel === 'gemini-2.5-pro' && <span className="text-xs">✓</span>}
+                      </button>
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showTryOnModal, setShowTryOnModal] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
@@ -302,7 +313,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                     className="px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5"
                   >
                     <SettingsIcon />
-                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : 'Gemini 3 Flash'}
+                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : 'Gemini 2.5 Pro'}
                   </button>
 
                   {showModelMenu && (
@@ -321,6 +332,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                       >
                         Gemini 3 Flash
                         {selectedModel === 'gemini-3-flash-preview' && <span className="text-xs">✓</span>}
+                      </button>
+                      <div className="h-px bg-gray-100 dark:bg-white/5"></div>
+                      <button
+                        onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
+                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-2.5-pro' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
+                      >
+                        Gemini 2.5 Pro
+                        {selectedModel === 'gemini-2.5-pro' && <span className="text-xs">✓</span>}
                       </button>
                     </div>
                   )}
