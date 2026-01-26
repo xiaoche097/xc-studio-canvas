@@ -84,27 +84,53 @@ const KeywordAnalysisBigTable: React.FC<{ data: KeywordData[] }> = ({ data }) =>
                <th className="px-6 py-4 w-48">关键词</th>
                <th className="px-6 py-4 w-32">亚马逊搜索排名</th>
                <th className="px-6 py-4 w-40">亚马逊趋势数据</th>
-               <th className="px-6 py-4">关键词核心类目分布</th>
+               <th className="px-6 py-4 w-32">月搜索量</th>
+               <th className="px-6 py-4 w-32">在售商品数</th>
+               <th className="px-6 py-4 w-32">中国卖家占比</th>
+               <th className="px-6 py-4 w-32">竞争指数</th>
+               <th className="px-6 py-4 min-w-[400px]">关键词核心类目分布</th>
             </tr>
          </thead>
          <tbody className="divide-y divide-gray-100 dark:divide-white/5">
             {data.map((item, idx) => (
                <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
                   <td className="px-6 py-6 font-medium text-gray-900 dark:text-gray-100">{item.keyword}</td>
-                  <td className="px-6 py-6 font-mono text-gray-600 dark:text-gray-300">{item.searchRank}</td>
+                  <td className="px-6 py-6 font-mono text-gray-600 dark:text-gray-300">
+                     #{item.searchRank?.toLocaleString() || 'N/A'}
+                  </td>
                   <td className="px-6 py-6">
-                     <div className="w-32 h-10">
-                        <Sparkline data={item.trendData} color="#8B5CF6" />
-                     </div>
+                     {item.trendData && item.trendData.length > 0 ? (
+                        <div className="w-32 h-10">
+                           <Sparkline data={item.trendData} color="#8B5CF6" />
+                        </div>
+                     ) : (
+                        <span className="text-gray-400 text-xs">无数据</span>
+                     )}
+                  </td>
+                  <td className="px-6 py-6 font-medium text-gray-700 dark:text-gray-300">
+                     {item.monthlySearchVolume || 'N/A'}
+                  </td>
+                  <td className="px-6 py-6 font-medium text-gray-700 dark:text-gray-300">
+                     {item.productCount || 'N/A'}
+                  </td>
+                  <td className="px-6 py-6 font-medium text-gray-700 dark:text-gray-300">
+                     {item.chineseSellerRatio || 'N/A'}
+                  </td>
+                  <td className="px-6 py-6 font-mono text-gray-700 dark:text-gray-300">
+                     {item.competitionIndex?.toLocaleString() || 'N/A'}
                   </td>
                   <td className="px-6 py-6">
                      <div className="space-y-1.5 max-w-2xl">
-                        {item.categoryDistribution.map((cat, i) => (
-                           <div key={i} className="flex items-start text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                              <span className="font-mono text-gray-400 w-14 shrink-0">({cat.percentage}%) - </span>
-                              <span className="break-words">{cat.category}</span>
-                           </div>
-                        ))}
+                        {item.categoryDistribution && item.categoryDistribution.length > 0 ? (
+                           item.categoryDistribution.map((cat, i) => (
+                              <div key={i} className="flex items-start text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                                 <span className="font-mono text-gray-400 w-14 shrink-0">({cat.percentage}%)</span>
+                                 <span className="break-words ml-2">{cat.category}</span>
+                              </div>
+                           ))
+                        ) : (
+                           <span className="text-gray-400 text-xs">无类目数据</span>
+                        )}
                      </div>
                   </td>
                </tr>

@@ -43,50 +43,102 @@ export const AgentExecutionView: React.FC = () => {
     if (step.status === 'completed' && step.result) {
       switch (step.result.detailType) {
         case 'keywords':
+          const keywordData = Array.isArray(step.result.data) ? step.result.data : [];
           return (
              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">关键词数据抓取完成</p>
+                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{step.result.summary || '关键词数据抓取完成'}</p>
                 </div>
                 {/* Preview Table (First 2 items) */}
-                <KeywordAnalysis data={step.result.data.slice(0, 2)} />
-                
-                <button 
-                  onClick={() => openModal('keywords', '查看关键词详情', step.result.data)}
-                  className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 transition-colors flex items-center justify-center gap-2"
-                >
-                   <ArrowUpRight size={16} />
-                   查看全部关键词数据
-                </button>
+                {keywordData.length > 0 && (
+                  <>
+                    <KeywordAnalysis data={keywordData.slice(0, 2)} />
+
+                    {/* Product Preview Images for each keyword */}
+                    <div className="space-y-4 mt-4">
+                      {keywordData.slice(0, 2).map((kw: any, kwIdx: number) => (
+                        kw.products && kw.products.length > 0 && (
+                          <div key={kwIdx} className="space-y-2">
+                            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 px-2">
+                              "{kw.keyword}" 相关商品预览
+                            </div>
+                            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                              {kw.products.slice(0, 6).map((p: any, pIdx: number) => (
+                                <div key={pIdx} className="bg-white dark:bg-[#1a1a1a] rounded-lg overflow-hidden border border-gray-100 dark:border-white/5 hover:border-brand-orange/30 hover:shadow-md transition-all group">
+                                  <div className="aspect-square relative bg-gray-50 dark:bg-white/5">
+                                    {p.image ? (
+                                      <img src={p.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt={p.title} />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-gray-300 dark:text-gray-600">
+                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                          <circle cx="8.5" cy="8.5" r="1.5"/>
+                                          <polyline points="21 15 16 10 5 21"/>
+                                        </svg>
+                                      </div>
+                                    )}
+                                    {p.rating && (
+                                      <div className="absolute top-1.5 right-1.5 bg-black/60 backdrop-blur-sm text-white px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5">
+                                        <span className="text-yellow-400">★</span> {p.rating}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="p-2">
+                                    <div className="text-[11px] text-gray-700 dark:text-gray-300 line-clamp-2 leading-tight mb-1.5" title={p.title}>{p.title}</div>
+                                    <div className="text-sm font-bold text-brand-orange">{p.currency}{p.price}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => openModal('keywords', '查看关键词详情', keywordData)}
+                      className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 transition-colors flex items-center justify-center gap-2"
+                    >
+                       <ArrowUpRight size={16} />
+                       查看全部关键词数据 ({keywordData.length}个)
+                    </button>
+                  </>
+                )}
              </div>
           );
         case 'products':
+          const productData = Array.isArray(step.result.data) ? step.result.data : [];
           return (
              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">成功获取到相关热销商品</p>
+                   <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{step.result.summary || '成功获取到相关热销商品'}</p>
                 </div>
                 {/* Preview Grid (First 4 items) */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                   {step.result.data.slice(0, 4).map((p: any) => (
-                      <div key={p.id} className="bg-gray-50 dark:bg-white/5 p-2 rounded-lg border border-gray-100 dark:border-white/5">
-                         <img src={p.image} className="w-full aspect-square object-cover rounded-md mb-2" />
-                         <div className="text-xs font-bold truncate">{p.title}</div>
-                         <div className="text-xs text-brand-orange mt-1">{p.currency}{p.price}</div>
-                      </div>
-                   ))}
-                </div>
+                {productData.length > 0 && (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                       {productData.slice(0, 4).map((p: any) => (
+                          <div key={p.id} className="bg-gray-50 dark:bg-white/5 p-2 rounded-lg border border-gray-100 dark:border-white/5">
+                             <img src={p.image} className="w-full aspect-square object-cover rounded-md mb-2" alt={p.title} />
+                             <div className="text-xs font-bold truncate">{p.title}</div>
+                             <div className="text-xs text-brand-orange mt-1">{p.currency}{p.price}</div>
+                          </div>
+                       ))}
+                    </div>
 
-                <button 
-                   onClick={() => openModal('products', '商品列表详情', step.result.data)}
-                   className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 transition-colors flex items-center justify-center gap-2"
-                >
-                   <ArrowUpRight size={16} />
-                   查看完整商品列表
-                </button>
+                    <button
+                       onClick={() => openModal('products', '商品列表详情', productData)}
+                       className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-300 transition-colors flex items-center justify-center gap-2"
+                    >
+                       <ArrowUpRight size={16} />
+                       查看完整商品列表 ({productData.length}个)
+                    </button>
+                  </>
+                )}
              </div>
           );
         case 'report':
+          const reportData = step.result.data || {};
           return (
              <div className="bg-gradient-to-r from-purple-50 to-white dark:from-purple-900/10 dark:to-transparent rounded-xl p-6 border border-purple-100 dark:border-purple-500/20">
                 <div className="flex items-center justify-between mb-4">
@@ -99,15 +151,15 @@ export const AgentExecutionView: React.FC = () => {
                          <p className="text-xs text-gray-500 dark:text-gray-400">本内容由 SKYSPER AI 生成，内容供参考</p>
                       </div>
                    </div>
-                   <button 
-                     onClick={() => openModal('report', '深度市场选品报告', step.result.data)}
+                   <button
+                     onClick={() => openModal('report', '深度市场选品报告', reportData)}
                      className="px-5 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-lg text-sm font-bold shadow-lg shadow-purple-500/30 transition-all hover:scale-105"
                    >
                       查看详情
                    </button>
                 </div>
                 <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed mb-0">
-                   {step.result.data.summary}
+                   {step.result.summary || reportData.summary || '选品分析报告已生成'}
                 </p>
              </div>
           );
@@ -128,7 +180,7 @@ export const AgentExecutionView: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-transparent overflow-hidden relative font-sans">
       {/* Header */}
-      <div className="flex items-center justify-between pl-48 pr-8 py-5 border-b border-gray-100 dark:border-white/5 bg-white/50 backdrop-blur-md z-10 sticky top-0">
+      <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 dark:border-white/5 bg-white/50 backdrop-blur-md z-10 sticky top-0">
          <div className="flex items-center gap-4">
             <button 
               onClick={() => setView('landing')}
