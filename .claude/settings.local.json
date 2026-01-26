@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: complete product selection expert system with enhanced UI and data structure\n\n- Update DetailModal KeywordAnalysisBigTable to display all required columns \\(searchRank, trendData, monthlySearchVolume, productCount, chineseSellerRatio, competitionIndex, categoryDistribution\\)\n- Update ProductList table view with separate columns for country, platform, and category\n- Add product preview images grid in AgentExecutionView for keyword analysis results\n- Optimize KEYWORD_AGENT_PROMPT to ensure complete data return with all required fields\n- Optimize PRODUCT_AGENT_PROMPT to ensure salesRankLast30Days and image fields are populated\n- Optimize REPORT_AGENT_PROMPT to ensure complete 5-section report structure\n- Update mock data to include all required fields with realistic values\n- Add proper null/undefined checks and fallback displays in UI components\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(curl:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

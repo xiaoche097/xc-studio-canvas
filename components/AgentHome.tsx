@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { 
-  ImageIcon, 
-  SettingsIcon, 
+import React, { useState, useEffect } from 'react';
+import {
+  ImageIcon,
+  SettingsIcon,
   SendIcon,
   ModelVisual,
   MarketingVisual,
@@ -21,6 +21,79 @@ interface AgentHomeProps {
 }
 
 export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
+  useEffect(() => {
+    // 1. Define Config
+    (window as any).difyChatbotConfig = {
+      token: 'hsdP9g5aPU0ea9qO',
+      inputs: {},
+      systemVariables: {},
+      userVariables: {},
+    };
+
+    // 2. Create Script
+    const script = document.createElement('script');
+    script.src = "https://udify.app/embed.min.js";
+    script.id = "hsdP9g5aPU0ea9qO";
+    script.defer = true;
+    document.body.appendChild(script);
+
+    // 3. Create Styles
+    const style = document.createElement('style');
+    style.id = "dify-custom-style";
+    style.innerHTML = `
+      #dify-chatbot-bubble-button {
+        background-color: #ED6D46 !important;
+        box-shadow: 0 4px 20px rgba(237, 109, 70, 0.4) !important;
+        width: 60px !important;
+        height: 60px !important;
+        border-radius: 50% !important;
+        z-index: 2147483647 !important;
+        bottom: 24px !important;
+        right: 24px !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      /* Hide default icon */
+      #dify-chatbot-bubble-button svg {
+        display: none !important;
+      }
+      /* Add Text "SKYSPER" - Absolute Centering */
+      #dify-chatbot-bubble-button::after {
+        content: 'SKYSPER';
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        font-family: 'Noto Sans SC', sans-serif !important;
+        color: white !important;
+        font-size: 10px !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.5px !important;
+        white-space: nowrap !important;
+        pointer-events: none !important;
+      }
+      #dify-chatbot-bubble-window {
+        width: 24rem !important;
+        height: 40rem !important;
+        z-index: 2147483646 !important;
+        bottom: 100px !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Cleanup
+    return () => {
+      document.body.removeChild(script);
+      document.head.removeChild(style);
+      // Remove the elements created by the script script if possible, though strict cleanup might fail if script hasn't fully loaded. 
+      // The Dify script usually appends #dify-chatbot-bubble-button to body. We should check and remove.
+      const bubble = document.getElementById('dify-chatbot-bubble-button');
+      if (bubble) bubble.remove();
+      const windowEl = document.getElementById('dify-chatbot-bubble-window');
+      if (windowEl) windowEl.remove();
+    };
+  }, []);
+
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3-pro-preview'); // Default to Pro
@@ -74,51 +147,51 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   const handleCardClick = (prompt: string, title?: string) => {
     if (title === "模特上身") {
-        setShowTryOnModal(true);
+      setShowTryOnModal(true);
     } else if (title === "营销图生成") {
-        setShowMarketingModal(true);
+      setShowMarketingModal(true);
     } else if (title === "视频工作站") {
-        // Direct jump to Video Station, bypassing modal
-        onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
+      // Direct jump to Video Station, bypassing modal
+      onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
     } else if (title === "选品专家") {
-        // Direct jump to Amazon Selection, bypassing modal
-        onStart("/selection", [], selectedModel, WorkflowStep.AMAZON_SELECTION);
+      // Direct jump to Amazon Selection, bypassing modal
+      onStart("/selection", [], selectedModel, WorkflowStep.AMAZON_SELECTION);
     } else if (title === "图片翻译") {
-        setShowTranslateModal(true);
+      setShowTranslateModal(true);
     } else {
-        setInput(prompt);
+      setInput(prompt);
     }
   };
 
   const handleModalConfirm = (modelImg: string, garmentImg: string, aspectRatio: string, resolution: string) => {
-      setShowTryOnModal(false);
-      onStart(
-        `/model 模特上身生成 (比例: ${aspectRatio}, 清晰度: ${resolution})`, 
-        [modelImg, garmentImg], 
-        selectedModel,
-        WorkflowStep.MODEL_TRY_ON
-      );
+    setShowTryOnModal(false);
+    onStart(
+      `/model 模特上身生成 (比例: ${aspectRatio}, 清晰度: ${resolution})`,
+      [modelImg, garmentImg],
+      selectedModel,
+      WorkflowStep.MODEL_TRY_ON
+    );
   };
 
   const handleMarketingConfirm = (productImages: string[], aspectRatio: string, description: string, resolution: string) => {
-      setShowMarketingModal(false);
-      const promptDescription = description.trim() ? ` 详细要求: ${description}` : '';
-      onStart(
-          `/marketing 生成节日促销海报 (比例: ${aspectRatio}, 分辨率: ${resolution})${promptDescription}`, 
-          productImages, 
-          selectedModel,
-          WorkflowStep.MARKETING_IMAGE_GENERATION
-      );
+    setShowMarketingModal(false);
+    const promptDescription = description.trim() ? ` 详细要求: ${description}` : '';
+    onStart(
+      `/marketing 生成节日促销海报 (比例: ${aspectRatio}, 分辨率: ${resolution})${promptDescription}`,
+      productImages,
+      selectedModel,
+      WorkflowStep.MARKETING_IMAGE_GENERATION
+    );
   };
 
   const handleBackgroundConfirm = (productImg: string, bgImg: string) => {
-      setShowBackgroundModal(false);
-      onStart("/background 将左侧商品自然融合到右侧场景中，保持光影自然，生成高品质背景图", [productImg, bgImg], selectedModel);
+    setShowBackgroundModal(false);
+    onStart("/background 将左侧商品自然融合到右侧场景中，保持光影自然，生成高品质背景图", [productImg, bgImg], selectedModel);
   };
 
   const handleTranslateConfirm = (img: string) => {
-      setShowTranslateModal(false);
-      onStart("/translate 将图片中的文案翻译为英语，保持原文排版和风格", [img], selectedModel);
+    setShowTranslateModal(false);
+    onStart("/translate 将图片中的文案翻译为英语，保持原文排版和风格", [img], selectedModel);
   };
 
   const FEATURE_CARDS = [
@@ -187,11 +260,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
         <div className="w-full max-w-4xl animate-slide-up group">
           <div className="relative rounded-[2rem] transition-all duration-300 bg-white dark:bg-[#121212] shadow-2xl shadow-gray-200/50 dark:shadow-black/50 border border-white/50 dark:border-white/10 hover:shadow-gray-300/50 dark:hover:shadow-brand-orange/5 group-focus-within:ring-1 group-focus-within:ring-brand-orange/30">
             <div className="p-1">
-              <textarea 
+              <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe your product or upload an image..." 
+                placeholder="Describe your product or upload an image..."
                 className="w-full bg-transparent border-none outline-none text-gray-800 dark:text-gray-100 text-lg px-8 py-6 min-h-[120px] resize-none placeholder-gray-400 dark:placeholder-gray-600 font-light rounded-[1.8rem]"
               ></textarea>
             </div>
@@ -200,17 +273,17 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
               <div className="flex gap-2 items-center flex-wrap">
                 <button className="relative px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5 overflow-hidden group/btn">
                   <input type="file" multiple className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={handleImageUpload} accept="image/*" />
-                  <ImageIcon /> 
+                  <ImageIcon />
                   <span className={images.length > 0 ? "text-brand-orange" : ""}>
                     {images.length > 0 ? `Add (${images.length}/5)` : "Upload"}
                   </span>
                 </button>
-                
+
                 {/* Image Previews */}
                 {images.map((img, idx) => (
                   <div key={idx} className="relative w-10 h-10 rounded-lg overflow-hidden border border-brand-orange/20 shadow-sm group/preview shrink-0">
                     <img src={img} alt="Upload preview" className="w-full h-full object-cover" />
-                    <button 
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         removeImage(idx);
@@ -221,20 +294,20 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                     </button>
                   </div>
                 ))}
-                
+
                 {/* Model Selector */}
                 <div className="relative">
-                  <button 
+                  <button
                     onClick={() => setShowModelMenu(!showModelMenu)}
                     className="px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5"
                   >
                     <SettingsIcon />
                     {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : 'Gemini 3 Flash'}
                   </button>
-                  
+
                   {showModelMenu && (
                     <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-xl border border-gray-200 dark:border-white/10 overflow-hidden z-20 animate-in fade-in slide-in-from-top-2">
-                      <button 
+                      <button
                         onClick={() => { setSelectedModel('gemini-3-pro-preview'); setShowModelMenu(false); }}
                         className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3-pro-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
                       >
@@ -242,7 +315,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                         {selectedModel === 'gemini-3-pro-preview' && <span className="text-xs">✓</span>}
                       </button>
                       <div className="h-px bg-gray-100 dark:bg-white/5"></div>
-                      <button 
+                      <button
                         onClick={() => { setSelectedModel('gemini-3-flash-preview'); setShowModelMenu(false); }}
                         className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3-flash-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
                       >
@@ -254,8 +327,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                 </div>
               </div>
 
-              <button 
-                onClick={handleStart} 
+              <button
+                onClick={handleStart}
                 disabled={!input && images.length === 0}
                 className="w-12 h-12 rounded-full bg-brand-orange text-white flex items-center justify-center shadow-lg shadow-orange-500/20 hover:scale-105 hover:shadow-orange-500/40 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -267,62 +340,62 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
         {/* ... Feature Cards Grid ... */}
         <div className="w-full max-w-5xl grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 animate-slide-up [animation-delay:150ms]">
-            {FEATURE_CARDS.map((card, idx) => (
-                <div 
-                    key={idx}
-                    onClick={() => handleCardClick(card.prompt, card.title)}
-                    className={`
+          {FEATURE_CARDS.map((card, idx) => (
+            <div
+              key={idx}
+              onClick={() => handleCardClick(card.prompt, card.title)}
+              className={`
                         group relative h-48 md:h-56 rounded-3xl p-5 cursor-pointer overflow-hidden transition-all duration-300 ease-out
                         bg-gradient-to-br ${card.bgClass}
                         border border-transparent ${card.borderClass}
                         hover:-translate-y-1 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/50
                     `}
-                >
-                    <div className="relative z-10 flex flex-col h-full">
-                        <h3 className={`font-bold text-lg leading-tight ${card.textClass}`}>
-                            {card.title}
-                        </h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            Create now →
-                        </p>
-                    </div>
+            >
+              <div className="relative z-10 flex flex-col h-full">
+                <h3 className={`font-bold text-lg leading-tight ${card.textClass}`}>
+                  {card.title}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  Create now →
+                </p>
+              </div>
 
-                    <div className={`
+              <div className={`
                         absolute -bottom-6 -right-6 w-32 h-32 
                         transition-transform duration-500 ease-out 
                         group-hover:scale-110 group-hover:-rotate-3
                         ${card.visualColor} opacity-90 dark:opacity-80
                     `}>
-                        <card.Visual className="w-full h-full drop-shadow-sm" />
-                    </div>
-                </div>
-            ))}
+                <card.Visual className="w-full h-full drop-shadow-sm" />
+              </div>
+            </div>
+          ))}
         </div>
-        
-        <ModelTryOnModal 
-            isOpen={showTryOnModal} 
-            onClose={() => setShowTryOnModal(false)} 
-            onConfirm={handleModalConfirm} 
+
+        <ModelTryOnModal
+          isOpen={showTryOnModal}
+          onClose={() => setShowTryOnModal(false)}
+          onConfirm={handleModalConfirm}
         />
 
-        <MarketingModal 
-            isOpen={showMarketingModal} 
-            onClose={() => setShowMarketingModal(false)} 
-            onConfirm={handleMarketingConfirm} 
+        <MarketingModal
+          isOpen={showMarketingModal}
+          onClose={() => setShowMarketingModal(false)}
+          onConfirm={handleMarketingConfirm}
         />
 
-        <BackgroundModal 
-            isOpen={showBackgroundModal} 
-            onClose={() => setShowBackgroundModal(false)} 
-            onConfirm={handleBackgroundConfirm} 
+        <BackgroundModal
+          isOpen={showBackgroundModal}
+          onClose={() => setShowBackgroundModal(false)}
+          onConfirm={handleBackgroundConfirm}
         />
 
 
 
-        <TranslateModal 
-            isOpen={showTranslateModal} 
-            onClose={() => setShowTranslateModal(false)} 
-            onConfirm={handleTranslateConfirm} 
+        <TranslateModal
+          isOpen={showTranslateModal}
+          onClose={() => setShowTranslateModal(false)}
+          onConfirm={handleTranslateConfirm}
         />
       </div>
     </div>

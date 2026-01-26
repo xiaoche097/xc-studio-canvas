@@ -6,10 +6,10 @@ import { SmartSequenceItem, VideoGenerationMode } from "../types";
 // --- Initialization ---
 
 const getClient = () => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key is missing. Please select a paid API key via the Google AI Studio button.");
-  }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (!process.env.API_KEY) {
+        throw new Error("API Key is missing. Please select a paid API key via the Google AI Studio button.");
+    }
+    return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 const getPolloKey = () => {
@@ -27,29 +27,29 @@ const getErrorMessage = (error: any): string => {
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function retryWithBackoff<T>(
-  operation: () => Promise<T>, 
-  maxRetries: number = 3, 
-  baseDelay: number = 2000
+    operation: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelay: number = 2000
 ): Promise<T> {
-  let lastError: any;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await operation();
-    } catch (error: any) {
-      lastError = error;
-      const msg = getErrorMessage(error).toLowerCase();
-      const isOverloaded = error.status === 503 || error.code === 503 || msg.includes("overloaded") || msg.includes("503") || error.status === 429 || error.code === 429;
+    let lastError: any;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await operation();
+        } catch (error: any) {
+            lastError = error;
+            const msg = getErrorMessage(error).toLowerCase();
+            const isOverloaded = error.status === 503 || error.code === 503 || msg.includes("overloaded") || msg.includes("503") || error.status === 429 || error.code === 429;
 
-      if (isOverloaded && i < maxRetries - 1) {
-        const delay = baseDelay * Math.pow(2, i);
-        console.warn(`API Overloaded (503/429). Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
-        await wait(delay);
-        continue;
-      }
-      throw error;
+            if (isOverloaded && i < maxRetries - 1) {
+                const delay = baseDelay * Math.pow(2, i);
+                console.warn(`API Overloaded (503/429). Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
+                await wait(delay);
+                continue;
+            }
+            throw error;
+        }
     }
-  }
-  throw lastError;
+    throw lastError;
 }
 
 // --- Audio Helpers ---
@@ -73,7 +73,7 @@ const base64ToUint8Array = (base64: string): Uint8Array => {
 const combineBase64Chunks = (chunks: string[], sampleRate: number = 24000): string => {
     let totalLength = 0;
     const arrays: Uint8Array[] = [];
-    
+
     for (const chunk of chunks) {
         const arr = base64ToUint8Array(chunk);
         arrays.push(arr);
@@ -91,21 +91,21 @@ const combineBase64Chunks = (chunks: string[], sampleRate: number = 24000): stri
     const bitDepth = 16;
     const header = new ArrayBuffer(44);
     const headerView = new DataView(header);
-    
+
     writeString(headerView, 0, 'RIFF');
     headerView.setUint32(4, 36 + totalLength, true);
     writeString(headerView, 8, 'WAVE');
     writeString(headerView, 12, 'fmt ');
-    headerView.setUint32(16, 16, true); 
-    headerView.setUint16(20, 1, true); 
-    headerView.setUint16(22, channels, true); 
+    headerView.setUint32(16, 16, true);
+    headerView.setUint16(20, 1, true);
+    headerView.setUint16(22, channels, true);
     headerView.setUint32(24, sampleRate, true);
-    headerView.setUint32(28, sampleRate * channels * (bitDepth / 8), true); 
-    headerView.setUint16(32, channels * (bitDepth / 8), true); 
+    headerView.setUint32(28, sampleRate * channels * (bitDepth / 8), true);
+    headerView.setUint16(32, channels * (bitDepth / 8), true);
     headerView.setUint16(34, bitDepth, true);
     writeString(headerView, 36, 'data');
     headerView.setUint32(40, totalLength, true);
-    
+
     const wavFile = new Uint8Array(header.byteLength + totalLength);
     wavFile.set(new Uint8Array(header), 0);
     wavFile.set(merged, header.byteLength);
@@ -115,7 +115,7 @@ const combineBase64Chunks = (chunks: string[], sampleRate: number = 24000): stri
     for (let i = 0; i < wavFile.length; i += chunk) {
         binary += String.fromCharCode.apply(null, Array.from(wavFile.subarray(i, i + chunk)));
     }
-    
+
     return 'data:audio/wav;base64,' + btoa(binary);
 };
 
@@ -170,7 +170,7 @@ const convertImageToCompatibleFormat = async (base64Str: string): Promise<{ data
 export const extractLastFrame = (videoSrc: string): Promise<string> => {
     return new Promise((resolve, reject) => {
         const video = document.createElement('video');
-        video.crossOrigin = "anonymous"; 
+        video.crossOrigin = "anonymous";
         video.src = videoSrc;
         video.muted = true;
         video.onloadedmetadata = () => { video.currentTime = Math.max(0, video.duration - 0.1); };
@@ -309,18 +309,18 @@ const HELP_ME_WRITE_INSTRUCTION = `
 // --- API Functions ---
 
 export const sendChatMessage = async (
-    history: { role: 'user' | 'model', parts: { text: string }[] }[], 
+    history: { role: 'user' | 'model', parts: { text: string }[] }[],
     newMessage: string,
     options?: { isThinkingMode?: boolean, isStoryboard?: boolean, isHelpMeWrite?: boolean }
 ): Promise<string> => {
     const ai = getClient();
-    
+
     // Model Selection
-    let modelName = 'gemini-2.5-flash';
+    let modelName = 'gemini-3-flash-preview';
     let systemInstruction = SYSTEM_INSTRUCTION;
 
     if (options?.isThinkingMode) {
-        modelName = 'gemini-2.5-flash'; // Or 'gemini-2.0-flash-thinking-exp-1219' if available
+        modelName = 'gemini-3-flash-preview'; // Or 'gemini-2.0-flash-thinking-exp-1219' if available
         // Thinking mode logic (mocked by model selection/config here if supported)
     }
 
@@ -341,27 +341,27 @@ export const sendChatMessage = async (
 };
 
 export const generateImageFromText = async (
-    prompt: string, 
-    model: string, 
-    inputImages: string[] = [], 
+    prompt: string,
+    model: string,
+    inputImages: string[] = [],
     options: { aspectRatio?: string, resolution?: string, count?: number } = {}
 ): Promise<string[]> => {
     const ai = getClient();
     const count = options.count || 1;
-    
+
     // Fallback/Correction for model names
-    const effectiveModel = model.includes('imagen') ? 'imagen-3.0-generate-002' : 'gemini-2.5-flash-image';
-    
+    const effectiveModel = model.includes('imagen') ? 'imagen-3.0-generate-002' : 'gemini-3-pro-image-preview';
+
     // Prepare Contents
     const parts: Part[] = [];
-    
+
     // Add Input Images if available (Image-to-Image)
     for (const base64 of inputImages) {
         const cleanBase64 = base64.replace(/^data:image\/\w+;base64,/, "");
         const mimeType = base64.match(/^data:(image\/\w+);base64,/)?.[1] || "image/png";
         parts.push({ inlineData: { data: cleanBase64, mimeType } });
     }
-    
+
     parts.push({ text: prompt });
 
     try {
@@ -387,7 +387,7 @@ export const generateImageFromText = async (
         // Handle count (Gemini often generates 1, looping if needed or if API supports count)
         // Since Gemini Flash Image usually returns 1, we might need to call multiple times if count > 1
         // But for simplicity/speed, we return what we got. 
-        
+
         if (images.length === 0) {
             throw new Error("No images generated. Safety filter might have been triggered.");
         }
@@ -400,19 +400,19 @@ export const generateImageFromText = async (
 };
 
 export const generateVideo = async (
-    prompt: string, 
-    model: string, 
-    options: { aspectRatio?: string, count?: number, generationMode?: VideoGenerationMode, resolution?: string } = {}, 
+    prompt: string,
+    model: string,
+    options: { aspectRatio?: string, count?: number, generationMode?: VideoGenerationMode, resolution?: string } = {},
     inputImageBase64?: string | null,
     videoInput?: any,
     referenceImages?: string[]
 ): Promise<{ uri: string, isFallbackImage?: boolean, videoMetadata?: any, uris?: string[] }> => {
     const ai = getClient();
-    
+
     // --- Quality Optimization ---
     const qualitySuffix = ", cinematic lighting, highly detailed, photorealistic, 4k, smooth motion, professional color grading";
     const enhancedPrompt = prompt + qualitySuffix;
-    
+
     // --- Model Selection & Resolution ---
     // Default Veo Pro to 1080p if not specified
     let resolution = options.resolution || (model.includes('pro') ? '1080p' : '720p');
@@ -424,10 +424,10 @@ export const generateVideo = async (
     }
 
     // --- Google Veo Path ---
-    
+
     // Prepare Inputs
     let inputs: any = { prompt: enhancedPrompt };
-    
+
     // 1. Handle Input Image (Image-to-Video)
     let finalInputImageBase64: string | null = null;
     if (inputImageBase64) {
@@ -439,8 +439,8 @@ export const generateVideo = async (
             console.warn("Veo Input Image Conversion Failed:", e);
         }
     } else if (options.generationMode === 'CHARACTER_REF' && referenceImages) {
-         // Character Ref usually passes image as 'image' prop in current SDK or via specific prompt structure
-         // Here we assume it was passed as inputImageBase64 by strategy
+        // Character Ref usually passes image as 'image' prop in current SDK or via specific prompt structure
+        // Here we assume it was passed as inputImageBase64 by strategy
     }
 
     // 2. Handle Video Input (e.g. for edit/continuation)
@@ -457,41 +457,41 @@ export const generateVideo = async (
     };
 
     if (referenceImages && referenceImages.length > 0 && model === 'veo-3.0-generate-001') {
-         // Some Veo models support referenceImages config
-         // Converting references
-         const refsPayload = [];
-         for (const ref of referenceImages) {
-             const c = await convertImageToCompatibleFormat(ref);
-             refsPayload.push({ image: { imageBytes: c.data, mimeType: c.mimeType }, referenceType: 'ASSET' });
-         }
-         config.referenceImages = refsPayload;
+        // Some Veo models support referenceImages config
+        // Converting references
+        const refsPayload = [];
+        for (const ref of referenceImages) {
+            const c = await convertImageToCompatibleFormat(ref);
+            refsPayload.push({ image: { imageBytes: c.data, mimeType: c.mimeType }, referenceType: 'ASSET' });
+        }
+        config.referenceImages = refsPayload;
     }
 
     const count = options.count || 1;
-    
+
     try {
         // --- Parallel Generation for Count > 1 ---
         // We use Promise.allSettled to ensure that if one generation fails, others can still succeed.
         const operations = [];
         for (let i = 0; i < count; i++) {
-             operations.push(retryWithBackoff(async () => {
-                 let op = await ai.models.generateVideos({
-                     model: model,
-                     ...inputs,
-                     config: config
-                 });
-                 
-                 // Poll for completion
-                 while (!op.done) {
-                     await wait(5000); // 5s polling
-                     op = await ai.operations.getVideosOperation({ operation: op });
-                 }
-                 return op;
-             }));
+            operations.push(retryWithBackoff(async () => {
+                let op = await ai.models.generateVideos({
+                    model: model,
+                    ...inputs,
+                    config: config
+                });
+
+                // Poll for completion
+                while (!op.done) {
+                    await wait(5000); // 5s polling
+                    op = await ai.operations.getVideosOperation({ operation: op });
+                }
+                return op;
+            }));
         }
 
         const results = await Promise.allSettled(operations);
-        
+
         // Collect successful URIs
         const validUris: string[] = [];
         let primaryMetadata = null;
@@ -517,23 +517,23 @@ export const generateVideo = async (
             throw firstError?.reason || new Error("Video generation failed (No valid URIs).");
         }
 
-        return { 
-            uri: validUris[0], 
-            uris: validUris, 
+        return {
+            uri: validUris[0],
+            uris: validUris,
             videoMetadata: primaryMetadata,
-            isFallbackImage: false 
+            isFallbackImage: false
         };
 
     } catch (e: any) {
         console.warn("Veo Generation Failed. Falling back to Image.", e);
-        
+
         // --- Fallback: Generate Image ---
         // CRITICAL FIX: Pass the input image to the fallback generator so it respects the upstream content!
         try {
             const fallbackPrompt = "Cinematic movie still, " + enhancedPrompt;
             const inputImages = finalInputImageBase64 ? [finalInputImageBase64] : [];
-            
-            const imgs = await generateImageFromText(fallbackPrompt, 'gemini-2.5-flash-image', inputImages, { aspectRatio: options.aspectRatio });
+
+            const imgs = await generateImageFromText(fallbackPrompt, 'gemini-3-pro-image-preview', inputImages, { aspectRatio: options.aspectRatio });
             return { uri: imgs[0], isFallbackImage: true };
         } catch (imgErr) {
             throw new Error("Video generation failed and Image fallback also failed: " + getErrorMessage(e));
@@ -569,22 +569,22 @@ export const analyzeVideo = async (videoBase64OrUrl: string, prompt: string, mod
 };
 
 export const editImageWithText = async (imageBase64: string, prompt: string, model: string): Promise<string> => {
-     // Reuse image generation with input image
-     const imgs = await generateImageFromText(prompt, model, [imageBase64], { count: 1 });
-     return imgs[0];
+    // Reuse image generation with input image
+    const imgs = await generateImageFromText(prompt, model, [imageBase64], { count: 1 });
+    return imgs[0];
 };
 
 export const planStoryboard = async (prompt: string, context: string): Promise<string[]> => {
     const ai = getClient();
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        config: { 
+        model: 'gemini-3-flash-preview',
+        config: {
             responseMimeType: 'application/json',
-            systemInstruction: STORYBOARD_INSTRUCTION 
+            systemInstruction: STORYBOARD_INSTRUCTION
         },
         contents: { parts: [{ text: `Context: ${context}\n\nUser Idea: ${prompt}` }] }
     });
-    
+
     try {
         return JSON.parse(response.text || "[]");
     } catch {
@@ -593,18 +593,18 @@ export const planStoryboard = async (prompt: string, context: string): Promise<s
 };
 
 export const orchestrateVideoPrompt = async (images: string[], userPrompt: string): Promise<string> => {
-     // Use Vision model to describe the sequence
-     const ai = getClient();
-     const parts: Part[] = images.map(img => ({ inlineData: { data: img.replace(/^data:.*;base64,/, ""), mimeType: "image/png" } }));
-     parts.push({ text: `Create a single video prompt that transitions between these images. User Intent: ${userPrompt}` });
-     
-     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+    // Use Vision model to describe the sequence
+    const ai = getClient();
+    const parts: Part[] = images.map(img => ({ inlineData: { data: img.replace(/^data:.*;base64,/, ""), mimeType: "image/png" } }));
+    parts.push({ text: `Create a single video prompt that transitions between these images. User Intent: ${userPrompt}` });
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
         config: { systemInstruction: VIDEO_ORCHESTRATOR_INSTRUCTION },
         contents: { parts }
-     });
-     
-     return response.text || userPrompt;
+    });
+
+    return response.text || userPrompt;
 };
 
 export const compileMultiFramePrompt = (frames: any[]) => {
@@ -613,23 +613,23 @@ export const compileMultiFramePrompt = (frames: any[]) => {
 };
 
 export const generateAudio = async (
-    prompt: string, 
-    referenceAudio?: string, 
+    prompt: string,
+    referenceAudio?: string,
     options?: { persona?: any, emotion?: any }
 ): Promise<string> => {
     const ai = getClient();
-    
+
     const parts: Part[] = [{ text: prompt }];
     // If reference audio exists (for cloning - mocked here as input audio part)
     if (referenceAudio) {
-         const mime = referenceAudio.match(/^data:(audio\/\w+);base64,/)?.[1] || 'audio/wav';
-         const data = referenceAudio.replace(/^data:audio\/\w+;base64,/, "");
-         parts.push({ inlineData: { mimeType: mime, data } });
+        const mime = referenceAudio.match(/^data:(audio\/\w+);base64,/)?.[1] || 'audio/wav';
+        const data = referenceAudio.replace(/^data:audio\/\w+;base64,/, "");
+        parts.push({ inlineData: { mimeType: mime, data } });
     }
-    
+
     // Config for TTS
     const voiceName = options?.persona?.label === 'Deep Narrative' ? 'Kore' : 'Puck'; // Mapping example
-    
+
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-preview-tts',
         contents: { parts },
@@ -642,10 +642,10 @@ export const generateAudio = async (
             }
         }
     });
-    
+
     const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!audioData) throw new Error("Audio generation failed");
-    
+
     // Convert Raw PCM to WAV for playback
     return pcmToWav(audioData);
 };
@@ -654,9 +654,9 @@ export const transcribeAudio = async (audioBase64: string): Promise<string> => {
     const ai = getClient();
     const mime = audioBase64.match(/^data:(audio\/\w+);base64,/)?.[1] || 'audio/wav';
     const data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
-    
+
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         contents: {
             parts: [
                 { inlineData: { mimeType: mime, data } },
@@ -664,7 +664,7 @@ export const transcribeAudio = async (audioBase64: string): Promise<string> => {
             ]
         }
     });
-    
+
     return response.text || "";
 };
 

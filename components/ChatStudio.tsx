@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Message, WorkflowStep } from '../types';
 import { AGENT_PROMPTS as DEFAULT_AGENT_PROMPTS, AgentPrompt } from '../data/agentPrompts';
 import { SendIcon, UploadIcon, RefreshIcon } from './Icons';
 import { MessageBubble, TypingIndicator } from './ChatComponents';
+import { ChatInput } from './ChatInput';
 import { PromptInspector } from './PromptInspector';
 import { gemini } from '../lib/gemini';
 // @ts-ignore
@@ -20,14 +21,15 @@ import p3Prompt from '../src/prompts/p3.md?raw';
 import p4Prompt from '../src/prompts/p4.md?raw';
 // @ts-ignore
 import p5Prompt from '../src/prompts/p5.md?raw';
-import { 
-  LaunchPackageCard, 
-  StrategyCard, 
-  VisualGuidelinesCard, 
-  CopywritingCard, 
+import {
+  LaunchPackageCard,
+  StrategyCard,
+  VisualGuidelinesCard,
+  CopywritingCard,
   ProductionCard,
   ProductionSelectCard,
-  GenerationCard
+  GenerationCard,
+  FinalReportCard
 } from './ActionCards';
 
 const LOCAL_PROMPTS: Partial<Record<WorkflowStep, string>> = {
@@ -62,13 +64,12 @@ interface ChatStudioProps {
 export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialImages, initialModel, initialStep, onBack }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesRef = useRef<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  // State cleaned up
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(initialStep || WorkflowStep.INIT);
   const [isTyping, setIsTyping] = useState(false);
+  const [visualMandate, setVisualMandate] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // inputRef and fileInputRef removed
   const hasInitialized = useRef(false);
   const [genStatus, setGenStatus] = useState<'idle' | 'generating' | 'completed' | 'error'>('idle');
   const [genResult, setGenResult] = useState<string | null>(null);
@@ -82,11 +83,11 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
   // Auto-scroll logic
   const scrollToBottom = () => {
     if (scrollRef.current) {
-        // Use smooth scroll for better UX
-        scrollRef.current.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: 'smooth'
-        });
+      // Use smooth scroll for better UX
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
     }
   };
 
@@ -94,12 +95,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     scrollToBottom();
   }, [messages, isTyping]);
 
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto'; // Reset to calculate new height
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 128) + 'px'; // 128px is max-h-32
-    }
-  }, [inputValue]);
+
 
   // Initialization Sequence
   useEffect(() => {
@@ -109,37 +105,37 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     // Don't add to messages state yet, let triggerStep handle the first interaction
     // Or add a "System Welcome". 
     // Agent workflow: User initialized with input -> System responds.
-    
+
     // We'll mimic the user "sending" the initial input
     const initUserMsg: Message = {
-        id: 'init-user',
-        role: 'user',
-        content: initialInput || 'Start Generation',
-        image: initialImages[0] || null,
-        images: initialImages,
-        timestamp: Date.now()
+      id: 'init-user',
+      role: 'user',
+      content: initialInput || 'Start Generation',
+      image: initialImages[0] || null,
+      images: initialImages,
+      timestamp: Date.now()
     };
-    
+
     setMessages([initUserMsg]);
     // CRITICAL FIX: Manually update ref immediately so triggerStep sees it even before render cycle completes
     messagesRef.current = [initUserMsg];
 
     setTimeout(() => {
-       if (initialStep === WorkflowStep.MODEL_TRY_ON) {
-           triggerStep(WorkflowStep.MODEL_TRY_ON, initialInput, initialImages);
-       } else if (initialStep === WorkflowStep.MARKETING_IMAGE_GENERATION) {
-           triggerStep(WorkflowStep.MARKETING_IMAGE_GENERATION, initialInput, initialImages);
-       } else {
-           // Context-aware Prompting:
-           // If user provided text, we command the agent to respect it.
-           // If not, we command the agent to auto-infer.
-           const isAutoMode = !initialInput; 
-           const prompt = isAutoMode
-            ? "用户未提供文本描述。请基于上传的图片，全自动智能推断该产品的名称、品类、材质、核心卖点及最适合的全球目标市场，生成启动包。"
-            : "请严格基于用户的上述具体需求描述，并结合图片分析，生成启动包。重要原则：用户的文本指令（如特定市场、特定材质、特定卖点）拥有最高优先级，必须被包含在启动包中。";
-    
-           triggerStep(WorkflowStep.LAUNCH_PACKAGE, prompt, initialImages); 
-       }
+      if (initialStep === WorkflowStep.MODEL_TRY_ON) {
+        triggerStep(WorkflowStep.MODEL_TRY_ON, initialInput, initialImages);
+      } else if (initialStep === WorkflowStep.MARKETING_IMAGE_GENERATION) {
+        triggerStep(WorkflowStep.MARKETING_IMAGE_GENERATION, initialInput, initialImages);
+      } else {
+        // Context-aware Prompting:
+        // If user provided text, we command the agent to respect it.
+        // If not, we command the agent to auto-infer.
+        const isAutoMode = !initialInput;
+        const prompt = isAutoMode
+          ? "用户未提供文本描述。请基于上传的图片，全自动智能推断该产品的名称、品类、材质、核心卖点及最适合的全球目标市场，生成启动包。请务必输出完整的Markdwon表格和列表，严禁只输出摘要或计划。"
+          : "请严格基于用户的上述具体需求描述，并结合图片分析，生成启动包。重要原则：用户的文本指令（如特定市场、特定材质、特定卖点）拥有最高优先级，必须被包含在启动包中。请务必输出完整的Markdwon表格和列表，严禁只输出摘要或计划。";
+
+        triggerStep(WorkflowStep.LAUNCH_PACKAGE, prompt, initialImages);
+      }
     }, 800);
   }, []); // Remove dependencies to run once exactly
 
@@ -148,13 +144,13 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     setIsTyping(true);
 
     const systemPrompt = AGENT_PROMPTS[step]?.systemPrompt || "";
-    
+
     const aiMsgId = Date.now().toString();
     const newAiMsg: Message = {
-        id: aiMsgId,
-        role: 'ai',
-        content: '',
-        timestamp: Date.now()
+      id: aiMsgId,
+      role: 'ai',
+      content: '',
+      timestamp: Date.now()
     };
     setMessages(prev => [...prev, newAiMsg]);
 
@@ -165,142 +161,119 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     // We will use the 'messages' from the REF to ensure we have latest state even in closures
     // Filter out the AI message we just optimistically added (it is not in Ref yet anyway usually, but good to be safe)
     const validMessages = messagesRef.current.filter(m => m.content && m.id !== aiMsgId);
-    
+
     const isPromptLastMessage = validMessages.length > 0 && validMessages[validMessages.length - 1].content === promptText;
-    
+
     const historySource = isPromptLastMessage ? validMessages.slice(0, -1) : validMessages;
-    
+
     historyForGemini = historySource.map(m => {
-        const parts: any[] = [{ text: m.content }];
-        if (m.images && m.images.length > 0) {
-            m.images.forEach(img => {
-                const match = img.match(/^data:(image\/\w+);base64,(.+)$/);
-                if (match) {
-                    parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-                }
-            });
-        }
-        return {
-            role: m.role === 'ai' ? 'model' : 'user',
-            parts: parts
-        };
+      const parts: any[] = [{ text: m.content }];
+      if (m.images && m.images.length > 0) {
+        m.images.forEach(img => {
+          const match = img.match(/^data:(image\/\w+);base64,(.+)$/);
+          if (match) {
+            parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+          }
+        });
+      }
+      return {
+        role: m.role === 'ai' ? 'model' : 'user',
+        parts: parts
+      };
     });
 
     try {
-        const streamResult = await gemini.generateContentStream(
-            actualPrompt, 
-            images, 
-            historyForGemini, 
-            systemPrompt, 
-            initialModel
-        );
-        
-        for await (const chunk of streamResult.stream) {
-            const chunkText = chunk.text();
-            setMessages(prev => prev.map(m => 
-                m.id === aiMsgId 
-                ? { ...m, content: m.content + chunkText } 
-                : m
-            ));
-        }
-    } catch (e) {
-        console.error("Gemini Error:", e);
-        setMessages(prev => prev.map(m => 
-            m.id === aiMsgId 
-            ? { ...m, content: m.content + `\n\n**[Connection Error]** ${e instanceof Error ? e.message : String(e)}\n\n*Check API Key configuration.*` } 
+      const streamResult = await gemini.generateContentStream(
+        actualPrompt,
+        images,
+        historyForGemini,
+        systemPrompt,
+        initialModel
+      );
+
+      for await (const chunk of streamResult.stream) {
+        const chunkText = chunk.text();
+        setMessages(prev => prev.map(m =>
+          m.id === aiMsgId
+            ? { ...m, content: m.content + chunkText }
             : m
         ));
+      }
+    } catch (e) {
+      console.error("Gemini Error:", e);
+      setMessages(prev => prev.map(m =>
+        m.id === aiMsgId
+          ? { ...m, content: m.content + `\n\n**[Connection Error]** ${e instanceof Error ? e.message : String(e)}\n\n*Check API Key configuration.*` }
+          : m
+      ));
     } finally {
-        setIsTyping(false);
+      setIsTyping(false);
     }
   };
 
-  const handleSend = () => {
-    if (!inputValue.trim() && selectedImages.length === 0) return;
-
-    const userMsg: Message = { 
-        id: Date.now().toString(), 
-        role: 'user', 
-        content: inputValue.trim(),
-        images: selectedImages.length > 0 ? [...selectedImages] : undefined,
-        timestamp: Date.now()
+  const handleInputSend = (text: string, imgs: string[]) => {
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: text,
+      images: imgs.length > 0 ? [...imgs] : undefined,
+      timestamp: Date.now()
     };
-      
+
     // Add to state
     setMessages(prev => [...prev, userMsg]);
-    
+
     // Intelligent Context Handling
     if (!isTyping && workflowStep !== WorkflowStep.COMPLETED && workflowStep !== WorkflowStep.INIT) {
-       triggerStep(workflowStep, inputValue.trim(), selectedImages);
+      triggerStep(workflowStep, text, imgs);
     } else {
-       triggerStep(workflowStep, inputValue.trim(), selectedImages);
+      triggerStep(workflowStep, text, imgs);
     }
-    
-    setInputValue('');
-    setSelectedImages([]);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      if (files.length + selectedImages.length > 5) {
-        alert("最多只能上传 5 张图片");
-        return;
-      }
 
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            setSelectedImages(prev => [...prev, reader.result as string]);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+  const handleUserConfirm = (nextStep: WorkflowStep, data?: any) => {
+    // Stores mandate if provided from Launch Package step
+    if (data && data.visualMandate) {
+      setVisualMandate(data.visualMandate);
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
 
-  const removeImage = (index: number) => {
-    setSelectedImages(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleUserConfirm = (nextStep: WorkflowStep) => {
     // Add confirmation message
     const confirmMsg = "✅ 确认通过，继续下一步";
-    const userMsg: Message = { 
-      id: Date.now().toString(), 
-      role: 'user', 
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
       content: confirmMsg,
       timestamp: Date.now()
     };
     setMessages(prev => [...prev, userMsg]);
-    
+
     let nextPrompt = "继续下一步";
-    switch(nextStep) {
-        case WorkflowStep.STRATEGY_P0: 
-            nextPrompt = "基于上述确认的启动包信息（特别是产品卖点和目标市场），生成 P0 电商运营策略。"; 
-            break;
-        case WorkflowStep.VISUAL_P1: 
-            nextPrompt = "基于上述确认的 P0 策略（定位与关键词），推导并生成 P1 视觉规范。"; 
-            break;
-        case WorkflowStep.COPY_P2: 
-            nextPrompt = "基于 P0 策略定位和 P1 视觉基调，撰写 P2 营销文案。"; 
-            break;
-        case WorkflowStep.PRODUCTION_SELECT:
-            // 不触发AI，只更新步骤显示选择界面
-            setWorkflowStep(WorkflowStep.PRODUCTION_SELECT);
-            const selectMsg: Message = {
-              id: Date.now().toString() + '_select',
-              role: 'ai',
-              content: '🎨 **策略与文案已就绪！**\n\n启动包、P0策略、P1视觉、P2文案已全部完成。\n\n请选择要生成的图片资产：\n- **P3 主图**：Amazon合规主图\n- **P4 副图序列**：6张信息图/场景图/细节图\n- **P5 A+ 页面**：Premium A+模块\n- **全部生成**：一次性完成所有图片\n\n点击下方按钮开始生成 👇',
-              timestamp: Date.now()
-            };
-            setMessages(prev => [...prev, selectMsg]);
-            return;
-        case WorkflowStep.PRODUCTION_P3_P5: 
-            nextPrompt = "执行生产：严格遵循确认的文案和视觉规范，生成 P3-P5 核心视觉资产。"; 
-            break;
+    switch (nextStep) {
+      case WorkflowStep.STRATEGY_P0:
+        const mandateContext = (data && data.visualMandate) ? `\n\n【用户最高优先级指令 (MUST FOLLOW)】:\n${data.visualMandate}\n\n请务必在制定策略时完全融合上述指令。` : "";
+        nextPrompt = `基于上述确认的启动包信息（特别是产品卖点和目标市场），生成 P0 电商运营策略。${mandateContext}\n\n【重要】请严格按照 P0 输出格式要求，生成包含所有表格（市场分析、卖点排序、视觉/文案指令）的完整策略Brief。严禁只输出摘要。`;
+        break;
+      case WorkflowStep.VISUAL_P1:
+        nextPrompt = "基于上述确认的 P0 策略（定位与关键词），推导并生成 P1 视觉规范。\n\n【重要】请输出完整的 P1 视觉指南表格，包含色彩、字体、光影参数。";
+        break;
+      case WorkflowStep.COPY_P2:
+        nextPrompt = "基于 P0 策略定位和 P1 视觉基调，撰写 P2 营销文案。\n\n【重要】请输出完整的文案表格，包含标题、五点描述、A+文案。";
+        break;
+      case WorkflowStep.PRODUCTION_SELECT:
+        // 不触发AI，只更新步骤显示选择界面
+        setWorkflowStep(WorkflowStep.PRODUCTION_SELECT);
+        const selectMsg: Message = {
+          id: Date.now().toString() + '_select',
+          role: 'ai',
+          content: '🎨 **策略与文案已就绪！**\n\n启动包、P0策略、P1视觉、P2文案已全部完成。\n\n请选择要生成的图片资产：\n- **P3 主图**：Amazon合规主图\n- **P4 副图序列**：6张信息图/场景图/细节图\n- **P5 A+ 页面**：Premium A+模块\n- **全部生成**：一次性完成所有图片\n\n点击下方按钮开始生成 👇',
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, selectMsg]);
+        return;
+      case WorkflowStep.PRODUCTION_P3_P5:
+        nextPrompt = "执行生产：严格遵循确认的文案和视觉规范，生成 P3-P5 核心视觉资产。";
+        break;
     }
 
     // Same logic as handleSend: 'messages' in scope is history.
@@ -313,26 +286,38 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     let prompt: string;
     let choiceLabel: string;
 
+    const VISUAL_CONSISTENCY_MANDATE = `
+【强制性视觉一致性指令 (MANDATORY VISUAL CONSISTENCY)】
+1. 产品必须与参考图像完全一致 (The product MUST be identical to the reference image).
+2. 保留背包原貌 (Preserve the original appearance of the backpack).
+3. 背包不变形 (Do not deform or warp the backpack structure).
+4. 外观细节无修改 (No modifications to visual details, logos, or hardware).
+`;
+
+    // Append mandate to prompts if it exists
+    const userMandate = visualMandate ? `\n\nCRITICAL USER MANDATE: ${visualMandate}` : "";
+    const combinedMandate = `${VISUAL_CONSISTENCY_MANDATE}${userMandate}`;
+
     switch (choice) {
       case 'main':
         nextStep = WorkflowStep.P3_MAIN_IMAGE;
-        prompt = "生成P3主图设计方案。要求：纯白背景、产品占比≥85%、左偏15°悬浮效果。请务必将结果包裹在 ```json 代码块中，格式：{ \"mainImage\": \"完整Prompt\" }";
+        prompt = `生成P3主图设计方案。要求：纯白背景、产品占比≥85%、左偏15°悬浮效果。\n${combinedMandate}\n请务必将结果包裹在 \`\`\`json 代码块中，格式：{ "mainImage": "完整Prompt" }`;
         choiceLabel = "📸 P3 主图";
         break;
       case 'secondary':
         nextStep = WorkflowStep.P4_SECONDARY;
-        prompt = "生成P4副图序列设计方案(6张)。包括：S1核心卖点、S2功能细节、S3使用场景、S4材质细节、S5规格、S6包装。请务必将结果包裹在 ```json 代码块中，格式：{ \"subImages\": [\"S1 Prompt\", \"S2 Prompt\", \"S3 Prompt\", \"S4 Prompt\", \"S5 Prompt\", \"S6 Prompt\"] }";
+        prompt = `生成P4副图序列设计方案(6张)。\n\nSTRICT REQUIREMENT: For each image, you MUST provide:\n1. A detailed "prompt" string for image generation. \n2. A "desc" explaining the visual plan.\n3. The prompt MUST follow the structure: [Subject] + [Action/State] + [Visual Effects] + [Background] + [Lighting] + [Tech Specs].\n\n${combinedMandate}\n\n请务必将结果包裹在 \`\`\`json 代码块中，格式：{ "subImages": [ { "title": "S1标题", "prompt": "纯视觉提示词", "desc": "设计思路与构图" }, ... ] }`;
         choiceLabel = "🖼️ P4 副图序列";
         break;
       case 'aplus':
         nextStep = WorkflowStep.P5_APLUS;
-        prompt = "生成P5 A+页面设计方案(7张)。包括7个Premium模块。请务必将结果包裹在 ```json 代码块中，格式：{ \"subImages\": [\"M1 Prompt\", \"M2 Prompt\", \"M3 Prompt\", \"M4 Prompt\", \"M5 Prompt\", \"M6 Prompt\", \"M7 Prompt\"] }";
+        prompt = `生成P5 A+页面设计方案(7张 Premium A+ Modules)。\n\nSTRICT REQUIREMENT: For EACH module (M1-M7), you MUST provide:\n1. "layout": Detailed Composition Strategy (e.g., "Left-aligned text, product on right", "Split screen").\n2. "prompt": A highly detailed visual prompt for the background/product image (NO text in the image itself, only visual elements).\n3. "text_layer": Text Overlay Plan (Headline, Body Copy, Selling Points placement).\n4. "desc": Rationale for this design.\n\nThe "prompt" MUST follow: [Scene/Background context] + [Product Interaction] + [Lighting/Mood] + [Tech Specs].\n\n${combinedMandate}\n\n请务必将结果包裹在 \`\`\`json 代码块中，格式：{ "subImages": [ { "title": "M1 品牌故事/首屏", "layout": "构图方案", "prompt": "纯视觉提示词", "text_layer": "文案布局规划", "desc": "设计思路" }, ... ] }`;
         choiceLabel = "🏗️ P5 A+ 页面";
         break;
       case 'all':
       default:
         nextStep = WorkflowStep.PRODUCTION_P3_P5;
-        prompt = "执行完整生产。请务必将结果包裹在 ```json 代码块中，格式：{ \"mainImage\": \"P3 Prompt\", \"subImages\": [\"P4 S1\", \"P4 S2\", \"P4 S3\", \"P4 S4\", \"P4 S5\", \"P4 S6\"] }";
+        prompt = `执行完整生产。\n${combinedMandate}\n请务必将结果包裹在 \`\`\`json 代码块中，格式：{ "mainImage": "P3 Prompt", "subImages": [ { "title": "S1", "prompt": "Visual Prompt", "desc": "Desc" }, ... ] }`;
         choiceLabel = "🚀 全部生成（P3+P4）";
         break;
     }
@@ -359,7 +344,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
       timestamp: Date.now()
     };
     setMessages(prev => [...prev, userMsg]);
-    
+
     // 返回到选择界面
     setWorkflowStep(WorkflowStep.PRODUCTION_SELECT);
     const selectMsg: Message = {
@@ -370,7 +355,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     };
     setMessages(prev => [...prev, selectMsg]);
   };
-  
+
   // Helper to clean extracted value - removes markdown formatting and trims
   const cleanValue = (val: string | undefined): string => {
     if (!val) return '';
@@ -393,12 +378,12 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         const tableRegex = new RegExp(`\\|\\s*${key}[^|]*\\|\\s*([^|]+)\\s*\\|`, 'i');
         const tableMatch = trimmed.match(tableRegex);
         if (tableMatch) return cleanValue(tableMatch[1]);
-        
+
         // Pattern 2: Key-value format: key: value or key：value or **key**: value
         const kvRegex = new RegExp(`(?:\\*\\*)?${key}[^:：]*(?:\\*\\*)?[：:]\\s*(.+)`, 'i');
         const kvMatch = trimmed.match(kvRegex);
         if (kvMatch) return cleanValue(kvMatch[1]);
-        
+
         // Pattern 3: Markdown header followed by content: ### 定位\n内容
         const headerRegex = new RegExp(`^#{1,4}\\s*${key}`, 'i');
         if (trimmed.match(headerRegex) && i + 1 < lines.length) {
@@ -411,7 +396,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Pattern 4: Bold section header with content on same or next line: **定位**: 内容
         const boldHeaderRegex = new RegExp(`\\*\\*${key}\\*\\*`, 'i');
         if (trimmed.match(boldHeaderRegex)) {
@@ -435,125 +420,125 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
 
   const extractGenParams = (content: string) => {
     try {
-        let parsed: any = null;
+      let parsed: any = null;
 
-        // 1. Try Markdown code block first
-        const jsonBlock = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-        if (jsonBlock) {
-             try {
-                const cleaned = jsonBlock[1]
-                    .replace(/,\s*}/g, '}')
-                    .replace(/,\s*]/g, ']')
-                    .replace(/\\n/g, "\\n")
-                    .replace(/[\n\r]/g, " ");
-                parsed = JSON.parse(cleaned);
-             } catch (e) { /* continue */ }
+      // 1. Try Markdown code block first
+      const jsonBlock = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (jsonBlock) {
+        try {
+          const cleaned = jsonBlock[1]
+            .replace(/,\s*}/g, '}')
+            .replace(/,\s*]/g, ']')
+            .replace(/\\n/g, "\\n")
+            .replace(/[\n\r]/g, " ");
+          parsed = JSON.parse(cleaned);
+        } catch (e) { /* continue */ }
+      }
+
+      // 2. Ultra-Permissive Regex Extraction
+      if (!parsed) {
+        // Pattern A: Strict boundary check (Preferred)
+        // Matches key "prompt" (with/without quotes) : "VALUE" (or 'VALUE') followed by comma or brace
+        const strictRegex = /(?:["']?prompt["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1\s*(?:,|}|$)/i;
+        let match = content.match(strictRegex);
+
+        // Pattern B: Loose check (Fallback)
+        // Matches key ... : "VALUE", ignoring what follows (Use if A fails)
+        if (!match) {
+          const looseRegex = /(?:["']?prompt["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1/i;
+          match = content.match(looseRegex);
         }
 
-        // 2. Ultra-Permissive Regex Extraction
-        if (!parsed) {
-            // Pattern A: Strict boundary check (Preferred)
-            // Matches key "prompt" (with/without quotes) : "VALUE" (or 'VALUE') followed by comma or brace
-            const strictRegex = /(?:["']?prompt["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1\s*(?:,|}|$)/i;
-            let match = content.match(strictRegex);
+        if (match) {
+          const rawPrompt = match[2];
+          const cleanPrompt = rawPrompt
+            .replace(/\\"/g, '"')
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t');
 
-            // Pattern B: Loose check (Fallback)
-            // Matches key ... : "VALUE", ignoring what follows (Use if A fails)
-            if (!match) {
-                 const looseRegex = /(?:["']?prompt["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1/i;
-                 match = content.match(looseRegex);
-            }
+          // Extract aspect ratio
+          const ratioRegex = /(?:["']?(?:aspect_ratio|size)["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1/i;
+          const ratioMatch = content.match(ratioRegex);
 
-            if (match) {
-                const rawPrompt = match[2];
-                const cleanPrompt = rawPrompt
-                    .replace(/\\"/g, '"')
-                    .replace(/\\n/g, '\n')
-                    .replace(/\\t/g, '\t');
-                
-                // Extract aspect ratio
-                const ratioRegex = /(?:["']?(?:aspect_ratio|size)["']?)\s*:\s*(["'])([\s\S]*?)(?<!\\)\1/i;
-                const ratioMatch = content.match(ratioRegex);
-                
-                return {
-                    prompt: cleanPrompt,
-                    aspect_ratio: ratioMatch ? ratioMatch[2] : "1:1"
-                };
-            }
+          return {
+            prompt: cleanPrompt,
+            aspect_ratio: ratioMatch ? ratioMatch[2] : "1:1"
+          };
+        }
+      }
+
+      // 3. Fallback: JSON.parse on candidate block
+      if (!parsed) {
+        const start = content.indexOf('{');
+        const end = content.lastIndexOf('}');
+        if (start !== -1 && end !== -1 && end > start) {
+          try {
+            const candidate = content.substring(start, end + 1)
+              .replace(/,\s*}/g, '}')
+              .replace(/,\s*]/g, ']')
+              .replace(/\/\/.*$/gm, '')
+              .replace(/[\n\r]/g, " ");
+            parsed = JSON.parse(candidate);
+          } catch (e) { }
+        }
+      }
+
+      // 4. Normalize Parsed Object
+      if (parsed) {
+        const keys = Object.keys(parsed);
+        const promptKey = keys.find(k => k.toLowerCase() === 'prompt');
+
+        if (promptKey) {
+          return {
+            prompt: parsed[promptKey],
+            aspect_ratio: parsed.aspect_ratio || parsed.size || "1:1"
+          };
         }
 
-        // 3. Fallback: JSON.parse on candidate block
-        if (!parsed) {
-            const start = content.indexOf('{');
-            const end = content.lastIndexOf('}');
-            if (start !== -1 && end !== -1 && end > start) {
-                 try {
-                    const candidate = content.substring(start, end + 1)
-                        .replace(/,\s*}/g, '}')
-                        .replace(/,\s*]/g, ']')
-                        .replace(/\/\/.*$/gm, '') 
-                        .replace(/[\n\r]/g, " ");
-                    parsed = JSON.parse(candidate);
-                 } catch (e) { }
-            }
+        if (parsed.params && parsed.params.prompt) {
+          return {
+            prompt: parsed.params.prompt,
+            aspect_ratio: parsed.params.aspect_ratio || parsed.params.size || "1:1"
+          };
         }
+      }
 
-        // 4. Normalize Parsed Object
-        if (parsed) {
-            const keys = Object.keys(parsed);
-            const promptKey = keys.find(k => k.toLowerCase() === 'prompt');
-            
-            if (promptKey) {
-                return {
-                    prompt: parsed[promptKey],
-                    aspect_ratio: parsed.aspect_ratio || parsed.size || "1:1"
-                };
-            }
-            
-            if (parsed.params && parsed.params.prompt) {
-                 return {
-                    prompt: parsed.params.prompt,
-                    aspect_ratio: parsed.params.aspect_ratio || parsed.params.size || "1:1"
-                };
-            }
-        }
-
-    } catch(e) {
-        console.error("JSON Extraction Failed:", e);
+    } catch (e) {
+      console.error("JSON Extraction Failed:", e);
     }
     return null;
   };
 
   const handleGenerateImage = async (prompt: string, aspectRatio: string) => {
-      setGenStatus('generating');
-      setGenError(null);
-      try {
-          // Pass initialImages as reference
-          const result = await gemini.generateImage(prompt, initialImages);
-          setGenResult(result);
-          setGenStatus('completed');
-      } catch (e) {
-          setGenStatus('error');
-          setGenError((e as Error).message);
-      }
+    setGenStatus('generating');
+    setGenError(null);
+    try {
+      // Pass initialImages as reference
+      const result = await gemini.generateImage(prompt, initialImages);
+      setGenResult(result);
+      setGenStatus('completed');
+    } catch (e) {
+      setGenStatus('error');
+      setGenError((e as Error).message);
+    }
   };
 
   // Helper to extract list items after a header
   const extractListAfterHeader = (content: string, headerPatterns: string[], maxItems: number = 5): string[] => {
     const lines = content.split('\n');
     const results: string[] = [];
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim().toLowerCase();
       const matchesHeader = headerPatterns.some(p => line.includes(p.toLowerCase()));
-      
+
       if (matchesHeader) {
         // Look for list items in subsequent lines
         for (let j = i + 1; j < lines.length && results.length < maxItems; j++) {
           const nextLine = lines[j].trim();
           // Stop if we hit another header or empty section
           if (nextLine.match(/^#{1,3}\s/) || nextLine.match(/^\*\*[^*]+\*\*[：:]/)) break;
-          
+
           // Extract bullet/numbered list items
           if (nextLine.match(/^[-*•]\s+/) || nextLine.match(/^\d+[.)]\s+/)) {
             const itemText = cleanValue(nextLine.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''));
@@ -572,10 +557,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
   const extractStepData = (content: string, step: WorkflowStep) => {
     try {
       const lines = content.split('\n');
-      
+
       if (step === WorkflowStep.LAUNCH_PACKAGE) {
         // LAUNCH_PACKAGE - Enhanced extraction for product information
-        
+
         // Product name extraction with multiple patterns
         let productName = extractByKey(content, ['产品名称', 'Product Name', '产品', '产品英文名']);
         if (!productName) {
@@ -590,7 +575,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Market extraction with more patterns
         let market = extractByKey(content, ['目标站点', '目标市场', 'Target Market', 'Target Site', '市场', '主要市场', '销售站点']);
         if (!market) {
@@ -600,7 +585,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             market = 'Amazon ' + amazonMatch[1];
           }
         }
-        
+
         // Material extraction
         let material = extractByKey(content, ['材质', 'Material', '主材质', '面料', '材料']);
         if (!material) {
@@ -615,7 +600,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Category extraction
         let category = extractByKey(content, ['品类', 'Category', '产品品类', '产品类型']);
         if (!category) {
@@ -628,16 +613,16 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Enhanced selling points extraction
         const features: string[] = [];
-        
+
         // Pattern 1: | P0 | 卖点内容 | table format
         // Pattern 2: P0: 卖点内容 or P0：卖点内容
         // Pattern 3: **P0** 卖点内容
         for (const line of lines) {
           const trimmed = line.trim();
-          
+
           // Table format with P-tag OR generic table row in features section
           const tableMatch = trimmed.match(/\|\s*(?:.*?)\s*\|\s*(.+?)\s*\|/);
           // Key-value format
@@ -648,30 +633,30 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           const genericBullet = trimmed.match(/^[-*•]\s+([^\n]+)/);
 
           if (tableMatch && features.length < 5) {
-             // Avoid capturing table headers or separators
-             if (!tableMatch[1].match(/^[-: ]+$/) && !tableMatch[1].includes('卖点') && !tableMatch[1].includes('Feature')) {
-                 const featureText = cleanValue(tableMatch[1]);
-                 if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
-             }
+            // Avoid capturing table headers or separators
+            if (!tableMatch[1].match(/^[-: ]+$/) && !tableMatch[1].includes('卖点') && !tableMatch[1].includes('Feature')) {
+              const featureText = cleanValue(tableMatch[1]);
+              if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
+            }
           } else if (kvMatch && features.length < 5) {
             const featureText = cleanValue(kvMatch[1]);
             if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
           } else if (boldMatch && features.length < 5) {
             const featureText = cleanValue(boldMatch[1]);
             if (featureText && featureText.length > 2) features.push(featureText.substring(0, 45));
-          } else if (genericBullet && features.length < 5 && lines.slice(Math.max(0, lines.indexOf(line)-3), lines.indexOf(line)).some(l => l.match(/卖点|Features|Highlights/))) {
-             // Only accept generic bullets if we recently saw a "Features" header
-             const featureText = cleanValue(genericBullet[1]);
-             if (featureText && featureText.length > 2 && featureText.length < 50) features.push(featureText.substring(0, 45));
+          } else if (genericBullet && features.length < 5 && lines.slice(Math.max(0, lines.indexOf(line) - 3), lines.indexOf(line)).some(l => l.match(/卖点|Features|Highlights/))) {
+            // Only accept generic bullets if we recently saw a "Features" header
+            const featureText = cleanValue(genericBullet[1]);
+            if (featureText && featureText.length > 2 && featureText.length < 50) features.push(featureText.substring(0, 45));
           }
         }
-        
+
         // Fallback: extract from "核心卖点" section
         if (features.length === 0) {
           const extracted = extractListAfterHeader(content, ['核心卖点', '卖点排序', '卖点清单', 'Selling Point', '产品卖点', '主要卖点'], 5);
           features.push(...extracted);
         }
-        
+
         // Additional fallback: look for numbered selling points
         if (features.length === 0) {
           for (const line of lines) {
@@ -696,14 +681,14 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             features: features.length > 0 ? features.slice(0, 3) : ["待提取"]
           }
         };
-        
+
       } else if (step === WorkflowStep.STRATEGY_P0) {
         // P0 Strategy - Extract positioning, keywords, and sorted selling points
         const positioning = extractByKey(content, ['定位', '核心定位', '品牌定位', 'Positioning', '产品定位', '差异化定位']);
-        
+
         // Enhanced keywords extraction with more patterns
         let keywords = extractByKey(content, ['核心词', '差异化', '关键词', 'Keywords', '差异化关键词', '核心关键词', '品牌关键词', '核心信息']);
-        
+
         // If keywords not found, try extracting from sections
         if (!keywords) {
           const keywordPatterns = ['差异化', '核心主张', '品牌核心', '核心价值', '差异化策略'];
@@ -719,13 +704,13 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Extract selling points with priority from various formats
         const sellingPoints: string[] = [];
-        
+
         for (const line of lines) {
           const trimmed = line.trim();
-          
+
           // Format 1: 1. 卖点内容 (P0) or 1. 卖点内容 (P1)
           const priorityMatch = trimmed.match(/^\d+[.)]\s*(.+?)\s*[（(][Pp][012][)）]/);
           // Format 2: | P0 | 卖点 |
@@ -741,7 +726,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           // Format 8: [P0] 卖点 or 【P0】 卖点
           const bracketMatch = trimmed.match(/^\[[Pp][012]\][：:\s]*(.+)/);
           const wideBracketMatch = trimmed.match(/^【[Pp][012]】[：:\s]*(.+)/);
-          
+
           if (priorityMatch && sellingPoints.length < 5) {
             const pTag = trimmed.match(/[Pp][012]/)?.[0]?.toUpperCase() || '';
             sellingPoints.push(cleanValue(priorityMatch[1]) + (pTag ? ` (${pTag})` : ''));
@@ -761,13 +746,13 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             sellingPoints.push(cleanValue(wideBracketMatch[1]));
           }
         }
-        
+
         // Fallback: extract from "卖点排序" or similar section headers
         if (sellingPoints.length === 0) {
           const extracted = extractListAfterHeader(content, ['卖点排序', '卖点优先级', '核心卖点', '差异化卖点', 'Selling Point', '卖点清单'], 4);
           sellingPoints.push(...extracted);
         }
-        
+
         // Additional fallback: look for any numbered list items in strategy sections
         if (sellingPoints.length === 0) {
           for (const line of lines) {
@@ -791,10 +776,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             sellingPoints: sellingPoints.length > 0 ? sellingPoints.slice(0, 4) : ["待提取"]
           }
         };
-        
+
       } else if (step === WorkflowStep.VISUAL_P1) {
         // P1 Visual - Enhanced extraction for lighting, levitation, and colors
-        
+
         // Lighting extraction with multiple patterns
         let lighting = extractByKey(content, ['光影', '光线', '光源', 'Lighting', '光感', '自然光', '主光', '光影设置']);
         if (!lighting) {
@@ -809,7 +794,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Levitation extraction with multiple patterns
         let levitation = extractByKey(content, ['悬浮', '姿态', '产品姿态', 'Levitation', '悬浮效果', '倾斜', '偏转', '角度']);
         if (!levitation) {
@@ -826,16 +811,16 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             levitation = '接触软阴影效果';
           }
         }
-        
+
         // Enhanced color extraction
         const colors: string[] = [];
-        
+
         // Extract hex colors
         const hexMatches = content.match(/#[0-9A-Fa-f]{6}/g);
         if (hexMatches) {
           colors.push(...hexMatches.slice(0, 5));
         }
-        
+
         // Extract color names from key sections
         const colorKeys = ['主色', '品牌色', 'Primary', '活力橙', '大气蓝', '薄雾灰'];
         for (const key of colorKeys) {
@@ -848,10 +833,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         // Add brand colors if none found
         const uniqueColors = [...new Set(colors.filter(c => c))];
-        
+
         return {
           type: 'visual',
           data: {
@@ -860,10 +845,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             colors: uniqueColors.length > 0 ? uniqueColors.slice(0, 3) : ["#ED6D46", "#C8E1EF", "#F5F6F7"]
           }
         };
-        
+
       } else if (step === WorkflowStep.COPY_P2) {
         // P2 Copywriting - Enhanced extraction for title and selling point copy
-        
+
         // Enhanced title extraction
         let title = extractByKey(content, ['H1', 'Title', '主标题', '产品标题', '标题', 'Headline']);
         if (!title) {
@@ -883,23 +868,23 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             }
           }
         }
-        
+
         const subtitle = extractByKey(content, ['H2', '副标题', 'Subtitle', '品牌调性', '产品副标题']);
-        
+
         // Enhanced selling point copy extraction
-        const sellingPoints: {title: string, content: string}[] = [];
-        
+        const sellingPoints: { title: string, content: string }[] = [];
+
         let currentTitle = '';
         let inSellingPointSection = false;
-        
+
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
-          
+
           // Check if we're entering a selling point section
           if (line.match(/卖点|文案|Copy|Selling/i)) {
             inSellingPointSection = true;
           }
-          
+
           // Pattern 1: ### 卖点1：轻量化 or **卖点1**：轻量化
           const sectionMatch = line.match(/^(?:#{1,4}\s*)?(?:\*\*)?卖点\s*[1-3一二三]?[：:]\s*(.+?)(?:\*\*)?$/);
           // Pattern 2: - **轻量化**：让每一步都更轻松
@@ -908,10 +893,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           const numberedMatch = line.match(/^\d+[.)]\s*(.{2,20})[：:]\s*(.+)/);
           // Pattern 4: **Feature**: Benefit format
           const featureBenefitMatch = line.match(/\*\*(.{2,15})\*\*[：:]\s*(.+)/);
-          
+
           // Pattern 5: Markdown Table Row | Title | Content |
           const tableRowMatch = line.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/);
-          
+
           if (sectionMatch && sellingPoints.length < 5) {
             currentTitle = cleanValue(sectionMatch[1]);
             // Check if next line has the content
@@ -931,15 +916,15 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
               content: cleanValue(titleContentMatch[2])
             });
           } else if (tableRowMatch && sellingPoints.length < 5) {
-             // Check if it's a header or separator row
-             const c1 = tableRowMatch[1].trim();
-             const c2 = tableRowMatch[2].trim();
-             if (!c1.match(/^[-: ]+$/) && !c1.match(/标题|Title|卖点/) && c2.length > 2) {
-                 sellingPoints.push({
-                     title: cleanValue(c1),
-                     content: cleanValue(c2)
-                 });
-             }
+            // Check if it's a header or separator row
+            const c1 = tableRowMatch[1].trim();
+            const c2 = tableRowMatch[2].trim();
+            if (!c1.match(/^[-: ]+$/) && !c1.match(/标题|Title|卖点/) && c2.length > 2) {
+              sellingPoints.push({
+                title: cleanValue(c1),
+                content: cleanValue(c2)
+              });
+            }
           } else if (titleContentMatch && sellingPoints.length < 5) {
             sellingPoints.push({
               title: cleanValue(titleContentMatch[1]),
@@ -963,7 +948,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             currentTitle = '';
           }
         }
-        
+
         // Fallback: extract list items from copy sections
         if (sellingPoints.length === 0) {
           const extracted = extractListAfterHeader(content, ['文案', '卖点文案', 'Copy', '产品卖点', '标注文案', 'H2'], 4);
@@ -987,69 +972,69 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
             ]
           }
         };
-        
+
       } else if (
-        step === WorkflowStep.PRODUCTION_P3_P5 || 
-        step === WorkflowStep.P3_MAIN_IMAGE || 
-        step === WorkflowStep.P4_SECONDARY || 
+        step === WorkflowStep.PRODUCTION_P3_P5 ||
+        step === WorkflowStep.P3_MAIN_IMAGE ||
+        step === WorkflowStep.P4_SECONDARY ||
         step === WorkflowStep.P5_APLUS
       ) {
         // P3-P5 Production - Enhanced extraction including JSON parsing
         let mainImagePrompt = "";
         let subImages: any[] = [];
-        
+
         // 1. Try JSON parsing first (Priority for full prompts)
         try {
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                if (parsed.full_prompt) mainImagePrompt = parsed.full_prompt;
-                if (parsed.mainImage) mainImagePrompt = parsed.mainImage;
-                
-                if (parsed.subImages && Array.isArray(parsed.subImages)) {
-                    subImages = parsed.subImages;
-                }
-                // Handle P5 modules if structured as array
-                if (parsed.modules && Array.isArray(parsed.modules)) {
-                    subImages = parsed.modules.map((m: any) => typeof m === 'string' ? m : (m.prompt || m.description || JSON.stringify(m)));
-                }
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.full_prompt) mainImagePrompt = parsed.full_prompt;
+            if (parsed.mainImage) mainImagePrompt = parsed.mainImage;
+
+            if (parsed.subImages && Array.isArray(parsed.subImages)) {
+              subImages = parsed.subImages;
             }
+            // Handle P5 modules if structured as array
+            if (parsed.modules && Array.isArray(parsed.modules)) {
+              subImages = parsed.modules.map((m: any) => typeof m === 'string' ? m : (m.prompt || m.description || JSON.stringify(m)));
+            }
+          }
         } catch (e) {
-            // Ignore JSON parse errors
+          // Ignore JSON parse errors
         }
 
         // 2. Fallback to Regex Extraction for Main Image
         if (!mainImagePrompt) {
-            mainImagePrompt = extractByKey(content, ['主图Prompt', '主图描述', 'Main Image', 'P3 Prompt', 'Hero Image', '主图生成']) || "";
-            if (!mainImagePrompt) {
-                const jsonMatch = content.match(/full_prompt[：:]\s*["']?([^"'\n]+)/i);
-                const promptMatch = content.match(/prompt[：:]\s*["']?(.{20,200})/i);
-                if (jsonMatch) mainImagePrompt = cleanValue(jsonMatch[1]);
-                else if (promptMatch) mainImagePrompt = cleanValue(promptMatch[1]);
-            }
+          mainImagePrompt = extractByKey(content, ['主图Prompt', '主图描述', 'Main Image', 'P3 Prompt', 'Hero Image', '主图生成']) || "";
+          if (!mainImagePrompt) {
+            const jsonMatch = content.match(/full_prompt[：:]\s*["']?([^"'\n]+)/i);
+            const promptMatch = content.match(/prompt[：:]\s*["']?(.{20,200})/i);
+            if (jsonMatch) mainImagePrompt = cleanValue(jsonMatch[1]);
+            else if (promptMatch) mainImagePrompt = cleanValue(promptMatch[1]);
+          }
         }
 
         // 3. Fallback to Regex Extraction for Sub Images
         if (subImages.length === 0) {
-             subImages = extractListAfterHeader(content, ['副图', '副图序列', 'Sub Images', 'P4', 'S1', 'S2', '信息图', '场景图', 'A+', 'M1', 'M2'], 6);
-             
-             if (subImages.length === 0) {
-                 for (const line of lines) {
-                    const trimmed = line.trim();
-                    const sMatch = trimmed.match(/^(?:\*\*)?(?:S|M)[1-6][：:]\s*(.+?)(?:\*\*)?$/i);
-                    const typeMatch = trimmed.match(/^(?:#{1,4}\s*)?(信息图|场景图|细节图|规格图|对比图|包装图|品牌宣言|系列身份)[：:]?\s*(.+)?/);
-                    if (sMatch && subImages.length < 6) {
-                        subImages.push(cleanValue(sMatch[1]));
-                    } else if (typeMatch && subImages.length < 6) {
-                        subImages.push(cleanValue(typeMatch[1]) + (typeMatch[2] ? ': ' + cleanValue(typeMatch[2]) : ''));
-                    }
-                 }
-             }
+          subImages = extractListAfterHeader(content, ['副图', '副图序列', 'Sub Images', 'P4', 'S1', 'S2', '信息图', '场景图', 'A+', 'M1', 'M2'], 6);
+
+          if (subImages.length === 0) {
+            for (const line of lines) {
+              const trimmed = line.trim();
+              const sMatch = trimmed.match(/^(?:\*\*)?(?:S|M)[1-6][：:]\s*(.+?)(?:\*\*)?$/i);
+              const typeMatch = trimmed.match(/^(?:#{1,4}\s*)?(信息图|场景图|细节图|规格图|对比图|包装图|品牌宣言|系列身份)[：:]?\s*(.+)?/);
+              if (sMatch && subImages.length < 6) {
+                subImages.push(cleanValue(sMatch[1]));
+              } else if (typeMatch && subImages.length < 6) {
+                subImages.push(cleanValue(typeMatch[1]) + (typeMatch[2] ? ': ' + cleanValue(typeMatch[2]) : ''));
+              }
+            }
+          }
         }
-        
+
         const hasContent = mainImagePrompt || subImages.length > 0;
         const isComplete = content.includes('完成') || content.includes('Done') || content.includes('complete') || (subImages.length >= 6);
-        
+
         return {
           type: 'production',
           data: {
@@ -1059,7 +1044,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
           }
         };
       }
-      
+
       return undefined;
     } catch (e) {
       console.error('Extract step data error:', e);
@@ -1068,23 +1053,23 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
   };
 
   const handleRegenerate = () => {
-      // Remove last AI message
-      setMessages(prev => {
-          const newMsgs = [...prev];
-          if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].role === 'ai') {
-              newMsgs.pop(); // Remove AI response
-          }
-          // We also need to check if there was a user "confirm" message before this step?
-          // Actually, regeneration usually happens BEFORE confirmation of CURRENT step.
-          // So we simply re-run the triggerStep with a "Retry" prompt.
-          return newMsgs;
-      });
+    // Remove last AI message
+    setMessages(prev => {
+      const newMsgs = [...prev];
+      if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].role === 'ai') {
+        newMsgs.pop(); // Remove AI response
+      }
+      // We also need to check if there was a user "confirm" message before this step?
+      // Actually, regeneration usually happens BEFORE confirmation of CURRENT step.
+      // So we simply re-run the triggerStep with a "Retry" prompt.
+      return newMsgs;
+    });
 
-      // We need to re-trigger the current step (workflowStep)
-      // Prompt should be slightly different? Or same?
-      // Let's use "重新生成" instruction.
-      const retryPrompt = "上一条结果不满意，请重新生成，注意严格遵循格式要求。";
-      triggerStep(workflowStep, retryPrompt);
+    // We need to re-trigger the current step (workflowStep)
+    // Prompt should be slightly different? Or same?
+    // Let's use "重新生成" instruction.
+    const retryPrompt = "上一条结果不满意，请重新生成，注意严格遵循格式要求。";
+    triggerStep(workflowStep, retryPrompt);
   };
 
   const renderCurrentActionCard = () => {
@@ -1096,117 +1081,118 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
 
     switch (workflowStep) {
       case WorkflowStep.LAUNCH_PACKAGE:
-        const launchImage = messages.find(m => m.role === 'user' && (m.image || (m.images && m.images.length > 0)))?.images?.[0] 
-                          || messages.find(m => m.role === 'user' && m.image)?.image;
-        return <LaunchPackageCard 
-            onConfirm={() => handleUserConfirm(WorkflowStep.STRATEGY_P0)} 
-            onRegenerate={handleRegenerate}
-            image={launchImage} 
-            launchData={extracted?.type === 'launch' ? extracted.data as any : undefined} 
+        const launchImage = messages.find(m => m.role === 'user' && (m.image || (m.images && m.images.length > 0)))?.images?.[0]
+          || messages.find(m => m.role === 'user' && m.image)?.image;
+        return <LaunchPackageCard
+          onConfirm={() => handleUserConfirm(WorkflowStep.STRATEGY_P0)}
+          onRegenerate={handleRegenerate}
+          image={launchImage}
+          launchData={extracted?.type === 'launch' ? extracted.data as any : undefined}
         />;
       case WorkflowStep.STRATEGY_P0:
-        return <StrategyCard 
-            onConfirm={() => handleUserConfirm(WorkflowStep.VISUAL_P1)} 
-            onRegenerate={handleRegenerate}
-            strategyData={extracted?.type === 'strategy' ? extracted.data as any : undefined}
+        return <StrategyCard
+          onConfirm={() => handleUserConfirm(WorkflowStep.VISUAL_P1)}
+          onRegenerate={handleRegenerate}
+          strategyData={extracted?.type === 'strategy' ? extracted.data as any : undefined}
         />;
       case WorkflowStep.VISUAL_P1:
-        return <VisualGuidelinesCard 
-            onConfirm={() => handleUserConfirm(WorkflowStep.COPY_P2)} 
-            onRegenerate={handleRegenerate}
-            visualData={extracted?.type === 'visual' ? extracted.data as any : undefined}
+        return <VisualGuidelinesCard
+          onConfirm={() => handleUserConfirm(WorkflowStep.COPY_P2)}
+          onRegenerate={handleRegenerate}
+          visualData={extracted?.type === 'visual' ? extracted.data as any : undefined}
         />;
       case WorkflowStep.COPY_P2:
-        return <CopywritingCard 
-            onConfirm={() => handleUserConfirm(WorkflowStep.PRODUCTION_SELECT)} 
-            onRegenerate={handleRegenerate}
-            copyData={extracted?.type === 'copy' ? extracted.data as any : undefined}
+        return <CopywritingCard
+          onConfirm={() => handleUserConfirm(WorkflowStep.PRODUCTION_SELECT)}
+          onRegenerate={handleRegenerate}
+          copyData={extracted?.type === 'copy' ? extracted.data as any : undefined}
         />;
       case WorkflowStep.PRODUCTION_SELECT:
         return <ProductionSelectCard
-            onSelectMain={() => handleProductionSelect('main')}
-            onSelectSecondary={() => handleProductionSelect('secondary')}
-            onSelectAplus={() => handleProductionSelect('aplus')}
-            onSelectAll={() => handleProductionSelect('all')}
+          onSelectMain={() => handleProductionSelect('main')}
+          onSelectSecondary={() => handleProductionSelect('secondary')}
+          onSelectAplus={() => handleProductionSelect('aplus')}
+          onSelectAll={() => handleProductionSelect('all')}
         />;
       case WorkflowStep.MARKETING_IMAGE_GENERATION:
       case WorkflowStep.MODEL_TRY_ON:
-          const genParams = extractGenParams(lastMsg.content);
-          if (genParams && genParams.prompt) {
-             return <GenerationCard 
-                prompt={genParams.prompt}
-                aspectRatio={genParams.aspect_ratio}
-                onGenerate={() => handleGenerateImage(genParams.prompt, genParams.aspect_ratio || "1:1")}
-                status={genStatus}
-                resultImage={genResult}
-                errorMsg={genError || undefined}
-             />
-          }
-          return null;
+        const genParams = extractGenParams(lastMsg.content);
+        if (genParams && genParams.prompt) {
+          return <GenerationCard
+            prompt={genParams.prompt}
+            aspectRatio={genParams.aspect_ratio}
+            onGenerate={() => handleGenerateImage(genParams.prompt, genParams.aspect_ratio || "1:1")}
+            status={genStatus}
+            resultImage={genResult}
+            errorMsg={genError || undefined}
+          />
+        }
+        return null;
       case WorkflowStep.PRODUCTION_P3_P5:
       case WorkflowStep.P3_MAIN_IMAGE:
       case WorkflowStep.P4_SECONDARY:
       case WorkflowStep.P5_APLUS:
-        const prodImage = messages.find(m => m.role === 'user' && (m.image || (m.images && m.images.length > 0)))?.images?.[0] 
-                          || messages.find(m => m.role === 'user' && m.image)?.image;
+        const prodImage = messages.find(m => m.role === 'user' && (m.image || (m.images && m.images.length > 0)))?.images?.[0]
+          || messages.find(m => m.role === 'user' && m.image)?.image;
         const prodExtracted = extracted?.type === 'production' ? extracted.data as any : undefined;
-        
+
         // 判断是单步还是全部，单步完成后显示"继续生成其他"选项
         const isSingleStep = workflowStep !== WorkflowStep.PRODUCTION_P3_P5;
-        
+
         // Determine mode based on step
         let mode: 'p3' | 'p4' | 'p5' | 'all' = 'all';
         if (workflowStep === WorkflowStep.P3_MAIN_IMAGE) mode = 'p3';
         else if (workflowStep === WorkflowStep.P4_SECONDARY) mode = 'p4';
         else if (workflowStep === WorkflowStep.P5_APLUS) mode = 'p5';
-        
+
         return (
           <div className="space-y-4">
-            <ProductionCard 
-              image={prodImage} 
+            <ProductionCard
+              image={prodImage}
               productionData={prodExtracted}
               mode={mode}
-              onConfirm={() => handleUserConfirm(WorkflowStep.COMPLETED)} 
+              onConfirm={() => handleUserConfirm(WorkflowStep.COMPLETED)}
             />
             <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-white/10 mt-2">
-               <button 
-                  onClick={handleRegenerate}
-                  className="px-4 py-2.5 border border-gray-200 dark:border-white/10 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
-                  title="重新生成方案"
-               >
-                  <RefreshIcon />
-               </button>
-              
+              <button
+                onClick={handleRegenerate}
+                className="px-4 py-2.5 border border-gray-200 dark:border-white/10 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
+                title="重新生成方案"
+              >
+                <RefreshIcon />
+              </button>
+
               {isSingleStep ? (
-                <button 
+                <button
                   onClick={() => handleContinueProduction()}
                   className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                 >
                   🔄 继续生成其他图片
                 </button>
               ) : (
-                 <div className="flex-1"></div>
+                <div className="flex-1"></div>
               )}
-              
-                <button 
-                  onClick={() => handleUserConfirm(WorkflowStep.COMPLETED)}
-                  className="py-2.5 px-6 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors shadow-lg shadow-green-500/20"
-                >
-                  ✅ 完成
-                </button>
+
+              <button
+                onClick={() => handleUserConfirm(WorkflowStep.COMPLETED)}
+                className="py-2.5 px-6 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors shadow-lg shadow-green-500/20"
+              >
+                ✅ 完成
+              </button>
             </div>
           </div>
         );
+      case WorkflowStep.COMPLETED:
+        return <FinalReportCard messages={messages} />;
       default:
         return null;
     }
   };
 
+  const actionCard = useMemo(() => renderCurrentActionCard(), [messages, workflowStep, isTyping, genStatus, genResult, genError]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    // Moved to ChatInput
   };
 
   return (
@@ -1214,114 +1200,64 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
       {/* Header - Transparent/Glass effect */}
       <header className="h-14 px-6 fixed top-0 w-full bg-white/80 dark:bg-[#1a1a1a]/80 backdrop-blur-md flex items-center justify-between z-30 shrink-0 border-b border-gray-200/50 dark:border-white/5 transition-colors">
         <div className="flex items-center gap-4">
-          <button 
-            onClick={onBack} 
+          <button
+            onClick={onBack}
             className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 transition-colors"
           >
             ←
           </button>
           <div className="flex flex-col">
-             <span className="font-bold text-sm tracking-tight text-gray-900 dark:text-white">SKYSPER Agent Studio</span>
-             <span className="text-[10px] text-gray-500 dark:text-gray-400">
-               Powered by {initialModel.includes('gemini-3') ? 'Gemini 3.0' : 'Gemini 1.5'} {initialModel.includes('flash') ? 'Flash' : 'Pro'}
-             </span>
+            <span className="font-bold text-sm tracking-tight text-gray-900 dark:text-white">SKYSPER Agent Studio</span>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">
+              Powered by {initialModel.includes('gemini-3') ? 'Gemini 3.0' : 'Gemini 1.5'} {initialModel.includes('flash') ? 'Flash' : 'Pro'}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-3">
-            {/* Status Badge */}
-            <div className={`
+          {/* Status Badge */}
+          <div className={`
                 px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 shadow-sm
-                ${isTyping 
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' 
-                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'}
+                ${isTyping
+              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'}
             `}>
-                <div className={`w-1.5 h-1.5 rounded-full ${isTyping ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
-                {isTyping ? 'Thinking' : 'Ready'}
-            </div>
+            <div className={`w-1.5 h-1.5 rounded-full ${isTyping ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+            {isTyping ? 'Thinking' : 'Ready'}
+          </div>
         </div>
       </header>
 
       {/* Chat Area - Centered Column */}
       <main className="flex-1 overflow-y-auto relative w-full pt-16" ref={scrollRef}>
         <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8 min-h-full">
-            <AnimatePresence initial={false} mode='popLayout'>
+          <AnimatePresence initial={false} mode='popLayout'>
             {messages.map((msg, idx) => (
-                <div key={msg.id} className="flex flex-col gap-2">
-                    <MessageBubble 
-                        role={msg.role} 
-                        content={msg.content} 
-                        image={msg.image}
-                        images={msg.images}
-                        component={idx === messages.length - 1 ? renderCurrentActionCard() : undefined} 
-                    />
-                </div>
+              <div key={msg.id} className="flex flex-col gap-2">
+                <MessageBubble
+                  role={msg.role}
+                  content={msg.content}
+                  image={msg.image}
+                  images={msg.images}
+                  component={idx === messages.length - 1 ? actionCard : undefined}
+                />
+              </div>
             ))}
             {isTyping && (
-                <div className="ml-4">
-                    <TypingIndicator />
-                </div>
+              <div className="ml-4">
+                <TypingIndicator />
+              </div>
             )}
-            </AnimatePresence>
-            <div className="h-40" /> {/* Spacer for bottom input */}
+          </AnimatePresence>
+          <div className="h-40" /> {/* Spacer for bottom input */}
         </div>
       </main>
 
-      {/* Input Area - Floating Bottom */}
-      <div className="absolute bottom-8 left-0 right-0 px-4 z-40 pointer-events-none">
-        <div className="max-w-3xl mx-auto bg-white dark:bg-[#1e1e1e] p-2 rounded-[1.5rem] shadow-2xl shadow-gray-200/50 dark:shadow-black/50 border border-gray-100 dark:border-white/10 pointer-events-auto transform transition-all focus-within:ring-2 ring-brand-blue/20 focus-within:border-brand-blue/50">
-            {/* Image Preview Bar */}
-            {selectedImages.length > 0 && (
-                <div className="flex gap-2 p-2 mb-1 overflow-x-auto">
-                    {selectedImages.map((img, idx) => (
-                        <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden border border-gray-200 shrink-0 group">
-                            <img src={img} className="w-full h-full object-cover" />
-                            <button onClick={() => removeImage(idx)} className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs">×</button>
-                        </div>
-                    ))}
-                </div>
-            )}
+      {/* Input Area - Optimized Component */}
+      <ChatInput onSend={handleInputSend} isTyping={isTyping} />
 
-            <div className="flex items-end gap-2 pl-2">
-                <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-2.5 text-gray-400 hover:text-brand-blue hover:bg-blue-50 dark:hover:bg-white/10 rounded-xl transition-colors shrink-0 mb-1"
-                >
-                    <UploadIcon className="w-5 h-5" />
-                </button>
-                <input type="file" multiple accept="image/*" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
-                
-                <textarea 
-                    ref={inputRef}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Type a message..."
-                    className="flex-1 bg-transparent border-none outline-none text-gray-900 dark:text-white text-base p-3 max-h-32 min-h-[52px] resize-none placeholder-gray-400 font-sans leading-relaxed"
-                    rows={1}
-                />
-                
-                <button 
-                    onClick={handleSend} 
-                    disabled={!inputValue && selectedImages.length === 0}
-                    className={`
-                        p-3 rounded-xl transition-all duration-200 shrink-0 mb-1
-                        ${(inputValue || selectedImages.length > 0)
-                            ? 'bg-brand-blue text-white shadow-md hover:opacity-90 active:scale-95' 
-                            : 'bg-gray-100 dark:bg-white/5 text-gray-300 dark:text-gray-600 cursor-not-allowed'}
-                    `}
-                >
-                    <SendIcon className="w-5 h-5" />
-                </button>
-            </div>
-        </div>
-        <div className="text-center mt-3 text-xs text-gray-400 font-light pointer-events-none opacity-60">
-            Based on Google Gemini 3.0 Pro • Venture Lightly
-        </div>
-      </div>
-
-      <PromptInspector 
-        prompt={AGENT_PROMPTS[workflowStep]} 
-        isActive={!isTyping} 
+      <PromptInspector
+        prompt={AGENT_PROMPTS[workflowStep]}
+        isActive={!isTyping}
       />
     </div>
   );

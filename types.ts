@@ -35,7 +35,7 @@ export type ProductionChoice = 'main' | 'secondary' | 'aplus' | 'all';
 
 
 export interface CardProps {
-  onConfirm: () => void;
+  onConfirm: (data?: any) => void;
   onRegenerate?: () => void;
   image?: string | null;
   launchData?: {

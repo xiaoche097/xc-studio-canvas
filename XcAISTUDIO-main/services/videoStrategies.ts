@@ -12,18 +12,18 @@ export interface StrategyResult {
 
 // --- Module: Default (Basic Image-to-Video / Text-to-Video) ---
 export const processDefaultVideoGen = async (
-    node: AppNode, 
-    inputs: AppNode[], 
+    node: AppNode,
+    inputs: AppNode[],
     prompt: string
 ): Promise<StrategyResult> => {
     // In Default mode, we strictly look for an Image input to do standard I2V.
     // We ignore video metadata (continuations), reference arrays, etc.
-    
+
     let inputImageForGeneration: string | null = null;
 
     // Prioritize direct image inputs or cropped frames
     const imageInput = inputs.find(n => n.data.image || n.data.croppedFrame);
-    
+
     if (imageInput) {
         inputImageForGeneration = imageInput.data.croppedFrame || imageInput.data.image || null;
     }
@@ -42,8 +42,8 @@ export const processDefaultVideoGen = async (
 
 // --- Module: StoryContinuator (剧情延展) ---
 export const processStoryContinuator = async (
-    node: AppNode, 
-    inputs: AppNode[], 
+    node: AppNode,
+    inputs: AppNode[],
     prompt: string
 ): Promise<StrategyResult> => {
     let inputImages: string[] = [];
@@ -53,24 +53,24 @@ export const processStoryContinuator = async (
     // where the image is the LAST FRAME of the previous video.
     // We do NOT want to pass the raw video bytes as `videoInput` because that triggers
     // Veo's "Video Editing" or "Masking" mode, which is not what we want for linear story extension.
-    
+
     const videoNode = inputs.find(n => n.data.videoUri || n.data.videoMetadata);
-    
+
     if (videoNode && videoNode.data.videoUri) {
-         try {
-             let videoSrc = videoNode.data.videoUri;
-             // Ensure we have a base64 source for frame extraction (canvas needs it, or cross-origin blob)
-             if (videoSrc.startsWith('http')) {
-                 videoSrc = await urlToBase64(videoSrc); 
-             }
-             // Extract the very last frame
-             const lastFrame = await extractLastFrame(videoSrc);
-             if (lastFrame) {
-                 inputImages = [lastFrame];
-             }
-         } catch (e) {
-             console.warn("StoryContinuator: Frame extraction failed", e);
-         }
+        try {
+            let videoSrc = videoNode.data.videoUri;
+            // Ensure we have a base64 source for frame extraction (canvas needs it, or cross-origin blob)
+            if (videoSrc.startsWith('http')) {
+                videoSrc = await urlToBase64(videoSrc);
+            }
+            // Extract the very last frame
+            const lastFrame = await extractLastFrame(videoSrc);
+            if (lastFrame) {
+                inputImages = [lastFrame];
+            }
+        } catch (e) {
+            console.warn("StoryContinuator: Frame extraction failed", e);
+        }
     }
 
     return {
@@ -84,8 +84,8 @@ export const processStoryContinuator = async (
 
 // --- Module: FrameWeaver (收尾插帧) ---
 export const processFrameWeaver = async (
-    node: AppNode, 
-    inputs: AppNode[], 
+    node: AppNode,
+    inputs: AppNode[],
     prompt: string
 ): Promise<StrategyResult> => {
     const inputImages: string[] = [];
@@ -97,8 +97,8 @@ export const processFrameWeaver = async (
     let finalPrompt = prompt;
 
     if (inputImages.length >= 2) {
-        try { 
-            finalPrompt = await orchestrateVideoPrompt(inputImages, prompt); 
+        try {
+            finalPrompt = await orchestrateVideoPrompt(inputImages, prompt);
         } catch (e) {
             console.warn("FrameWeaver: Orchestration failed, using raw prompt", e);
         }
@@ -107,16 +107,16 @@ export const processFrameWeaver = async (
     return {
         finalPrompt,
         videoInput: null,
-        inputImageForGeneration: inputImages[0], 
-        referenceImages: inputImages, 
+        inputImageForGeneration: inputImages[0],
+        referenceImages: inputImages,
         generationMode: 'FIRST_LAST_FRAME'
     };
 };
 
 // --- Module: SceneDirector (局部分镜) ---
 export const processSceneDirector = async (
-    node: AppNode, 
-    inputs: AppNode[], 
+    node: AppNode,
+    inputs: AppNode[],
     prompt: string
 ): Promise<StrategyResult> => {
     let inputImageForGeneration: string | null = null;
@@ -128,7 +128,7 @@ export const processSceneDirector = async (
         try {
             let vidData = videoInputNode.data.videoUri;
             if (vidData.startsWith('http')) vidData = await urlToBase64(vidData);
-            upstreamContextStyle = await analyzeVideo(vidData, "Analyze the visual style, lighting, composition, and color grading briefly.", "gemini-2.5-flash");
+            upstreamContextStyle = await analyzeVideo(vidData, "Analyze the visual style, lighting, composition, and color grading briefly.", "gemini-3-flash-preview");
         } catch (e) { /* Ignore analysis failure */ }
     }
 
@@ -140,15 +140,15 @@ export const processSceneDirector = async (
         if (cropSource) {
             inputImageForGeneration = cropSource.data.croppedFrame!;
         } else {
-             // Fallback to normal image if no crop found
-             const imgSource = inputs.find(n => n.data.image);
-             if (imgSource) inputImageForGeneration = imgSource.data.image!;
-             
-             if (!inputImageForGeneration && videoInputNode) {
-                  try {
-                       inputImageForGeneration = await extractLastFrame(videoInputNode.data.videoUri!);
-                  } catch (e) {}
-             }
+            // Fallback to normal image if no crop found
+            const imgSource = inputs.find(n => n.data.image);
+            if (imgSource) inputImageForGeneration = imgSource.data.image!;
+
+            if (!inputImageForGeneration && videoInputNode) {
+                try {
+                    inputImageForGeneration = await extractLastFrame(videoInputNode.data.videoUri!);
+                } catch (e) { }
+            }
         }
     }
 
@@ -177,14 +177,14 @@ export const processSceneDirector = async (
             - Treat the input image as the absolute ground truth for composition.
             - Only enhance existing pixels, do not invent new geometry.
             `;
-            
+
             const restoredImages = await generateImageFromText(
-                restorationPrompt, 
-                'gemini-2.5-flash-image', 
-                [inputImageForGeneration], 
+                restorationPrompt,
+                'gemini-3-pro-image-preview',
+                [inputImageForGeneration],
                 { aspectRatio: node.data.aspectRatio || '16:9', count: 1 }
             );
-            
+
             if (restoredImages && restoredImages.length > 0) {
                 // Use the restored, sharp image as the input for Veo
                 inputImageForGeneration = restoredImages[0];
@@ -212,7 +212,7 @@ export const processCharacterRef = async (
     // 1. Identify Sources
     const videoSource = inputs.find(n => n.data.videoUri);
     const imageSource = inputs.find(n => n.data.image);
-    
+
     // Fallback: If no image source, check for inputs that have image data (maybe prompts that generated images)
     const characterImage = imageSource?.data.image || inputs.find(n => n.data.image)?.data.image || null;
 
@@ -223,12 +223,12 @@ export const processCharacterRef = async (
         try {
             let vidData = videoSource.data.videoUri;
             if (vidData.startsWith('http')) vidData = await urlToBase64(vidData);
-            
+
             // Ask Gemini to extract purely the motion/action, ignoring the original character's identity
             motionDescription = await analyzeVideo(
-                vidData, 
-                "Describe ONLY the physical actions, camera movement, and background environment of this video. Do not describe the person's identity. Example: 'A figure is waving their hand while walking forward in a studio.'", 
-                "gemini-2.5-flash"
+                vidData,
+                "Describe ONLY the physical actions, camera movement, and background environment of this video. Do not describe the person's identity. Example: 'A figure is waving their hand while walking forward in a studio.'",
+                "gemini-3-flash-preview"
             );
         } catch (e) {
             console.warn("CharacterRef: Motion analysis failed", e);
@@ -239,7 +239,7 @@ export const processCharacterRef = async (
     // 3. Construct Final Prompt
     // Combine User Prompt + Motion Description + Character Reference logic is implicit via image input to Veo
     let finalPrompt = "";
-    
+
     if (motionDescription) {
         finalPrompt = `Character Action Reference: ${motionDescription}. \nUser Instruction: ${prompt || "Cinematic video"}`;
     } else {
@@ -257,8 +257,8 @@ export const processCharacterRef = async (
 
 // --- Main Factory ---
 export const getGenerationStrategy = async (
-    node: AppNode, 
-    inputs: AppNode[], 
+    node: AppNode,
+    inputs: AppNode[],
     basePrompt: string
 ): Promise<StrategyResult> => {
     const mode = node.data.generationMode || 'DEFAULT';

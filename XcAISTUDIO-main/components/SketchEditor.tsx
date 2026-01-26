@@ -1,8 +1,8 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { 
-    X, Brush, Eraser, Palette, Undo, Trash2, 
-    MousePointer2, Download, Play, Image as ImageIcon, 
+import {
+    X, Brush, Eraser, Palette, Undo, Trash2,
+    MousePointer2, Download, Play, Image as ImageIcon,
     Activity, Wand2, Loader2, ChevronDown, Upload, Layers
 } from 'lucide-react';
 import { generateImageFromText, generateVideo } from '../services/geminiService';
@@ -17,8 +17,8 @@ type Mode = 'video' | 'image' | 'pose';
 
 // Colors for the palette
 const PRESET_COLORS = [
-    '#000000', '#ffffff', '#ff3b30', '#ff9500', 
-    '#ffcc00', '#4cd964', '#5ac8fa', '#007aff', 
+    '#000000', '#ffffff', '#ff3b30', '#ff9500',
+    '#ffcc00', '#4cd964', '#5ac8fa', '#007aff',
     '#5856d6', '#ff2d55', '#8e8e93'
 ];
 
@@ -31,11 +31,11 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
     const [brushSize, setBrushSize] = useState(5);
     const [eraserSize, setEraserSize] = useState(30);
     const [canvasHistory, setCanvasHistory] = useState<ImageData[]>([]);
-    
+
     // Background Image State
     const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    
+
     // UI State
     const [activeMode, setActiveMode] = useState<Mode>('video');
     const [prompt, setPrompt] = useState('');
@@ -46,14 +46,14 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        
+
         // Handle High DPI
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
-        
+
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
-        
+
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.scale(dpr, dpr);
@@ -80,7 +80,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
         newHistory.pop(); // Remove current state
         const prevState = newHistory[newHistory.length - 1];
         setCanvasHistory(newHistory);
-        
+
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
         if (canvas && ctx && prevState) {
@@ -203,14 +203,14 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
         try {
             if (activeMode === 'pose') {
                 // --- Pose Generator Mode: Draw TO Canvas ---
-                // 1. Generate Line Art from Gemini 2.5
+                // 1. Generate Line Art from Gemini 3 Pro
                 const posePrompt = `
                 Generate a simple, high-contrast black line art sketch on a white background.
                 Subject: ${prompt}.
                 Style: Minimalist stick figure or outline drawing, clear lines, no shading.
                 `;
-                
-                const res = await generateImageFromText(posePrompt, 'gemini-2.5-flash-image', [], { aspectRatio: '16:9', count: 1 });
+
+                const res = await generateImageFromText(posePrompt, 'gemini-3-pro-image-preview', [], { aspectRatio: '16:9', count: 1 });
                 const imgUrl = res[0];
 
                 // 2. Draw Result onto Canvas
@@ -224,7 +224,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                         // Since current canvas history logic is pixel-based, drawing it is destructive but fine.
                         // We draw it 'source-over'.
                         ctx.globalCompositeOperation = 'source-over';
-                        
+
                         // Scale to fit
                         const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
                         const w = img.width * scale;
@@ -245,21 +245,21 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
             } else {
                 // --- Video/Image Mode: Generate FROM Canvas ---
                 const compositeBase64 = getCompositeDataURL();
-                
+
                 if (activeMode === 'video') {
                     const res = await generateVideo(
-                        prompt, 
-                        'veo-3.0-fast-generate-001', 
-                        { aspectRatio: '16:9' }, 
+                        prompt,
+                        'veo-3.0-fast-generate-001',
+                        { aspectRatio: '16:9' },
                         compositeBase64
                     );
                     onGenerate('video', res.uri, prompt);
                 } else {
                     // Image (Sketch-to-Image)
                     const res = await generateImageFromText(
-                        prompt, 
-                        'gemini-2.5-flash-image', 
-                        [compositeBase64], 
+                        prompt,
+                        'gemini-3-pro-image-preview',
+                        [compositeBase64],
                         { aspectRatio: '16:9', count: 1 }
                     );
                     onGenerate('image', res[0], prompt);
@@ -277,7 +277,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
         <div className="fixed inset-0 z-[100] bg-[#0a0a0c] flex flex-col animate-in fade-in duration-300">
             {/* 1. Top Navigation Bar */}
             <div className="h-14 border-b border-white/10 flex items-center justify-between px-6 bg-[#1c1c1e]">
-                <button 
+                <button
                     onClick={onClose}
                     className="absolute left-6 p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
                 >
@@ -296,8 +296,8 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                                 onClick={() => setActiveMode(mode.id as Mode)}
                                 className={`
                                     flex items-center gap-2 px-6 py-1.5 rounded-md text-xs font-bold transition-all
-                                    ${activeMode === mode.id 
-                                        ? 'bg-white/10 text-white shadow-sm' 
+                                    ${activeMode === mode.id
+                                        ? 'bg-white/10 text-white shadow-sm'
                                         : 'text-slate-500 hover:text-slate-300'}
                                 `}
                             >
@@ -311,18 +311,18 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
 
             {/* 2. Main Canvas Area */}
             <div className="flex-1 relative bg-[#121214] flex items-center justify-center p-8 overflow-hidden">
-                
+
                 {/* Floating Toolbar */}
                 <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 p-1.5 bg-[#2c2c2e]/90 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl">
-                    <button 
+                    <button
                         onClick={() => setTool('brush')}
                         className={`p-2.5 rounded-full transition-colors ${tool === 'brush' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                         title="画笔"
                     >
                         <Brush size={16} />
                     </button>
-                    
-                    <button 
+
+                    <button
                         onClick={() => setTool('eraser')}
                         className={`p-2.5 rounded-full transition-colors ${tool === 'eraser' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                         title="橡皮擦"
@@ -333,7 +333,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                     <div className="w-px h-6 bg-white/10 mx-1" />
 
                     <div className="relative">
-                        <button 
+                        <button
                             onClick={() => setShowPalette(!showPalette)}
                             className="p-2.5 rounded-full transition-colors text-slate-400 hover:text-white hover:bg-white/5 relative"
                             title="调色板"
@@ -345,7 +345,7 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                         {showPalette && (
                             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 p-3 bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl grid grid-cols-4 gap-2 w-48 z-30">
                                 {PRESET_COLORS.map(c => (
-                                    <button 
+                                    <button
                                         key={c}
                                         onClick={() => { setBrushColor(c); setTool('brush'); setShowPalette(false); }}
                                         className={`w-8 h-8 rounded-full border-2 ${brushColor === c ? 'border-white' : 'border-transparent hover:scale-110'}`}
@@ -355,13 +355,13 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                             </div>
                         )}
                     </div>
-                    
+
                     <div className="w-px h-6 bg-white/10 mx-1" />
 
                     <button onClick={handleUndo} className="p-2.5 rounded-full text-slate-400 hover:text-white hover:bg-white/5">
                         <Undo size={16} />
                     </button>
-                    
+
                     <button onClick={handleClear} className="p-2.5 rounded-full text-red-400 hover:bg-red-500/10">
                         <Trash2 size={16} />
                     </button>
@@ -369,10 +369,10 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
 
                 {/* The Canvas Wrapper */}
                 <div className="relative shadow-2xl rounded-lg overflow-hidden border border-white/5 bg-[#ffffff] select-none" style={{ aspectRatio: '16/9', height: '100%', maxHeight: '800px' }}>
-                     {/* Background Image Layer */}
-                     {backgroundImage && (
-                        <img 
-                            src={backgroundImage.src} 
+                    {/* Background Image Layer */}
+                    {backgroundImage && (
+                        <img
+                            src={backgroundImage.src}
                             className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-50"
                             alt="Reference"
                         />
@@ -397,23 +397,23 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                 {/* Tools (Left) */}
                 <div className="flex items-center gap-2 mr-4">
                     {/* Import Background Button */}
-                     <div 
+                    <div
                         className="relative p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white border border-white/5 cursor-pointer hover:bg-white/10 transition-colors"
                         onClick={() => fileInputRef.current?.click()}
                         title="导入底图"
-                     >
+                    >
                         <Layers size={16} />
                         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImportBackground} />
                     </div>
-                    <button onClick={() => { if(canvasRef.current){ const a = document.createElement('a'); a.href = getCompositeDataURL(); a.download='sketch.png'; a.click(); } }} className="p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white border border-white/5" title="下载当前画布">
+                    <button onClick={() => { if (canvasRef.current) { const a = document.createElement('a'); a.href = getCompositeDataURL(); a.download = 'sketch.png'; a.click(); } }} className="p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white border border-white/5" title="下载当前画布">
                         <Download size={16} />
                     </button>
                 </div>
 
                 {/* Input Area */}
                 <div className="flex-1 relative">
-                    <input 
-                        type="text" 
+                    <input
+                        type="text"
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder={activeMode === 'pose' ? "描述姿势 (e.g. A stick figure running fast)..." : "描述画面内容 (e.g. Milk splash around the bottle)..."}
@@ -425,21 +425,21 @@ export const SketchEditor: React.FC<SketchEditorProps> = ({ onClose, onGenerate 
                 {/* Settings & Generate */}
                 <div className="flex items-center gap-3">
                     <div className="h-11 px-4 flex items-center gap-2 bg-black/30 border border-white/10 rounded-xl text-xs text-slate-300 font-medium">
-                        <span>{activeMode === 'pose' ? 'Gemini 2.5 (Pose)' : activeMode === 'video' ? 'Veo 3.0 Fast' : 'Gemini 2.5'}</span>
+                        <span>{activeMode === 'pose' ? 'Gemini 3 Pro (Pose)' : activeMode === 'video' ? 'Veo 3.0 Fast' : 'Gemini 3 Pro'}</span>
                         <ChevronDown size={12} className="text-slate-500" />
                     </div>
 
                     <div className="w-px h-6 bg-white/10 mx-2" />
 
-                    <button 
+                    <button
                         onClick={handleGenerate}
                         disabled={isGenerating || !prompt.trim()}
                         className={`
                             h-11 px-6 rounded-xl flex items-center gap-2 font-bold text-sm transition-all
-                            ${isGenerating || !prompt.trim() 
-                                ? 'bg-white/5 text-slate-500 cursor-not-allowed' 
-                                : activeMode === 'pose' 
-                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:scale-105' 
+                            ${isGenerating || !prompt.trim()
+                                ? 'bg-white/5 text-slate-500 cursor-not-allowed'
+                                : activeMode === 'pose'
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:scale-105'
                                     : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-105'}
                         `}
                     >
