@@ -26,11 +26,13 @@
     "amazonxpzj",
     "Lululemon",
     "Sparkline",
-    "Daypack"
+    "Daypack",
+    "psychographics",
+    "ISPORT",
+    "Deuter",
+    "breathability",
+    "softbox",
+    "octabox"
   ],
-  "ignorePaths": [
-    "node_modules",
-    "dist",
-    ".git"
-  ]
+  "ignorePaths": ["node_modules", "dist", ".git"]
 }
