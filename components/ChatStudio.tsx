@@ -1202,9 +1202,9 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#2D2D2D] hover:bg-[#3D3D3D] text-white text-sm font-medium transition-colors border border-white/10"
           >
-            ←
+            ← Back to Studio
           </button>
           <div className="flex flex-col">
             <span className="font-bold text-sm tracking-tight text-gray-900 dark:text-white">SKYSPER Agent Studio</span>

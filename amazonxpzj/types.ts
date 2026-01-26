@@ -14,6 +14,7 @@ export interface FilterFormData {
   timeRange?: number;
   images?: string[];
   isInternetSearch?: boolean;
+  model?: string;
 }
 
 export interface KeywordNode {

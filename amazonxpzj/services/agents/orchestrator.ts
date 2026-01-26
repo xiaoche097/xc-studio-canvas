@@ -46,15 +46,38 @@ export class Orchestrator {
     const userMessage = `Request: ${userRequest}\nContext: ${JSON.stringify(context)}`;
 
     try {
-      const response = await callAgent(ORCHESTRATOR_PROMPT, userMessage);
-      // Clean up markdown block if present (```json ... ```)
-      const cleanJson = response.replace(/```json/g, '').replace(/```/g, '').trim();
-      return JSON.parse(cleanJson);
+      const response = await callAgent(ORCHESTRATOR_PROMPT, userMessage, true, filters.model);
+
+      // Robust JSON Extraction
+      let cleanJson = response.trim();
+      // Remove markdown code blocks if present
+      if (cleanJson.includes('```')) {
+        cleanJson = cleanJson.replace(/```json/gi, '').replace(/```/g, '');
+      }
+
+      // Find the first '{' and the last '}' to handle any preamble/postscript text
+      const firstBrace = cleanJson.indexOf('{');
+      const lastBrace = cleanJson.lastIndexOf('}');
+
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanJson = cleanJson.substring(firstBrace, lastBrace + 1);
+      }
+
+      const plan = JSON.parse(cleanJson);
+
+      // Inject model preference into all tasks
+      if (plan.tasks && Array.isArray(plan.tasks)) {
+        plan.tasks.forEach((t: any) => {
+          if (!t.params) t.params = {};
+          t.params.model = filters.model;
+          t.params.isInternetSearch = filters.isInternetSearch;
+        });
+      }
+
+      return plan;
     } catch (error) {
-       console.error("Orchestrator Plan Error:", error);
-       // Fallback to mock data on error
-       console.log('[Orchestrator] Falling back to mock plan data');
-       return generateMockPlan(userRequest, filters);
+      console.error("Orchestrator Plan Error:", error);
+      throw error;
     }
   }
 
@@ -97,21 +120,7 @@ export class Orchestrator {
       }
     } catch (error) {
       console.error(`[Orchestrator] Agent ${task.agent} failed:`, error);
-      // Fallback to mock data on error
-      console.log(`[Orchestrator] Falling back to mock data for ${task.agent}`);
-
-      switch (task.agent) {
-        case 'keyword_agent':
-          return generateMockKeywordResponse(task.task_id);
-        case 'product_agent':
-          return generateMockProductResponse(task.task_id);
-        case 'report_agent':
-          return generateMockReportResponse(task.task_id);
-        case 'market_agent':
-          return generateMockProductResponse(task.task_id);
-        default:
-          throw error;
-      }
+      throw error;
     }
   }
 }

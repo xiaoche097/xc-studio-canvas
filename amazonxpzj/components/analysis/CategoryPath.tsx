@@ -6,9 +6,10 @@ interface CategoryPathProps {
 }
 
 export const CategoryPath: React.FC<CategoryPathProps> = ({ path }) => {
+  if (!path || typeof path !== 'string') return null;
   const parts = path.split('>');
   const [isExpanded, setIsExpanded] = useState(false);
-  
+
   if (parts.length <= 2 || isExpanded) {
     return (
       <div className="flex flex-wrap items-center text-xs text-gray-500">
