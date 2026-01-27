@@ -3,7 +3,7 @@
 > **Venture Lightly** —— 为 SKYSPER 品牌打造的一站式电商视觉与数据分析智能工作台。
 
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" width="100%" alt="SKYSPER AI Studio Banner" />
+  <img src="https://cdn.jsdelivr.net/gh/xiaoche0907/pic-bed@main/img_1769494458618_350_ScreenShot_2026-01-27_141346_943.png" width="100%" alt="SKYSPER AI Studio Banner" />
 </div>
 
 ## 📖 项目简介
