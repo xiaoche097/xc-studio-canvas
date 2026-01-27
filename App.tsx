@@ -6,8 +6,9 @@ import { SettingsModal } from './components/SettingsModal';
 
 import { App as VideoStationApp } from './XcAISTUDIO-main/App';
 import AmazonSelectionApp from './amazonxpzj/App';
+import CreativeCenterApp from './Cyzx4/App';
 
-type ViewState = 'home' | 'chat' | 'video' | 'selection';
+type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -102,12 +103,25 @@ const App: React.FC = () => {
           {/* Use Amazon Selection App - No Back button here, handled inside AmazonSelectionApp */}
           <AmazonSelectionApp />
         </div>
+      ) : view === 'creative' ? (
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          {/* Back Button Overlay */}
+          <button
+            onClick={() => setView('home')}
+            className="fixed bottom-4 left-4 z-[9999] px-4 py-2 bg-brand-orange text-white rounded-full shadow-lg hover:scale-105 transition-all font-bold text-xs flex items-center gap-2"
+          >
+            ← Back to Studio
+          </button>
+          <CreativeCenterApp />
+        </div>
       ) : view === 'home' ? (
         <AgentHome onStart={(text, img, model, step) => {
           if (step === 12) { // WorkflowStep.VIDEO_GENERATION
             setView('video');
           } else if (step === 14) { // WorkflowStep.AMAZON_SELECTION
             setView('selection');
+          } else if (text.startsWith('/creative')) {
+            setView('creative');
           } else {
             if (Array.isArray(img)) {
               handleStartAgent(text, img, model, step);

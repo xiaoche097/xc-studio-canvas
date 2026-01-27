@@ -7,7 +7,7 @@ import {
   MarketingVisual,
   VideoVisual,
   AmazonSelectionVisual,
-  TranslateVisual
+  CreativeVisual
 } from './Icons';
 import { ModelTryOnModal } from './ModelTryOnModal';
 import { MarketingModal } from './MarketingModal';
@@ -98,16 +98,16 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [images, setImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-pro'); // Default to 2.5 Pro
 
-// ... inside the JSX ...
-                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : 'Gemini 2.5 Pro'}
-// ...
-                      <button
-                        onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-2.5-pro' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
-                      >
-                        Gemini 2.5 Pro
-                        {selectedModel === 'gemini-2.5-pro' && <span className="text-xs">✓</span>}
-                      </button>
+  // ... inside the JSX ...
+  { selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : 'Gemini 2.5 Pro' }
+  // ...
+  <button
+    onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
+    className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-2.5-pro' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
+  >
+    Gemini 2.5 Pro
+    {selectedModel === 'gemini-2.5-pro' && <span className="text-xs">✓</span>}
+  </button>
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showTryOnModal, setShowTryOnModal] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
@@ -167,8 +167,9 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     } else if (title === "选品专家") {
       // Direct jump to Amazon Selection, bypassing modal
       onStart("/selection", [], selectedModel, WorkflowStep.AMAZON_SELECTION);
-    } else if (title === "图片翻译") {
-      setShowTranslateModal(true);
+    } else if (title === "创意中心") {
+      // Direct jump to Creative Center
+      onStart("/creative", [], selectedModel);
     } else {
       setInput(prompt);
     }
@@ -202,7 +203,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   const handleTranslateConfirm = (img: string) => {
     setShowTranslateModal(false);
-    onStart("/translate 将图片中的文案翻译为英语，保持原文排版和风格", [img], selectedModel);
+    onStart("/creative 创意生成，发挥你的想象力，基于这张图片生成新的设计概念", [img], selectedModel);
   };
 
   const FEATURE_CARDS = [
@@ -243,13 +244,13 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: AmazonSelectionVisual
     },
     {
-      title: "图片翻译",
-      prompt: "/translate 将图片中的文案翻译为英语",
+      title: "创意中心",
+      prompt: "/creative 创意灵感生成",
       bgClass: "from-white to-amber-50/50 dark:from-white/5 dark:to-amber-900/20",
       borderClass: "hover:border-amber-200 dark:hover:border-amber-500/30",
       textClass: "text-gray-800 dark:text-gray-100",
       visualColor: "text-amber-500",
-      Visual: TranslateVisual
+      Visual: CreativeVisual
     }
   ];
 

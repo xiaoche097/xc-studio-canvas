@@ -29,6 +29,15 @@
               light: "#F0F7FF",
               dark: "#E6F0FF",
             },
+            pastel: {
+              bg: "var(--pastel-bg)",
+              card: "var(--pastel-card)",
+              text: "var(--pastel-text)",
+              border: "var(--pastel-border)",
+              muted: "var(--pastel-muted)",
+              highlight: "var(--pastel-highlight)",
+              pink: "var(--pastel-pink)",
+            },
           },
           animation: {
             "fade-in": "fadeIn 0.4s ease-out",
@@ -96,6 +105,26 @@
       -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.6);
       box-shadow: 0 4px 6px -1px rgba(200, 225, 239, 0.2);
+    }
+    
+    :root {
+      --pastel-bg: #F0F7FF;
+      --pastel-card: #FFFFFF;
+      --pastel-text: #1a202c;
+      --pastel-border: #e2e8f0;
+      --pastel-muted: #64748b;
+      --pastel-highlight: #ED6D46;
+      --pastel-pink: #FFF0EB;
+    }
+
+    .dark {
+      --pastel-bg: #050505;
+      --pastel-card: #121212;
+      --pastel-text: #F3F4F6;
+      --pastel-border: #2D2D2D;
+      --pastel-muted: #9CA3AF;
+      --pastel-highlight: #ED6D46;
+      --pastel-pink: #2A1810;
     }
 
     body {

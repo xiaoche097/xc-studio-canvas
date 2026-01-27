@@ -189,3 +189,16 @@ export const VideoVisual = ({ className }: { className?: string }) => (
     <circle cx="80" cy="65" r="2" fill="currentColor"/>
   </svg>
 );
+
+export const CreativeVisual = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="40" r="15" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+    <path d="M50 55V65" stroke="currentColor" strokeWidth="2"/>
+    <path d="M45 65H55" stroke="currentColor" strokeWidth="2"/>
+    <path d="M30 20L35 28" stroke="currentColor" strokeWidth="2"/>
+    <path d="M70 20L65 28" stroke="currentColor" strokeWidth="2"/>
+    <path d="M50 15V20" stroke="currentColor" strokeWidth="2"/>
+    <path d="M20 40H28" stroke="currentColor" strokeWidth="2"/>
+    <path d="M80 40H72" stroke="currentColor" strokeWidth="2"/>
+  </svg>
+);
