@@ -164,7 +164,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     } else if (title === "视频工作站") {
       // Direct jump to Video Station, bypassing modal
       onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
-    } else if (title === "选品专家") {
+    } else if (title === "分析专家") {
       // Direct jump to Amazon Selection, bypassing modal
       onStart("/selection", [], selectedModel, WorkflowStep.AMAZON_SELECTION);
     } else if (title === "创意中心") {
@@ -235,7 +235,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: VideoVisual
     },
     {
-      title: "选品专家",
+      title: "分析专家",
       prompt: "/selection 亚马逊数据选品分析",
       bgClass: "from-white to-sky-50/50 dark:from-white/5 dark:to-sky-900/20",
       borderClass: "hover:border-sky-200 dark:hover:border-sky-500/30",
