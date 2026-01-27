@@ -6,11 +6,11 @@ import { AspectRatio, ImageResolution } from "../types";
 const getAiClient = () => {
   const customKey = localStorage.getItem('user_api_key');
   const apiKey = customKey || process.env.API_KEY;
-  
+
   if (!apiKey) {
     throw new Error("API Key is missing. Please configure it in Settings.");
   }
-  
+
   return new GoogleGenAI({ apiKey });
 };
 
@@ -36,11 +36,11 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
         reject(new Error("Invalid data URL format"));
         return;
       }
-      
+
       resolve(parts[1]);
     };
     reader.onerror = () => {
-       reject(new Error(`File reading error: ${reader.error?.message || 'Unknown error'}`));
+      reject(new Error(`File reading error: ${reader.error?.message || 'Unknown error'}`));
     };
     reader.readAsDataURL(blob);
   });
@@ -65,19 +65,19 @@ function base64ToUint8Array(base64: string): Uint8Array {
 }
 
 export const decodeAudioData = async (
-  base64String: string, 
+  base64String: string,
   audioCtx: AudioContext
 ): Promise<AudioBuffer> => {
   const bytes = base64ToUint8Array(base64String);
   // Gemini Live returns raw PCM 24kHz mono
   const int16Data = new Int16Array(bytes.buffer);
   const float32Data = new Float32Array(int16Data.length);
-  
+
   for (let i = 0; i < int16Data.length; i++) {
     float32Data[i] = int16Data[i] / 32768.0;
   }
 
-  const buffer = audioCtx.createBuffer(1, float32Data.length, 24000); 
+  const buffer = audioCtx.createBuffer(1, float32Data.length, 24000);
   buffer.getChannelData(0).set(float32Data);
   return buffer;
 };
@@ -88,18 +88,18 @@ export const decodeAudioData = async (
  * UPDATED: Enforce "Film Look", "Candid Poses", "Texture", "Outfit Replacement", "Scene Randomizer"
  */
 export const analyzeProductImage = async (
-  imageBase64: string, 
-  mimeType: string, 
+  imageBase64: string,
+  mimeType: string,
   userGuidance?: string,
   productScale?: string,
   styleStrategy?: string
 ) => {
   const ai = getAiClient();
-  
+
   // === DYNAMIC PERSONA ENGINE (FILM EDITION) ===
   // All styles must now adhere to the "Film Look" protocol.
   let roleDefinition = "**ROLE**: You are a World-Class Editorial Photographer. You shoot exclusively on Analog Film (Kodak Portra 400).";
-  
+
   // Mapping strategies to Film Scenarios
   let styleRules = "";
   let mandatoryKeywords = "film grain, Kodak Portra 400, analog photography, natural light, cinematic, candid shot";
@@ -209,17 +209,17 @@ Respond in pure **JSON** format. Do not use Markdown code blocks.
         ]
       }
     });
-    
+
     let text = response.text || '{}';
     // Remove markdown code blocks if present
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
+
     // Robust JSON Parsing with Sanitization
     try {
       return JSON.parse(text);
     } catch (e) {
       console.warn("JSON Parse failed, attempting sanitization...", e);
-      const sanitized = text.replace(/[\n\r\t]/g, ' '); 
+      const sanitized = text.replace(/[\n\r\t]/g, ' ');
       try {
         return JSON.parse(sanitized);
       } catch (e2) {
@@ -254,8 +254,8 @@ Respond in pure **JSON** format. Do not use Markdown code blocks.
  * Supports optional Model Reference Image for face consistency.
  */
 export const generateMarketingImage = async (
-  prompt: string, 
-  aspectRatio: AspectRatio, 
+  prompt: string,
+  aspectRatio: AspectRatio,
   resolution: ImageResolution,
   referenceImage?: { base64: string; mimeType: string }, // Product
   modelReferenceImage?: { base64: string; mimeType: string } // Model Face
@@ -263,7 +263,7 @@ export const generateMarketingImage = async (
   const ai = getAiClient();
   try {
     const parts: any[] = [];
-    
+
     // 1. Add Product Image (Image 1)
     if (referenceImage) {
       parts.push({
@@ -356,7 +356,7 @@ export const generateFusionImage = async (
   const ai = getAiClient();
   try {
     const parts: any[] = [];
-    
+
     // 1. Add Product Image
     parts.push({
       inlineData: {
@@ -415,14 +415,14 @@ export const generateFusionImage = async (
  * Uses gemini-3-pro-image-preview
  */
 export const generateSeatCoverFit = async (
-  seatCoverBase64: string,
-  seatCoverMime: string,
+  seatCoverImages: { base64: string, mime: string }[],
+  productCategory: string,
   carModel: string,
   year: string,
   seatConfig: string,
   targetRow: string,
   angleMode: 'PRESET' | 'REFERENCE',
-  angleValue: string | { base64: string, mime: string },
+  angleValue: string | { base64: string, mime: string }[],
   aspectRatio: AspectRatio,
   resolution: ImageResolution
 ) => {
@@ -430,52 +430,103 @@ export const generateSeatCoverFit = async (
   try {
     const parts: any[] = [];
 
-    // 1. Add Seat Cover Image (Image 1)
-    parts.push({
-      inlineData: {
-        mimeType: seatCoverMime,
-        data: seatCoverBase64
-      }
-    });
-
-    // 2. Add Reference Image (Image 2) if applicable
-    let referenceContext = "";
-    if (angleMode === 'REFERENCE' && typeof angleValue === 'object') {
+    // 1. Add Seat Cover Images (Product Images)
+    seatCoverImages.forEach((img) => {
       parts.push({
         inlineData: {
-          mimeType: angleValue.mime,
-          data: angleValue.base64
+          mimeType: img.mime,
+          data: img.base64
         }
       });
+    });
+
+    // 2. Reference Image or Perspective Logic (Skill 3)
+    let referenceContext = "";
+    if (angleMode === 'REFERENCE' && Array.isArray(angleValue)) {
+      // Add all reference images
+      angleValue.forEach((refImg) => {
+        parts.push({
+          inlineData: {
+            mimeType: refImg.mime,
+            data: refImg.base64
+          }
+        });
+      });
+
       referenceContext = `
-      Image 2 is the TARGET INTERIOR REFERENCE.
-      You MUST strictly replicate the camera angle, lighting, and environment of Image 2.
-      REPLACE the original seats in Image 2 with the Seat Cover design from Image 1.`;
+      **Skill 3 Override: Multi-Reference Match**
+      - You have received ${angleValue.length} reference image(s) for Camera Angle and Lighting.
+      - TARGET: Strictly replicate the composition, perspective, and lighting atmosphere from these reference images.
+      - The interior geometry should match the references, but adapted to the specific car model (${carModel}) if they differ.
+      - IGNORE the original seat surfaces in the reference images; replace them with the Product (Image 1).`;
     } else {
+      // Manual Skill 3: Dynamic Perspective Composition
+      const viewMap: Record<string, string> = {
+        "Driver's View": "Shot from driver's seated position at 45-degree angle, steering wheel in foreground creating depth, center console and passenger area visible in mid-ground.",
+        "Rear Row Perspective": "Rear passenger viewpoint, looking forward or across the rear bench, showing front seatbacks.",
+        "Side Open Door View": "View from open door position, showcasing the seat profile and entry perspective.",
+        "Top Down View": "High angle layout view, showing the geometric arrangement of the seats.",
+        "Detail Shot of Stitching": "Close-up macro shot, shallow depth of field, focusing on the texture and fit."
+      };
+      const angleDesc = typeof angleValue === 'string' ? (viewMap[angleValue] || angleValue) : "Standard interior 45-degree angle.";
+
       referenceContext = `
-      Render the interior from this perspective: ${angleValue}.
-      Generate a photorealistic interior for the ${year} ${carModel}.`;
+      **Skill 3: Dynamic Perspective Composition**
+      - Instruction: ${angleDesc}
+      - Composition: Professional automotive editorial balance.`;
     }
 
-    // High quality prompts for Ultra 4K
-    const qualityContext = resolution === ImageResolution.RES_4K 
-      ? "8k resolution, highly detailed texture, macro photography, unreal engine 5 render, cinematic lighting"
-      : "photorealistic, commercial automotive photography";
+    // High quality prompts for Ultra 4K (Skill 8)
+    const qualityContext = resolution === ImageResolution.RES_4K
+      ? "Photorealistic rendering at 8K ultra-high resolution. Sharp details throughout. Accurate material representations with precise surface textures."
+      : "Photorealistic, commercial automotive photography standard.";
 
-    // 3. Construct Prompt
+    // 3. Construct AutoFusion Pro V3.0 Prompt
     const prompt = `
-    You are an expert automotive visualizer.
-    Task: Superimpose the provided [Seat Cover Product] (Image 1) onto the seats of a ${carModel} (${year}) interior with ${seatConfig} configuration.
+    **ROLE**: AutoFusion™ Pro V3.0 - Intelligent Automotive Interior Visualizer.
     
-    FOCUS: Camera focus MUST be on the ${targetRow} seats.
+    **MISSION**: Generate a photorealistic commercial photograph of a ${year} ${carModel} interior with the user's [${productCategory}] (Image 1 to ${seatCoverImages.length}) installed.
     
+    **VEHICLE SPECIFICATIONS**:
+    - Model: ${year} ${carModel}
+    - Configuration: ${seatConfig}
+    - Target Installation: ${targetRow} seats
+    
+    **EXECUTION SKILLS (MANDATORY PROTOCOLS):**
+
+    **Skill 2: Feature Decoding (Model Accuracy)**
+    - Decode the "${carModel}" and "${year}" to identify specific interior features (Screen size, Air vent shape, Steering wheel design, Center console layout).
+    - Render these features accurately to ensure the car is successfully identified.
+    - If "${seatConfig}" implies a specific trim (e.g. Captain Seats), ensure the seat geometry matches.
+
+    **Skill 4: Color Environment Control (PURE BLACK PROTOCOL)**
+    - **GLOBAL OVERRIDE**: Render the entire car interior (Dash, Door Panels, Carpets, Headliner, Plastic Trim) in **PURE BLACK/DARK GREY**.
+    - **TEXTURE PRESERVATION**: Even though black, distinct textures MUST be visible (e.g. Leather grain vs Plastic matte vs Glossy trim).
+    - **CRITICAL EXCEPTION**: The [Seat Cover Products] (First ${seatCoverImages.length} images provided) MUST RETAIN THEIR ORIGINAL COLORS and PATTERNS. Do NOT darken the products.
+    
+    **Skill 5: Product Integration (Fit & Finish)**
+    - **Contextual Placement**: Analyze the [${productCategory}] to determine its correct location (e.g., Seat Cover -> Seats, Armrest Cover -> Center Console Armrest, Cup Holder -> Console).
+    - **State & Action**: If the product description [${productCategory}] implies a specific state (e.g. "Lifted", "Open", "Folded"), you MUST render the car part in that state to show the product features.
+    - Smartly map the provided Product Images (Images 1-${seatCoverImages.length}) onto the target area.
+    - The product must appear physically installed:
+      - Show realistic tension wrinkles where the material pulls tight.
+      - Show natural fabric folds where it contours to the car part.
+      - Ensure the lighting on the product matches the environment.
+    
+    **Skill 6: Lighting & Atmosphere**
+    - Setup: Professional Commercial Studio Lighting.
+    - Key Light: Soft diffused light from upper front.
+    - Fill Light: Reducing harsh shadows.
+    - Color Temp: Neutral 5500K for accurate product color.
+    
+    **Skill 7: Brand Style Adaptation**
+    - Reflect the specific DNA of ${carModel} in the non-seat elements (e.g. Tech-minimalism for Tesla, Luxury for Mercedes).
+
     ${referenceContext}
 
-    CRITICAL REQUIREMENTS:
-    1. Ensure the seat cover fabric wrinkles, folds, and fit naturally match the contours of the ${carModel} seats.
-    2. Maintain photorealism. Shadows and lighting must match the interior environment.
-    3. Do not distort the pattern or texture of the Seat Cover (Image 1).
-    4. ${qualityContext}.
+    **Skill 8: Quality & Negative Constraints**
+    - ${qualityContext}
+    - **Negative**: Avoid cartoonish style, distorted logos, incorrect seat shapes for this car model, color bleeding, oversaturated environment, low resolution textures.
     `;
 
     parts.push({ text: prompt });
@@ -512,8 +563,8 @@ export const generateSeatCoverFit = async (
  * Uses gemini-2.5-flash-image with Mask support
  */
 export const inpaintImage = async (
-  originalBase64: string, 
-  maskBase64: string, 
+  originalBase64: string,
+  maskBase64: string,
   prompt: string
 ) => {
   const ai = getAiClient();
@@ -620,7 +671,7 @@ export const generateOutpainting = async (
   const ai = getAiClient();
   try {
     const description = prompt || "Extend the scene naturally, matching the existing lighting and environment.";
-    
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
@@ -687,7 +738,7 @@ export const searchTrends = async (query: string) => {
 
     const grounding = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const text = response.text || "No results found.";
-    
+
     return { text, grounding };
   } catch (error) {
     console.error("Search failed", error);
@@ -706,7 +757,7 @@ export const generateListingCopy = async (
   keywords?: string
 ) => {
   const ai = getAiClient();
-  
+
   let prompt = "";
   const keywordsContext = keywords ? `Focus heavily on these user-provided keywords/features: "${keywords}".` : "";
 
@@ -782,7 +833,7 @@ export const generateVideoScript = async (
   style: string
 ) => {
   const ai = getAiClient();
-  
+
   const prompt = `You are a professional Video Director for commercial products.
   Analyze the provided product image and create a detailed video shooting script.
 
@@ -824,7 +875,7 @@ export const generateVideoScript = async (
     let text = response.text || '[]';
     // Clean up if model adds markdown blocks despite instructions
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
+
     try {
       return JSON.parse(text);
     } catch (e) {
@@ -852,17 +903,19 @@ export const connectLiveDirector = async (
   onClose: () => void
 ) => {
   const ai = getAiClient();
-  
+
   // Setup Audio Input (Microphone)
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-    sampleRate: 16000,
-    channelCount: 1
-  }});
-  
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      sampleRate: 16000,
+      channelCount: 1
+    }
+  });
+
   const audioContext = new AudioContext({ sampleRate: 16000 });
   const source = audioContext.createMediaStreamSource(stream);
   const processor = audioContext.createScriptProcessor(4096, 1, 1);
-  
+
   let isConnected = true;
 
   const sessionPromise = ai.live.connect({
@@ -903,24 +956,24 @@ export const connectLiveDirector = async (
   // Stream Audio Input
   processor.onaudioprocess = (e) => {
     if (!isConnected) return;
-    
+
     const inputData = e.inputBuffer.getChannelData(0);
     // Convert Float32 to Int16 PCM for Gemini
     const buffer = new ArrayBuffer(inputData.length * 2);
     const view = new DataView(buffer);
     floatTo16BitPCM(view, 0, inputData);
-    
+
     const base64Audio = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-    
+
     sessionPromise.then(session => {
-        session.sendRealtimeInput({
-            media: {
-                mimeType: "audio/pcm;rate=16000",
-                data: base64Audio
-            }
-        });
+      session.sendRealtimeInput({
+        media: {
+          mimeType: "audio/pcm;rate=16000",
+          data: base64Audio
+        }
+      });
     }).catch(err => {
-        // Session might be initializing or failed
+      // Session might be initializing or failed
     });
   };
 
@@ -936,7 +989,7 @@ export const connectLiveDirector = async (
       await audioContext.close();
       const session = await sessionPromise;
       /* @ts-ignore */
-      if(session.close) session.close(); 
+      if (session.close) session.close();
     }
   };
 };
