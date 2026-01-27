@@ -13,6 +13,10 @@ import { ModelTryOnModal } from './ModelTryOnModal';
 import { MarketingModal } from './MarketingModal';
 import { BackgroundModal } from './BackgroundModal';
 import { TranslateModal } from './TranslateModal';
+import { ProjectGalleryModal } from './ProjectGalleryModal';
+import { RecentProjects } from './RecentProjects';
+import { ProjectDetailModal } from './ProjectDetailModal';
+import { storageService, Project } from '../services/storageService';
 
 import { WorkflowStep } from '../types';
 
@@ -114,6 +118,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   // Video Modal removed for direct access
   const [showBackgroundModal, setShowBackgroundModal] = useState(false);
   const [showTranslateModal, setShowTranslateModal] = useState(false);
+  const [selectedRecentProject, setSelectedRecentProject] = useState<Project | null>(null);
 
   // ... (handleImageUpload and removeImage are unchanged)
 
@@ -236,7 +241,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     },
     {
       title: "分析专家",
-      prompt: "/selection 亚马逊数据选品分析",
+      prompt: "/selection 亚马逊数据分析专家",
       bgClass: "from-white to-sky-50/50 dark:from-white/5 dark:to-sky-900/20",
       borderClass: "hover:border-sky-200 dark:hover:border-sky-500/30",
       textClass: "text-gray-800 dark:text-gray-100",
@@ -258,6 +263,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-[#F8FAFC] dark:bg-[#050505] transition-colors duration-500 font-sans">
       <div className="absolute top-0 left-0 w-full h-full opacity-40 dark:opacity-20 pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
       <div className="absolute -top-[20%] right-[10%] w-[800px] h-[800px] bg-brand-orange/5 blur-[120px] rounded-full pointer-events-none"></div>
+
+      <div className="absolute top-0 left-0 w-full h-full opacity-40 dark:opacity-20 pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+      <div className="absolute -top-[20%] right-[10%] w-[800px] h-[800px] bg-brand-orange/5 blur-[120px] rounded-full pointer-events-none"></div>
+
+      {/* History Button Moved to App.tsx */}
 
       <div className="w-full max-w-6xl z-10 flex flex-col items-center gap-10">
         <div className="text-center animate-fade-in">
@@ -392,6 +402,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
           ))}
         </div>
 
+        {/* Recent Projects Section */}
+        <div className="w-full max-w-6xl animate-slide-up [animation-delay:200ms]">
+          <RecentProjects
+            onSelectProject={(p) => setSelectedRecentProject(p)}
+            onViewAll={() => window.dispatchEvent(new CustomEvent('open-history'))}
+          />
+        </div>
+
         <ModelTryOnModal
           isOpen={showTryOnModal}
           onClose={() => setShowTryOnModal(false)}
@@ -416,6 +434,21 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
           isOpen={showTranslateModal}
           onClose={() => setShowTranslateModal(false)}
           onConfirm={handleTranslateConfirm}
+        />
+
+
+        {/* Gallery Modal removed from here */}
+
+        <ProjectDetailModal
+          project={selectedRecentProject}
+          onClose={() => setSelectedRecentProject(null)}
+          onDelete={async (id) => {
+            await storageService.deleteProject(id);
+            setSelectedRecentProject(null);
+            // Ideally trigger refresh of RecentProjects
+            // For MVP, window reload or let logic handle it next mount
+            window.location.reload();
+          }}
         />
       </div>
     </div>

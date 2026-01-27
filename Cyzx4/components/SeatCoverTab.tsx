@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { generateSeatCoverFit, blobToBase64 } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
 import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key } from 'lucide-react';
+import { storageService } from '../../services/storageService';
 
 const SeatCoverTab: React.FC = () => {
   const [seatFiles, setSeatFiles] = useState<File[]>([]);
@@ -92,6 +93,24 @@ const SeatCoverTab: React.FC = () => {
 
       const images = await generateSeatCoverFit(seatImages, productCategory, carModel, year, seatConfig, targetRow, angleMode, angleValue, aspectRatio, qualityMode);
       setGeneratedImages(images);
+
+      // Save Project
+      await storageService.saveProject({
+        id: crypto.randomUUID(),
+        type: 'SEAT_COVER',
+        createdAt: Date.now(),
+        thumbnail: images[0], // Use first image as thumbnail
+        assets: {
+          original: seatPreviews,
+          generated: images
+        },
+        metadata: {
+          prompt: `${year} ${carModel} Seat Cover Fit`,
+          params: {
+            productCategory, carModel, year, seatConfig, targetRow, angleMode, aspectRatio, qualityMode
+          }
+        }
+      });
     } catch (error: any) {
       const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
       if (isPermissionError) {

@@ -3,6 +3,8 @@ import { AgentHome } from './components/AgentHome';
 import { ChatStudio } from './components/ChatStudio';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { SettingsModal } from './components/SettingsModal';
+import { ProjectGalleryModal } from './components/ProjectGalleryModal';
+import { History } from 'lucide-react';
 
 import { App as VideoStationApp } from './XcAISTUDIO-main/App';
 import AmazonSelectionApp from './amazonxpzj/App';
@@ -19,6 +21,7 @@ const App: React.FC = () => {
   });
   const [isDark, setIsDark] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   // Theme Initialization
@@ -32,10 +35,12 @@ const App: React.FC = () => {
     if (savedTheme === 'light') {
       setIsDark(false);
       document.documentElement.classList.remove('dark');
-    } else {
-      setIsDark(true);
-      document.documentElement.classList.add('dark');
     }
+
+    // Listen for History Open Event
+    const handleOpenHistory = () => setIsGalleryOpen(true);
+    window.addEventListener('open-history', handleOpenHistory);
+    return () => window.removeEventListener('open-history', handleOpenHistory);
   }, []);
 
   const toggleTheme = () => {
@@ -66,6 +71,15 @@ const App: React.FC = () => {
     <div className="h-full bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white transition-colors duration-500 relative">
       {/* Top Right Controls */}
       <div className="fixed top-6 right-6 z-50 flex gap-2">
+        {/* History Button */}
+        <button
+          onClick={() => setIsGalleryOpen(true)}
+          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
+          aria-label="History"
+        >
+          <History className="w-5 h-5" />
+        </button>
+
         {/* Settings Button */}
         <button
           onClick={() => setIsSettingsOpen(true)}
@@ -85,7 +99,9 @@ const App: React.FC = () => {
         </button>
       </div>
 
+
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />
 
       {view === 'video' ? (
         <div className="relative w-full h-full bg-black z-[100]">

@@ -7,6 +7,7 @@ import { MessageBubble, TypingIndicator } from './ChatComponents';
 import { ChatInput } from './ChatInput';
 import { PromptInspector } from './PromptInspector';
 import { gemini } from '../lib/gemini';
+import { storageService } from '../services/storageService';
 // @ts-ignore
 import launchPrompt from '../src/prompts/launch.md?raw';
 // @ts-ignore
@@ -74,6 +75,7 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
   const [genStatus, setGenStatus] = useState<'idle' | 'generating' | 'completed' | 'error'>('idle');
   const [genResult, setGenResult] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  const [analysisImages, setAnalysisImages] = useState<Record<string, string>>({}); // State for Analysis images
 
   // Sync messagesRef with messages state for async access
   useEffect(() => {
@@ -236,6 +238,28 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     // Stores mandate if provided from Launch Package step
     if (data && data.visualMandate) {
       setVisualMandate(data.visualMandate);
+    }
+
+    // Intercept Completion to Save Project
+    if (nextStep === WorkflowStep.COMPLETED) {
+      // Collect Analysis Data
+      const generatedList = Object.values(analysisImages);
+      if (generatedList.length > 0) {
+        storageService.saveProject({
+          id: crypto.randomUUID(),
+          type: 'ANALYSIS',
+          createdAt: Date.now(),
+          thumbnail: analysisImages['p3-main'] || generatedList[0],
+          assets: {
+            original: initialImages,
+            generated: generatedList
+          },
+          metadata: {
+            prompt: initialInput || "Amazon Selection Analysis",
+            params: { model: initialModel }
+          }
+        }).catch(console.error);
+      }
     }
 
     // Add confirmation message
@@ -517,6 +541,36 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
       const result = await gemini.generateImage(prompt, initialImages);
       setGenResult(result);
       setGenStatus('completed');
+
+      // Save Project
+      const typeMap: Record<string, 'MARKETING' | 'MODEL' | 'LAUNCH_PACKAGE' | 'OTHER'> = {
+        [WorkflowStep.MARKETING_IMAGE_GENERATION]: 'MARKETING',
+        [WorkflowStep.MODEL_TRY_ON]: 'MODEL',
+        [WorkflowStep.P3_MAIN_IMAGE]: 'LAUNCH_PACKAGE',
+        [WorkflowStep.P4_SECONDARY]: 'LAUNCH_PACKAGE',
+        [WorkflowStep.P5_APLUS]: 'LAUNCH_PACKAGE',
+        [WorkflowStep.PRODUCTION_P3_P5]: 'LAUNCH_PACKAGE'
+      };
+
+      const projectType = typeMap[workflowStep] || 'OTHER';
+
+      if (projectType !== 'OTHER') {
+        await storageService.saveProject({
+          id: crypto.randomUUID(),
+          type: projectType,
+          createdAt: Date.now(),
+          thumbnail: result,
+          assets: {
+            original: initialImages,
+            generated: [result]
+          },
+          metadata: {
+            prompt: prompt,
+            params: { aspectRatio }
+          }
+        });
+      }
+
     } catch (e) {
       setGenStatus('error');
       setGenError((e as Error).message);
@@ -1148,9 +1202,10 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         return (
           <div className="space-y-4">
             <ProductionCard
-              image={prodImage}
               productionData={prodExtracted}
               mode={mode}
+              generatedImages={analysisImages}
+              onImageUpdate={(key, url) => setAnalysisImages(prev => ({ ...prev, [key]: url }))}
               onConfirm={() => handleUserConfirm(WorkflowStep.COMPLETED)}
             />
             <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-white/10 mt-2">

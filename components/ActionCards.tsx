@@ -239,9 +239,17 @@ interface ProductionCardProps {
     subImages?: (string | ProductionItem)[];
     status?: string;
   };
+  generatedImages?: Record<string, string>;
+  onImageUpdate?: (key: string, url: string) => void;
 }
 
-export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productionData, mode = 'all' }) => {
+export const ProductionCard: React.FC<ProductionCardProps> = ({
+  image,
+  productionData,
+  mode = 'all',
+  generatedImages = {},
+  onImageUpdate
+}) => {
   const {
     mainImage = "主图Prompt生成中...",
     subImages = [],
@@ -250,10 +258,12 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ image, productio
 
   const [activeSubIndex, setActiveSubIndex] = useState(0);
   const [triggerCount, setTriggerCount] = useState(0);
-  const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
+  // Local state removed, using props
 
   const handleImageUpdate = (key: string, url: string) => {
-    setGeneratedImages(prev => ({ ...prev, [key]: url }));
+    if (onImageUpdate) {
+      onImageUpdate(key, url);
+    }
   };
 
   // 判断是否有真正的prompt内容（不是占位符）

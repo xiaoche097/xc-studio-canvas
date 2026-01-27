@@ -108,7 +108,7 @@ export const LandingPage: React.FC = () => {
             <span className="font-bold text-red-500 dark:text-red-400">Trending</span>
             <span className="mx-3 text-gray-300 dark:text-gray-600">·</span>
             <span className="font-bold text-purple-500 dark:text-purple-400">Redesign</span>
-            <span className="ml-2 text-gray-700 dark:text-gray-300">AI Selection Expert</span>
+            <span className="ml-2 text-gray-700 dark:text-gray-300">Analysis Expert</span>
           </p>
         </div>
 

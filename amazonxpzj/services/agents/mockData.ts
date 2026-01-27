@@ -43,9 +43,9 @@ export const generateMockPlan = (keyword: string, filters: any): AgentPlan => {
       {
         task_id: `task-report-${Date.now() + 3}`,
         task_type: "generate_report",
-        task_name: "生成选品分析报告",
+        task_name: "生成分析专家报告",
         agent: "report_agent",
-        description: "整合所有分析数据，生成完整的选品建议报告",
+        description: "整合所有分析数据，生成完整的分析专家建议报告",
         priority: 4,
         depends_on: [],
         params: {},

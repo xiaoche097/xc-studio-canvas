@@ -73,67 +73,67 @@ export const LANDING_CASES: LandingCase[] = [
     title: '海外爆火瑜伽裤新品机会',
     desc: '一键分析美国瑜伽裤新品机会，不再错过下一个"Lululemon"！',
     image: 'https://images.unsplash.com/photo-1544367563-12123d897571?q=80&w=500&auto=format&fit=crop',
-    tag: '机会新品选品'
+    tag: '机会新品分析'
   },
   {
     id: '2',
     title: '美国热销扫地机器人痛点',
     desc: '分析亚马逊扫地机器人的致命差评，智能生成"差评转五星"的改良方案',
     image: 'https://images.unsplash.com/photo-1589923188900-85dae5233c95?q=80&w=500&auto=format&fit=crop',
-    tag: '商品改进选品发现'
+    tag: '商品改进机会发现'
   },
   {
     id: '3',
     title: '亚马逊很火的户外玩具',
     desc: '有哪些户外玩具产品在亚马逊逆卖的很火但Tiktok还没人卖？',
     image: 'https://images.unsplash.com/photo-1596464716127-f9a08107e05e?q=80&w=500&auto=format&fit=crop',
-    tag: '平台迁移选品发现'
+    tag: '平台迁移机会发现'
   }
 ];
 
 export const MOCK_KEYWORDS: KeywordNode[] = [
-  { 
-    id: 'k1', 
-    keyword: 'flare yoga pants', 
+  {
+    id: 'k1',
+    keyword: 'flare yoga pants',
     cnKeyword: '喇叭瑜伽裤',
-    score: 53.2, 
+    score: 53.2,
     beatRatio: 84.0,
     searchRank: '9.3w+',
     sales: '1.5w+'
   },
-  { 
-    id: 'k2', 
-    keyword: 'flared yoga pants', 
+  {
+    id: 'k2',
+    keyword: 'flared yoga pants',
     cnKeyword: '喇叭瑜伽裤',
-    score: 55.0, 
+    score: 55.0,
     beatRatio: 88.8,
     searchRank: '10.8w+',
     sales: '1.1w+'
   },
-  { 
-    id: 'k3', 
-    keyword: 'bell bottom yoga pants', 
+  {
+    id: 'k3',
+    keyword: 'bell bottom yoga pants',
     cnKeyword: '喇叭瑜伽裤',
-    score: 51.4, 
+    score: 51.4,
     beatRatio: 77.7,
     searchRank: '81.5w+',
     sales: '6.9k+'
   },
-  { 
-    id: 'k4', 
-    keyword: 'flare leggings', 
+  {
+    id: 'k4',
+    keyword: 'flare leggings',
     cnKeyword: '喇叭瑜伽裤',
-    score: 54.8, 
+    score: 54.8,
     beatRatio: 88.5,
     searchRank: '1.3w+',
     sales: '1.2w+',
     isRecommended: true
   },
-  { 
-    id: 'k5', 
-    keyword: 'flared leggings', 
+  {
+    id: 'k5',
+    keyword: 'flared leggings',
     cnKeyword: '喇叭瑜伽裤',
-    score: 51.4, 
+    score: 51.4,
     beatRatio: 77.8,
     searchRank: '3.5w+',
     sales: '1w+'

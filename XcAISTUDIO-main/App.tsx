@@ -24,6 +24,7 @@ import {
     ScanFace, Brush, MousePointerClick, LayoutTemplate, X, Film, Link, RefreshCw, Upload,
     Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2
 } from 'lucide-react';
+import { storageService } from '../services/storageService';
 
 // Apple Physics Curve
 const SPRING = "cubic-bezier(0.32, 0.72, 0, 1)";
@@ -714,8 +715,32 @@ export const App = () => {
                 const updated = { ...n, data: { ...n.data, ...data }, title: title || n.title };
                 if (size) { if (size.width) updated.width = size.width; if (size.height) updated.height = size.height; }
 
-                if (data.image) handleAssetGenerated('image', data.image, updated.title);
-                if (data.videoUri) handleAssetGenerated('video', data.videoUri, updated.title);
+                if (data.image) {
+                    handleAssetGenerated('image', data.image, updated.title);
+                    // Auto-Save Image Project
+                    if (n.type === NodeType.IMAGE_GENERATOR) {
+                        storageService.saveProject({
+                            id: crypto.randomUUID(),
+                            type: 'OTHER', // Or Image
+                            createdAt: Date.now(),
+                            thumbnail: data.image,
+                            assets: { generated: [data.image] },
+                            metadata: { prompt: n.data.prompt || updated.title }
+                        }).catch(console.error);
+                    }
+                }
+                if (data.videoUri) {
+                    handleAssetGenerated('video', data.videoUri, updated.title);
+                    // Auto-Save Video Project
+                    storageService.saveProject({
+                        id: crypto.randomUUID(),
+                        type: 'VIDEO',
+                        createdAt: Date.now(),
+                        thumbnail: '', // Video usually needs a poster, but we can rely on IDB to store generic or use a placeholder
+                        assets: { generated: [data.videoUri] },
+                        metadata: { prompt: n.data.prompt || updated.title }
+                    }).catch(console.error);
+                }
                 if (data.audioUri) handleAssetGenerated('audio', data.audioUri, updated.title);
 
                 return updated;

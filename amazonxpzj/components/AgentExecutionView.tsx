@@ -14,6 +14,7 @@ import { KeywordAnalysis } from './analysis/KeywordAnalysis';
 import { ProductList } from './analysis/ProductList';
 import { MarketInsight } from './analysis/MarketInsight';
 import { DetailModal } from './analysis/DetailModal';
+import { storageService } from '../../services/storageService';
 
 export const AgentExecutionView: React.FC = () => {
   const { executionSteps, status, setView, filters } = useAnalysisStore();
@@ -31,7 +32,30 @@ export const AgentExecutionView: React.FC = () => {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [executionSteps, status]);
+
+    // Auto-Save Project when status is completed
+    if (status === 'completed') {
+      // Find report data
+      const reportStep = executionSteps.find(s => s.result?.detailType === 'report');
+      if (reportStep && reportStep.result?.data) {
+        const reportData = reportStep.result.data.result || reportStep.result.data;
+
+        storageService.saveProject({
+          id: crypto.randomUUID(),
+          type: 'ANALYSIS',
+          createdAt: Date.now(),
+          thumbnail: '', // Could be an icon or chart
+          assets: {
+            generated: [JSON.stringify(reportData)]
+          },
+          metadata: {
+            prompt: `Amazon Selection: ${filters.keyword}`,
+            params: filters
+          }
+        }).catch(err => console.error("Failed to save analysis project", err));
+      }
+    }
+  }, [executionSteps, status, filters]);
 
   const renderStepContent = (step: any) => {
     // 1. Plan Step
@@ -142,14 +166,14 @@ export const AgentExecutionView: React.FC = () => {
                   <Sparkles size={20} />
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-900 dark:text-white text-sm">选品分析报告已生成</h4>
+                  <h4 className="font-bold text-gray-900 dark:text-white text-sm">分析专家报告已生成</h4>
                   <p className="text-xs text-gray-500">包含市场趋势、细分赛道及行动建议</p>
                 </div>
               </div>
 
               <div className="pl-14">
                 <button
-                  onClick={() => openModal('report', '深度市场选品报告', reportData)}
+                  onClick={() => openModal('report', '深度市场分析专家报告', reportData)}
                   className="flex items-center gap-2 px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-lg text-sm font-bold shadow-lg shadow-purple-500/30 transition-all hover:scale-105"
                 >
                   <span>查看完整报告</span>
