@@ -48,7 +48,7 @@ const App: React.FC = () => {
             active={activeTab === AppMode.FUSION}
             onClick={() => setActiveTab(AppMode.FUSION)}
             icon={<Layers className="w-5 h-5" />}
-            label="场景融合"
+            label="图像生成"
           />
           <NavButton
             active={activeTab === AppMode.RETOUCHING}
@@ -78,15 +78,15 @@ const App: React.FC = () => {
             icon={<Activity className="w-5 h-5" />}
             label="趋势洞察"
           />
-        </nav>
-
-        <div className="p-4 border-t border-pastel-border">
           <NavButton
             active={activeTab === AppMode.SETTINGS}
             onClick={() => setActiveTab(AppMode.SETTINGS)}
             icon={<Settings className="w-5 h-5" />}
             label="设置"
           />
+        </nav>
+
+        <div className="p-4 border-t border-pastel-border">
           <div className="mt-3 hidden md:block">
             <p className="text-xs text-pastel-muted text-center">跨境电商 AI 工作站 v2.3 (Pastel)</p>
           </div>
@@ -99,7 +99,7 @@ const App: React.FC = () => {
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === AppMode.PLANNING && "视觉策划 (Visual Planning)"}
             {activeTab === AppMode.SEAT_COVER && "座套试装 (Seat Cover Fit)"}
-            {activeTab === AppMode.FUSION && "场景融合 (Scene Fusion)"}
+            {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
             {activeTab === AppMode.RETOUCHING && "智能修图 (Smart Retouching)"}
             {activeTab === AppMode.COPYWRITING && "爆款文案 (Listing Copilot)"}
             {activeTab === AppMode.VIDEO && "视频脚本 (Video Studio)"}

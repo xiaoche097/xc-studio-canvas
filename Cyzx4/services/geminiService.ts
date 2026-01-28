@@ -1,10 +1,10 @@
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
 
-// Helper to get a fresh AI client instance. 
+// Helper to get a fresh AI client instance.
 // It checks localStorage for a custom user key first, then falls back to the environment key.
 const getAiClient = () => {
-  const customKey = localStorage.getItem('user_api_key');
+  const customKey = localStorage.getItem("user_api_key");
   const apiKey = customKey || process.env.API_KEY;
 
   if (!apiKey) {
@@ -31,7 +31,7 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
       }
 
       // Remove data url prefix (e.g. "data:image/jpeg;base64,")
-      const parts = base64String.split(',');
+      const parts = base64String.split(",");
       if (parts.length < 2) {
         reject(new Error("Invalid data URL format"));
         return;
@@ -40,17 +40,73 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
       resolve(parts[1]);
     };
     reader.onerror = () => {
-      reject(new Error(`File reading error: ${reader.error?.message || 'Unknown error'}`));
+      reject(
+        new Error(
+          `File reading error: ${reader.error?.message || "Unknown error"}`,
+        ),
+      );
     };
     reader.readAsDataURL(blob);
   });
 };
 
+// Helper to compress image for faster upload
+export const compressImage = async (
+  file: File, 
+  maxWidth: number = 1536, 
+  quality: number = 0.85
+): Promise<{ base64: string, mime: string }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        
+        // Scale down if too large
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+             reject(new Error("Canvas context failed"));
+             return;
+        }
+        ctx.fillStyle = '#FFFFFF'; // Fill background for transparency handling
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Output as JPEG for API efficiency (smaller payload)
+        const mime = 'image/jpeg';
+        const base64Url = canvas.toDataURL(mime, quality);
+        const data = base64Url.split(',')[1];
+        
+        resolve({ base64: data, mime });
+      };
+      img.onerror = (e) => reject(e);
+    };
+    reader.onerror = (e) => reject(e);
+  });
+};
+
 // PCM Audio Helpers
-function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
+function floatTo16BitPCM(
+  output: DataView,
+  offset: number,
+  input: Float32Array,
+) {
   for (let i = 0; i < input.length; i++, offset += 2) {
     const s = Math.max(-1, Math.min(1, input[i]));
-    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
   }
 }
 
@@ -66,7 +122,7 @@ function base64ToUint8Array(base64: string): Uint8Array {
 
 export const decodeAudioData = async (
   base64String: string,
-  audioCtx: AudioContext
+  audioCtx: AudioContext,
 ): Promise<AudioBuffer> => {
   const bytes = base64ToUint8Array(base64String);
   // Gemini Live returns raw PCM 24kHz mono
@@ -92,51 +148,60 @@ export const analyzeProductImage = async (
   mimeType: string,
   userGuidance?: string,
   productScale?: string,
-  styleStrategy?: string
+  styleStrategy?: string,
 ) => {
   const ai = getAiClient();
 
   // === DYNAMIC PERSONA ENGINE (FILM EDITION) ===
   // All styles must now adhere to the "Film Look" protocol.
-  let roleDefinition = "**ROLE**: You are a World-Class Editorial Photographer. You shoot exclusively on Analog Film (Kodak Portra 400).";
+  let roleDefinition =
+    "**ROLE**: You are a World-Class Editorial Photographer. You shoot exclusively on Analog Film (Kodak Portra 400).";
 
   // Mapping strategies to Film Scenarios
   let styleRules = "";
-  let mandatoryKeywords = "film grain, Kodak Portra 400, analog photography, natural light, cinematic, candid shot";
+  let mandatoryKeywords =
+    "film grain, Kodak Portra 400, analog photography, natural light, cinematic, candid shot";
 
-  if (styleStrategy === 'Daily Commuter') {
-    styleRules = "- Atmosphere: Busy city street, motion blur, morning light, authentic urban texture.\n- Model Vibe: Commuter caught in motion, looking at watch/phone, stress/focus, trench coat.\n- Action: Walking fast across street, not posing.";
-  } else if (styleStrategy === 'Light Travel') {
-    styleRules = "- Atmosphere: Train station or airport terminal, golden hour light through windows, dust motes.\n- Model Vibe: Traveler, wind-blown hair, comfortable layers (linen/cotton), holding passport/camera.\n- Action: Looking at departure board or map, candid moment.";
-  } else if (styleStrategy === 'Chill Weekend') {
-    styleRules = "- Atmosphere: Sun-drenched cafe terrace, dappled light, wooden table texture.\n- Model Vibe: Relaxed, laughing, no makeup look, soft knitwear.\n- Action: Sipping coffee, looking away from camera, laughing with friends.";
-  } else if (styleStrategy === 'Business Elite') {
-    styleRules = "- Atmosphere: Modern architecture, glass reflections, cool cinematic tones, depth of field.\n- Model Vibe: Sharp suit but with realistic fabric wrinkles, confident stride.\n- Action: Walking out of building, adjusting sunglasses, candid business editorial.";
-  } else if (styleStrategy === 'Gorpcore Outdoor') {
-    styleRules = "- Atmosphere: Misty forest or rocky trail, rain droplets, moody film look.\n- Model Vibe: Technical gear with visible wear, muddy boots, waterproof shell.\n- Action: Hiking, adjusting gear, looking at horizon, breathing visible air.";
-  } else if (styleStrategy === 'Gen Z Street') {
-    styleRules = "- Atmosphere: Skate park or graffiti wall, harsh flash photography (point and shoot style).\n- Model Vibe: Oversized hoodie, baggy jeans, cool attitude, direct flash.\n- Action: Sitting on curb, skating, candid snapshot.";
+  if (styleStrategy === "Daily Commuter") {
+    styleRules =
+      "- Atmosphere: Busy city street, motion blur, morning light, authentic urban texture.\n- Model Vibe: Commuter caught in motion, looking at watch/phone, stress/focus, trench coat.\n- Action: Walking fast across street, not posing.";
+  } else if (styleStrategy === "Light Travel") {
+    styleRules =
+      "- Atmosphere: Train station or airport terminal, golden hour light through windows, dust motes.\n- Model Vibe: Traveler, wind-blown hair, comfortable layers (linen/cotton), holding passport/camera.\n- Action: Looking at departure board or map, candid moment.";
+  } else if (styleStrategy === "Chill Weekend") {
+    styleRules =
+      "- Atmosphere: Sun-drenched cafe terrace, dappled light, wooden table texture.\n- Model Vibe: Relaxed, laughing, no makeup look, soft knitwear.\n- Action: Sipping coffee, looking away from camera, laughing with friends.";
+  } else if (styleStrategy === "Business Elite") {
+    styleRules =
+      "- Atmosphere: Modern architecture, glass reflections, cool cinematic tones, depth of field.\n- Model Vibe: Sharp suit but with realistic fabric wrinkles, confident stride.\n- Action: Walking out of building, adjusting sunglasses, candid business editorial.";
+  } else if (styleStrategy === "Gorpcore Outdoor") {
+    styleRules =
+      "- Atmosphere: Misty forest or rocky trail, rain droplets, moody film look.\n- Model Vibe: Technical gear with visible wear, muddy boots, waterproof shell.\n- Action: Hiking, adjusting gear, looking at horizon, breathing visible air.";
+  } else if (styleStrategy === "Gen Z Street") {
+    styleRules =
+      "- Atmosphere: Skate park or graffiti wall, harsh flash photography (point and shoot style).\n- Model Vibe: Oversized hoodie, baggy jeans, cool attitude, direct flash.\n- Action: Sitting on curb, skating, candid snapshot.";
   } else {
     // Default
-    styleRules = "- Atmosphere: Natural light, textured background, editorial vibe.\n- Model Vibe: Authentic, imperfect, stylish.\n- Action: Candid movement.";
+    styleRules =
+      "- Atmosphere: Natural light, textured background, editorial vibe.\n- Model Vibe: Authentic, imperfect, stylish.\n- Action: Candid movement.";
   }
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: "gemini-2.5-flash-image",
       contents: {
         parts: [
           {
             inlineData: {
               mimeType,
-              data: imageBase64
-            }
+              data: imageBase64,
+            },
           },
           {
             text: `
 ${roleDefinition}
 
-**GOAL**: Create a prompt for a HYPER-REALISTIC FILM PHOTOGRAPH based on the "${styleStrategy || 'Daily Commuter'}" style.
+**GOAL**: Create a prompt for a HYPER-REALISTIC FILM PHOTOGRAPH based on the "${styleStrategy || "Daily Commuter"}" style.
 **STRICTLY FORBIDDEN**: 3D render, CGI, plastic skin, artificial studio lighting, stiff poses, perfect symmetry, stock photo look.
 
 **MANDATORY "REALISM" PROTOCOL:**
@@ -174,7 +239,7 @@ ${roleDefinition}
      - "Windy cliffside with tall grass"
 
 6. **Body Landmark Mapping (Size Control):**
-   - User Input Dimensions: "${productScale || 'Not specified'}"
+   - User Input Dimensions: "${productScale || "Not specified"}"
    - If "Large/50cm+": Describe product as "oversized", "dominating silhouette".
    - If "Small": Describe product as "petite", "miniature".
 
@@ -199,33 +264,39 @@ Return a JSON object with these exact keys:
 - Example: "analog film photography, natural sunlight, Kodak Portra 400, film grain, a candid shot of a woman laughing as she walks, wearing an oversized beige trench coat over a wrinkled white linen shirt, carrying a textured brown leather tote bag, busy street with old European buildings, dappled light, editorial, cinematic, 8k resolution, authentic."
 - **Start with**: "The product must be exactly the same as the reference image, preserving the original appearance, no deformation."
 
-${userGuidance ? `**USER BRIEF**: "${userGuidance}". Execute this request with Film Aesthetic.` : ''}
+${userGuidance ? `**USER BRIEF**: "${userGuidance}". Execute this request with Film Aesthetic.` : ""}
 
 **RESPONSE FORMAT**:
 Respond in pure **JSON** format. Do not use Markdown code blocks.
 **CRITICAL**: Ensure the JSON is valid. Escape ALL double quotes inside strings with a backslash.
-            `
-          }
-        ]
-      }
+            `,
+          },
+        ],
+      },
     });
 
-    let text = response.text || '{}';
+    let text = response.text || "{}";
     // Remove markdown code blocks if present
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    text = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
     // Robust JSON Parsing with Sanitization
     try {
       return JSON.parse(text);
     } catch (e) {
       console.warn("JSON Parse failed, attempting sanitization...", e);
-      const sanitized = text.replace(/[\n\r\t]/g, ' ');
+      const sanitized = text.replace(/[\n\r\t]/g, " ");
       try {
         return JSON.parse(sanitized);
       } catch (e2) {
         console.warn("Sanitization failed, attempting Regex Fallback...", e2);
         const extractField = (key: string) => {
-          const regex = new RegExp(`"${key}"\\s*:\\s*"(.*?)(?="\\s*(?:,|\\}))`, 's');
+          const regex = new RegExp(
+            `"${key}"\\s*:\\s*"(.*?)(?="\\s*(?:,|\\}))`,
+            "s",
+          );
           const match = text.match(regex);
           return match ? match[1].trim() : "";
         };
@@ -236,10 +307,12 @@ Respond in pure **JSON** format. Do not use Markdown code blocks.
             scene_atmosphere: extractField("scene_atmosphere") || "Parsing...",
             model_outfit: extractField("model_outfit") || "Parsing...",
             lighting_tone: extractField("lighting_tone") || "Parsing...",
-            final_prompt: final_prompt
+            final_prompt: final_prompt,
           };
         }
-        throw new Error(`AI 响应格式严重错误，无法解析: ${text.substring(0, 50)}...`);
+        throw new Error(
+          `AI 响应格式严重错误，无法解析: ${text.substring(0, 50)}...`,
+        );
       }
     }
   } catch (error) {
@@ -258,7 +331,7 @@ export const generateMarketingImage = async (
   aspectRatio: AspectRatio,
   resolution: ImageResolution,
   referenceImage?: { base64: string; mimeType: string }, // Product
-  modelReferenceImage?: { base64: string; mimeType: string } // Model Face
+  modelReferenceImage?: { base64: string; mimeType: string }, // Model Face
 ) => {
   const ai = getAiClient();
   try {
@@ -269,8 +342,8 @@ export const generateMarketingImage = async (
       parts.push({
         inlineData: {
           mimeType: referenceImage.mimeType,
-          data: referenceImage.base64
-        }
+          data: referenceImage.base64,
+        },
       });
     }
 
@@ -279,15 +352,16 @@ export const generateMarketingImage = async (
       parts.push({
         inlineData: {
           mimeType: modelReferenceImage.mimeType,
-          data: modelReferenceImage.base64
-        }
+          data: modelReferenceImage.base64,
+        },
       });
     }
 
     // 3. Construct Prompt Logic
     let finalPrompt = "";
     // UPDATED: Suffix to reinforce Film Look if user wrote their own prompt
-    const genericSuffix = ", analog film photography, Kodak Portra 400, film grain, highly detailed texture, cinematic lighting, editorial aesthetic, photorealistic, f/1.8.";
+    const genericSuffix =
+      ", analog film photography, Kodak Portra 400, film grain, highly detailed texture, cinematic lighting, editorial aesthetic, photorealistic, f/1.8.";
 
     if (referenceImage && modelReferenceImage) {
       // Dual Image Scenario
@@ -316,23 +390,25 @@ export const generateMarketingImage = async (
     parts.push({ text: finalPrompt });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: "gemini-3-pro-image-preview",
       contents: {
-        parts: parts
+        parts: parts,
       },
       config: {
         imageConfig: {
           aspectRatio: aspectRatio,
-          imageSize: resolution
-        }
-      }
+          imageSize: resolution,
+        },
+      },
     });
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          images.push(`data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`);
+          images.push(
+            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+          );
         }
       }
     }
@@ -347,65 +423,84 @@ export const generateMarketingImage = async (
  * 2.1 Generate Fusion Image (Scene Fusion)
  * Uses gemini-3-pro-image-preview
  */
+/**
+ * 2.1 Generate Fusion Image (Scene Fusion)
+ * Uses gemini-3-pro-image-preview
+ */
 export const generateFusionImage = async (
   imageBase64: string,
   mimeType: string,
   prompt: string,
-  sourceType: '3D' | 'REAL'
+  sourceType: "3D" | "REAL",
+) => {
+  // Redirect to new multi-image compatible function for backward compatibility if needed,
+  // or keep as specific fusion logic.
+  // For now, let's keep it but ideally we should migrate to the new one.
+  return generateImageToImage([{ base64: imageBase64, mimeType }], prompt);
+};
+
+/**
+ * 2.1.1 Image-to-Image Generation (Multi-Image Support)
+ * Uses gemini-3-pro-image-preview
+ */
+export const generateImageToImage = async (
+  images: { base64: string; mimeType: string }[],
+  prompt: string,
 ) => {
   const ai = getAiClient();
   try {
     const parts: any[] = [];
 
-    // 1. Add Product Image
-    parts.push({
-      inlineData: {
-        mimeType: mimeType,
-        data: imageBase64
-      }
+    // 1. Add All Input Images
+    images.forEach((img) => {
+      parts.push({
+        inlineData: {
+          mimeType: img.mimeType,
+          data: img.base64,
+        },
+      });
     });
 
-    // 2. Construct Prompt Logic based on Source Type
-    let finalPrompt = "";
-    if (sourceType === '3D') {
-      finalPrompt = `
-      The input is a cutout/3D product image. 
-      Your task is to COMPOSITE this product into a ${prompt} scene. 
-      You MUST generate realistic shadows and reflections on the ground to match the product's angle. 
-      Do not distort the product structure.
-      The product must look like it was photographed in this environment.`;
-    } else {
-      finalPrompt = `
-      The input is a real photo of a product. 
-      Your task is to EXTEND the background or TRANSPORT the product into a new environment: ${prompt}. 
-      Maintain the original product's texture and lighting perspective.
-      Ensure the fusion between the product and the new scene is seamless.`;
-    }
+    // 2. Construct Prompt
+    // Using AIGC Architect principles for better prompt adherence
+    const systemPrompt = `
+    **TASK**: Image-to-Image Generation.
+    **INPUT**: ${images.length} Reference Image(s).
+    **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description.
+    **USER PROMPT**: ${prompt}
+    
+    **GUIDELINES**:
+    - High fidelity to the visual style of reference images if not overridden by prompt.
+    - Photorealistic, high resolution, commercial quality.
+    - If multiple images are provided, fuse their elements or styles as implied by the prompt.
+    `;
 
-    parts.push({ text: finalPrompt });
+    parts.push({ text: systemPrompt });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: "gemini-3-pro-image-preview",
       contents: { parts: parts },
       config: {
         imageConfig: {
-          aspectRatio: "1:1", // Default for fusion, can be parameterized if needed
-          imageSize: "1K"
-        }
-      }
+          aspectRatio: "1:1",
+          imageSize: "1K",
+        },
+      },
     });
 
-    const images: string[] = [];
+    const generatedImages: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          images.push(`data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`);
+          generatedImages.push(
+            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+          );
         }
       }
     }
-    return images;
+    return generatedImages;
   } catch (error) {
-    console.error("Fusion generation failed", error);
+    console.error("Image-to-Image generation failed", error);
     throw error;
   }
 };
@@ -415,138 +510,237 @@ export const generateFusionImage = async (
  * Uses gemini-3-pro-image-preview
  */
 export const generateSeatCoverFit = async (
-  seatCoverImages: { base64: string, mime: string }[],
+  seatCoverImages: { base64: string; mime: string }[],
   productCategory: string,
   carModel: string,
   year: string,
   seatConfig: string,
   targetRow: string,
-  angleMode: 'PRESET' | 'REFERENCE',
-  angleValue: string | { base64: string, mime: string }[],
+  angleMode: "PRESET" | "REFERENCE",
+  angleValue: string | { base64: string; mime: string }[],
   aspectRatio: AspectRatio,
-  resolution: ImageResolution
+  resolution: ImageResolution,
 ) => {
   const ai = getAiClient();
   try {
     const parts: any[] = [];
-
-    // 1. Add Seat Cover Images (Product Images)
+    
+    // 1. Add Seat Cover Images
     seatCoverImages.forEach((img) => {
       parts.push({
-        inlineData: {
-          mimeType: img.mime,
-          data: img.base64
-        }
+        inlineData: { mimeType: img.mime, data: img.base64 }
       });
     });
 
-    // 2. Reference Image or Perspective Logic (Skill 3)
-    let referenceContext = "";
-    if (angleMode === 'REFERENCE' && Array.isArray(angleValue)) {
-      // Add all reference images
-      angleValue.forEach((refImg) => {
-        parts.push({
-          inlineData: {
-            mimeType: refImg.mime,
-            data: refImg.base64
-          }
-        });
-      });
+    // 2. Map Definitions & Logic
+    const viewMap: Record<string, string> = {
+        // === 1. Single Seat (单品座椅) ===
+        "S1 Front View": "shot from directly in front, camera at seat height, centered composition",
+        "S2 3/4 Front Angle": "shot from front-left at 40 degree angle, slightly elevated camera, three-quarter view",
+        "S3 Rear 3/4 View": "shot from rear-left at 135 degree angle, showing seat back, three-quarter rear view",
 
-      referenceContext = `
-      **Skill 3 Override: Multi-Reference Match**
-      - You have received ${angleValue.length} reference image(s) for Camera Angle and Lighting.
-      - TARGET: Strictly replicate the composition, perspective, and lighting atmosphere from these reference images.
-      - The interior geometry should match the references, but adapted to the specific car model (${carModel}) if they differ.
-      - IGNORE the original seat surfaces in the reference images; replace them with the Product (Image 1).`;
-    } else {
-      // Manual Skill 3: Dynamic Perspective Composition
-      const viewMap: Record<string, string> = {
-        "Driver's View": "Shot from driver's seated position at 45-degree angle, steering wheel in foreground creating depth, center console and passenger area visible in mid-ground.",
-        "Rear Row Perspective": "Rear passenger viewpoint, looking forward or across the rear bench, showing front seatbacks.",
-        "Side Open Door View": "View from open door position, showcasing the seat profile and entry perspective.",
-        "Top Down View": "High angle layout view, showing the geometric arrangement of the seats.",
-        "Detail Shot of Stitching": "Close-up macro shot, shallow depth of field, focusing on the texture and fit."
-      };
-      const angleDesc = typeof angleValue === 'string' ? (viewMap[angleValue] || angleValue) : "Standard interior 45-degree angle.";
+        // === 2. Full Set (整套座椅) ===
+        "SET1 Side View Left": "shot from left side at 90 degrees, full seat set in frame, straight-on side view",
+        "SET2 Side View Right": "shot from right side at 90 degrees, full seat set in frame, straight-on side view",
 
-      referenceContext = `
-      **Skill 3: Dynamic Perspective Composition**
-      - Instruction: ${angleDesc}
-      - Composition: Professional automotive editorial balance.`;
+        // === 3. Front Interior (车内前排) ===
+        "F1 High-Angle Top-Down": "shot from above front-right at 45 degree downward angle, bird's eye perspective, interior visible",
+        "F2 Driver Side Profile": "shot from driver door side, eye-level, profile view of driver seat and dashboard",
+        "F3 Passenger Front-Quarter": "shot from passenger side front-quarter, doors removed, showing front cabin interior",
+        "F4 Rear-to-Front View": "shot from rear seat position looking forward, interior POV, front seat backs visible",
+
+        // === 4. Rear Interior (车内后排) ===
+        "R6 Rear 3/4 View": "shot from rear-right at 150 degree angle, rear cabin and seats visible",
+        "R1 Rear Front Close-up": "shot facing rear bench directly, close-up, all three headrests visible",
+        "R2 Rear Side Left": "shot from left rear door position, rear seat side view, interior visible",
+        "R3 Rear Side Right": "shot from right rear door position, rear seat side view, interior visible",
+        "R4 Rear Folded View": "shot from right side, rear seat cushion folded up, mechanism visible",
+        "R5 Top-Down Reclined": "shot from above at 60 degree angle, looking down into cabin, seats reclined",
+
+        // Legacy/Fallback mapping
+        "Driver's View": "Shot from driver's seated position at 45-degree angle.",
+        "Rear Row Perspective": "Rear passenger viewpoint, looking forward.",
+        "Side Open Door View": "View from open door position.",
+        "Top Down View": "High angle layout view.",
+        "Detail Shot of Stitching": "Close-up macro shot of stitching.",
+    };
+
+    // 3. Resolve Target & Angle Attributes
+    let finalTargetRow = targetRow;
+    let angleId = targetRow; 
+    let angleInstruction = "Standard commercial angle";
+
+    // 3.1 Location Decoding
+    if (viewMap[targetRow]) {
+      if (targetRow.startsWith("S")) finalTargetRow = "Front Row Single Seat";
+      else if (targetRow.startsWith("SET")) finalTargetRow = "Full Car Interior";
+      else if (targetRow.startsWith("F")) finalTargetRow = "Front Row";
+      else if (targetRow.startsWith("R")) finalTargetRow = "Rear Row";
     }
 
-    // High quality prompts for Ultra 4K (Skill 8)
-    const qualityContext = resolution === ImageResolution.RES_4K
-      ? "Photorealistic rendering at 8K ultra-high resolution. Sharp details throughout. Accurate material representations with precise surface textures."
-      : "Photorealistic, commercial automotive photography standard.";
+    // 3.2 Single Seat Detection for V4.0 Context Control
+    const isSingleSeat = seatConfig === 'Single Seat' || targetRow.startsWith('S');
 
-    // 3. Construct AutoFusion Pro V3.0 Prompt
-    const prompt = `
-    **ROLE**: AutoFusion™ Pro V3.0 - Intelligent Automotive Interior Visualizer.
+    // 3.3 Angle Logic (Follow Focus vs Manual vs Reference)
+    const isManualAngleOverride = angleMode === "PRESET" && 
+                                  typeof angleValue === 'string' && 
+                                  angleValue !== 'Follow Focus Row';
+
+    if (angleMode === "REFERENCE" && Array.isArray(angleValue) && angleValue.length > 0) {
+       // Reference Mode
+       angleId = "REF_MATCH";
+       angleInstruction = "STRICTLY DUPLICATE PERSPECTIVE OF UPLOADED REFERENCE IMAGES.";
+       // Add Ref Images
+       angleValue.forEach((refImg) => {
+        parts.push({ inlineData: { mimeType: refImg.mime, data: refImg.base64 } });
+       });
+    } else if (isManualAngleOverride) {
+       // Manual Preset Override
+       const valStr = angleValue as string;
+       angleId = valStr;
+       angleInstruction = viewMap[valStr] || valStr;
+       angleInstruction += ` (APPLIED TO: ${finalTargetRow})`;
+    } else if (viewMap[targetRow]) {
+       // Follow Focus Row (Default)
+       angleId = targetRow;
+       angleInstruction = viewMap[targetRow];
+    }
+
+    // 4. Construct V4.0 Prompt
+    const v4Prompt = `
+## ✅ AutoFusion™ Pro V4.0 (Live Request)
+
+**SYSTEM**: AutoFusion™ Pro V4.0 - Automotive Interior Visualization Engine
+
+---
+
+## 🎯 MISSION
+
+Generate a photorealistic commercial photograph of a **${year} ${carModel}** interior with the user's **[${productCategory}]** (Reference Images 1-${seatCoverImages.length}) professionally installed.
+
+---
+
+## 📐 CAMERA CONTROL [PRIORITY: MAXIMUM]
+
+**ANGLE_ID**: ${angleId}
+**CAMERA INSTRUCTION**: ${angleInstruction}
+
+> ⚠️ This camera angle is LOCKED. Output MUST match this exact perspective regardless of other parameters.
+
+---
+
+## 🚗 VEHICLE DECODE
+
+| Attribute | Value |
+|-----------|-------|
+| Model | ${carModel} |
+| Year | ${year} |
+| Seat Config | ${seatConfig} |
+| Target Area | ${finalTargetRow} |
+
+**IDENTIFICATION PROTOCOL**:
+- Analyze "${year} ${carModel}" to extract OEM interior DNA.
+${isSingleSeat 
+  ? "- **SINGLE SEAT MODE**: Focus ONLY on the seat geometry. Minimize dashboard/surroundings."
+  : "- Mandatory accurate features: Dashboard layout, Screen size/shape, steering wheel style."
+}
+- If "${seatConfig}" specifies trim (e.g. Captain Seats), match seat geometry exactly.
+
+---
+
+## 🎨 COLOR PROTOCOL [STRICT]
+
+| Zone | Color Rule |
+|------|------------|
+| Dashboard | ${isSingleSeat ? "OBSCURED / BLURRED OUT / REMOVED" : "PURE BLACK"} |
+| Door Panels | ${isSingleSeat ? "NOT VISIBLE" : "PURE BLACK / DARK GREY"} |
+| Carpet & Floor | BLACK |
+| Headliner | DARK GREY |
+| **PRODUCT (Seat Covers)** | ⛔ **ORIGINAL COLORS ONLY - NO MODIFICATION** |
+
+**TEXTURE MANDATE**: Even in black, render distinct material textures (Leather grain ≠ Plastic matte).
+
+---
+
+## 🪑 PRODUCT INSTALLATION [CORE SKILL]
+
+**PLACEMENT LOGIC**:
+IF ${productCategory} == "Seat Cover" → Install on seats.
+
+**PHYSICAL REALISM CHECKLIST**:
+- [ ] Tension wrinkles where material pulls tight over seat foam
+- [ ] Natural fabric folds at contour transitions
+- [ ] Proper edge tucking into seat crevices
+- [ ] Visible stitching matching reference images
+
+---
+
+## 💡 LIGHTING SETUP
+
+┌─────────────────────────────────────┐
+│         ☀️ KEY LIGHT               │
+│         (Soft diffused, upper front)│
+└─────────────────────────────────────┘
+
+- **Style**: ${isSingleSeat ? "Product Catalog Studio (Isolated)" : "Commercial Studio (Interior)"}
+- **Environment**: ${isSingleSeat ? "Neutral Studio Grey/White Gradient (No Background Distractions)" : "Pure white cyclorama / Neutral grey studio"}
+
+---
+
+## 🏷️ BRAND DNA ADAPTATION
+
+Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
+
+---
+
+## 📤 OUTPUT SPECIFICATION
+
+| Parameter | Value |
+|-----------|-------|
+| Aspect Ratio | ${aspectRatio} |
+| Resolution | ${resolution === ImageResolution.RES_4K ? "8K Ultra Detail" : "High Quality"} |
+| Style | Commercial product photography |
+| Realism | Photorealistic, NOT 3D render |
+| Background | ${isSingleSeat ? "Clean Studio Background (Minimal/No Car Interior)" : "White studio (visible through windows)"} |
+
+---
+
+## 🚫 NEGATIVE CONSTRAINTS
+
+**MUST AVOID**:
+- ❌ Cartoonish or illustrated style
+- ❌ Incorrect seat geometry for ${carModel}
+- ❌ Product color alteration
+- ❌ **${isSingleSeat ? "Distracting dashboard, steering wheel, full interior view" : "Oversaturated colors"}**
+- ❌ 3D render aesthetic (must look like real photo)
+`;
+
+    parts.push({ text: v4Prompt });
+
+    // 5. Call API
+    // REVERTED: User prefers Quality > Speed. 
+    // Always use Gemini 3.0 Pro for best photorealism, regardless of resolution.
+    // Flash 2.0 was deemed insufficient for seat cover texture details.
     
-    **MISSION**: Generate a photorealistic commercial photograph of a ${year} ${carModel} interior with the user's [${productCategory}] (Image 1 to ${seatCoverImages.length}) installed.
-    
-    **VEHICLE SPECIFICATIONS**:
-    - Model: ${year} ${carModel}
-    - Configuration: ${seatConfig}
-    - Target Installation: ${targetRow} seats
-    
-    **EXECUTION SKILLS (MANDATORY PROTOCOLS):**
-
-    **Skill 2: Feature Decoding (Model Accuracy)**
-    - Decode the "${carModel}" and "${year}" to identify specific interior features (Screen size, Air vent shape, Steering wheel design, Center console layout).
-    - Render these features accurately to ensure the car is successfully identified.
-    - If "${seatConfig}" implies a specific trim (e.g. Captain Seats), ensure the seat geometry matches.
-
-    **Skill 4: Color Environment Control (PURE BLACK PROTOCOL)**
-    - **GLOBAL OVERRIDE**: Render the entire car interior (Dash, Door Panels, Carpets, Headliner, Plastic Trim) in **PURE BLACK/DARK GREY**.
-    - **TEXTURE PRESERVATION**: Even though black, distinct textures MUST be visible (e.g. Leather grain vs Plastic matte vs Glossy trim).
-    - **CRITICAL EXCEPTION**: The [Seat Cover Products] (First ${seatCoverImages.length} images provided) MUST RETAIN THEIR ORIGINAL COLORS and PATTERNS. Do NOT darken the products.
-    
-    **Skill 5: Product Integration (Fit & Finish)**
-    - **Contextual Placement**: Analyze the [${productCategory}] to determine its correct location (e.g., Seat Cover -> Seats, Armrest Cover -> Center Console Armrest, Cup Holder -> Console).
-    - **State & Action**: If the product description [${productCategory}] implies a specific state (e.g. "Lifted", "Open", "Folded"), you MUST render the car part in that state to show the product features.
-    - Smartly map the provided Product Images (Images 1-${seatCoverImages.length}) onto the target area.
-    - The product must appear physically installed:
-      - Show realistic tension wrinkles where the material pulls tight.
-      - Show natural fabric folds where it contours to the car part.
-      - Ensure the lighting on the product matches the environment.
-    
-    **Skill 6: Lighting & Atmosphere**
-    - Setup: Professional Commercial Studio Lighting.
-    - Key Light: Soft diffused light from upper front.
-    - Fill Light: Reducing harsh shadows.
-    - Color Temp: Neutral 5500K for accurate product color.
-    
-    **Skill 7: Brand Style Adaptation**
-    - Reflect the specific DNA of ${carModel} in the non-seat elements (e.g. Tech-minimalism for Tesla, Luxury for Mercedes).
-
-    ${referenceContext}
-
-    **Skill 8: Quality & Negative Constraints**
-    - ${qualityContext}
-    - **Negative**: Avoid cartoonish style, distorted logos, incorrect seat shapes for this car model, color bleeding, oversaturated environment, low resolution textures.
-    `;
-
-    parts.push({ text: prompt });
-
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: "gemini-3-pro-image-preview",
       contents: { parts: parts },
       config: {
         imageConfig: {
           aspectRatio: aspectRatio,
-          imageSize: resolution
-        }
-      }
+          imageSize: resolution,
+        },
+      },
     });
 
+    // 6. Output Processing
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          images.push(`data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`);
+          images.push(
+            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+          );
         }
       }
     }
@@ -565,25 +759,25 @@ export const generateSeatCoverFit = async (
 export const inpaintImage = async (
   originalBase64: string,
   maskBase64: string,
-  prompt: string
+  prompt: string,
 ) => {
   const ai = getAiClient();
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: "gemini-2.5-flash-image",
       contents: {
         parts: [
           {
             inlineData: {
               data: originalBase64,
-              mimeType: 'image/png' // Assuming canvas export is png
-            }
+              mimeType: "image/png", // Assuming canvas export is png
+            },
           },
           {
             inlineData: {
               data: maskBase64,
-              mimeType: 'image/png'
-            }
+              mimeType: "image/png",
+            },
           },
           {
             text: `
@@ -599,17 +793,19 @@ export const inpaintImage = async (
             3. **CRITICAL**: Match the new texture/object's lighting and perspective to the original scene.
             4. If changing outfit/material, preserve realistic folds and draping.
             5. Keep the unmasked area PIXEL-PERFECT identical.
-            `
-          }
-        ]
-      }
+            `,
+          },
+        ],
+      },
     });
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          images.push(`data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`);
+          images.push(
+            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+          );
         }
       }
     }
@@ -624,31 +820,37 @@ export const inpaintImage = async (
  * 3.1 Edit Generated Image (Legacy Text Only)
  * Uses gemini-2.5-flash-image
  */
-export const editGeneratedImage = async (base64Image: string, mimeType: string, prompt: string) => {
+export const editGeneratedImage = async (
+  base64Image: string,
+  mimeType: string,
+  prompt: string,
+) => {
   const ai = getAiClient();
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: "gemini-2.5-flash-image",
       contents: {
         parts: [
           {
             inlineData: {
               data: base64Image,
-              mimeType: mimeType
-            }
+              mimeType: mimeType,
+            },
           },
           {
-            text: prompt
-          }
-        ]
-      }
+            text: prompt,
+          },
+        ],
+      },
     });
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          images.push(`data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`);
+          images.push(
+            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+          );
         }
       }
     }
@@ -666,27 +868,29 @@ export const editGeneratedImage = async (base64Image: string, mimeType: string, 
 export const generateOutpainting = async (
   inputBase64: string,
   maskBase64: string,
-  prompt?: string
+  prompt?: string,
 ) => {
   const ai = getAiClient();
   try {
-    const description = prompt || "Extend the scene naturally, matching the existing lighting and environment.";
+    const description =
+      prompt ||
+      "Extend the scene naturally, matching the existing lighting and environment.";
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: "gemini-2.5-flash-image",
       contents: {
         parts: [
           {
             inlineData: {
               data: inputBase64,
-              mimeType: 'image/png'
-            }
+              mimeType: "image/png",
+            },
           },
           {
             inlineData: {
               data: maskBase64,
-              mimeType: 'image/png'
-            }
+              mimeType: "image/png",
+            },
           },
           {
             text: `
@@ -700,17 +904,19 @@ export const generateOutpainting = async (
             2. The new content MUST seamlessly blend with the edges of the original image (Black area).
             3. Context: ${description}
             4. Do NOT modify the original image content inside the Black mask area.
-            `
-          }
-        ]
-      }
+            `,
+          },
+        ],
+      },
     });
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          images.push(`data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`);
+          images.push(
+            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+          );
         }
       }
     }
@@ -729,14 +935,15 @@ export const searchTrends = async (query: string) => {
   const ai = getAiClient();
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: "gemini-2.5-flash",
       contents: query,
       config: {
-        tools: [{ googleSearch: {} }]
-      }
+        tools: [{ googleSearch: {} }],
+      },
     });
 
-    const grounding = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const grounding =
+      response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const text = response.text || "No results found.";
 
     return { text, grounding };
@@ -753,15 +960,17 @@ export const searchTrends = async (query: string) => {
 export const generateListingCopy = async (
   imageBase64: string,
   mimeType: string,
-  platform: 'Amazon' | 'TikTok' | 'Instagram',
-  keywords?: string
+  platform: "Amazon" | "TikTok" | "Instagram",
+  keywords?: string,
 ) => {
   const ai = getAiClient();
 
   let prompt = "";
-  const keywordsContext = keywords ? `Focus heavily on these user-provided keywords/features: "${keywords}".` : "";
+  const keywordsContext = keywords
+    ? `Focus heavily on these user-provided keywords/features: "${keywords}".`
+    : "";
 
-  if (platform === 'Amazon') {
+  if (platform === "Amazon") {
     prompt = `You are an expert Amazon Listing Copywriter (Cross-border E-commerce Expert). 
     Analyze the provided product image.
     ${keywordsContext}
@@ -773,7 +982,7 @@ export const generateListingCopy = async (
     3. **Product Description**: A compelling paragraph selling the lifestyle and value.
     
     Ensure the tone is professional yet persuasive.`;
-  } else if (platform === 'TikTok') {
+  } else if (platform === "TikTok") {
     prompt = `You are a viral TikTok script writer. Analyze the product image.
     ${keywordsContext}
     
@@ -785,7 +994,7 @@ export const generateListingCopy = async (
     4. **Hashtags**: 5-10 trending hashtags for this niche.
     
     Tone: Energetic, fast-paced, Gen-Z friendly.`;
-  } else if (platform === 'Instagram') {
+  } else if (platform === "Instagram") {
     prompt = `You are a social media manager for a premium brand. Analyze the product image.
     ${keywordsContext}
     
@@ -801,18 +1010,18 @@ export const generateListingCopy = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: "gemini-2.5-flash-image",
       contents: {
         parts: [
           {
             inlineData: {
               mimeType,
-              data: imageBase64
-            }
+              data: imageBase64,
+            },
           },
-          { text: prompt }
-        ]
-      }
+          { text: prompt },
+        ],
+      },
     });
 
     return response.text || "生成失败，请重试。";
@@ -830,7 +1039,7 @@ export const generateVideoScript = async (
   imageBase64: string,
   mimeType: string,
   duration: string,
-  style: string
+  style: string,
 ) => {
   const ai = getAiClient();
 
@@ -858,34 +1067,44 @@ export const generateVideoScript = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: "gemini-2.5-flash-image",
       contents: {
         parts: [
           {
             inlineData: {
               mimeType,
-              data: imageBase64
-            }
+              data: imageBase64,
+            },
           },
-          { text: prompt }
-        ]
-      }
+          { text: prompt },
+        ],
+      },
     });
 
-    let text = response.text || '[]';
+    let text = response.text || "[]";
     // Clean up if model adds markdown blocks despite instructions
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    text = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
     try {
       return JSON.parse(text);
     } catch (e) {
       console.error("JSON Parse failed, returning raw text as one scene", text);
       // Sanitization fallback
-      const sanitized = text.replace(/[\n\r\t]/g, ' ');
+      const sanitized = text.replace(/[\n\r\t]/g, " ");
       try {
         return JSON.parse(sanitized);
       } catch (e2) {
-        return [{ time: "00:00 - end", visual: "Failed to parse JSON", audio: text, overlay: "Error" }];
+        return [
+          {
+            time: "00:00 - end",
+            visual: "Failed to parse JSON",
+            audio: text,
+            overlay: "Error",
+          },
+        ];
       }
     }
   } catch (error) {
@@ -900,7 +1119,7 @@ export const generateVideoScript = async (
  */
 export const connectLiveDirector = async (
   onAudioData: (base64: string) => void,
-  onClose: () => void
+  onClose: () => void,
 ) => {
   const ai = getAiClient();
 
@@ -908,8 +1127,8 @@ export const connectLiveDirector = async (
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       sampleRate: 16000,
-      channelCount: 1
-    }
+      channelCount: 1,
+    },
   });
 
   const audioContext = new AudioContext({ sampleRate: 16000 });
@@ -919,20 +1138,27 @@ export const connectLiveDirector = async (
   let isConnected = true;
 
   const sessionPromise = ai.live.connect({
-    model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+    model: "gemini-2.5-flash-native-audio-preview-09-2025",
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
       },
-      systemInstruction: { parts: [{ text: "你是一位专业的创意视觉总监。请用简短、专业的语言与用户讨论视觉创意方案。请讲中文。" }] }
+      systemInstruction: {
+        parts: [
+          {
+            text: "你是一位专业的创意视觉总监。请用简短、专业的语言与用户讨论视觉创意方案。请讲中文。",
+          },
+        ],
+      },
     },
     callbacks: {
       onopen: () => {
         console.log("Live session opened");
       },
       onmessage: (message: LiveServerMessage) => {
-        const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+        const audioData =
+          message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
         if (audioData) {
           onAudioData(audioData);
         }
@@ -949,8 +1175,8 @@ export const connectLiveDirector = async (
         console.error("Live session error:", err);
         isConnected = false;
         onClose();
-      }
-    }
+      },
+    },
   });
 
   // Stream Audio Input
@@ -965,16 +1191,18 @@ export const connectLiveDirector = async (
 
     const base64Audio = btoa(String.fromCharCode(...new Uint8Array(buffer)));
 
-    sessionPromise.then(session => {
-      session.sendRealtimeInput({
-        media: {
-          mimeType: "audio/pcm;rate=16000",
-          data: base64Audio
-        }
+    sessionPromise
+      .then((session) => {
+        session.sendRealtimeInput({
+          media: {
+            mimeType: "audio/pcm;rate=16000",
+            data: base64Audio,
+          },
+        });
+      })
+      .catch((err) => {
+        // Session might be initializing or failed
       });
-    }).catch(err => {
-      // Session might be initializing or failed
-    });
   };
 
   source.connect(processor);
@@ -983,13 +1211,13 @@ export const connectLiveDirector = async (
   return {
     close: async () => {
       isConnected = false;
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach((track) => track.stop());
       processor.disconnect();
       source.disconnect();
       await audioContext.close();
       const session = await sessionPromise;
       /* @ts-ignore */
       if (session.close) session.close();
-    }
+    },
   };
 };

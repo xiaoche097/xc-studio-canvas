@@ -1,38 +1,73 @@
-import React, { useState } from 'react';
-import { generateFusionImage, blobToBase64 } from '../services/geminiService';
-import { Layers, Upload, Loader2, AlertCircle, Box, Image as ImageIcon, Sparkles, Key } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { generateImageToImage, blobToBase64 } from '../services/geminiService';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon } from 'lucide-react';
 
 const FusionTab: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState<'3D' | 'REAL'>('3D');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
-      setGeneratedImages([]);
-      setError(null);
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      addFiles(files);
     }
   };
 
+  const addFiles = (files: File[]) => {
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
+    
+    if (selectedFiles.length + validFiles.length > 10) {
+      setError("最多只能上传10张参考图片");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    const newFiles = [...selectedFiles, ...validFiles];
+    setSelectedFiles(newFiles);
+
+    // Create object URLs for preview
+    const newUrls = validFiles.map(file => URL.createObjectURL(file));
+    setPreviewUrls(prev => [...prev, ...newUrls]);
+    
+    // Clear previous results when new input is added
+    if (generatedImages.length > 0) setGeneratedImages([]);
+  };
+
+  const removeFile = (index: number) => {
+    const newFiles = [...selectedFiles];
+    newFiles.splice(index, 1);
+    setSelectedFiles(newFiles);
+
+    const newUrls = [...previewUrls];
+    URL.revokeObjectURL(newUrls[index]); // Clean up memory
+    newUrls.splice(index, 1);
+    setPreviewUrls(newUrls);
+  };
+
   const handleGenerate = async () => {
-    if (!selectedFile || !description) return;
+    if (selectedFiles.length === 0 || !description) return;
     setError(null);
     if ((window as any).aistudio) {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) {}
     }
     setIsGenerating(true);
     setGeneratedImages([]);
+    
     try {
-      const base64 = await blobToBase64(selectedFile);
-      const images = await generateFusionImage(base64, selectedFile.type, description, sourceType);
-      setGeneratedImages(images);
+      // Convert all files to base64
+      const imagePromises = selectedFiles.map(async file => ({
+        base64: await blobToBase64(file),
+        mimeType: file.type
+      }));
+      
+      const images = await Promise.all(imagePromises);
+      const results = await generateImageToImage(images, description);
+      setGeneratedImages(results);
     } catch (error: any) {
       const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
       if (isPermissionError) {
@@ -46,166 +81,177 @@ const FusionTab: React.FC = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-y-auto p-4 md:p-6">
-      <div className="space-y-6">
-        <div className="bg-pastel-card p-6 rounded-xl border border-pastel-border shadow-sm">
-          <h2 className="text-xl font-semibold mb-6 flex items-center gap-2 text-pastel-text">
-            <Layers className="w-5 h-5 text-pastel-highlight" />
-            场景融合 (Scene Fusion)
-          </h2>
 
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-pastel-muted mb-2">1. 上传产品图</label>
-            <div className="relative group cursor-pointer border-2 border-dashed border-pastel-border rounded-lg p-4 transition-colors hover:border-pastel-pink hover:bg-pastel-bg">
+    <div className="flex flex-col h-full bg-pastel-bg text-pastel-text">
+      {/* Header */}
+      <div className="px-6 py-4 bg-pastel-card border-b border-pastel-border flex items-center justify-between shrink-0">
+        <h2 className="text-xl font-semibold flex items-center gap-2 text-pastel-text">
+          <Layers className="w-5 h-5 text-pastel-highlight" />
+          图像生成 (Image Generation)
+        </h2>
+        <div className="text-sm text-pastel-muted">
+          已选择 {selectedFiles.length} / 10 张参考图
+        </div>
+      </div>
+
+      {/* Main Content Scroll Area */}
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-[500px]">
+          
+          {/* Left: Input Area */}
+          <div className="flex flex-col gap-4">
+            
+            {/* Upload Area */}
+            <div 
+              className={`relative border-2 border-dashed rounded-xl p-6 transition-all min-h-[200px] flex flex-col items-center justify-center
+                ${selectedFiles.length === 0 
+                  ? 'border-pastel-border hover:border-pastel-highlight bg-pastel-card/50' 
+                  : 'border-pastel-highlight/30 bg-pastel-pink/30'
+                }`}
+              onClick={() => fileInputRef.current?.click()}
+            >
               <input 
+                ref={fileInputRef}
                 type="file" 
+                multiple
                 accept="image/*" 
                 onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                className="hidden"
               />
-              {!previewUrl ? (
-                <div className="text-center text-pastel-muted py-6">
-                  <Upload className="w-8 h-8 mx-auto mb-2 opacity-50 text-pastel-highlight" />
-                  <p className="text-sm">点击上传图片</p>
-                  <p className="text-xs text-pastel-muted mt-1">支持白底图或实拍图</p>
+              
+              {selectedFiles.length === 0 ? (
+                <div className="text-center cursor-pointer">
+                  <div className="w-16 h-16 bg-pastel-pink rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Upload className="w-8 h-8 text-pastel-highlight" />
+                  </div>
+                  <p className="text-lg font-medium text-pastel-text">点击或拖拽上传图片</p>
+                  <p className="text-sm text-pastel-muted mt-2">支持 JPG, PNG, WEBP (最多10张)</p>
                 </div>
               ) : (
-                <div className="relative h-48 w-full flex items-center justify-center">
-                  <img src={previewUrl} alt="Preview" className="max-h-full max-w-full rounded shadow-sm object-contain" />
-                  <div className="absolute top-0 right-0 p-1 bg-white/50 rounded-bl-lg">
-                    <button onClick={(e) => { e.preventDefault(); setSelectedFile(null); setPreviewUrl(null); }} className="text-gray-500 hover:text-red-400">
-                        <span className="text-xs px-2">更换</span>
-                    </button>
+                <div className="w-full">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 w-full">
+                    {previewUrls.map((url, idx) => (
+                      <div key={idx} className="relative aspect-square group rounded-lg overflow-hidden border border-pastel-border shadow-sm bg-pastel-card">
+                        <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover" />
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                          className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {selectedFiles.length < 10 && (
+                      <div className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-pastel-border rounded-lg cursor-pointer hover:bg-pastel-bg mx-auto w-full text-pastel-muted hover:text-pastel-highlight bg-pastel-card"
+                       onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                      >
+                         <Upload className="w-6 h-6 mb-1" />
+                         <span className="text-xs">添加</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Prompt Input - Moved to Bottom of Left Column */}
+            <div className="flex-1 flex flex-col justify-end mt-auto">
+              <label className="block text-sm font-medium text-pastel-text mb-2">生成提示词 (Prompt)</label>
+              <div className="relative">
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="在此输入您的创意描述... (例如：将这些参考图风格融合，生成一张赛博朋克风格的城市夜景)"
+                  className="w-full h-32 bg-pastel-card border border-pastel-border rounded-xl p-4 text-sm focus:ring-2 focus:ring-pastel-highlight outline-none resize-none shadow-sm text-pastel-text placeholder-pastel-muted"
+                />
+                <button
+                  onClick={handleGenerate}
+                  disabled={selectedFiles.length === 0 || !description || isGenerating}
+                  className={`absolute bottom-3 right-3 py-2 px-6 rounded-lg font-medium flex items-center gap-2 transition-all shadow-md ${
+                    selectedFiles.length === 0 || !description || isGenerating
+                      ? 'bg-gray-200 dark:bg-slate-700 text-gray-400 cursor-not-allowed' 
+                      : 'bg-pastel-highlight hover:opacity-90 text-white hover:scale-105 active:scale-95'
+                  }`}
+                >
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {isGenerating ? '生成中...' : '开始生成'}
+                </button>
+              </div>
+              
+              {error && (
+                <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3 text-sm text-red-600 dark:text-red-400">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p>{error}</p>
+                    {(error.includes("403") || error.includes("权限")) && (
+                      <button 
+                        onClick={() => (window as any).aistudio?.openSelectKey()}
+                        className="mt-2 text-xs underline hover:text-red-700 flex items-center gap-1"
+                      >
+                        <Key className="w-3 h-3" /> 点击配置 Key
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-pastel-muted mb-2">2. 选择原图类型</label>
-            <div className="grid grid-cols-2 gap-4">
-              <label className={`cursor-pointer rounded-lg border p-3 flex items-start gap-3 transition-all ${
-                sourceType === '3D' 
-                  ? 'bg-pastel-bg border-pastel-pink ring-1 ring-pastel-pink shadow-sm' 
-                  : 'bg-white border-pastel-border hover:bg-pastel-bg'
-              }`}>
-                <input 
-                  type="radio" 
-                  name="sourceType" 
-                  value="3D" 
-                  checked={sourceType === '3D'} 
-                  onChange={() => setSourceType('3D')}
-                  className="hidden"
-                />
-                <Box className={`w-5 h-5 mt-0.5 ${sourceType === '3D' ? 'text-pastel-highlight' : 'text-pastel-muted'}`} />
-                <div>
-                  <div className="text-sm font-medium text-pastel-text">3D建模 / 白底图</div>
-                  <div className="text-xs text-pastel-muted mt-1">AI 自动生成光影。</div>
-                </div>
-              </label>
-
-              <label className={`cursor-pointer rounded-lg border p-3 flex items-start gap-3 transition-all ${
-                sourceType === 'REAL' 
-                  ? 'bg-pastel-bg border-pastel-pink ring-1 ring-pastel-pink shadow-sm' 
-                  : 'bg-white border-pastel-border hover:bg-pastel-bg'
-              }`}>
-                <input 
-                  type="radio" 
-                  name="sourceType" 
-                  value="REAL" 
-                  checked={sourceType === 'REAL'} 
-                  onChange={() => setSourceType('REAL')}
-                  className="hidden"
-                />
-                <ImageIcon className={`w-5 h-5 mt-0.5 ${sourceType === 'REAL' ? 'text-pastel-highlight' : 'text-pastel-muted'}`} />
-                <div>
-                  <div className="text-sm font-medium text-pastel-text">实拍图</div>
-                  <div className="text-xs text-pastel-muted mt-1">扩展或迁移背景。</div>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-pastel-muted mb-2">3. 场景描述</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="描述您想要的背景环境（例如：放在木质桌面上，阳光透过树叶洒下来...）"
-              className="w-full h-24 bg-pastel-input border border-pastel-border rounded-lg p-3 text-sm focus:ring-1 focus:ring-pastel-pink outline-none resize-none placeholder-pastel-muted text-pastel-text"
-            />
-          </div>
-
-          {error && (
-             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex flex-col gap-2 text-sm text-red-600">
-               <div className="flex items-start gap-3">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <p>{error}</p>
-               </div>
-               {(error.includes("403") || error.includes("权限")) && (
-                  <button 
-                    onClick={() => (window as any).aistudio?.openSelectKey()}
-                    className="ml-7 px-3 py-1.5 bg-white border border-red-200 rounded text-xs font-medium text-red-500 hover:bg-red-50 transition-colors w-fit shadow-sm flex items-center gap-1"
-                  >
-                    <Key className="w-3 h-3" /> 更换 API 密钥
-                  </button>
+          {/* Right: Result Area */}
+          <div className="flex flex-col bg-pastel-card rounded-xl border border-pastel-border p-6 overflow-hidden shadow-sm">
+             <div className="flex items-center justify-between mb-4">
+               <h3 className="font-semibold text-pastel-text flex items-center gap-2">
+                 <ImageIcon className="w-5 h-5 text-pastel-highlight" />
+                 生成结果
+               </h3>
+               {generatedImages.length > 0 && (
+                 <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
+                   完成
+                 </span>
                )}
              </div>
-          )}
 
-          <button
-            onClick={handleGenerate}
-            disabled={!selectedFile || !description || isGenerating}
-            className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-all shadow-sm ${
-              !selectedFile || !description ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 
-              isGenerating ? 'bg-pastel-pink cursor-wait' : 'bg-pastel-pink hover:bg-pastel-pinkhover text-pastel-text'
-            }`}
-          >
-            {isGenerating ? <><Loader2 className="w-5 h-5 animate-spin" /> 正在融合...</> : <><Sparkles className="w-5 h-5" /> 生成融合场景</>}
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-col h-full overflow-hidden">
-        <div className="bg-pastel-card p-6 rounded-xl border border-pastel-border shadow-sm flex-1 flex flex-col overflow-hidden">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 flex-shrink-0 text-pastel-text">
-            <Layers className="w-5 h-5 text-pastel-highlight" />
-            融合结果
-          </h2>
-
-          <div className="flex-1 bg-pastel-bg rounded-lg border border-pastel-border overflow-hidden relative flex flex-col p-2">
-            {generatedImages.length > 0 ? (
-               <div className="w-full h-full overflow-y-auto">
-                 {generatedImages.map((imgSrc, idx) => (
-                    <div key={idx} className="mb-4 last:mb-0">
-                        <img src={imgSrc} alt="Fused Result" className="w-full h-auto rounded-lg shadow-sm" />
-                        <div className="mt-2 text-right">
-                           <a href={imgSrc} download={`scene-fusion-${Date.now()}.png`} className="text-sm text-pastel-highlight hover:text-pastel-pinkhover inline-flex items-center gap-1 font-medium">
-                              下载图片
-                           </a>
+             <div className="flex-1 flex items-center justify-center bg-pastel-bg rounded-lg border-2 border-dashed border-pastel-border overflow-hidden relative">
+                {generatedImages.length > 0 ? (
+                  <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
+                    {generatedImages.map((imgSrc, idx) => (
+                      <div key={idx} className="mb-6 last:mb-0 group relative">
+                        <img src={imgSrc} alt="Generated Result" className="w-full h-auto rounded-lg shadow-lg border border-pastel-border" />
+                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <a 
+                              href={imgSrc} 
+                              download={`i2i-gen-${Date.now()}.png`} 
+                              className="bg-white/90 dark:bg-slate-800/90 p-2 rounded-full shadow-lg text-gray-700 dark:text-gray-200 hover:text-pastel-highlight block"
+                              title="下载原图"
+                            >
+                                <Upload className="w-5 h-5 rotate-180" />
+                            </a>
                         </div>
-                    </div>
-                 ))}
-               </div>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-pastel-muted p-8">
-                 {isGenerating ? (
-                   <>
-                     <div className="w-12 h-12 border-4 border-pastel-pink border-t-pastel-highlight rounded-full animate-spin mb-4"></div>
-                     <p className="text-sm">Gemini 3 Pro 正在进行光影合成...</p>
-                   </>
-                 ) : (
-                   <>
-                     <div className="bg-white p-4 rounded-full mb-4 opacity-70 border border-pastel-border shadow-sm">
-                        <Layers className="w-8 h-8 text-pastel-highlight" />
-                     </div>
-                     <p className="text-sm">融合后的场景图将显示在这里</p>
-                   </>
-                 )}
-              </div>
-            )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center p-8 max-w-sm">
+                    {isGenerating ? (
+                      <div className="flex flex-col items-center">
+                        <div className="w-16 h-16 relative mb-4">
+                           <div className="absolute inset-0 border-4 border-pastel-border rounded-full"></div>
+                           <div className="absolute inset-0 border-4 border-pastel-highlight rounded-full border-t-transparent animate-spin"></div>
+                        </div>
+                        <p className="text-pastel-text font-medium">正在进行图生图...</p>
+                        <p className="text-sm text-pastel-muted mt-2">Gemini Pro 正在分析参考图并进行创作</p>
+                      </div>
+                    ) : (
+                      <>
+                        <Layers className="w-16 h-16 text-pastel-muted mx-auto mb-4" />
+                        <p className="text-pastel-muted">生成的图片将显示在这里</p>
+                      </>
+                    )}
+                  </div>
+                )}
+             </div>
           </div>
+          
         </div>
       </div>
     </div>

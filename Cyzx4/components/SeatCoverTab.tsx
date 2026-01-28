@@ -1,8 +1,46 @@
 import React, { useState } from 'react';
-import { generateSeatCoverFit, blobToBase64 } from '../services/geminiService';
+import { generateSeatCoverFit, blobToBase64, compressImage } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
-import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key } from 'lucide-react';
+import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X } from 'lucide-react';
 import { storageService } from '../../services/storageService';
+
+const anglePresets = [
+  {
+    group: "单品座椅 (Single Seat)",
+    options: [
+      { id: "S1 Front View", label: "S1 - 正面视角 (Front View)", thumb: "/thumbnails/thumb_s1.webp" },
+      { id: "S2 3/4 Front Angle", label: "S2 - 3/4侧前视角 (3/4 Front)", thumb: "/thumbnails/thumb_s2.webp" },
+      { id: "S3 Rear 3/4 View", label: "S3 - 背面视角 (Rear 3/4)", thumb: "/thumbnails/thumb_s3.webp" }
+    ]
+  },
+  {
+    group: "整套座椅 (Full Set)",
+    options: [
+      { id: "SET1 Side View Left", label: "SET1 - 侧面左侧 (Side Left)", thumb: "/thumbnails/thumb_set1.webp" },
+      { id: "SET2 Side View Right", label: "SET2 - 侧面右侧 (Side Right)", thumb: "/thumbnails/thumb_set2.webp" }
+    ]
+  },
+  {
+    group: "车内前排 (Front Interior)",
+    options: [
+      { id: "F1 High-Angle Top-Down", label: "F1 - 高角度俯视 (Main/Top-down)", thumb: "/thumbnails/thumb_f1.webp" },
+      { id: "F2 Driver Side Profile", label: "F2 - 主驾侧平视 (Driver Profile)", thumb: "/thumbnails/thumb_f2.webp" },
+      { id: "F3 Passenger Front-Quarter", label: "F3 - 副驾侧斜前 (Passenger Front)", thumb: "/thumbnails/thumb_f3.webp" },
+      { id: "F4 Rear-to-Front View", label: "F4 - 后排看前排 (Rear-to-Front)", thumb: "/thumbnails/thumb_f4.webp" }
+    ]
+  },
+  {
+    group: "车内后排 (Rear Interior)",
+    options: [
+      { id: "R6 Rear 3/4 View", label: "R6 - 后侧3/4视角 (Rear 3/4)", thumb: "/thumbnails/thumb_r6.webp" },
+      { id: "R1 Rear Front Close-up", label: "R1 - 后排正面特写 (Front Close-up)", thumb: "/thumbnails/thumb_r1.webp" },
+      { id: "R2 Rear Side Left", label: "R2 - 后排左侧 (Rear Left)", thumb: "/thumbnails/thumb_r2.webp" },
+      { id: "R3 Rear Side Right", label: "R3 - 后排右侧 (Rear Right)", thumb: "/thumbnails/thumb_r3.webp" },
+      { id: "R4 Rear Folded View", label: "R4 - 后排折叠状态 (Seats Folded)", thumb: "/thumbnails/thumb_r4.webp" },
+      { id: "R5 Top-Down Reclined", label: "R5 - 高角度俯视放倒 (Top-Down Reclined)", thumb: "/thumbnails/thumb_r5.webp" }
+    ]
+  }
+];
 
 const SeatCoverTab: React.FC = () => {
   const [seatFiles, setSeatFiles] = useState<File[]>([]);
@@ -11,15 +49,29 @@ const SeatCoverTab: React.FC = () => {
   const [year, setYear] = useState('');
   const [seatConfig, setSeatConfig] = useState('5-Seater');
   const [productCategory, setProductCategory] = useState('Seat Cover'); // New State
-  const [targetRow, setTargetRow] = useState('Front Row (Driver/Passenger)');
+  const [targetRow, setTargetRow] = useState('F1 High-Angle Top-Down');
   const [angleMode, setAngleMode] = useState<'PRESET' | 'REFERENCE'>('PRESET');
-  const [anglePreset, setAnglePreset] = useState("Driver's View");
+  const [anglePreset, setAnglePreset] = useState("Follow Focus Row");
   const [angleRefFiles, setAngleRefFiles] = useState<File[]>([]);
   const [angleRefPreviews, setAngleRefPreviews] = useState<string[]>([]);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [qualityMode, setQualityMode] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTargetRowOpen, setIsTargetRowOpen] = useState(false);
+  const [hoveredTargetThumb, setHoveredTargetThumb] = useState<string | null>(null);
+  
+  // Zoom & Download Helpers
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+
+  const downloadImage = (url: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   const [error, setError] = useState<string | null>(null);
 
   const handleSeatFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,18 +128,19 @@ const SeatCoverTab: React.FC = () => {
     setGeneratedImages([]);
 
     try {
-      const seatImagePromises = seatFiles.map(async (file) => ({
-        base64: await blobToBase64(file),
-        mime: file.type
-      }));
+      // Optimize: Compress seat images before upload to speed up API request
+      const seatImagePromises = seatFiles.map(async (file) => {
+        return await compressImage(file);
+      });
       const seatImages = await Promise.all(seatImagePromises);
+      
       let angleValue: string | { base64: string, mime: string }[] = anglePreset;
 
       if (angleMode === 'REFERENCE' && angleRefFiles.length > 0) {
-        const refPromises = angleRefFiles.map(async (file) => ({
-          base64: await blobToBase64(file),
-          mime: file.type
-        }));
+        // Optimize: Compress reference images too
+        const refPromises = angleRefFiles.map(async (file) => {
+          return await compressImage(file);
+        });
         angleValue = await Promise.all(refPromises);
       }
 
@@ -223,6 +276,7 @@ const SeatCoverTab: React.FC = () => {
                 onChange={(e) => setSeatConfig(e.target.value)}
                 className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
               >
+                <option value="Single Seat">Single Seat (单品座椅)</option>
                 <option value="5-Seater">5-Seater (五座)</option>
                 <option value="7-Seater">7-Seater (七座)</option>
                 <option value="8-Seater">8-Seater (八座)</option>
@@ -242,16 +296,75 @@ const SeatCoverTab: React.FC = () => {
 
             <div className="mb-4">
               <label className="block text-xs text-pastel-muted mb-1">对焦区域 (Focus Row)</label>
-              <select
-                value={targetRow}
-                onChange={(e) => setTargetRow(e.target.value)}
-                className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
-              >
-                <option value="Front Row">前排 (主驾驶/副驾驶)</option>
-                <option value="2nd Row">第二排 (后座)</option>
-                <option value="3rd Row">第三排</option>
-                <option value="Full Interior">全车内饰 (广角全景)</option>
-              </select>
+              {/* Custom Dropdown for Live Preview */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsTargetRowOpen(!isTargetRowOpen)}
+                  className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm text-pastel-text flex items-center justify-between focus:ring-1 focus:ring-pastel-pink transition-all"
+                >
+                  <span className="truncate">
+                    {anglePresets.flatMap(g => g.options).find(o => o.id === targetRow)?.label || targetRow}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-pastel-muted transition-transform ${isTargetRowOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {isTargetRowOpen && (
+                  <>
+                  <div className="fixed inset-0 z-30" onClick={() => setIsTargetRowOpen(false)}></div>
+                  <div className="absolute top-full left-0 w-full mt-1 bg-white border border-pastel-border rounded-lg shadow-lg z-40 max-h-64 overflow-y-auto">
+                    {anglePresets.map((group) => (
+                      <div key={group.group}>
+                        <div className="px-3 py-1.5 text-xs font-bold text-pastel-muted bg-gray-50 uppercase tracking-wider sticky top-0 bg-white border-b border-pastel-border/50">
+                          {group.group}
+                        </div>
+                        {group.options.map((option) => (
+                          <div
+                            key={option.id}
+                            onClick={() => {
+                              setTargetRow(option.id);
+                              setIsTargetRowOpen(false);
+                            }}
+                            onMouseEnter={() => setHoveredTargetThumb(option.thumb)}
+                            onMouseLeave={() => setHoveredTargetThumb(null)}
+                            className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between ${
+                              targetRow === option.id
+                                ? 'bg-pastel-pink/10 text-pastel-pink'
+                                : 'text-pastel-text hover:bg-pastel-bg'
+                            }`}
+                          >
+                            <span>{option.label}</span>
+                            {targetRow === option.id && <Check className="w-4 h-4" />}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Floating Thumbnail Preview */}
+                  {hoveredTargetThumb && (
+                    <div 
+                      className="absolute z-50 pointer-events-none bg-white p-1 rounded-lg shadow-xl border border-pastel-border animate-in fade-in zoom-in-95 duration-150"
+                      style={{ 
+                        left: "102%",
+                        top: "0",
+                        width: "140px" 
+                      }}
+                    >
+                      <div className="relative aspect-[4/3] w-full overflow-hidden rounded bg-gray-100">
+                         <img 
+                           src={hoveredTargetThumb} 
+                           alt="Angle Preview" 
+                           className="w-full h-full object-cover"
+                         />
+                         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end justify-center pb-1">
+                            <span className="text-[10px] text-white font-medium">预览参考图</span>
+                         </div>
+                      </div>
+                    </div>
+                  )}
+                  </>
+                )}
+              </div>
             </div>
 
             <label className="block text-xs text-pastel-muted mb-2">视角模式 (Angle Mode)</label>
@@ -277,6 +390,7 @@ const SeatCoverTab: React.FC = () => {
                   onChange={(e) => setAnglePreset(e.target.value)}
                   className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
                 >
+                  <option value="Follow Focus Row">自动匹配对焦区域 (Follow Focus Row)</option>
                   <option value="Driver's View">主驾驶视角 (Driver's View)</option>
                   <option value="Rear Row Perspective">后排视角 (Rear Row Perspective)</option>
                   <option value="Side Open Door View">侧开门视角 (Side Open Door View)</option>
@@ -353,9 +467,9 @@ const SeatCoverTab: React.FC = () => {
                   onChange={(e) => setQualityMode(e.target.value as ImageResolution)}
                   className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
                 >
-                  <option value={ImageResolution.RES_1K}>标准 (快速)</option>
-                  <option value={ImageResolution.RES_2K}>高清 (HD)</option>
-                  <option value={ImageResolution.RES_4K}>超清 4K (商业级/较慢)</option>
+                  <option value={ImageResolution.RES_1K}>标准 Pro (Gemini 3 Pro) - 推荐</option>
+                  <option value={ImageResolution.RES_2K}>高清 Pro (2K Resolution)</option>
+                  <option value={ImageResolution.RES_4K}>超清 Pro (商业海报级)</option>
                 </select>
               </div>
             </div>
@@ -381,7 +495,7 @@ const SeatCoverTab: React.FC = () => {
           <button
             onClick={handleGenerate}
             disabled={seatFiles.length === 0 || isGenerating}
-            className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-all shadow-sm ${seatFiles.length === 0 || isGenerating ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-pastel-pink hover:bg-pastel-pinkhover text-pastel-text'
+            className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-all shadow-sm ${seatFiles.length === 0 || isGenerating ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-pastel-pink hover:brightness-95 text-pastel-text'
               }`}
           >
             {isGenerating ? <><Loader2 className="w-5 h-5 animate-spin" /> 正在渲染座舱...</> : <><Sparkles className="w-5 h-5" /> 生成试装效果图</>}
@@ -399,14 +513,48 @@ const SeatCoverTab: React.FC = () => {
 
           <div className="flex-1 bg-pastel-bg rounded-lg border border-pastel-border overflow-hidden relative flex flex-col p-2">
             {generatedImages.length > 0 ? (
-              <div className="w-full h-full overflow-y-auto">
+              <div className="w-full h-full overflow-y-auto px-3 py-2">
                 {generatedImages.map((imgSrc, idx) => (
-                  <div key={idx} className="mb-4 last:mb-0">
-                    <img src={imgSrc} alt="Seat Fit Result" className="w-full h-auto rounded-lg shadow-sm border border-pastel-border" />
-                    <div className="mt-2 text-right">
-                      <a href={imgSrc} download={`seat-fit-${carModel}-${Date.now()}.png`} className="text-sm text-pastel-highlight hover:text-pastel-pinkhover inline-flex items-center gap-1 font-medium">
-                        下载高清图
-                      </a>
+                  <div key={idx} className="mb-6 last:mb-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {/* Image Container */}
+                    <div className="relative rounded-xl overflow-hidden border border-pastel-border shadow-sm bg-white group">
+                        <img 
+                            src={imgSrc} 
+                            alt="Seat Fit Result" 
+                            className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
+                            onClick={() => setZoomImage(imgSrc)}
+                        />
+                    </div>
+                    
+                    {/* Actions Bar */}
+                    <div className="flex items-center justify-between mt-3 bg-white p-2 rounded-lg border border-pastel-border shadow-sm">
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setZoomImage(imgSrc)}
+                                className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
+                                title="放大查看"
+                            >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                                放大
+                            </button>
+                            <button 
+                                onClick={() => downloadImage(imgSrc, `seat-fit-${carModel}-${Date.now()}.png`)}
+                                className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
+                                title="下载原图"
+                            >
+                                <Download className="w-3.5 h-3.5" />
+                                下载
+                            </button>
+                        </div>
+                        
+                        <button 
+                            onClick={handleGenerate} 
+                            disabled={isGenerating}
+                            className="flex items-center gap-1.5 text-xs font-medium text-white bg-pastel-highlight hover:bg-orange-600 px-4 py-1.5 rounded-md transition-all shadow-sm disabled:opacity-50 active:scale-95"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+                            {isGenerating ? '渲染中...' : '重新生成'}
+                        </button>
                     </div>
                   </div>
                 ))}
@@ -431,6 +579,33 @@ const SeatCoverTab: React.FC = () => {
           </div>
         </div>
       </div>
+      {/* Zoom Modal */}
+      {zoomImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setZoomImage(null)}>
+          <button 
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors bg-white/10 p-2 rounded-full backdrop-blur-md"
+            onClick={() => setZoomImage(null)}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          
+          <img 
+            src={zoomImage} 
+            alt="Full Screen Preview" 
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          />
+          
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-4">
+             <button 
+                onClick={(e) => { e.stopPropagation(); downloadImage(zoomImage, `seat-fit-zoom-${Date.now()}.png`); }}
+                className="bg-white text-black px-6 py-2.5 rounded-full font-medium shadow-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
+             >
+                <Download className="w-4 h-4" /> 下载原图
+             </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

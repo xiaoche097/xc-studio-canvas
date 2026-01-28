@@ -34,7 +34,19 @@
     "softbox",
     "octabox",
     "dify",
-    "Dify"
+    "Dify",
+    "aistudio",
+    "genai",
+    "Portra",
+    "Gorpcore",
+    "cliffside",
+    "AIGC",
+    "seatbacks",
+    "oversaturated",
+    "Inpaint",
+    "Inpainting",
+    "Outpaint",
+    "Outpainting"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }
