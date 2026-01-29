@@ -60,7 +60,7 @@ const SeatCoverTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTargetRowOpen, setIsTargetRowOpen] = useState(false);
   const [hoveredTargetThumb, setHoveredTargetThumb] = useState<string | null>(null);
-  
+
   // Zoom & Download Helpers
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
@@ -133,7 +133,7 @@ const SeatCoverTab: React.FC = () => {
         return await compressImage(file);
       });
       const seatImages = await Promise.all(seatImagePromises);
-      
+
       let angleValue: string | { base64: string, mime: string }[] = anglePreset;
 
       if (angleMode === 'REFERENCE' && angleRefFiles.length > 0) {
@@ -144,7 +144,40 @@ const SeatCoverTab: React.FC = () => {
         angleValue = await Promise.all(refPromises);
       }
 
-      const images = await generateSeatCoverFit(seatImages, productCategory, carModel, year, seatConfig, targetRow, angleMode, angleValue, aspectRatio, qualityMode);
+      let visualGuide: { base64: string, mime: string } | undefined = undefined;
+
+      if (angleMode === 'PRESET' && anglePreset === 'Follow Focus Row') {
+        // Find the current target row option to get the thumb path
+        const allOptions = anglePresets.flatMap(g => g.options);
+        const selectedOption = allOptions.find(o => o.id === targetRow);
+
+        if (selectedOption && selectedOption.thumb) {
+          try {
+            const response = await fetch(selectedOption.thumb);
+            if (response.ok) {
+              const blob = await response.blob();
+              const base64 = await blobToBase64(blob);
+              visualGuide = { base64, mime: blob.type || 'image/webp' };
+            }
+          } catch (e) {
+            console.warn("Visual Guide fetch failed", e);
+          }
+        }
+      }
+
+      const images = await generateSeatCoverFit(
+        seatImages,
+        productCategory,
+        carModel,
+        year,
+        seatConfig,
+        targetRow,
+        angleMode,
+        angleValue,
+        aspectRatio,
+        qualityMode,
+        visualGuide // Pass strict visual guide
+      );
       setGeneratedImages(images);
 
       // Save Project
@@ -310,58 +343,57 @@ const SeatCoverTab: React.FC = () => {
 
                 {isTargetRowOpen && (
                   <>
-                  <div className="fixed inset-0 z-30" onClick={() => setIsTargetRowOpen(false)}></div>
-                  <div className="absolute top-full left-0 w-full mt-1 bg-white border border-pastel-border rounded-lg shadow-lg z-40 max-h-64 overflow-y-auto">
-                    {anglePresets.map((group) => (
-                      <div key={group.group}>
-                        <div className="px-3 py-1.5 text-xs font-bold text-pastel-muted bg-gray-50 uppercase tracking-wider sticky top-0 bg-white border-b border-pastel-border/50">
-                          {group.group}
-                        </div>
-                        {group.options.map((option) => (
-                          <div
-                            key={option.id}
-                            onClick={() => {
-                              setTargetRow(option.id);
-                              setIsTargetRowOpen(false);
-                            }}
-                            onMouseEnter={() => setHoveredTargetThumb(option.thumb)}
-                            onMouseLeave={() => setHoveredTargetThumb(null)}
-                            className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between ${
-                              targetRow === option.id
+                    <div className="fixed inset-0 z-30" onClick={() => setIsTargetRowOpen(false)}></div>
+                    <div className="absolute top-full left-0 w-full mt-1 bg-white border border-pastel-border rounded-lg shadow-lg z-40 max-h-64 overflow-y-auto">
+                      {anglePresets.map((group) => (
+                        <div key={group.group}>
+                          <div className="px-3 py-1.5 text-xs font-bold text-pastel-muted bg-gray-50 uppercase tracking-wider sticky top-0 bg-white border-b border-pastel-border/50">
+                            {group.group}
+                          </div>
+                          {group.options.map((option) => (
+                            <div
+                              key={option.id}
+                              onClick={() => {
+                                setTargetRow(option.id);
+                                setIsTargetRowOpen(false);
+                              }}
+                              onMouseEnter={() => setHoveredTargetThumb(option.thumb)}
+                              onMouseLeave={() => setHoveredTargetThumb(null)}
+                              className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between ${targetRow === option.id
                                 ? 'bg-pastel-pink/10 text-pastel-pink'
                                 : 'text-pastel-text hover:bg-pastel-bg'
-                            }`}
-                          >
-                            <span>{option.label}</span>
-                            {targetRow === option.id && <Check className="w-4 h-4" />}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Floating Thumbnail Preview */}
-                  {hoveredTargetThumb && (
-                    <div 
-                      className="absolute z-50 pointer-events-none bg-white p-1 rounded-lg shadow-xl border border-pastel-border animate-in fade-in zoom-in-95 duration-150"
-                      style={{ 
-                        left: "102%",
-                        top: "0",
-                        width: "140px" 
-                      }}
-                    >
-                      <div className="relative aspect-[4/3] w-full overflow-hidden rounded bg-gray-100">
-                         <img 
-                           src={hoveredTargetThumb} 
-                           alt="Angle Preview" 
-                           className="w-full h-full object-cover"
-                         />
-                         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end justify-center pb-1">
-                            <span className="text-[10px] text-white font-medium">预览参考图</span>
-                         </div>
-                      </div>
+                                }`}
+                            >
+                              <span>{option.label}</span>
+                              {targetRow === option.id && <Check className="w-4 h-4" />}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
                     </div>
-                  )}
+
+                    {/* Floating Thumbnail Preview */}
+                    {hoveredTargetThumb && (
+                      <div
+                        className="absolute z-50 pointer-events-none bg-white p-1 rounded-lg shadow-xl border border-pastel-border animate-in fade-in zoom-in-95 duration-150"
+                        style={{
+                          left: "102%",
+                          top: "0",
+                          width: "140px"
+                        }}
+                      >
+                        <div className="relative aspect-[4/3] w-full overflow-hidden rounded bg-gray-100">
+                          <img
+                            src={hoveredTargetThumb}
+                            alt="Angle Preview"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end justify-center pb-1">
+                            <span className="text-[10px] text-white font-medium">预览参考图</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -390,7 +422,7 @@ const SeatCoverTab: React.FC = () => {
                   onChange={(e) => setAnglePreset(e.target.value)}
                   className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
                 >
-                  <option value="Follow Focus Row">自动匹配对焦区域 (Follow Focus Row)</option>
+                  <option value="Follow Focus Row">自动匹配对焦区域 + 智能参考 (1:1 Match Reference)</option>
                   <option value="Driver's View">主驾驶视角 (Driver's View)</option>
                   <option value="Rear Row Perspective">后排视角 (Rear Row Perspective)</option>
                   <option value="Side Open Door View">侧开门视角 (Side Open Door View)</option>
@@ -518,43 +550,43 @@ const SeatCoverTab: React.FC = () => {
                   <div key={idx} className="mb-6 last:mb-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     {/* Image Container */}
                     <div className="relative rounded-xl overflow-hidden border border-pastel-border shadow-sm bg-white group">
-                        <img 
-                            src={imgSrc} 
-                            alt="Seat Fit Result" 
-                            className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
-                            onClick={() => setZoomImage(imgSrc)}
-                        />
+                      <img
+                        src={imgSrc}
+                        alt="Seat Fit Result"
+                        className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
+                        onClick={() => setZoomImage(imgSrc)}
+                      />
                     </div>
-                    
+
                     {/* Actions Bar */}
                     <div className="flex items-center justify-between mt-3 bg-white p-2 rounded-lg border border-pastel-border shadow-sm">
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => setZoomImage(imgSrc)}
-                                className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
-                                title="放大查看"
-                            >
-                                <Maximize2 className="w-3.5 h-3.5" />
-                                放大
-                            </button>
-                            <button 
-                                onClick={() => downloadImage(imgSrc, `seat-fit-${carModel}-${Date.now()}.png`)}
-                                className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
-                                title="下载原图"
-                            >
-                                <Download className="w-3.5 h-3.5" />
-                                下载
-                            </button>
-                        </div>
-                        
-                        <button 
-                            onClick={handleGenerate} 
-                            disabled={isGenerating}
-                            className="flex items-center gap-1.5 text-xs font-medium text-white bg-pastel-highlight hover:bg-orange-600 px-4 py-1.5 rounded-md transition-all shadow-sm disabled:opacity-50 active:scale-95"
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setZoomImage(imgSrc)}
+                          className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
+                          title="放大查看"
                         >
-                            <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-                            {isGenerating ? '渲染中...' : '重新生成'}
+                          <Maximize2 className="w-3.5 h-3.5" />
+                          放大
                         </button>
+                        <button
+                          onClick={() => downloadImage(imgSrc, `seat-fit-${carModel}-${Date.now()}.png`)}
+                          className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
+                          title="下载原图"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          下载
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={handleGenerate}
+                        disabled={isGenerating}
+                        className="flex items-center gap-1.5 text-xs font-medium text-white bg-pastel-highlight hover:bg-orange-600 px-4 py-1.5 rounded-md transition-all shadow-sm disabled:opacity-50 active:scale-95"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+                        {isGenerating ? '渲染中...' : '重新生成'}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -582,27 +614,27 @@ const SeatCoverTab: React.FC = () => {
       {/* Zoom Modal */}
       {zoomImage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setZoomImage(null)}>
-          <button 
+          <button
             className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors bg-white/10 p-2 rounded-full backdrop-blur-md"
             onClick={() => setZoomImage(null)}
           >
             <X className="w-6 h-6" />
           </button>
-          
-          <img 
-            src={zoomImage} 
-            alt="Full Screen Preview" 
+
+          <img
+            src={zoomImage}
+            alt="Full Screen Preview"
             className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           />
-          
+
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-4">
-             <button 
-                onClick={(e) => { e.stopPropagation(); downloadImage(zoomImage, `seat-fit-zoom-${Date.now()}.png`); }}
-                className="bg-white text-black px-6 py-2.5 rounded-full font-medium shadow-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
-             >
-                <Download className="w-4 h-4" /> 下载原图
-             </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); downloadImage(zoomImage, `seat-fit-zoom-${Date.now()}.png`); }}
+              className="bg-white text-black px-6 py-2.5 rounded-full font-medium shadow-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" /> 下载原图
+            </button>
           </div>
         </div>
       )}

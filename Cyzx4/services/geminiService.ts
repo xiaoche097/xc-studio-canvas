@@ -52,8 +52,8 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
 
 // Helper to compress image for faster upload
 export const compressImage = async (
-  file: File, 
-  maxWidth: number = 1536, 
+  file: File,
+  maxWidth: number = 1536,
   quality: number = 0.85
 ): Promise<{ base64: string, mime: string }> => {
   return new Promise((resolve, reject) => {
@@ -65,31 +65,31 @@ export const compressImage = async (
       img.onload = () => {
         let width = img.width;
         let height = img.height;
-        
+
         // Scale down if too large
         if (width > maxWidth) {
           height = Math.round((height * maxWidth) / width);
           width = maxWidth;
         }
-        
+
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        
+
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-             reject(new Error("Canvas context failed"));
-             return;
+          reject(new Error("Canvas context failed"));
+          return;
         }
         ctx.fillStyle = '#FFFFFF'; // Fill background for transparency handling
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        
+
         // Output as JPEG for API efficiency (smaller payload)
         const mime = 'image/jpeg';
         const base64Url = canvas.toDataURL(mime, quality);
         const data = base64Url.split(',')[1];
-        
+
         resolve({ base64: data, mime });
       };
       img.onerror = (e) => reject(e);
@@ -520,11 +520,12 @@ export const generateSeatCoverFit = async (
   angleValue: string | { base64: string; mime: string }[],
   aspectRatio: AspectRatio,
   resolution: ImageResolution,
+  visualGuide?: { base64: string; mime: string } // NEW: Optional Visual Guide
 ) => {
   const ai = getAiClient();
   try {
     const parts: any[] = [];
-    
+
     // 1. Add Seat Cover Images
     seatCoverImages.forEach((img) => {
       parts.push({
@@ -532,81 +533,97 @@ export const generateSeatCoverFit = async (
       });
     });
 
+    // 1.5 Add Visual Guide (if present)
+    if (visualGuide) {
+      parts.push({
+        inlineData: { mimeType: visualGuide.mime, data: visualGuide.base64 }
+      });
+    }
+
     // 2. Map Definitions & Logic
     const viewMap: Record<string, string> = {
-        // === 1. Single Seat (单品座椅) ===
-        "S1 Front View": "shot from directly in front, camera at seat height, centered composition",
-        "S2 3/4 Front Angle": "shot from front-left at 40 degree angle, slightly elevated camera, three-quarter view",
-        "S3 Rear 3/4 View": "shot from rear-left at 135 degree angle, showing seat back, three-quarter rear view",
+      // === 1. Single Seat (单品座椅) ===
+      "S1 Front View": "shot from directly in front, camera at seat height, centered composition",
+      "S2 3/4 Front Angle": "shot from front-left at 40 degree angle, slightly elevated camera, three-quarter view",
+      "S3 Rear 3/4 View": "shot from rear-left at 135 degree angle, showing seat back, three-quarter rear view",
 
-        // === 2. Full Set (整套座椅) ===
-        "SET1 Side View Left": "shot from left side at 90 degrees, full seat set in frame, straight-on side view",
-        "SET2 Side View Right": "shot from right side at 90 degrees, full seat set in frame, straight-on side view",
+      // === 2. Full Set (整套座椅) ===
+      "SET1 Side View Left": "shot from left side at 90 degrees, full seat set in frame, straight-on side view",
+      "SET2 Side View Right": "shot from right side at 90 degrees, full seat set in frame, straight-on side view",
 
-        // === 3. Front Interior (车内前排) ===
-        "F1 High-Angle Top-Down": "shot from above front-right at 45 degree downward angle, bird's eye perspective, interior visible",
-        "F2 Driver Side Profile": "shot from driver door side, eye-level, profile view of driver seat and dashboard",
-        "F3 Passenger Front-Quarter": "shot from passenger side front-quarter, doors removed, showing front cabin interior",
-        "F4 Rear-to-Front View": "shot from rear seat position looking forward, interior POV, front seat backs visible",
+      // === 3. Front Interior (车内前排) ===
+      "F1 High-Angle Top-Down": "shot from above front-right at 45 degree downward angle, bird's eye perspective, interior visible",
+      "F2 Driver Side Profile": "shot from driver door side, eye-level, profile view of driver seat and dashboard",
+      "F3 Passenger Front-Quarter": "shot from passenger side front-quarter, doors removed, showing front cabin interior",
+      "F4 Rear-to-Front View": "shot from rear seat position looking forward, interior POV, front seat backs visible",
 
-        // === 4. Rear Interior (车内后排) ===
-        "R6 Rear 3/4 View": "shot from rear-right at 150 degree angle, rear cabin and seats visible",
-        "R1 Rear Front Close-up": "shot facing rear bench directly, close-up, all three headrests visible",
-        "R2 Rear Side Left": "shot from left rear door position, rear seat side view, interior visible",
-        "R3 Rear Side Right": "shot from right rear door position, rear seat side view, interior visible",
-        "R4 Rear Folded View": "shot from right side, rear seat cushion folded up, mechanism visible",
-        "R5 Top-Down Reclined": "shot from above at 60 degree angle, looking down into cabin, seats reclined",
+      // === 4. Rear Interior (车内后排) ===
+      "R6 Rear 3/4 View": "shot from rear-right at 150 degree angle, rear cabin and seats visible",
+      "R1 Rear Front Close-up": "shot facing rear bench directly, close-up, all three headrests visible",
+      "R2 Rear Side Left": "shot from left rear door position, rear seat side view, interior visible",
+      "R3 Rear Side Right": "shot from right rear door position, rear seat side view, interior visible",
+      "R4 Rear Folded View": "shot from right side, rear seat cushion folded up, mechanism visible",
+      "R5 Top-Down Reclined": "shot from above at 60 degree angle, looking down into cabin, seats reclined",
 
-        // Legacy/Fallback mapping
-        "Driver's View": "Shot from driver's seated position at 45-degree angle.",
-        "Rear Row Perspective": "Rear passenger viewpoint, looking forward.",
-        "Side Open Door View": "View from open door position.",
-        "Top Down View": "High angle layout view.",
-        "Detail Shot of Stitching": "Close-up macro shot of stitching.",
+      // Legacy/Fallback mapping
+      "Driver's View": "Shot from driver's seated position at 45-degree angle.",
+      "Rear Row Perspective": "Rear passenger viewpoint, looking forward.",
+      "Side Open Door View": "View from open door position.",
+      "Top Down View": "High angle layout view.",
+      "Detail Shot of Stitching": "Close-up macro shot of stitching.",
     };
 
     // 3. Resolve Target & Angle Attributes
     let finalTargetRow = targetRow;
-    let angleId = targetRow; 
+    let angleId = targetRow;
     let angleInstruction = "Standard commercial angle";
 
     // 3.1 Location Decoding
     if (viewMap[targetRow]) {
-      if (targetRow.startsWith("S")) finalTargetRow = "Front Row Single Seat";
-      else if (targetRow.startsWith("SET")) finalTargetRow = "Full Car Interior";
+      if (targetRow.startsWith("SET")) finalTargetRow = "Full Car Interior";
+      else if (/^S\d/.test(targetRow)) finalTargetRow = "Front Row Single Seat"; // Matches S1, S2, S3...
       else if (targetRow.startsWith("F")) finalTargetRow = "Front Row";
       else if (targetRow.startsWith("R")) finalTargetRow = "Rear Row";
     }
 
     // 3.2 Single Seat Detection for V4.0 Context Control
-    const isSingleSeat = seatConfig === 'Single Seat' || targetRow.startsWith('S');
+    // Uses Regex to strictly match "S" followed by a digit (S1, S2...) to avoid matching "SET" or "Side"
+    const isSingleSeat = seatConfig === 'Single Seat' || /^S\d/.test(targetRow);
 
     // 3.3 Angle Logic (Follow Focus vs Manual vs Reference)
-    const isManualAngleOverride = angleMode === "PRESET" && 
-                                  typeof angleValue === 'string' && 
-                                  angleValue !== 'Follow Focus Row';
+    const isManualAngleOverride = angleMode === "PRESET" &&
+      typeof angleValue === 'string' &&
+      angleValue !== 'Follow Focus Row';
 
     if (angleMode === "REFERENCE" && Array.isArray(angleValue) && angleValue.length > 0) {
-       // Reference Mode
-       angleId = "REF_MATCH";
-       angleInstruction = "STRICTLY DUPLICATE PERSPECTIVE OF UPLOADED REFERENCE IMAGES.";
-       // Add Ref Images
-       angleValue.forEach((refImg) => {
+      // Reference Mode
+      angleId = "REF_MATCH";
+      angleInstruction = "STRICTLY DUPLICATE PERSPECTIVE OF UPLOADED REFERENCE IMAGES.";
+      // Add Ref Images
+      angleValue.forEach((refImg) => {
         parts.push({ inlineData: { mimeType: refImg.mime, data: refImg.base64 } });
-       });
+      });
     } else if (isManualAngleOverride) {
-       // Manual Preset Override
-       const valStr = angleValue as string;
-       angleId = valStr;
-       angleInstruction = viewMap[valStr] || valStr;
-       angleInstruction += ` (APPLIED TO: ${finalTargetRow})`;
+      // Manual Preset Override
+      const valStr = angleValue as string;
+      angleId = valStr;
+      angleInstruction = viewMap[valStr] || valStr;
+      angleInstruction += ` (APPLIED TO: ${finalTargetRow})`;
+    } else if (visualGuide) {
+      // NEW: Visual Guide Mode (Follow Focus Row with Image)
+      angleId = `VISUAL_GUIDE_${targetRow}`;
+      angleInstruction = "DUPLICATE CAMERA ANGLE FROM REFERENCE IMAGE (The last image provided). Match the exact perspective, height, and crop.";
     } else if (viewMap[targetRow]) {
-       // Follow Focus Row (Default)
-       angleId = targetRow;
-       angleInstruction = viewMap[targetRow];
+      // Follow Focus Row (Default)
+      angleId = targetRow;
+      angleInstruction = viewMap[targetRow];
     }
 
     // 4. Construct V4.0 Prompt
+    // Calculate indices for clarity
+    const productCount = seatCoverImages.length;
+    const guideIndex = visualGuide ? productCount + 1 : -1;
+
     const v4Prompt = `
 ## ✅ AutoFusion™ Pro V4.0 (Live Request)
 
@@ -614,18 +631,34 @@ export const generateSeatCoverFit = async (
 
 ---
 
+## 🖼️ INPUT IMAGE ANALYSIS [CRITICAL]
+
+You have received ${productCount + (visualGuide ? 1 : 0)} input images. You MUST distinguish their roles:
+
+1. **IMAGES 1-${productCount}**: [PRODUCT REFERENCE]
+   - Source of material, texture, color, and design details.
+   - Apply these exact textures to the seats.
+
+${visualGuide ? `2. **IMAGE ${guideIndex} (THE LAST IMAGE)**: [CAMERA ANGLE GUIDE]
+   - Source of PERSPECTIVE, COMPOSITION, and CAMERA ANGLE.
+   - **STRICT CONSTRAINT**: You MUST discard the textual camera description if it conflicts.
+   - Align the 3D scene camera EXACTLY with Image ${guideIndex}.
+   - Match the zoom level, pitch, yaw, and field of view of Image ${guideIndex}.` : ""}
+
+---
+
 ## 🎯 MISSION
 
-Generate a photorealistic commercial photograph of a **${year} ${carModel}** interior with the user's **[${productCategory}]** (Reference Images 1-${seatCoverImages.length}) professionally installed.
+Generate a photorealistic commercial photograph of a **${year} ${carModel}** interior with the user's **[${productCategory}]** professionally installed.
 
 ---
 
 ## 📐 CAMERA CONTROL [PRIORITY: MAXIMUM]
 
 **ANGLE_ID**: ${angleId}
-**CAMERA INSTRUCTION**: ${angleInstruction}
+**CAMERA INSTRUCTION**: ${visualGuide ? `MATCH PERSPECTIVE OF IMAGE ${guideIndex} EXACTLY.` : angleInstruction}
 
-> ⚠️ This camera angle is LOCKED. Output MUST match this exact perspective regardless of other parameters.
+> ⚠️ This camera angle is LOCKED. Output MUST match the perspective of ${visualGuide ? `Image ${guideIndex}` : "the description"} regardless of other parameters.
 
 ---
 
@@ -640,10 +673,10 @@ Generate a photorealistic commercial photograph of a **${year} ${carModel}** int
 
 **IDENTIFICATION PROTOCOL**:
 - Analyze "${year} ${carModel}" to extract OEM interior DNA.
-${isSingleSeat 
-  ? "- **SINGLE SEAT MODE**: Focus ONLY on the seat geometry. Minimize dashboard/surroundings."
-  : "- Mandatory accurate features: Dashboard layout, Screen size/shape, steering wheel style."
-}
+${isSingleSeat
+        ? "- **SINGLE SEAT MODE**: Focus ONLY on the seat geometry. Minimize dashboard/surroundings."
+        : "- Mandatory accurate features: Dashboard layout, Screen size/shape, steering wheel style."
+      }
 - If "${seatConfig}" specifies trim (e.g. Captain Seats), match seat geometry exactly.
 
 ---
@@ -721,7 +754,7 @@ Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
     // REVERTED: User prefers Quality > Speed. 
     // Always use Gemini 3.0 Pro for best photorealism, regardless of resolution.
     // Flash 2.0 was deemed insufficient for seat cover texture details.
-    
+
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-image-preview",
       contents: { parts: parts },
