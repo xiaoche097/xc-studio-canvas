@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { generateImageToImage, blobToBase64 } from '../services/geminiService';
-import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon } from 'lucide-react';
+import { generateImageToImage, blobToBase64, optimizePrompt } from '../services/geminiService';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid } from 'lucide-react';
+import { AspectRatio, ImageResolution } from '../types';
 
 const FusionTab: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -8,6 +9,9 @@ const FusionTab: React.FC = () => {
   const [description, setDescription] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -20,7 +24,7 @@ const FusionTab: React.FC = () => {
 
   const addFiles = (files: File[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));
-    
+
     if (selectedFiles.length + validFiles.length > 10) {
       setError("最多只能上传10张参考图片");
       setTimeout(() => setError(null), 3000);
@@ -33,7 +37,7 @@ const FusionTab: React.FC = () => {
     // Create object URLs for preview
     const newUrls = validFiles.map(file => URL.createObjectURL(file));
     setPreviewUrls(prev => [...prev, ...newUrls]);
-    
+
     // Clear previous results when new input is added
     if (generatedImages.length > 0) setGeneratedImages([]);
   };
@@ -53,20 +57,20 @@ const FusionTab: React.FC = () => {
     if (selectedFiles.length === 0 || !description) return;
     setError(null);
     if ((window as any).aistudio) {
-      try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) {}
+      try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
     setIsGenerating(true);
     setGeneratedImages([]);
-    
+
     try {
       // Convert all files to base64
       const imagePromises = selectedFiles.map(async file => ({
         base64: await blobToBase64(file),
         mimeType: file.type
       }));
-      
+
       const images = await Promise.all(imagePromises);
-      const results = await generateImageToImage(images, description);
+      const results = await generateImageToImage(images, description, { aspectRatio, resolution });
       setGeneratedImages(results);
     } catch (error: any) {
       const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
@@ -97,28 +101,28 @@ const FusionTab: React.FC = () => {
       {/* Main Content Scroll Area */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-[500px]">
-          
+
           {/* Left: Input Area */}
           <div className="flex flex-col gap-4">
-            
+
             {/* Upload Area */}
-            <div 
+            <div
               className={`relative border-2 border-dashed rounded-xl p-6 transition-all min-h-[200px] flex flex-col items-center justify-center
-                ${selectedFiles.length === 0 
-                  ? 'border-pastel-border hover:border-pastel-highlight bg-pastel-card/50' 
+                ${selectedFiles.length === 0
+                  ? 'border-pastel-border hover:border-pastel-highlight bg-pastel-card/50'
                   : 'border-pastel-highlight/30 bg-pastel-pink/30'
                 }`}
               onClick={() => fileInputRef.current?.click()}
             >
-              <input 
+              <input
                 ref={fileInputRef}
-                type="file" 
+                type="file"
                 multiple
-                accept="image/*" 
+                accept="image/*"
                 onChange={handleFileChange}
                 className="hidden"
               />
-              
+
               {selectedFiles.length === 0 ? (
                 <div className="text-center cursor-pointer">
                   <div className="w-16 h-16 bg-pastel-pink rounded-full flex items-center justify-center mx-auto mb-4">
@@ -133,7 +137,7 @@ const FusionTab: React.FC = () => {
                     {previewUrls.map((url, idx) => (
                       <div key={idx} className="relative aspect-square group rounded-lg overflow-hidden border border-pastel-border shadow-sm bg-pastel-card">
                         <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover" />
-                        <button 
+                        <button
                           onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
                           className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                         >
@@ -143,10 +147,10 @@ const FusionTab: React.FC = () => {
                     ))}
                     {selectedFiles.length < 10 && (
                       <div className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-pastel-border rounded-lg cursor-pointer hover:bg-pastel-bg mx-auto w-full text-pastel-muted hover:text-pastel-highlight bg-pastel-card"
-                       onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                        onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
                       >
-                         <Upload className="w-6 h-6 mb-1" />
-                         <span className="text-xs">添加</span>
+                        <Upload className="w-6 h-6 mb-1" />
+                        <span className="text-xs">添加</span>
                       </div>
                     )}
                   </div>
@@ -156,7 +160,61 @@ const FusionTab: React.FC = () => {
 
             {/* Prompt Input - Moved to Bottom of Left Column */}
             <div className="flex-1 flex flex-col justify-end mt-auto">
-              <label className="block text-sm font-medium text-pastel-text mb-2">生成提示词 (Prompt)</label>
+              {/* Controls Row */}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-pastel-muted mb-1 flex items-center gap-1">
+                    <Monitor className="w-3 h-3" /> 画幅比例 (Aspect Ratio)
+                  </label>
+                  <select
+                    value={aspectRatio}
+                    onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+                    className="w-full bg-pastel-card border border-pastel-border rounded-lg p-2 text-sm text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight"
+                  >
+                    <option value={AspectRatio.SQUARE}>1:1 (Square)</option>
+                    <option value={AspectRatio.PORTRAIT_3_4}>3:4 (Portrait)</option>
+                    <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (Landscape)</option>
+                    <option value={AspectRatio.PORTRAIT_9_16}>9:16 (Mobile)</option>
+                    <option value={AspectRatio.LANDSCAPE_16_9}>16:9 (Desktop)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-pastel-muted mb-1 flex items-center gap-1">
+                    <Grid className="w-3 h-3" /> 分辨率 (Resolution)
+                  </label>
+                  <select
+                    value={resolution}
+                    onChange={(e) => setResolution(e.target.value as ImageResolution)}
+                    className="w-full bg-pastel-card border border-pastel-border rounded-lg p-2 text-sm text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight"
+                  >
+                    <option value={ImageResolution.RES_1K}>1K (Standard)</option>
+                    <option value={ImageResolution.RES_2K}>2K (High Detail)</option>
+                    <option value={ImageResolution.RES_4K}>4K (Ultra)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-pastel-text">生成提示词 (Prompt)</label>
+                <button
+                  onClick={async () => {
+                    if (!description) return;
+                    setIsOptimizing(true);
+                    try {
+                      const optimized = await optimizePrompt(description);
+                      setDescription(optimized);
+                    } catch (e) { } finally {
+                      setIsOptimizing(false);
+                    }
+                  }}
+                  disabled={!description || isOptimizing}
+                  className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors ${!description ? 'text-gray-400 cursor-not-allowed' : 'text-pastel-highlight hover:bg-pastel-pink/20'}`}
+                  title="使用 AI 优化您的提示词"
+                >
+                  <Wand2 className={`w-3 h-3 ${isOptimizing ? 'animate-spin' : ''}`} />
+                  {isOptimizing ? '优化中...' : '智能优化提示词'}
+                </button>
+              </div>
               <div className="relative">
                 <textarea
                   value={description}
@@ -167,24 +225,23 @@ const FusionTab: React.FC = () => {
                 <button
                   onClick={handleGenerate}
                   disabled={selectedFiles.length === 0 || !description || isGenerating}
-                  className={`absolute bottom-3 right-3 py-2 px-6 rounded-lg font-medium flex items-center gap-2 transition-all shadow-md ${
-                    selectedFiles.length === 0 || !description || isGenerating
-                      ? 'bg-gray-200 dark:bg-slate-700 text-gray-400 cursor-not-allowed' 
-                      : 'bg-pastel-highlight hover:opacity-90 text-white hover:scale-105 active:scale-95'
-                  }`}
+                  className={`absolute bottom-3 right-3 py-2 px-6 rounded-lg font-medium flex items-center gap-2 transition-all shadow-md ${selectedFiles.length === 0 || !description || isGenerating
+                    ? 'bg-gray-200 dark:bg-slate-700 text-gray-400 cursor-not-allowed'
+                    : 'bg-pastel-highlight hover:opacity-90 text-white hover:scale-105 active:scale-95'
+                    }`}
                 >
                   {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                   {isGenerating ? '生成中...' : '开始生成'}
                 </button>
               </div>
-              
+
               {error && (
                 <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3 text-sm text-red-600 dark:text-red-400">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <p>{error}</p>
                     {(error.includes("403") || error.includes("权限")) && (
-                      <button 
+                      <button
                         onClick={() => (window as any).aistudio?.openSelectKey()}
                         className="mt-2 text-xs underline hover:text-red-700 flex items-center gap-1"
                       >
@@ -199,59 +256,59 @@ const FusionTab: React.FC = () => {
 
           {/* Right: Result Area */}
           <div className="flex flex-col bg-pastel-card rounded-xl border border-pastel-border p-6 overflow-hidden shadow-sm">
-             <div className="flex items-center justify-between mb-4">
-               <h3 className="font-semibold text-pastel-text flex items-center gap-2">
-                 <ImageIcon className="w-5 h-5 text-pastel-highlight" />
-                 生成结果
-               </h3>
-               {generatedImages.length > 0 && (
-                 <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
-                   完成
-                 </span>
-               )}
-             </div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-pastel-text flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-pastel-highlight" />
+                生成结果
+              </h3>
+              {generatedImages.length > 0 && (
+                <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
+                  完成
+                </span>
+              )}
+            </div>
 
-             <div className="flex-1 flex items-center justify-center bg-pastel-bg rounded-lg border-2 border-dashed border-pastel-border overflow-hidden relative">
-                {generatedImages.length > 0 ? (
-                  <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
-                    {generatedImages.map((imgSrc, idx) => (
-                      <div key={idx} className="mb-6 last:mb-0 group relative">
-                        <img src={imgSrc} alt="Generated Result" className="w-full h-auto rounded-lg shadow-lg border border-pastel-border" />
-                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <a 
-                              href={imgSrc} 
-                              download={`i2i-gen-${Date.now()}.png`} 
-                              className="bg-white/90 dark:bg-slate-800/90 p-2 rounded-full shadow-lg text-gray-700 dark:text-gray-200 hover:text-pastel-highlight block"
-                              title="下载原图"
-                            >
-                                <Upload className="w-5 h-5 rotate-180" />
-                            </a>
-                        </div>
+            <div className="flex-1 flex items-center justify-center bg-pastel-bg rounded-lg border-2 border-dashed border-pastel-border overflow-hidden relative">
+              {generatedImages.length > 0 ? (
+                <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
+                  {generatedImages.map((imgSrc, idx) => (
+                    <div key={idx} className="mb-6 last:mb-0 group relative">
+                      <img src={imgSrc} alt="Generated Result" className="w-full h-auto rounded-lg shadow-lg border border-pastel-border" />
+                      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <a
+                          href={imgSrc}
+                          download={`i2i-gen-${Date.now()}.png`}
+                          className="bg-white/90 dark:bg-slate-800/90 p-2 rounded-full shadow-lg text-gray-700 dark:text-gray-200 hover:text-pastel-highlight block"
+                          title="下载原图"
+                        >
+                          <Upload className="w-5 h-5 rotate-180" />
+                        </a>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center p-8 max-w-sm">
-                    {isGenerating ? (
-                      <div className="flex flex-col items-center">
-                        <div className="w-16 h-16 relative mb-4">
-                           <div className="absolute inset-0 border-4 border-pastel-border rounded-full"></div>
-                           <div className="absolute inset-0 border-4 border-pastel-highlight rounded-full border-t-transparent animate-spin"></div>
-                        </div>
-                        <p className="text-pastel-text font-medium">正在进行图生图...</p>
-                        <p className="text-sm text-pastel-muted mt-2">Gemini Pro 正在分析参考图并进行创作</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center p-8 max-w-sm">
+                  {isGenerating ? (
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 relative mb-4">
+                        <div className="absolute inset-0 border-4 border-pastel-border rounded-full"></div>
+                        <div className="absolute inset-0 border-4 border-pastel-highlight rounded-full border-t-transparent animate-spin"></div>
                       </div>
-                    ) : (
-                      <>
-                        <Layers className="w-16 h-16 text-pastel-muted mx-auto mb-4" />
-                        <p className="text-pastel-muted">生成的图片将显示在这里</p>
-                      </>
-                    )}
-                  </div>
-                )}
-             </div>
+                      <p className="text-pastel-text font-medium">正在进行图生图...</p>
+                      <p className="text-sm text-pastel-muted mt-2">Gemini Pro 正在分析参考图并进行创作</p>
+                    </div>
+                  ) : (
+                    <>
+                      <Layers className="w-16 h-16 text-pastel-muted mx-auto mb-4" />
+                      <p className="text-pastel-muted">生成的图片将显示在这里</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          
+
         </div>
       </div>
     </div>

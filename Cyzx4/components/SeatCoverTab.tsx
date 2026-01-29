@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { generateSeatCoverFit, blobToBase64, compressImage } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
-import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X } from 'lucide-react';
+import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X, Box } from 'lucide-react';
 import { storageService } from '../../services/storageService';
 
 const anglePresets = [
@@ -36,8 +36,24 @@ const anglePresets = [
       { id: "R1 Rear Front Close-up", label: "R1 - 后排正面特写 (Front Close-up)", thumb: "/thumbnails/thumb_r1.webp" },
       { id: "R2 Rear Side Left", label: "R2 - 后排左侧 (Rear Left)", thumb: "/thumbnails/thumb_r2.webp" },
       { id: "R3 Rear Side Right", label: "R3 - 后排右侧 (Rear Right)", thumb: "/thumbnails/thumb_r3.webp" },
-      { id: "R4 Rear Folded View", label: "R4 - 后排折叠状态 (Seats Folded)", thumb: "/thumbnails/thumb_r4.webp" },
+      { id: "R4 Rear Folded View", label: "R4 - 后排平放折叠 (Seats Fold-Flat)", thumb: "/thumbnails/thumb_r4.webp" },
+      { id: "R7 Rear Tip-Up View", label: "R7 - 后排坐垫翻起 (Seats Tip-Up)", thumb: "/thumbnails/thumb_r7.webp" },
       { id: "R5 Top-Down Reclined", label: "R5 - 高角度俯视放倒 (Top-Down Reclined)", thumb: "/thumbnails/thumb_r5.webp" }
+    ]
+  },
+  {
+    group: "扶手箱 (Armrest Box)",
+    options: [
+      { id: "A0 Armrest Front", label: "A0 - 单品正面视角 (Front Product)", thumb: "/thumbnails/thumb_a0.svg" },
+      { id: "A1 Armrest 3/4 Front", label: "A1 - 单品3/4视角 (3/4 Front Product)", thumb: "/thumbnails/thumb_a1.svg" },
+      { id: "A2 Armrest Top-Down 60", label: "A2 - 俯视60° (Top-Down 60°)", thumb: "/thumbnails/thumb_a2.svg" },
+      { id: "A3 Armrest Passenger Side", label: "A3 - 副驾侧平视 (Passenger Side Eye-Level)", thumb: "/thumbnails/thumb_a3.svg" },
+      { id: "A4 Armrest Passenger Front 30", label: "A4 - 副驾侧前30° (Passenger Front 30°)", thumb: "/thumbnails/thumb_a4.svg" },
+      { id: "A5 Armrest Passenger Side 90", label: "A5 - 副驾正侧面 (Passenger Side 90°)", thumb: "/thumbnails/thumb_a5.svg" },
+      { id: "A6 Armrest Passenger Wheel", label: "A6 - 副驾侧含方向盘 (Passenger Side w/ Wheel)", thumb: "/thumbnails/thumb_a6.svg" },
+      { id: "A7 Armrest Top Rear 50", label: "A7 - 俯视后侧50°特写 (Top Rear 50° Close-up)", thumb: "/thumbnails/thumb_a7.svg" },
+      { id: "A8 Armrest Top-Down 45", label: "A8 - 俯视45° (Top-Down 45°)", thumb: "/thumbnails/thumb_a8.svg" },
+      { id: "A9 Armrest Rear View", label: "A9 - 后排向前视角 (Rear to Front)", thumb: "/thumbnails/thumb_a9.svg" }
     ]
   }
 ];
@@ -146,7 +162,10 @@ const SeatCoverTab: React.FC = () => {
 
       let visualGuide: { base64: string, mime: string } | undefined = undefined;
 
-      if (angleMode === 'PRESET' && anglePreset === 'Follow Focus Row') {
+      // UNIVERSAL VISUAL GUIDE INJECTION
+      // If a preset is selected, ALWAYS try to fetch its thumbnail to use as a strict visual guide.
+      // This ensures "1:1 Match" behavior for all presets.
+      if (angleMode === 'PRESET' && targetRow) {
         // Find the current target row option to get the thumb path
         const allOptions = anglePresets.flatMap(g => g.options);
         const selectedOption = allOptions.find(o => o.id === targetRow);
@@ -156,8 +175,17 @@ const SeatCoverTab: React.FC = () => {
             const response = await fetch(selectedOption.thumb);
             if (response.ok) {
               const blob = await response.blob();
-              const base64 = await blobToBase64(blob);
-              visualGuide = { base64, mime: blob.type || 'image/webp' };
+              const mime = blob.type || 'image/png';
+
+              // Gemini does not support SVG for input images.
+              // Only use it as a visual guide if it is a raster image (jpeg, png, webp).
+              if (!mime.includes('svg')) {
+                const base64 = await blobToBase64(blob);
+                visualGuide = { base64, mime };
+                console.log("Injected Visual Guide for Preset:", targetRow);
+              } else {
+                console.log("Skipping Visual Guide injection for SVG thumbnail:", targetRow);
+              }
             }
           } catch (e) {
             console.warn("Visual Guide fetch failed", e);
@@ -227,16 +255,31 @@ const SeatCoverTab: React.FC = () => {
             </h3>
 
             <div className="mb-4">
-              <label className="block text-xs text-pastel-muted mb-1">产品类别/描述 (Product Type)</label>
-              <input
-                type="text"
-                value={productCategory}
-                onChange={(e) => setProductCategory(e.target.value)}
-                placeholder="例如: Seat Cover (座套), Cup Holder Insert (杯架垫)..."
-                className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
-              />
-            </div>
+              <label className="block text-xs text-pastel-muted mb-2">产品类别 (Select Product Type)</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setProductCategory("Seat Cover")}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-lg border transition-all ${productCategory === "Seat Cover"
+                    ? "border-pastel-highlight bg-orange-50 text-pastel-highlight"
+                    : "border-pastel-border bg-white text-pastel-muted hover:border-pastel-pink"
+                    }`}
+                >
+                  <CarFront className={`w-5 h-5`} />
+                  <span className="text-sm font-semibold">座套 (Seat Cover)</span>
+                </button>
 
+                <button
+                  onClick={() => setProductCategory("Armrest Box")}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-lg border transition-all ${productCategory === "Armrest Box"
+                    ? "border-pastel-highlight bg-orange-50 text-pastel-highlight"
+                    : "border-pastel-border bg-white text-pastel-muted hover:border-pastel-pink"
+                    }`}
+                >
+                  <Box className={`w-5 h-5`} />
+                  <span className="text-sm font-semibold">扶手箱 (Armrest Box)</span>
+                </button>
+              </div>
+            </div>
             <label className="block text-sm font-medium text-pastel-muted mb-2">上传产品白底图</label>
             <div className="space-y-3 mb-4">
               <div className="relative group cursor-pointer border-2 border-dashed border-pastel-border rounded-lg p-3 transition-colors hover:border-pastel-pink hover:bg-pastel-bg">
