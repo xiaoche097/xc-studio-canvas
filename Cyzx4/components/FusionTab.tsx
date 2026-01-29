@@ -203,7 +203,10 @@ const FusionTab: React.FC = () => {
                     try {
                       const optimized = await optimizePrompt(description);
                       setDescription(optimized);
-                    } catch (e) { } finally {
+                    } catch (e: any) {
+                      setError("优化提示词失败: " + (e.message || "未知错误"));
+                      setTimeout(() => setError(null), 3000);
+                    } finally {
                       setIsOptimizing(false);
                     }
                   }}

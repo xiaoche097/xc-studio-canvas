@@ -188,7 +188,7 @@ export const analyzeProductImage = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-2.5-pro-image",
       contents: {
         parts: [
           {
@@ -389,18 +389,21 @@ export const generateMarketingImage = async (
 
     parts.push({ text: finalPrompt });
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
-      contents: {
-        parts: parts,
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio,
-          imageSize: resolution,
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: "gemini-3-pro-image-preview",
+        contents: {
+          parts: parts,
         },
-      },
-    });
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio,
+            imageSize: resolution,
+          },
+        },
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
+    ]) as any;
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
@@ -482,16 +485,19 @@ export const generateImageToImage = async (
 
     parts.push({ text: systemPrompt });
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
-      contents: { parts: parts },
-      config: {
-        imageConfig: {
-          aspectRatio: options.aspectRatio || "1:1",
-          imageSize: options.resolution || "1K",
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: "gemini-3-pro-image-preview",
+        contents: { parts: parts },
+        config: {
+          imageConfig: {
+            aspectRatio: options.aspectRatio || "1:1",
+            imageSize: options.resolution || "1K",
+          },
         },
-      },
-    });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
+    ]) as any;
 
     const generatedImages: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
@@ -577,7 +583,7 @@ export const optimizePrompt = async (rawPrompt: string): Promise<string> => {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-pro-latest", // Use text model for prompt optimization
+      model: "gemini-2.5-pro", // Use text model for prompt optimization
       contents: {
         parts: [
           { text: skillSystemPrompt },
@@ -609,6 +615,7 @@ export const generateSeatCoverFit = async (
   angleValue: string | { base64: string; mime: string }[],
   aspectRatio: AspectRatio,
   resolution: ImageResolution,
+  customRequest?: string, // NEW: User Custom Request
   visualGuide?: { base64: string; mime: string } // NEW: Optional Visual Guide
 ) => {
   const ai = getAiClient();
@@ -666,7 +673,7 @@ export const generateSeatCoverFit = async (
       "A6 Armrest Passenger Wheel": "shot from passenger side at eye-level, steering wheel in frame",
       "A7 Armrest Top Rear 50": "shot from above rear-quarter at 50 degree angle, close-up on armrest",
       "A8 Armrest Top-Down 45": "shot from above at 45 degree angle, top-down view of center console",
-      "A9 Armrest Rear View": "shot from rear seat looking forward, center console between front seats",
+      "A9 Armrest Side Interaction": "shot from passenger side showing a HUMAN HAND interacting with the armrest box. Lifestyle context. Realistic usage.",
 
       // Legacy/Fallback mapping
       "Driver's View": "Shot from driver's seated position at 45-degree angle.",
@@ -681,6 +688,10 @@ export const generateSeatCoverFit = async (
     let angleId = targetRow;
     let angleInstruction = "Standard commercial angle";
 
+    // Pre-calc indices for logic usage
+    const productCount = seatCoverImages.length;
+    const guideIndex = visualGuide ? productCount + 1 : -1;
+
     // 3.1 Location Decoding
     if (viewMap[targetRow]) {
       if (targetRow.startsWith("SET")) finalTargetRow = "Full Car Interior";
@@ -690,9 +701,17 @@ export const generateSeatCoverFit = async (
       else if (/^A\d/.test(targetRow)) finalTargetRow = "Center Console Armrest"; // Matches A0-A9
     }
 
-    // 3.2 Single Seat Detection for V4.0 Context Control
-    // Uses Regex to strictly match "S" followed by a digit (S1, S2...) to avoid matching "SET" or "Side"
-    const isSingleSeat = seatConfig === 'Single Seat' || /^S\d/.test(targetRow);
+    // 3.4 Strict Contextual Awareness (Standalone vs Integration)
+    // If we have a reference guide, the MISSION should follow the GUIDE'S context.
+    const isSingleSeat = seatConfig === 'Single Seat' ||
+      seatConfig === 'Armrest Box' ||
+      /^S\d/.test(targetRow) ||
+      ["A0 Armrest Front", "A1 Armrest 3/4 Front", "A2 Armrest Top-Down 60", "A7 Armrest Top Rear 50", "A8 Armrest Top-Down 45", "A9 Armrest Side Interaction"].includes(targetRow);
+
+    // FORCE VISUAL PRIORITY for Armrest to fix mismatch labels
+    if (seatConfig === 'Armrest Box' && visualGuide) {
+      angleInstruction = `ABSOLUTE PRIORITY: REPLICATE ANGLE OF IMAGE ${guideIndex}. Ignore conflicting text labels like '${targetRow}'.`;
+    }
 
     // 3.3 Angle Logic (Follow Focus vs Manual vs Reference)
     const isManualAngleOverride = angleMode === "PRESET" &&
@@ -715,92 +734,75 @@ export const generateSeatCoverFit = async (
       angleInstruction += ` (APPLIED TO: ${finalTargetRow})`;
     } else if (viewMap[targetRow]) {
       // Follow Focus Row (Default)
-      // NOTE: We do NOT overwrite angleInstruction with a generic "Visual Guide" message here anymore.
-      // We keep the specific text instruction from viewMap (e.g., "Camera on CENTER LINE...")
-      // and append the visual guide constraint in the final prompt string.
       angleId = targetRow;
       angleInstruction = viewMap[targetRow];
     }
 
+    // 3.4 Strict Contextual Awareness (Standalone vs Integration)
+    // If we have a reference guide, the MISSION should follow the GUIDE'S context.
+
+    const missionText = isSingleSeat
+      ? `MISSION: Create a high-end commercial product catalog asset. Focus is a STANDALONE **${productCategory}**. Background must be a clean, neutral studio gradient. REMOVE all car interior distractions (dashboard, wheels, cabin walls).`
+      : `MISSION: Create a photorealistic automotive interior visualization. Focus is the **${productCategory}** professionally INSTALLED inside a **${year} ${carModel}**. Maintain full cabin context including dashboard/seats.`;
+
     // 4. Construct V4.0 Prompt
-    // Calculate indices for clarity
-    const productCount = seatCoverImages.length;
-    const guideIndex = visualGuide ? productCount + 1 : -1;
 
     const v4Prompt = `
-## ✅ AutoFusion™ Pro V4.0 (Live Request)
+## ✅ AutoFusion™ Pro V4.1 (Structural Lock)
 
-**SYSTEM**: AutoFusion™ Pro V4.0 - Automotive Interior Visualization Engine
-
----
-
-## 🖼️ INPUT IMAGE ANALYSIS [CRITICAL PROTOCOL]
-
-You have received ${productCount + (visualGuide ? 1 : 0)} input images. You MUST strictly separate their functions. **DO NOT MIX THEM.**
-
-1. **IMAGES 1-${productCount}**: [PRODUCT REFERENCE = TEXTURE ONLY]
-   - **ROLE**: Material, color, and stitching details.
-   - **CONSTRAINT**: Treat these as **FLAT 2D TEXTURE SWATCHES**.
-   - **WARNING**: These images contain **ZERO SPATIAL INFORMATION**. IGNORE their camera angle, lighting, or perspective. Do NOT trigger off their composition.
-
-${visualGuide ? `2. **IMAGE ${guideIndex} (THE LAST IMAGE)**: [MASTER LAYOUT REFERENCE (ControlNet)]
-   - **ROLE**: The **ABSOLUTE AUTHORITY** for Composition, Camera Angle, and Scene Structure.
-   - **MANDATE**: You are to perform a **1:1 VISUAL MATCH** of Image ${guideIndex}'s layout.
-   - **STATE**: If Image ${guideIndex} shows seats FOLDED (Backrest Down) or TIPPED UP (Cushion Up), you MUST match that exact configuration.
-   - **OVERRIDE**: This image overrides any conflicting textual description regarding angle or seat state.
-   - **INSTRUCTION**: Use Image ${guideIndex} as a skeletal structure. Replace the original seat surfaces with the texture from Images 1-${productCount}, but KEEP the exact same seat shapes, positions, and angle.
-   - **MATCHING**:
-     - **1:1 ALIGNMENT**: The output must look like it was shot from the EXACT same tripod position as Image ${guideIndex}.
-     - **SYMMETRY**: If the Guide is symmetrical, valid output MUST be symmetrical.` : ""}
+**SYSTEM**: AutoFusion™ Pro V4.1 - Precision Automotive Visualization
+**CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
 
 ---
 
-## 🎯 MISSION
+## 🖼️ INPUT IMAGE ANALYSIS
 
-Generate a photorealistic commercial photograph of a **${year} ${carModel}** interior with the user's **[${productCategory}]** professionally installed.
+You have received ${productCount + (visualGuide ? 1 : 0)} input images. 
 
----
-
-## 📐 CAMERA CONTROL [PRIORITY: MAXIMUM]
-
-**ANGLE_ID**: ${angleId}
-**CAMERA INSTRUCTION**: ${angleInstruction}
-${visualGuide ? `\n> **VISUAL GUIDE LOCK**: In addition to the text above, you MUST structurally duplicate the composition of IMAGE ${guideIndex}. Combine the text instruction with this visual reference.` : ""}
-
-> ⚠️ This camera angle is LOCKED. The generated image must be **STRUCTURALLY IDENTICAL** to ${visualGuide ? `Image ${guideIndex}` : "the specified angle description"}.
+1. **IMAGES 1-${productCount}**: [PRODUCT MASTER] -> Use ONLY for texture, color, and material. IGNORE spatial data.
+${visualGuide ? `2. **IMAGE ${guideIndex}**: [LAYOUT MASTER] -> **ABSOLUTE AUTHORITY** for Perspective, Camera Angle, and Depth. Mirror this exact composition 1.0x.` : ""}
 
 ---
 
-## 🚗 VEHICLE DECODE
+## 🎯 ${missionText}
+
+${customRequest ? `
+## 🗨️ USER CUSTOM REQUEST [HIGH PRIORITY]
+> "**${customRequest}**"
+` : ""}
+
+---
+
+## 📐 CAMERA & PERSPECTIVE [LOCKED]
+
+**ANGLE_REFERENCE**: ${angleId}
+**DIRECTION**: ${angleInstruction}
+${visualGuide ? `\n> **VISUAL LOCK**: You MUST structurally duplicate IMAGE ${guideIndex}. Tripod height, focal length, and object rotation MUST match Image ${guideIndex} perfectly.` : ""}
+
+---
+
+## 🚗 VEHICLE & ENVIRONMENT
 
 | Attribute | Value |
 |-----------|-------|
 | Model | ${carModel} |
 | Year | ${year} |
-| Seat Config | ${seatConfig} |
-| Target Area | ${finalTargetRow} |
+| Context | ${isSingleSeat ? "STUDIO (Neutral)" : "VEHICLE INTERIOR"} |
 
-**IDENTIFICATION PROTOCOL**:
-- Analyze "${year} ${carModel}" to extract OEM interior DNA.
 ${isSingleSeat
-        ? "- **SINGLE SEAT MODE**: Focus ONLY on the seat geometry. Minimize dashboard/surroundings."
-        : "- Mandatory accurate features: Dashboard layout, Screen size/shape, steering wheel style."
+        ? "**STUDIO RULES**: No seats in background. No steering wheel. Pure product focus."
+        : "**INTERIOR RULES**: Dashboard layout must match 2020 Ford F-Series precisely. Integrate naturally into center console."
       }
-- If "${seatConfig}" specifies trim (e.g. Captain Seats), match seat geometry exactly.
 
 ---
 
-## 🎨 COLOR PROTOCOL [STRICT]
+## 🎨 COLOR & MATERIAL PROTOCOL
 
-| Zone | Color Rule |
-|------|------------|
-| Dashboard | ${isSingleSeat ? "OBSCURED / BLURRED OUT / REMOVED" : "PURE BLACK"} |
-| Door Panels | ${isSingleSeat ? "NOT VISIBLE" : "PURE BLACK / DARK GREY"} |
-| Carpet & Floor | BLACK |
-| Headliner | DARK GREY |
-| **PRODUCT (Seat Covers)** | ⛔ **ORIGINAL COLORS ONLY - NO MODIFICATION** |
-
-**TEXTURE MANDATE**: Even in black, render distinct material textures (Leather grain ≠ Plastic matte).
+| Dashboard | ${isSingleSeat ? "REMOVED" : "PURE BLACK"} |
+| Door Panels | ${isSingleSeat ? "REMOVED" : "PURE BLACK / DARK GREY"} |
+| Carpet & Floor | ${isSingleSeat ? "REMOVED" : "BLACK"} |
+| Headliner | ${isSingleSeat ? "REMOVED" : "DARK GREY"} |
+| **PRODUCT** | ⛔ **ORIGINAL COLORS ONLY** |
 
 ---
 
@@ -808,11 +810,11 @@ ${isSingleSeat
 
 ${productCategory === "Armrest Box" ? `
 ### ARMREST BOX SPECIFIC LOGIC
-- **PLACEMENT**: Install the armrest box ON TOP of the center console between the front seats.
-- **FIT**: The product base must sit FLUSH and STABLE on the console surface. It is a RIGID object, not fabric.
+- **PLACEMENT**: ${isSingleSeat ? "ISOLATED STANDALONE PRODUCT. Place on a neutral horizontal studio surface. Do NOT place inside a car. No center console." : "Install the armrest box ON TOP of the center console between the front seats."}
+- **FIT**: ${isSingleSeat ? "Focus on the 3D geometry and rigid structure of the product." : "The product base must sit FLUSH and STABLE on the console surface. It is a RIGID object, not fabric."}
 - **FEATURES**: Ensure cup holders, storage slots, and phone pads are facing UP and clearly visible.
-- **REALISM**: Render the leather/material quilting with high precision. Show functional depth in pockets/holders.
-- **INTEGRATION**: The armrest should look like a premium aftermarket addition that matches the car's interior width.
+- **REALISM**: Render the leather/material quilting with high precision.
+- **INTEGRATION**: ${isSingleSeat ? "Commercial product catalog style." : "The armrest should look like a premium aftermarket addition that matches the car's interior width."}
 ` : `
 ### SEAT COVER SPECIFIC LOGIC
 - **PLACEMENT**: Install the seat cover TIGHTLY over the ${finalTargetRow} seats.
@@ -871,20 +873,26 @@ Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
     parts.push({ text: v4Prompt });
 
     // 5. Call API
-    // REVERTED: User prefers Quality > Speed. 
-    // Always use Gemini 3.0 Pro for best photorealism, regardless of resolution.
-    // Flash 2.0 was deemed insufficient for seat cover texture details.
+    // Dynamic Model Selection:
+    // Gemini 2.0 Flash-Exp does NOT support Image Generation (Outputs Text).
+    // Must use 'gemini-3-pro-image-preview' for actual image synthesis.
+    // Speed optimization must be done via 'aspectRatio' or 'imageSize' param, not model swap.
+    const modelName = "gemini-3-pro-image-preview";
+    console.log(`🎨 [AutoFusion] Generating with ${modelName} (Resolution: ${resolution})`);
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
-      contents: { parts: parts },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio,
-          imageSize: resolution,
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: modelName,
+        contents: { parts: parts },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio,
+            imageSize: resolution,
+          },
         },
-      },
-    });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
+    ]) as any; // Cast to avoid type issues with race result
 
     // 6. Output Processing
     const images: string[] = [];
@@ -917,7 +925,7 @@ export const inpaintImage = async (
   const ai = getAiClient();
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-2.5-pro-image",
       contents: {
         parts: [
           {
@@ -971,7 +979,7 @@ export const inpaintImage = async (
 
 /**
  * 3.1 Edit Generated Image (Legacy Text Only)
- * Uses gemini-2.5-flash-image
+ * Uses gemini-2.5-pro-image
  */
 export const editGeneratedImage = async (
   base64Image: string,
@@ -981,7 +989,7 @@ export const editGeneratedImage = async (
   const ai = getAiClient();
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-2.5-pro-image",
       contents: {
         parts: [
           {
@@ -1030,7 +1038,7 @@ export const generateOutpainting = async (
       "Extend the scene naturally, matching the existing lighting and environment.";
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-2.5-pro-image",
       contents: {
         parts: [
           {
@@ -1088,7 +1096,7 @@ export const searchTrends = async (query: string) => {
   const ai = getAiClient();
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: query,
       config: {
         tools: [{ googleSearch: {} }],
@@ -1163,7 +1171,7 @@ export const generateListingCopy = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-2.5-pro-image",
       contents: {
         parts: [
           {
@@ -1220,7 +1228,7 @@ export const generateVideoScript = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-2.5-pro-image",
       contents: {
         parts: [
           {
