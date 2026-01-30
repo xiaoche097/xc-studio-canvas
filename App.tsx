@@ -68,7 +68,7 @@ const App: React.FC = () => {
   if (!mounted) return null;
 
   return (
-    <div className="h-full bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white transition-colors duration-500 relative">
+    <div className="h-screen w-full overflow-hidden bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white transition-colors duration-500 relative">
       {/* Top Right Controls */}
       <div className="fixed top-6 right-6 z-50 flex gap-2">
         {/* History Button */}

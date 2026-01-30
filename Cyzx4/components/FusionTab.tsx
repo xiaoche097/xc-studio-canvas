@@ -250,7 +250,7 @@ const FusionTab: React.FC = () => {
         mimeType: file.type
       })));
 
-      const newImages = await editGeneratedImage(base64, mime, finalPrompt, refImagesData); // Pass refs
+      const newImages = await editGeneratedImage(base64, mime, finalPrompt, refImagesData, { aspectRatio, resolution }); // Pass query params
       if (newImages && newImages.length > 0) {
         // Save Original for Comparison
         setOriginalImages(prev => ({ ...prev, [index]: image }));
@@ -265,8 +265,9 @@ const FusionTab: React.FC = () => {
         setSelectedPoints(prev => ({ ...prev, [index]: [] }));
         setEditRefImages(prev => ({ ...prev, [index]: [] }));
       }
-    } catch (e: any) {
-      setError("微调失败: " + (e.message || "未知错误"));
+    } catch (error: any) {
+      console.error("Edit failed", error);
+      setError(error.message || "编辑失败，请重试");
     } finally {
       setIsEditing(prev => ({ ...prev, [index]: false }));
     }
@@ -637,7 +638,7 @@ const FusionTab: React.FC = () => {
                             {/* Ref Image Upload & List */}
                             <div className="flex gap-2">
                               {/* Upload Button */}
-                              <label className="h-[60px] w-[60px] flex flex-col items-center justify-center bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-pastel-highlight hover:text-pastel-highlight text-gray-400 transition-colors shadow-sm shrink-0">
+                              <label title="上传参考图以引导生成风格或构图" className="h-[60px] w-[60px] flex flex-col items-center justify-center bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-pastel-highlight hover:text-pastel-highlight text-gray-400 transition-colors shadow-sm shrink-0">
                                 <input
                                   type="file"
                                   accept="image/*"
@@ -646,7 +647,7 @@ const FusionTab: React.FC = () => {
                                   onChange={(e) => handleEditRefUpload(e, idx)}
                                 />
                                 <ImageIcon className="w-5 h-5 mb-1" />
-                                <span className="text-[9px]">加图</span>
+                                <span className="text-[9px] scale-90">加参考图</span>
                               </label>
 
                               {/* Thumbnails */}

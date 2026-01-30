@@ -985,7 +985,8 @@ export const editGeneratedImage = async (
   base64Image: string,
   mimeType: string,
   prompt: string,
-  referenceImages: { base64: string; mimeType: string }[] = []
+  referenceImages: { base64: string; mimeType: string }[] = [],
+  options: { aspectRatio?: AspectRatio; resolution?: ImageResolution } = {}
 ) => {
   const ai = getAiClient();
   try {
@@ -1014,6 +1015,12 @@ export const editGeneratedImage = async (
       model: "gemini-3-pro-image-preview",
       contents: {
         parts: parts,
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: options.aspectRatio, // Optional, model might infer if undefined
+          imageSize: options.resolution || "1K", // Default to 1K if not provided, but we will pass it
+        },
       },
     });
 

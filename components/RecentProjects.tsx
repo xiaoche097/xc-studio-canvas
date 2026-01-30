@@ -16,7 +16,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject,
         const loadRecent = async () => {
             try {
                 const all = await storageService.getAllProjects();
-                setRecentProjects(all.slice(0, 4)); // Get top 4
+                setRecentProjects(all.slice(0, 10)); // Get top 10
             } catch (e) {
                 console.error("Failed to load recent projects", e);
             } finally {
@@ -44,20 +44,21 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject,
                 </button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
                 {recentProjects.map(project => (
-                    <ProjectCard
-                        key={project.id}
-                        project={project}
-                        onClick={onSelectProject}
-                        onDelete={async (e, id) => {
-                            e.stopPropagation();
-                            if (confirm("确定删除？")) {
-                                await storageService.deleteProject(id);
-                                setRecentProjects(prev => prev.filter(p => p.id !== id));
-                            }
-                        }}
-                    />
+                    <div key={project.id} className="min-w-[200px] md:min-w-[240px] snap-start">
+                        <ProjectCard
+                            project={project}
+                            onClick={onSelectProject}
+                            onDelete={async (e, id) => {
+                                e.stopPropagation();
+                                if (confirm("确定删除？")) {
+                                    await storageService.deleteProject(id);
+                                    setRecentProjects(prev => prev.filter(p => p.id !== id));
+                                }
+                            }}
+                        />
+                    </div>
                 ))}
             </div>
         </div>
