@@ -23,10 +23,13 @@ const App: React.FC = () => {
       {/* Sidebar Navigation */}
       <aside className="w-20 md:w-64 bg-pastel-card border-r border-pastel-border flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-16 flex items-center justify-center md:justify-start md:px-6 border-b border-pastel-border">
-          <div className="p-1.5 bg-pastel-bg rounded-lg">
-            <Aperture className="w-6 h-6 text-pastel-highlight" />
-          </div>
-          <span className="hidden md:block ml-3 font-bold text-lg tracking-tight text-pastel-text">创意中心</span>
+          <button
+            onClick={() => window.location.href = '/'}
+            className="bg-pastel-highlight text-white px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-sm hover:bg-orange-600 transition-colors w-10/12 md:w-auto justify-center"
+          >
+            <span>←</span>
+            <span className="hidden md:inline">Back to Studio</span>
+          </button>
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
@@ -86,11 +89,7 @@ const App: React.FC = () => {
           />
         </nav>
 
-        <div className="p-4 border-t border-pastel-border">
-          <div className="mt-3 hidden md:block">
-            <p className="text-xs text-pastel-muted text-center">跨境电商 AI 工作站 v2.3 (Pastel)</p>
-          </div>
-        </div>
+
       </aside>
 
       {/* Main Content Area */}
@@ -135,8 +134,8 @@ const NavButton: React.FC<{
   <button
     onClick={onClick}
     className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${active
-        ? 'bg-pastel-pink text-pastel-text shadow-sm font-medium'
-        : 'text-pastel-muted hover:bg-pastel-bg hover:text-pastel-highlight'
+      ? 'bg-pastel-pink text-pastel-text shadow-sm font-medium'
+      : 'text-pastel-muted hover:bg-pastel-bg hover:text-pastel-highlight'
       } ${highlight && !active ? 'text-pastel-highlight' : ''}`}
   >
     <div className={`${active ? 'text-pastel-text' : 'group-hover:text-pastel-highlight'} transition-colors`}>

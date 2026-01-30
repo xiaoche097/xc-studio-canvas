@@ -703,10 +703,10 @@ export const generateSeatCoverFit = async (
 
     // 3.4 Strict Contextual Awareness (Standalone vs Integration)
     // If we have a reference guide, the MISSION should follow the GUIDE'S context.
-    const isSingleSeat = seatConfig === 'Single Seat' ||
-      seatConfig === 'Armrest Box' ||
-      /^S\d/.test(targetRow) ||
-      ["A0 Armrest Front", "A1 Armrest 3/4 Front", "A2 Armrest Top-Down 60", "A7 Armrest Top Rear 50", "A8 Armrest Top-Down 45", "A9 Armrest Side Interaction"].includes(targetRow);
+    const isArmrestRow = /^A\d/.test(targetRow);
+    const isSingleSeat = isArmrestRow
+      ? ["A0 Armrest Front", "A1 Armrest 3/4 Front"].includes(targetRow)
+      : (seatConfig === 'Single Seat' || /^S\d/.test(targetRow));
 
     // FORCE VISUAL PRIORITY for Armrest to fix mismatch labels
     if (seatConfig === 'Armrest Box' && visualGuide) {
@@ -791,7 +791,7 @@ ${visualGuide ? `\n> **VISUAL LOCK**: You MUST structurally duplicate IMAGE ${gu
 
 ${isSingleSeat
         ? "**STUDIO RULES**: No seats in background. No steering wheel. Pure product focus."
-        : "**INTERIOR RULES**: Dashboard layout must match 2020 Ford F-Series precisely. Integrate naturally into center console."
+        : `**INTERIOR RULES**: Dashboard layout must match ${year} ${carModel} precisely. Integrate naturally into center console.`
       }
 
 ---

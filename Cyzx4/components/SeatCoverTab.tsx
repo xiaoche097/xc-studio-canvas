@@ -44,8 +44,8 @@ const anglePresets = [
   {
     group: "扶手箱 (Armrest Box)",
     options: [
-      { id: "A0 Armrest Front", label: "A0 - 正面平视 (Front Eye-Level)", thumb: "/thumbnails/thumb_a0.svg" },
-      { id: "A1 Armrest 3/4 Front", label: "A1 - 侧前45° (Front 3/4 Angle)", thumb: "/thumbnails/thumb_a1.svg" },
+      { id: "A0 Armrest Front", label: "A0 - 单品正面平视 (Front Eye-Level)", thumb: "/thumbnails/thumb_a0.svg" },
+      { id: "A1 Armrest 3/4 Front", label: "A1 - 单品侧前45° (Front 3/4 Angle)", thumb: "/thumbnails/thumb_a1.svg" },
       { id: "A2 Armrest Top-Down 60", label: "A2 - 高角度俯拍 (High-Angle Top-Down)", thumb: "/thumbnails/thumb_a2.svg" },
       { id: "A3 Armrest Passenger Side", label: "A3 - 侧面特写 (Side Profile Close-up)", thumb: "/thumbnails/thumb_a3.svg" },
       { id: "A4 Armrest Passenger Front 30", label: "A4 - 侧前自然视角 (Natural Front-Side)", thumb: "/thumbnails/thumb_a4.svg" },
@@ -774,7 +774,7 @@ const SeatCoverTab: React.FC = () => {
               onClick={handleGenerate}
               disabled={!isFormValid || isGenerating}
               className={`w-full py-4 px-6 rounded-xl font-bold transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden group relative ${isFormValid && !isGenerating
-                ? "bg-pastel-pink text-white hover:bg-orange-600 shadow-[0_4px_14px_0_rgba(255,107,107,0.39)] hover:shadow-[0_6px_20px_rgba(255,107,107,0.23)] active:scale-[0.98] cursor-pointer"
+                ? "bg-pastel-highlight text-white hover:bg-orange-600 shadow-[0_4px_14px_0_rgba(255,107,107,0.39)] hover:shadow-[0_6px_20px_rgba(255,107,107,0.23)] active:scale-[0.98] cursor-pointer"
                 : "bg-gray-50 text-gray-400 cursor-not-allowed border border-gray-200"
                 }`}
             >

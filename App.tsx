@@ -122,12 +122,7 @@ const App: React.FC = () => {
       ) : view === 'creative' ? (
         <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
           {/* Back Button Overlay */}
-          <button
-            onClick={() => setView('home')}
-            className="fixed bottom-4 left-4 z-[9999] px-4 py-2 bg-brand-orange text-white rounded-full shadow-lg hover:scale-105 transition-all font-bold text-xs flex items-center gap-2"
-          >
-            ← Back to Studio
-          </button>
+
           <CreativeCenterApp />
         </div>
       ) : view === 'home' ? (
