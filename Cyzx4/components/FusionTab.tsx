@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage } from '../services/geminiService';
-import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw } from 'lucide-react';
+import { storageService } from '../../services/storageService';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 
 interface EditPoint {
@@ -28,6 +29,10 @@ const FusionTab: React.FC = () => {
   const [selectedPoints, setSelectedPoints] = useState<Record<number, EditPoint[]>>({});
   const [editRefImages, setEditRefImages] = useState<Record<number, File[]>>({}); // NEW: Ref images for edit
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+
+  // Comparison State
+  const [originalImages, setOriginalImages] = useState<Record<number, string>>({});
+  const [isComparing, setIsComparing] = useState<Record<number, boolean>>({});
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -119,6 +124,25 @@ const FusionTab: React.FC = () => {
       const images = await Promise.all(imagePromises);
       const results = await generateImageToImage(images, description, { aspectRatio, resolution });
       setGeneratedImages(results);
+
+      // Save to Project History
+      results.forEach((url, i) => {
+        storageService.saveProject({
+          id: Date.now().toString() + i, // Ensure unique ID
+          type: 'FUSION',
+          createdAt: Date.now(),
+          thumbnail: url,
+          assets: {
+            generated: [url],
+            original: selectedFiles.map(f => f.name)
+          },
+          metadata: {
+            prompt: description,
+            params: { aspectRatio, resolution },
+            refImageCount: selectedFiles.length
+          }
+        }).catch(err => console.error("Failed to save to history", err));
+      });
     } catch (error: any) {
       const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
       if (isPermissionError) {
@@ -228,6 +252,9 @@ const FusionTab: React.FC = () => {
 
       const newImages = await editGeneratedImage(base64, mime, finalPrompt, refImagesData); // Pass refs
       if (newImages && newImages.length > 0) {
+        // Save Original for Comparison
+        setOriginalImages(prev => ({ ...prev, [index]: image }));
+
         const updatedImages = [...generatedImages];
         updatedImages[index] = newImages[0];
         setGeneratedImages(updatedImages);
@@ -498,10 +525,10 @@ const FusionTab: React.FC = () => {
                         onMouseDown={(e) => e.ctrlKey && e.preventDefault()}
                       >
                         <img
-                          src={imgSrc}
+                          src={isComparing[idx] && originalImages[idx] ? originalImages[idx] : imgSrc}
                           alt="Generated Result"
                           className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
-                          onClick={(e) => !e.ctrlKey && setZoomImage(imgSrc)}
+                          onClick={(e) => !e.ctrlKey && setZoomImage(imgSrc)} // Always zoom current image
                         />
 
                         {/* Markers */}
@@ -554,6 +581,20 @@ const FusionTab: React.FC = () => {
                             <Download className="w-3.5 h-3.5" />
                             下载
                           </button>
+
+                          {/* Compare Button (Only if edited) */}
+                          {originalImages[idx] && (
+                            <button
+                              onMouseDown={() => setIsComparing(prev => ({ ...prev, [idx]: true }))}
+                              onMouseUp={() => setIsComparing(prev => ({ ...prev, [idx]: false }))}
+                              onMouseLeave={() => setIsComparing(prev => ({ ...prev, [idx]: false }))}
+                              className="flex items-center gap-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-md transition-colors select-none active:scale-95 shadow-sm"
+                              title="按住查看修改前效果"
+                            >
+                              {isComparing[idx] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              {isComparing[idx] ? '原图' : '按住对比'}
+                            </button>
+                          )}
                         </div>
 
                         <button

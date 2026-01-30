@@ -3,11 +3,12 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 interface ProjectMetadata {
     prompt?: string;
     params?: any;
+    [key: string]: any;
 }
 
 export interface Project {
     id: string;
-    type: 'SEAT_COVER' | 'MARKETING' | 'MODEL' | 'VIDEO' | 'ANALYSIS' | 'LAUNCH_PACKAGE' | 'OTHER';
+    type: 'SEAT_COVER' | 'MARKETING' | 'MODEL' | 'VIDEO' | 'ANALYSIS' | 'LAUNCH_PACKAGE' | 'FUSION' | 'OTHER';
     createdAt: number;
     thumbnail: string; // Base64 or Blob URL
     assets: {
