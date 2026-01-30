@@ -985,23 +985,35 @@ export const editGeneratedImage = async (
   base64Image: string,
   mimeType: string,
   prompt: string,
+  referenceImages: { base64: string; mimeType: string }[] = []
 ) => {
   const ai = getAiClient();
   try {
+    const parts: any[] = [
+      {
+        inlineData: {
+          data: base64Image,
+          mimeType: mimeType,
+        },
+      },
+    ];
+
+    // Add Reference Images
+    referenceImages.forEach((img) => {
+      parts.push({
+        inlineData: {
+          data: img.base64,
+          mimeType: img.mimeType,
+        },
+      });
+    });
+
+    parts.push({ text: prompt });
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro-image",
+      model: "gemini-3-pro-image-preview",
       contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64Image,
-              mimeType: mimeType,
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
+        parts: parts,
       },
     });
 

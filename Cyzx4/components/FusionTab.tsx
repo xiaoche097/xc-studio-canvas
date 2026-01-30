@@ -26,6 +26,7 @@ const FusionTab: React.FC = () => {
   const [editPrompts, setEditPrompts] = useState<Record<number, string>>({});
   const [isEditing, setIsEditing] = useState<Record<number, boolean>>({});
   const [selectedPoints, setSelectedPoints] = useState<Record<number, EditPoint[]>>({});
+  const [editRefImages, setEditRefImages] = useState<Record<number, File[]>>({}); // NEW: Ref images for edit
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,8 +57,37 @@ const FusionTab: React.FC = () => {
       setGeneratedImages([]);
       setSelectedPoints({});
       setEditPrompts({});
+      setEditRefImages({}); // Clear edit refs
     }
   };
+
+  // ... (removeFile remains same, see context) ...
+
+  const handleEditRefUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      const validFiles = files.filter(f => f.type.startsWith('image/'));
+
+      setEditRefImages(prev => {
+        const current = prev[index] || [];
+        if (current.length + validFiles.length > 3) { // Max 3 ref images for edit
+          // Could show error toast here
+          return prev;
+        }
+        return { ...prev, [index]: [...current, ...validFiles] };
+      });
+    }
+  };
+
+  const removeEditRefImage = (index: number, refIndex: number) => {
+    setEditRefImages(prev => {
+      const current = prev[index] || [];
+      const updated = [...current];
+      updated.splice(refIndex, 1);
+      return { ...prev, [index]: updated };
+    });
+  };
+
 
   const removeFile = (index: number) => {
     const newFiles = [...selectedFiles];
@@ -170,6 +200,8 @@ const FusionTab: React.FC = () => {
   const handleEditImage = async (index: number) => {
     const rawPrompt = editPrompts[index];
     const image = generatedImages[index];
+    const refFiles = editRefImages[index] || []; // Get ref images
+
     if (!rawPrompt || !image) return;
 
     // Inject spatial context if points are selected
@@ -188,14 +220,23 @@ const FusionTab: React.FC = () => {
       const base64 = image.includes(',') ? image.split(',')[1] : image;
       const mime = image.includes('image/webp') ? 'image/webp' : 'image/png';
 
-      const newImages = await editGeneratedImage(base64, mime, finalPrompt);
+      // Convert Ref Images to Base64
+      const refImagesData = await Promise.all(refFiles.map(async file => ({
+        base64: await blobToBase64(file),
+        mimeType: file.type
+      })));
+
+      const newImages = await editGeneratedImage(base64, mime, finalPrompt, refImagesData); // Pass refs
       if (newImages && newImages.length > 0) {
         const updatedImages = [...generatedImages];
         updatedImages[index] = newImages[0];
         setGeneratedImages(updatedImages);
         // Clear prompt and point after success
+        // Keep refs or clear? Usually keep prompt/refs for tweaks, but user flow implies "Done". 
+        // Let's clear to avoid confusion on next edit.
         setEditPrompts(prev => ({ ...prev, [index]: '' }));
         setSelectedPoints(prev => ({ ...prev, [index]: [] }));
+        setEditRefImages(prev => ({ ...prev, [index]: [] }));
       }
     } catch (e: any) {
       setError("微调失败: " + (e.message || "未知错误"));
@@ -241,6 +282,18 @@ const FusionTab: React.FC = () => {
                   : 'border-pastel-highlight/30 bg-pastel-pink/10'
                 }`}
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  const files = Array.from(e.dataTransfer.files);
+                  addFiles(files);
+                }
+              }}
             >
               <input
                 ref={fileInputRef}
@@ -536,26 +589,65 @@ const FusionTab: React.FC = () => {
                           </div>
                         )}
 
-                        <div className="flex gap-2 items-start">
-                          <textarea
-                            value={editPrompts[idx] || ''}
-                            onChange={(e) => setEditPrompts(prev => ({ ...prev, [idx]: e.target.value }))}
-                            placeholder={selectedPoints[idx]?.length
-                              ? `[已标记 ${selectedPoints[idx]?.length} 处区域] 请描述修改内容...`
-                              : "在此输入微调指令 (例如: 背景颜色调暗 / 增加光效)"}
-                            className={`w-full text-xs bg-white border rounded-lg pl-3 pr-3 py-2 min-h-[60px] focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text shadow-sm placeholder:text-gray-400 transition-colors resize-y ${selectedPoints[idx]?.length ? 'border-blue-300 ring-1 ring-blue-50' : 'border-gray-200'}`}
-                          />
-                          <button
-                            onClick={() => handleEditImage(idx)}
-                            disabled={!editPrompts[idx] || isEditing[idx]}
-                            className={`h-[60px] w-[60px] rounded-lg font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 flex-shrink-0 ${editPrompts[idx] && !isEditing[idx]
-                              ? "bg-pastel-pink text-white hover:bg-orange-600 shadow-md"
-                              : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                              }`}
-                          >
-                            {isEditing[idx] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                            <span className="text-[10px]">微调</span>
-                          </button>
+                        <div className="flex flex-col gap-2">
+                          {/* Edit Content Row */}
+                          <div className="flex gap-2 items-start">
+
+                            {/* Ref Image Upload & List */}
+                            <div className="flex gap-2">
+                              {/* Upload Button */}
+                              <label className="h-[60px] w-[60px] flex flex-col items-center justify-center bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-pastel-highlight hover:text-pastel-highlight text-gray-400 transition-colors shadow-sm shrink-0">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => handleEditRefUpload(e, idx)}
+                                />
+                                <ImageIcon className="w-5 h-5 mb-1" />
+                                <span className="text-[9px]">加图</span>
+                              </label>
+
+                              {/* Thumbnails */}
+                              {editRefImages[idx]?.map((file, rIdx) => (
+                                <div key={rIdx} className="relative h-[60px] w-[60px] group shrink-0">
+                                  <img
+                                    src={URL.createObjectURL(file)}
+                                    className="w-full h-full object-cover rounded-lg border border-gray-200"
+                                    alt="Ref"
+                                  />
+                                  <button
+                                    onClick={() => removeEditRefImage(idx, rIdx)}
+                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+
+                            <textarea
+                              value={editPrompts[idx] || ''}
+                              onChange={(e) => setEditPrompts(prev => ({ ...prev, [idx]: e.target.value }))}
+                              placeholder={selectedPoints[idx]?.length
+                                ? `[已标记 ${selectedPoints[idx]?.length} 处] 输入修改指令...`
+                                : "输入微调指令 (可上传参考图)..."}
+                              className={`flex-1 text-xs bg-white border rounded-lg pl-3 pr-3 py-2 min-h-[60px] focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text shadow-sm placeholder:text-gray-400 transition-colors resize-y ${selectedPoints[idx]?.length ? 'border-blue-300 ring-1 ring-blue-50' : 'border-gray-200'}`}
+                            />
+
+                            <button
+                              onClick={() => handleEditImage(idx)}
+                              disabled={(!editPrompts[idx] && (!editRefImages[idx] || editRefImages[idx].length === 0)) || isEditing[idx]}
+                              className={`h-[60px] w-[60px] rounded-lg font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 flex-shrink-0 ${(!editPrompts[idx] && (!editRefImages[idx] || editRefImages[idx].length === 0))
+                                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                : "bg-pastel-highlight text-white hover:brightness-110 shadow-md"
+                                }`}
+                            >
+                              {isEditing[idx] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                              <span className="text-[10px]">微调</span>
+                            </button>
+                          </div>
+
                         </div>
                       </div>
 

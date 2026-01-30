@@ -110,8 +110,17 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-auto p-0 relative">
           <div className="h-full w-full">
             {activeTab === AppMode.PLANNING && <DirectorTab onImageGenerated={handleImageGenerated} />}
-            {activeTab === AppMode.SEAT_COVER && <SeatCoverTab />}
-            {activeTab === AppMode.FUSION && <FusionTab />}
+
+            {/* Persist SeatCoverTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.SEAT_COVER ? 'block' : 'none', height: '100%' }}>
+              <SeatCoverTab />
+            </div>
+
+            {/* Persist FusionTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.FUSION ? 'block' : 'none', height: '100%' }}>
+              <FusionTab />
+            </div>
+
             {activeTab === AppMode.RETOUCHING && <EditorTab initialImage={sharedImage} />}
             {activeTab === AppMode.COPYWRITING && <ListingTab />}
             {activeTab === AppMode.VIDEO && <VideoTab />}
