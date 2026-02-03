@@ -921,6 +921,7 @@ export const inpaintImage = async (
   originalBase64: string,
   maskBase64: string,
   prompt: string,
+  options: { resolution?: ImageResolution } = {}
 ) => {
   const ai = getAiClient();
   try {
@@ -958,6 +959,11 @@ export const inpaintImage = async (
           },
         ],
       },
+      config: {
+        imageConfig: {
+          imageSize: options.resolution || "1K",
+        }
+      }
     });
 
     const images: string[] = [];

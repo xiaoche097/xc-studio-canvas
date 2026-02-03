@@ -25,6 +25,7 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
         { id: 'LAUNCH_PACKAGE', label: 'SKYSPER视觉系统' },
         { id: 'SEAT_COVER', label: '座套试装' },
         { id: 'FUSION', label: '图像生成' }, // New FUSION Tab
+        { id: 'RETOUCHING', label: '智能修图' },
         { id: 'MARKETING', label: '营销图' },
         { id: 'MODEL', label: '模特上身' },
         { id: 'VIDEO', label: '视频' },
@@ -180,8 +181,8 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
                             onClick={handleBatchDelete}
                             disabled={selectedIds.size === 0}
                             className={`flex items-center gap-1.5 text-xs font-medium px-4 py-1.5 rounded-full transition-all ${selectedIds.size > 0
-                                    ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
-                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
+                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                 }`}
                         >
                             <Trash2 className="w-4 h-4" />

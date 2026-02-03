@@ -12,7 +12,7 @@ const SettingsTab: React.FC = () => {
       setApiKey(savedKey);
       setStatus('success');
     } else {
-        setStatus('empty');
+      setStatus('empty');
     }
   }, []);
 
@@ -33,9 +33,9 @@ const SettingsTab: React.FC = () => {
           <Settings className="w-6 h-6 text-pastel-highlight" />
           API 配置 (API Configuration)
         </h2>
-        
+
         <p className="text-pastel-muted mb-8 text-sm">
-          请输入您的 Google Gemini API Key 以启用所有 AI 功能。您的密钥将安全地存储在浏览器的本地存储中，不会被上传到其他服务器。<br/>
+          请输入您的 Google Gemini API Key 以启用所有 AI 功能。您的密钥将安全地存储在浏览器的本地存储中，不会被上传到其他服务器。<br />
           Enter your Google Gemini API Key to power the AI features.
         </p>
 
@@ -59,26 +59,26 @@ const SettingsTab: React.FC = () => {
         </div>
 
         <div className="mt-8 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-                {status === 'success' && (
-                    <span className="flex items-center gap-1 text-sm font-medium text-green-500 bg-green-50 px-3 py-1.5 rounded-full border border-green-100">
-                        <Check className="w-4 h-4" /> ✅ Key Saved (已保存)
-                    </span>
-                )}
-                 {status === 'empty' && (
-                    <span className="flex items-center gap-1 text-sm font-medium text-amber-500 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
-                        <AlertTriangle className="w-4 h-4" /> ⚠️ No Key Found (未检测到密钥)
-                    </span>
-                )}
-            </div>
+          <div className="flex items-center gap-2">
+            {status === 'success' && (
+              <span className="flex items-center gap-1 text-sm font-medium text-green-500 bg-green-50 px-3 py-1.5 rounded-full border border-green-100">
+                <Check className="w-4 h-4" /> ✅ Key Saved (已保存)
+              </span>
+            )}
+            {status === 'empty' && (
+              <span className="flex items-center gap-1 text-sm font-medium text-amber-500 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
+                <AlertTriangle className="w-4 h-4" /> ⚠️ No Key Found (未检测到密钥)
+              </span>
+            )}
+          </div>
 
-            <button
-                onClick={handleSave}
-                className="flex items-center gap-2 px-6 py-3 bg-pastel-pink hover:bg-pastel-pinkhover text-pastel-text font-medium rounded-lg shadow-sm transition-all"
-            >
-                <Save className="w-4 h-4" />
-                保存配置 (Save Configuration)
-            </button>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-2 px-6 py-3 bg-pastel-pink hover:bg-pastel-pinkhover text-pastel-text font-medium rounded-lg shadow-sm transition-all"
+          >
+            <Save className="w-4 h-4" />
+            保存配置 (Save Configuration)
+          </button>
         </div>
       </div>
     </div>

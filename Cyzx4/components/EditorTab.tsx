@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { editGeneratedImage, blobToBase64, inpaintImage } from '../services/geminiService';
+import { ImageResolution } from '../types';
 import { Wand2, Image as ImageIcon, Loader2, Save, AlertCircle, Key, MousePointer2, Eraser, Trash2, Crosshair, RotateCcw, Sparkles, Upload, CheckCircle2, X } from 'lucide-react';
 
 interface EditorTabProps {
@@ -31,9 +32,18 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
   const [points, setPoints] = useState<EditPoint[]>([]);
   const [brushSize, setBrushSize] = useState(40);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
+  const [preEditImage, setPreEditImage] = useState<string | null>(null);
+  const [isComparing, setIsComparing] = useState(false);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    if (initialImage) {
+      setCurrentImage(initialImage);
+    }
+  }, [initialImage]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -43,6 +53,7 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
       setError(null);
       setPoints([]);
       clearMask();
+      setPreEditImage(null);
     }
   };
 
@@ -60,6 +71,14 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
     setPoints([]);
     clearMask();
     setEditPrompt('');
+  };
+
+  const handleCompareStart = () => {
+    if (preEditImage) setIsComparing(true);
+  };
+
+  const handleCompareEnd = () => {
+    setIsComparing(false);
   };
 
   const getMaskBase64 = (): string | null => {
@@ -174,13 +193,14 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
       let resultImages: string[] = [];
       if (maskBase64) {
         // Use Inpainting for mask
-        resultImages = await inpaintImage(matches[2], maskBase64, finalPrompt);
+        resultImages = await inpaintImage(matches[2], maskBase64, finalPrompt, { resolution: selectedResolution });
       } else {
         // Use normal edit for points/text
-        resultImages = await editGeneratedImage(matches[2], matches[1], finalPrompt);
+        resultImages = await editGeneratedImage(matches[2], matches[1], finalPrompt, [], { resolution: selectedResolution });
       }
 
       if (resultImages.length > 0) {
+        setPreEditImage(currentImage); // Save current as pre-edit
         setCurrentImage(resultImages[0]);
         setEditPrompt('');
         setPoints([]);
@@ -260,7 +280,7 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
               <>
                 <img
                   ref={imgRef}
-                  src={currentImage}
+                  src={isComparing && preEditImage ? preEditImage : currentImage}
                   alt="Creative Source"
                   className="max-w-[72vw] max-h-[72vh] object-contain pointer-events-none select-none transition-all duration-700"
                   onLoad={(e) => {
@@ -323,6 +343,21 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
                     <a href={currentImage} download="skysper-edit.png" className="text-xs font-bold text-pastel-highlight hover:text-pastel-text flex items-center gap-2 transition-colors">
                       <Save className="w-4 h-4" /> 下载修图结果
                     </a>
+                    {preEditImage && (
+                      <>
+                        <div className="h-4 w-px bg-pastel-border"></div>
+                        <button
+                          onMouseDown={handleCompareStart}
+                          onMouseUp={handleCompareEnd}
+                          onMouseLeave={handleCompareEnd}
+                          onTouchStart={handleCompareStart}
+                          onTouchEnd={handleCompareEnd}
+                          className="text-xs font-bold text-pastel-highlight hover:text-pastel-text flex items-center gap-2 transition-colors cursor-pointer select-none active:scale-95"
+                        >
+                          <RotateCcw className="w-4 h-4" /> 按住对比原图
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </>
@@ -451,6 +486,26 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
             </div>
           </div>
 
+          <div className="space-y-4">
+            <label className="text-[11px] font-bold text-pastel-muted uppercase tracking-widest block">
+              输出分辨率
+            </label>
+            <div className="flex bg-pastel-bg p-1 rounded-2xl border border-pastel-border">
+              {[ImageResolution.RES_1K, ImageResolution.RES_2K, ImageResolution.RES_4K].map((res) => (
+                <button
+                  key={res}
+                  onClick={() => setSelectedResolution(res)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${selectedResolution === res
+                    ? 'bg-white text-pastel-highlight shadow-sm'
+                    : 'text-pastel-muted hover:text-pastel-text'
+                    }`}
+                >
+                  {res}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Diagnostics */}
           {error && (
             <div className="p-5 bg-[#FFF0F3] border border-pastel-border rounded-[2rem] flex flex-col gap-4 animate-in shake duration-500">
@@ -477,10 +532,10 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
             onClick={handleEdit}
             disabled={!currentImage || (!editPrompt && points.length === 0 && !getMaskBase64()) || isEditing}
             className={`w-full py-6 rounded-[2.5rem] font-bold text-[15px] tracking-[0.1em] uppercase flex items-center justify-center gap-4 transition-all active:scale-[0.96] group relative overflow-hidden ${!currentImage || (!editPrompt && points.length === 0 && !getMaskBase64())
-                ? 'bg-pastel-bg text-pastel-border cursor-not-allowed border border-pastel-border'
-                : isEditing
-                  ? 'bg-pastel-pink cursor-wait text-pastel-text shadow-inner'
-                  : 'bg-pastel-text text-white hover:bg-black shadow-[0_20px_40px_-10px_rgba(0,0,0,0.2)] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.3)] hover:-translate-y-1.5 active:translate-y-0'
+              ? 'bg-pastel-bg text-pastel-border cursor-not-allowed border border-pastel-border'
+              : isEditing
+                ? 'bg-pastel-pink cursor-wait text-pastel-text shadow-inner'
+                : 'bg-pastel-text text-white hover:bg-black shadow-[0_20px_40px_-10px_rgba(0,0,0,0.2)] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.3)] hover:-translate-y-1.5 active:translate-y-0'
               }`}
           >
             <div className="absolute inset-0 bg-gradient-to-r from-pastel-pink/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>

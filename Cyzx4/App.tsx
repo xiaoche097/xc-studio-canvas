@@ -121,7 +121,10 @@ const App: React.FC = () => {
               <FusionTab />
             </div>
 
-            {activeTab === AppMode.RETOUCHING && <EditorTab initialImage={sharedImage} />}
+            {/* Persist EditorTab state (Smart Retouching) by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.RETOUCHING ? 'block' : 'none', height: '100%' }}>
+              <EditorTab initialImage={sharedImage} />
+            </div>
             {activeTab === AppMode.COPYWRITING && <ListingTab />}
             {activeTab === AppMode.VIDEO && <VideoTab />}
             {activeTab === AppMode.TRENDS && <TrendTab />}
