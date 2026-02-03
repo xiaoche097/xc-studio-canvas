@@ -71,6 +71,9 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
     setPoints([]);
     clearMask();
     setEditPrompt('');
+    setCurrentImage(null);
+    setPreEditImage(null);
+    setError(null);
   };
 
   const handleCompareStart = () => {
