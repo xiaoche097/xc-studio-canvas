@@ -1506,3 +1506,54 @@ export const connectLiveDirector = async (
     },
   };
 };
+
+// ==================== Camera Angle Analysis ====================
+
+export const estimateCameraAngle = async (
+  base64Image: string,
+  mimeType: string
+): Promise<{ yaw: number; pitch: number; zoom: number }> => {
+  const ai = getAiClient();
+  try {
+    const prompt = `Analyze the camera angle of this image relative to a standard eye-level front-facing view.
+    Estimate the following 3 values in a Global Spherical Coordinate System:
+    1. Yaw (Azimuth): 0 to 360 degrees. 0=Front, 90=Right, 180=Back, 270=Left.
+    2. Pitch (Elevation): -90 to 90 degrees. 0=Eye-level, Positive=High Angle (Looking Down), Negative=Low Angle (Looking Up).
+    3. Zoom (Distance): 0.5 (Wide/Far) to 2.5 (Telephoto/Close). 1.0 is standard.
+
+    Return ONLY a raw JSON object with no markdown formatting:
+    { "yaw": number, "pitch": number, "zoom": number }`;
+
+    const result = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64Image,
+              mimeType: mimeType,
+            },
+          },
+          { text: prompt },
+        ],
+      },
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No analysis result");
+
+    const json = JSON.parse(text);
+    return {
+      yaw: Number(json.yaw) || 0,
+      pitch: Number(json.pitch) || 0,
+      zoom: Number(json.zoom) || 1,
+    };
+  } catch (error) {
+    console.error("Camera estimation failed:", error);
+    // Return default neutral values on failure
+    return { yaw: 0, pitch: 0, zoom: 1 };
+  }
+};

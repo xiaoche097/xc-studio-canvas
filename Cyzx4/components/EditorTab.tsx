@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { editGeneratedImage, blobToBase64, inpaintImage } from '../services/geminiService';
-import { ImageResolution } from '../types';
-import { Wand2, Image as ImageIcon, Loader2, Save, AlertCircle, Key, MousePointer2, Eraser, Trash2, Crosshair, RotateCcw, Sparkles, Upload, CheckCircle2, X } from 'lucide-react';
+import { editGeneratedImage, blobToBase64, inpaintImage, estimateCameraAngle, optimizePrompt } from '../services/geminiService';
+import { ImageResolution, AspectRatio } from '../types';
+import { Wand2, Image as ImageIcon, Loader2, Save, AlertCircle, Key, MousePointer2, Eraser, Trash2, Crosshair, RotateCcw, Sparkles, Upload, CheckCircle2, X, Camera, Compass } from 'lucide-react';
 
 interface EditorTabProps {
   initialImage: string | null;
@@ -27,33 +27,221 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // New States for Marker & Eraser
-  const [mode, setMode] = useState<'move' | 'point' | 'eraser'>('move');
+  // New States for Marker & Eraser & Camera
+  const [mode, setMode] = useState<'move' | 'point' | 'eraser' | 'camera'>('move');
+  const [cameraAngle, setCameraAngle] = useState({ yaw: 0, pitch: 0, zoom: 1 });
+
   const [points, setPoints] = useState<EditPoint[]>([]);
   const [brushSize, setBrushSize] = useState(40);
   const [isDrawing, setIsDrawing] = useState(false);
   const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [preEditImage, setPreEditImage] = useState<string | null>(null);
   const [isComparing, setIsComparing] = useState(false);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = React.useRef(0);
+  // NEW: Reference Images State
+  const [referenceImages, setReferenceImages] = useState<{ id: string; base64: string; mimeType: string }[]>([]);
+  const [isOptimizing, setIsOptimizing] = useState(false);
 
   useEffect(() => {
     if (initialImage) {
       setCurrentImage(initialImage);
+
+      // Auto-detect Aspect Ratio
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.width / img.height;
+        let bestMatch = AspectRatio.SQUARE;
+        let minDiff = Infinity;
+
+        const ratios = [
+          { r: 1, v: AspectRatio.SQUARE },
+          { r: 3 / 4, v: AspectRatio.PORTRAIT_3_4 },
+          { r: 4 / 3, v: AspectRatio.LANDSCAPE_4_3 },
+          { r: 9 / 16, v: AspectRatio.PORTRAIT_9_16 },
+          { r: 16 / 9, v: AspectRatio.LANDSCAPE_16_9 },
+          { r: 21 / 9, v: AspectRatio.LANDSCAPE_21_9 },
+        ];
+
+        for (const item of ratios) {
+          const diff = Math.abs(ratio - item.r);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestMatch = item.v;
+          }
+        }
+        setSelectedAspectRatio(bestMatch);
+      };
+      img.src = initialImage;
     }
   }, [initialImage]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
+  // Helper to get angle description based on new 360 system
+  const getAngleDescription = () => {
+    const { yaw, pitch, zoom } = cameraAngle;
+
+    // Azimuth (Yaw) Description
+    let horizontal = 'Front View (0°)';
+    if (yaw > 315 || yaw <= 45) horizontal = 'Front View';
+    else if (yaw > 45 && yaw <= 135) horizontal = 'Right Side View';
+    else if (yaw > 135 && yaw <= 225) horizontal = 'Back View';
+    else if (yaw > 225 && yaw <= 315) horizontal = 'Left Side View';
+
+    horizontal += ` (Azimuth ${yaw}°)`;
+
+    // Elevation (Pitch) Description
+    // Low Angle (-30°): Camera below subject, looking up.
+    // High Angle (60°): Camera above subject, looking down.
+    let vertical = 'Eye-Level (0°)';
+    if (pitch < -10) vertical = `Low Angle / Worm's Eye View (Camera at ${pitch}°) - Look Up`;
+    else if (pitch > 10) vertical = `High Angle / Bird's Eye View (Camera at ${pitch}°) - Look Down`;
+
+    return `Camera Angle: ${horizontal}, ${vertical}. Distance: ${zoom}x.`;
+  };
+
+  const handleAutoDetectAngle = async () => {
+    if (!currentImage) return;
+    setIsEditing(true);
+    try {
+      const matches = currentImage.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (matches) {
+        const estimated = await estimateCameraAngle(matches[2], matches[1]);
+        setCameraAngle(estimated);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  const handleCameraShift = async () => {
+    if (!currentImage) return;
+    setIsEditing(true);
+    try {
+      const angleDesc = getAngleDescription();
+      const prompt = `Novel View Synthesis Task: Physically relocate the camera to a new 3D position.
+      
+      TARGET SPECIFICATIONS:
+      - AZIMUTH (Horizontal): ${cameraAngle.yaw}° (0=Front, 90=Right, 180=Back, 270=Left).
+      - ELEVATION (Vertical): ${cameraAngle.pitch}° (Negative=Low Angle/Look Up, Positive=High Angle/Look Down).
+      - DISTANCE: ${cameraAngle.zoom}x (0.6=Macro/Close-up, 1.8=Wide Angle).
+      
+      INSTRUCTIONS:
+      1. IGNORE the original camera perspective.
+      2. GENERATE a photorealistic image of the EXACT SAME SUBJECT from the defined ${angleDesc}.
+      3. IF Azimuth is ~90°, show the RIGHT side. IF ~180°, show the BACK. IF ~270°, show the LEFT side.
+      4. IF Elevation is POSITIVE, show the top surfaces (looking down). IF NEGATIVE, show the underside/imposing view (looking up).
+      5. STRICTLY MAINTAIN subject identity and aspect ratio.
+      
+      Output: The subject as seen from this new physical camera location.`;
+
+      const matches = currentImage.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (matches) {
+        // IMPORTANT: Do NOT pass reference image for rotation, it locks the perspective. 
+        // We rely on the input image itself to guide the content.
+        const result = await editGeneratedImage(
+          matches[2],
+          matches[1],
+          prompt,
+          [], // No extra reference
+          { resolution: selectedResolution, aspectRatio: selectedAspectRatio }
+        );
+        if (result.length > 0) {
+          setPreEditImage(currentImage);
+          setCurrentImage(result[0]);
+        }
+      }
+    } catch (e: any) {
+      setError(getFriendlyErrorMessage(e));
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  const processFile = async (file: File) => {
+    if (file && file.type.startsWith('image/')) {
       const base64 = await blobToBase64(file);
-      setCurrentImage(`data:${file.type};base64,${base64}`);
+      const dataUrl = `data:${file.type};base64,${base64}`;
+      setCurrentImage(dataUrl);
+
+      // Auto-detect aspect ratio
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.width / img.height;
+        let bestMatch = AspectRatio.SQUARE;
+        let minDiff = Infinity;
+
+        const ratios = [
+          { r: 1, v: AspectRatio.SQUARE },
+          { r: 3 / 4, v: AspectRatio.PORTRAIT_3_4 },
+          { r: 4 / 3, v: AspectRatio.LANDSCAPE_4_3 },
+          { r: 9 / 16, v: AspectRatio.PORTRAIT_9_16 },
+          { r: 16 / 9, v: AspectRatio.LANDSCAPE_16_9 },
+          { r: 21 / 9, v: AspectRatio.LANDSCAPE_21_9 },
+        ];
+
+        for (const item of ratios) {
+          const diff = Math.abs(ratio - item.r);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestMatch = item.v;
+          }
+        }
+        setSelectedAspectRatio(bestMatch);
+      };
+      img.src = dataUrl;
+
       setError(null);
       setPoints([]);
       clearMask();
       setPreEditImage(null);
+    } else {
+      setError("请上传有效的图片文件");
+    }
+  };
+
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      await processFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      await processFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -179,12 +367,38 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
       finalPrompt = "Please remove the selected object or area and fill it naturally to match the surrounding background and textures.";
     }
 
-    if (!finalPrompt && points.length === 0) return;
+    if (!finalPrompt && points.length === 0 && referenceImages.length === 0) return;
+
+    // prompt construction logic
+    let promptPrefix = "";
+    if (referenceImages.length > 0) {
+      promptPrefix = `[IMPORTANT] REFERENCE IMAGES PROVIDED (${referenceImages.length}). 
+       TASK: Strictly match the STYLE, TEXTURE, and VISUAL CHARACTERISTICS of the attached reference images.
+       IGORE differences in subject shape if they conflict, but ADORT the visual fidelity.
+       `;
+    }
 
     // Inject points into prompt if any
     if (points.length > 0) {
-      const pointStr = points.map((p, i) => `Point ${i + 1}: [x:${p.x.toFixed(1)}%, y:${p.y.toFixed(1)}%]`).join(", ");
-      finalPrompt = `The user has marked specific points on the image: ${pointStr}. Instruction: ${finalPrompt}`;
+      const pointStr = points.map((p, i) => `[${p.y.toFixed(0)}, ${p.x.toFixed(0)}]`).join(" and ");
+      finalPrompt = `${promptPrefix}
+      Edit the image content specifically at these coordinates (y, x): ${pointStr}.
+      
+      USER INSTRUCTION: "${editPrompt}"
+      
+      REQUIREMENTS:
+      1. Apply the user's instruction ONLY at the marked locations.
+      2. Integrate the changes seamlessly with the existing lighting and perspective.
+      3. Use the Reference Images to guide the visual style/texture of the edit.`;
+    } else if (referenceImages.length > 0) {
+      // Only Refs and Text
+      finalPrompt = `${promptPrefix}
+       USER INSTRUCTION: "${editPrompt}"
+       
+       REQUIREMENTS:
+       1. Transform the Input Image to match the Reference Image's style/vibe.
+       2. If the user instruction specifies a change, apply it using the Reference Image as the ground truth for visual appearance.
+       `;
     }
 
     setIsEditing(true);
@@ -198,22 +412,72 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
         // Use Inpainting for mask
         resultImages = await inpaintImage(matches[2], maskBase64, finalPrompt, { resolution: selectedResolution });
       } else {
-        // Use normal edit for points/text
-        resultImages = await editGeneratedImage(matches[2], matches[1], finalPrompt, [], { resolution: selectedResolution });
+        // Use normal edit for points/text/ref
+        // Convert local ref images to service format
+        const serviceRefs = referenceImages.map(r => ({ base64: r.base64, mimeType: r.mimeType }));
+
+        resultImages = await editGeneratedImage(
+          matches[2],
+          matches[1],
+          finalPrompt,
+          serviceRefs,
+          { resolution: selectedResolution }
+        );
       }
 
       if (resultImages.length > 0) {
         setPreEditImage(currentImage); // Save current as pre-edit
         setCurrentImage(resultImages[0]);
-        setEditPrompt('');
+        // Don't clear prompt/refs immediately to allow iteration, or maybe clear? 
+        // User behavior usually wants to iterate. Let's keep them but maybe clear points.
         setPoints([]);
         clearMask();
+      } else {
+        throw new Error("AI未能生成图片，可能由于描述过于模糊或触发安全拦截，请尝试调整指令。");
       }
     } catch (error: any) {
       setError(getFriendlyErrorMessage(error));
     } finally {
       setIsEditing(false);
     }
+  };
+
+  const handleOptimizePrompt = async () => {
+    if (!editPrompt && referenceImages.length === 0) return;
+    setIsOptimizing(true);
+    try {
+      const serviceRefs = referenceImages.map(r => ({ base64: r.base64, mimeType: r.mimeType }));
+      const optimized = await optimizePrompt(editPrompt, serviceRefs);
+      setEditPrompt(optimized);
+    } catch (e) {
+      console.error(e);
+      // Fail silently or show toast
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const handleRefUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newRefs = [...referenceImages];
+      for (let i = 0; i < e.target.files.length; i++) {
+        if (newRefs.length >= 3) break; // Max 3
+        const file = e.target.files[i];
+        try {
+          const base64 = await blobToBase64(file);
+          newRefs.push({
+            id: Date.now() + Math.random().toString(),
+            base64,
+            mimeType: file.type
+          });
+        } catch (e) { console.error(e); }
+      }
+      setReferenceImages(newRefs);
+    }
+  };
+
+  const removeRefImage = (id: string) => {
+    setReferenceImages(referenceImages.filter(r => r.id !== id));
   };
 
   return (
@@ -261,6 +525,12 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
               icon={<Eraser className="w-5 h-5" />}
               label="智能消除笔"
             />
+            <ToolButton
+              active={mode === 'camera'}
+              onClick={() => setMode('camera')}
+              icon={<Camera className="w-5 h-5" />}
+              label="多角度虚拟相机"
+            />
             <div className="h-px bg-pastel-border mx-2"></div>
             <ToolButton
               active={false}
@@ -276,9 +546,22 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
         <div className="flex-1 flex items-center justify-center p-12">
           <div
             ref={containerRef}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             className={`relative bg-white rounded-[2.5rem] shadow-[0_30px_60px_-20px_rgba(212,134,159,0.15)] overflow-hidden transition-all duration-700 group
-               ${currentImage ? 'border border-pastel-border' : 'border-4 border-dashed border-pastel-border w-[520px] h-[520px] hover:border-pastel-pink hover:bg-white/50'}`}
+               ${currentImage ? 'border border-pastel-border' : 'border-4 border-dashed border-pastel-border w-[520px] h-[520px] hover:border-pastel-pink hover:bg-white/50'}
+               ${isDragging ? '!border-pastel-pink !bg-purple-50/30 scale-[1.02] shadow-2xl ring-4 ring-pastel-pink/20' : ''}`}
           >
+            {isDragging && (
+              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/60 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="p-4 bg-white rounded-full shadow-lg border border-pastel-pink animate-bounce">
+                  <Upload className="w-8 h-8 text-pastel-pink" />
+                </div>
+                <p className="mt-4 text-lg font-bold text-pastel-pink">松开鼠标上传图片</p>
+              </div>
+            )}
             {currentImage ? (
               <>
                 <img
@@ -408,6 +691,174 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
         {/* Control Content */}
         <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
 
+          {/* Camera Settings */}
+          {/* Camera Settings - Pro Max Style */}
+          {mode === 'camera' && (
+            <div className="space-y-8 animate-in slide-in-from-top-6 duration-700 pb-10">
+
+              {/* Header */}
+              <div className="flex items-center gap-3 border-b border-pastel-border/50 pb-4">
+                <div className="p-2 bg-gradient-to-br from-pastel-bg to-white rounded-xl shadow-sm border border-pastel-border">
+                  <Compass className="w-5 h-5 text-pastel-highlight" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-pastel-text">3D 空间运镜系统</h3>
+                  <p className="text-[10px] text-pastel-muted font-medium">全方位虚拟摄影系统</p>
+                </div>
+              </div>
+
+              {/* 3D Visualizer - Larger & Clearer */}
+              <div className="bg-gradient-to-b from-white to-pastel-bg/30 p-1 rounded-[2rem] border border-pastel-border shadow-sm">
+                <div className="h-64 rounded-[1.8rem] bg-white border border-pastel-border/50 flex items-center justify-center relative overflow-hidden group">
+                  {/* Grid Background */}
+                  <div className="absolute inset-0 opacity-[0.03]"
+                    style={{ backgroundImage: 'linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                  </div>
+
+                  {/* Axis Indicators */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+                    <div className="w-full h-px bg-pastel-highlight"></div>
+                    <div className="h-full w-px bg-pastel-highlight"></div>
+                  </div>
+
+                  {/* The 3D Object */}
+                  <div style={{ perspective: '1000px' }} className="w-48 h-48 flex items-center justify-center z-10">
+                    <div
+                      className="w-24 h-24 relative transition-transform duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) transform-style-3d"
+                      style={{
+                        transformStyle: 'preserve-3d',
+                        transform: `rotateX(${cameraAngle.pitch}deg) rotateY(${cameraAngle.yaw}deg) scale(${1.2 / (cameraAngle.zoom || 1)})`
+                      }}
+                    >
+                      {/* Cube Faces with Pro Styling */}
+                      {[
+                        { id: 'front', tx: 'translateZ(48px)', bg: 'bg-white', border: 'border-pastel-highlight', text: '正面', col: 'text-pastel-highlight' },
+                        { id: 'back', tx: 'rotateY(180deg) translateZ(48px)', bg: 'bg-pastel-bg', border: 'border-pastel-border', text: '背面', col: 'text-pastel-muted' },
+                        { id: 'right', tx: 'rotateY(90deg) translateZ(48px)', bg: 'bg-white', border: 'border-pastel-border', text: '右侧', col: 'text-pastel-muted' },
+                        { id: 'left', tx: 'rotateY(-90deg) translateZ(48px)', bg: 'bg-white', border: 'border-pastel-border', text: '左侧', col: 'text-pastel-muted' },
+                        { id: 'top', tx: 'rotateX(90deg) translateZ(48px)', bg: 'bg-white', border: 'border-pastel-border', text: '顶部', col: 'text-pastel-muted' },
+                        { id: 'bottom', tx: 'rotateX(-90deg) translateZ(48px)', bg: 'bg-white', border: 'border-pastel-border', text: '底部', col: 'text-pastel-muted' }
+                      ].map(face => (
+                        <div key={face.id} className={`absolute inset-0 ${face.bg} border-2 ${face.border} flex items-center justify-center shadow-lg backface-hidden transition-all duration-300`} style={{ transform: face.tx }}>
+                          <span className={`text-[12px] font-black tracking-widest ${face.col}`}>{face.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="absolute top-4 left-4">
+                    <span className="text-[10px] font-mono font-bold text-pastel-highlight bg-pastel-pink/10 px-2 py-1 rounded-md border border-pastel-pink/20">
+                      方位: {cameraAngle.yaw}° / 俯仰: {cameraAngle.pitch}°
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls Container */}
+              <div className="space-y-6">
+
+                {/* 1. Quick Presets */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-pastel-text flex items-center gap-2">
+                    <MousePointer2 className="w-3.5 h-3.5 text-pastel-muted" />
+                    <span>快速视角</span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { l: '正面', v: 0 }, { l: '右侧', v: 90 }, { l: '背面', v: 180 }, { l: '左侧', v: 270 }
+                    ].map(p => (
+                      <button
+                        key={p.l}
+                        onClick={() => setCameraAngle({ ...cameraAngle, yaw: p.v })}
+                        className={`py-2.5 rounded-xl text-[11px] font-bold transition-all duration-200 border ${cameraAngle.yaw === p.v ? 'bg-pastel-text text-white border-pastel-text shadow-lg transform scale-105' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight hover:text-pastel-highlight'}`}
+                      >
+                        {p.l}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCameraAngle({ ...cameraAngle, pitch: -30 })} className="flex-1 py-2.5 rounded-xl text-[10px] font-bold bg-white border border-pastel-border text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-all">仰拍</button>
+                    <button onClick={() => setCameraAngle({ ...cameraAngle, pitch: 60 })} className="flex-1 py-2.5 rounded-xl text-[10px] font-bold bg-white border border-pastel-border text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-all">俯拍</button>
+                    <button onClick={() => setCameraAngle({ yaw: 0, pitch: 0, zoom: 1 })} className="px-4 py-2.5 rounded-xl bg-pastel-bg border border-pastel-border text-pastel-muted hover:bg-pastel-highlight hover:text-white transition-all"><RotateCcw className="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+
+                {/* 2. Aspect Ratio Selector (NEW) */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-pastel-text flex items-center gap-2">
+                      <ImageIcon className="w-3.5 h-3.5 text-pastel-muted" />
+                      <span>画幅比例</span>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: '正方形 1:1', val: AspectRatio.SQUARE },
+                      { label: '竖屏 3:4', val: AspectRatio.PORTRAIT_3_4 },
+                      { label: '横屏 4:3', val: AspectRatio.LANDSCAPE_4_3 },
+                      { label: '全屏竖 9:16', val: AspectRatio.PORTRAIT_9_16 },
+                      { label: '电影横 16:9', val: AspectRatio.LANDSCAPE_16_9 },
+                      { label: '超宽幅 21:9', val: AspectRatio.LANDSCAPE_21_9 },
+                    ].map((ratio) => (
+                      <button
+                        key={ratio.val}
+                        onClick={() => setSelectedAspectRatio(ratio.val)}
+                        className={`py-2 rounded-lg text-[10px] font-bold transition-all border ${selectedAspectRatio === ratio.val ? 'bg-pastel-pink text-pastel-text border-pastel-pink shadow-md' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-pink'}`}
+                      >
+                        {ratio.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Fine Tuning Sliders */}
+                <div className="bg-white p-5 rounded-[1.5rem] border border-pastel-border space-y-6 shadow-sm">
+                  <div className="space-y-4">
+                    {/* Yaw */}
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold text-pastel-muted mb-2">
+                        <span>水平旋转</span>
+                        <span className="bg-pastel-bg px-2 py-0.5 rounded text-pastel-highlight">{cameraAngle.yaw}°</span>
+                      </div>
+                      <input type="range" min="0" max="360" step="15" value={cameraAngle.yaw} onChange={(e) => setCameraAngle({ ...cameraAngle, yaw: parseInt(e.target.value) })}
+                        className="w-full h-2 bg-pastel-bg rounded-full appearance-none cursor-pointer accent-pastel-highlight" />
+                    </div>
+
+                    {/* Pitch */}
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold text-pastel-muted mb-2">
+                        <span>垂直俯仰</span>
+                        <span className="bg-pastel-bg px-2 py-0.5 rounded text-pastel-highlight">{cameraAngle.pitch}°</span>
+                      </div>
+                      <input type="range" min="-90" max="90" step="5" value={cameraAngle.pitch} onChange={(e) => setCameraAngle({ ...cameraAngle, pitch: parseInt(e.target.value) })}
+                        className="w-full h-2 bg-pastel-bg rounded-full appearance-none cursor-pointer accent-pastel-highlight" />
+                    </div>
+
+                    {/* Zoom */}
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold text-pastel-muted mb-2">
+                        <span>镜头距离</span>
+                        <span className="bg-pastel-bg px-2 py-0.5 rounded text-pastel-highlight">×{cameraAngle.zoom}</span>
+                      </div>
+                      <input type="range" min="0.5" max="2.5" step="0.1" value={cameraAngle.zoom} onChange={(e) => setCameraAngle({ ...cameraAngle, zoom: parseFloat(e.target.value) })}
+                        className="w-full h-2 bg-pastel-bg rounded-full appearance-none cursor-pointer accent-pastel-highlight" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <button
+                onClick={handleCameraShift}
+                disabled={isEditing}
+                className="w-full py-5 bg-gradient-to-r from-pastel-text to-gray-800 text-white rounded-2xl font-black text-sm uppercase tracking-wider hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 shadow-lg"
+              >
+                {isEditing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
+                {isEditing ? '正在渲染新视角...' : '生成新视角'}
+              </button>
+            </div>
+          )}
+
           {/* Brush Settings */}
           {mode === 'eraser' && (
             <div className="space-y-5 animate-in slide-in-from-top-4 duration-700">
@@ -471,8 +922,55 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
                 value={editPrompt}
                 onChange={(e) => setEditPrompt(e.target.value)}
                 placeholder={mode === 'eraser' ? "涂抹区域应该生成或更换为什么内容？" : "描述您的创意想法，例如：'在产品周围添加柔和的玫瑰花瓣'"}
-                className="w-full h-52 bg-pastel-input border border-pastel-border rounded-[2rem] p-6 text-sm focus:ring-4 focus:ring-pastel-pink/10 focus:border-pastel-pink outline-none resize-none text-pastel-text placeholder:text-pastel-muted transition-all font-medium leading-relaxed"
+                className="w-full h-40 bg-pastel-input border border-pastel-border rounded-[2rem] p-6 text-sm focus:ring-4 focus:ring-pastel-pink/10 focus:border-pastel-pink outline-none resize-none text-pastel-text placeholder:text-pastel-muted transition-all font-medium leading-relaxed mb-2"
               />
+              {/* AI Refinement & Style Tools */}
+              <div className="absolute bottom-4 right-4 flex items-center gap-2">
+                <button
+                  onClick={handleOptimizePrompt}
+                  disabled={isOptimizing || (!editPrompt && referenceImages.length === 0)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold shadow-sm backdrop-blur-md transition-all
+                     ${isOptimizing ? 'bg-pastel-bg text-pastel-muted cursor-wait' : 'bg-white/80 text-pastel-highlight border border-pastel-pink/30 hover:bg-pastel-pink hover:text-white'}
+                   `}
+                >
+                  {isOptimizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  AI 润色
+                </button>
+              </div>
+            </div>
+
+            {/* Reference Image Upload Area (NEW) */}
+            <div className="space-y-3 pt-2 border-t border-dashed border-pastel-border/50">
+              <label className="text-[11px] font-bold text-pastel-muted uppercase tracking-widest flex items-center justify-between">
+                参考图 (Reference Images)
+                <span className="text-[9px] bg-pastel-bg px-2 py-0.5 rounded text-pastel-muted">{referenceImages.length}/3</span>
+              </label>
+
+              <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                {/* Upload Button */}
+                {referenceImages.length < 3 && (
+                  <label className="flex-shrink-0 w-20 h-20 rounded-2xl border-2 border-dashed border-pastel-border hover:border-pastel-pink hover:bg-pastel-bg/50 flex flex-col items-center justify-center cursor-pointer transition-all group/upload">
+                    <div className="p-1.5 bg-white rounded-lg shadow-sm group-hover/upload:scale-110 transition-transform">
+                      <Upload className="w-4 h-4 text-pastel-muted group-hover/upload:text-pastel-pink" />
+                    </div>
+                    <span className="text-[9px] font-bold text-pastel-muted mt-2">上传参考</span>
+                    <input type="file" accept="image/*" multiple onChange={handleRefUpload} className="hidden" />
+                  </label>
+                )}
+
+                {/* Image List */}
+                {referenceImages.map((ref) => (
+                  <div key={ref.id} className="relative flex-shrink-0 w-20 h-20 rounded-2xl border border-pastel-border overflow-hidden group/ref shadow-sm">
+                    <img src={`data:${ref.mimeType};base64,${ref.base64}`} alt="Ref" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeRefImage(ref.id)}
+                      className="absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover/ref:opacity-100 transition-opacity hover:bg-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* 预设灵感 */}
@@ -533,8 +1031,8 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
           <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent -translate-y-full pointer-events-none"></div>
           <button
             onClick={handleEdit}
-            disabled={!currentImage || (!editPrompt && points.length === 0 && !getMaskBase64()) || isEditing}
-            className={`w-full py-6 rounded-[2.5rem] font-bold text-[15px] tracking-[0.1em] uppercase flex items-center justify-center gap-4 transition-all active:scale-[0.96] group relative overflow-hidden ${!currentImage || (!editPrompt && points.length === 0 && !getMaskBase64())
+            disabled={!currentImage || (!editPrompt && points.length === 0 && !getMaskBase64() && referenceImages.length === 0) || isEditing}
+            className={`w-full py-6 rounded-[2.5rem] font-bold text-[15px] tracking-[0.1em] uppercase flex items-center justify-center gap-4 transition-all active:scale-[0.96] group relative overflow-hidden ${!currentImage || (!editPrompt && points.length === 0 && !getMaskBase64() && referenceImages.length === 0)
               ? 'bg-pastel-bg text-pastel-border cursor-not-allowed border border-pastel-border'
               : isEditing
                 ? 'bg-pastel-pink cursor-wait text-pastel-text shadow-inner'
