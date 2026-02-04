@@ -652,10 +652,12 @@ export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: st
 
 ## Output Requirements
 
-- **Output Language**: ALWAYS output in **English**.
-- Even if the user input is in Chinese or any other language, you MUST translate and optimize it into a high-quality **English** image generation prompt.
-- Do NOT include any Chinese text, explanations, or bilingual comparisons in the final output.
-- Direct, descriptive, and ready-to-use English prompt only.
+- **Language Consistency Rule** (CRITICAL):
+  - If the user's input (or refinement instruction) is in **Chinese**, the optimized prompt MUST be in **Chinese**.
+  - If the user's input is in **English**, the optimized prompt MUST be in **English**.
+- Do NOT translate Chinese to English automatically.
+- Do NOT provide bilingual output unless explicitly requested.
+- Maintain the original language of the user's intent.
 `;
 
   try {
