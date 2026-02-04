@@ -32,6 +32,7 @@ const AVAILABLE_MODELS = [
     { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '推荐', type: 'text' },
     { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: '快速响应模型', badge: '快速', type: 'text' },
     { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', description: '图片生成模型', badge: '图像', type: 'image' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '提示词润色同款模型', badge: '稳定', type: 'text' },
 ];
 
 // ==================== 类型定义 ====================

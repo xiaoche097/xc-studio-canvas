@@ -32,6 +32,7 @@ const AVAILABLE_MODELS = [
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '推荐', type: 'text' },
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: '快速响应模型', badge: '快速', type: 'text' },
   { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', description: '图片生成模型', badge: '图像', type: 'image' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '提示词润色同款模型', badge: '稳定', type: 'text' },
 ];
 
 // ==================== 类型定义 ====================
@@ -110,6 +111,7 @@ const SettingsTab: React.FC = () => {
   const [nativeApiKey, setNativeApiKey] = useState('');
   const [isNativeKeyVisible, setIsNativeKeyVisible] = useState(false);
   const [nativeStatus, setNativeStatus] = useState<'idle' | 'success' | 'empty'>('idle');
+  const [nativeEnabled, setNativeEnabled] = useState(true);
 
   // ========== 云雾API配置 ==========
   const [yunwuApiKey, setYunwuApiKey] = useState('');
@@ -117,6 +119,7 @@ const SettingsTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [isYunwuKeyVisible, setIsYunwuKeyVisible] = useState(false);
   const [yunwuStatus, setYunwuStatus] = useState<'idle' | 'success' | 'empty'>('idle');
+  const [yunwuEnabled, setYunwuEnabled] = useState(true);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
@@ -131,24 +134,41 @@ const SettingsTab: React.FC = () => {
   useEffect(() => {
     // 原生 API Key
     const savedNativeKey = localStorage.getItem('user_api_key');
+    const savedNativeEnabled = localStorage.getItem('native_enabled');
     if (savedNativeKey) {
       setNativeApiKey(savedNativeKey);
       setNativeStatus('success');
     } else {
       setNativeStatus('empty');
     }
+    setNativeEnabled(savedNativeEnabled !== 'false'); // Default to true
 
     // 云雾API配置
     const savedYunwuKey = localStorage.getItem('yunwu_api_key');
     const savedYunwuUrl = localStorage.getItem('yunwu_base_url');
     const savedModel = localStorage.getItem('yunwu_default_model');
+    const savedYunwuEnabled = localStorage.getItem('yunwu_enabled');
 
     if (savedYunwuUrl) setYunwuBaseUrl(savedYunwuUrl);
     if (savedYunwuKey) setYunwuApiKey(savedYunwuKey);
     if (savedModel) setSelectedModel(savedModel);
 
+    setYunwuEnabled(savedYunwuEnabled !== 'false'); // Default to true
     setYunwuStatus(savedYunwuKey ? 'success' : 'empty');
   }, []);
+
+  // Toggle Handlers
+  const toggleNative = () => {
+    const newState = !nativeEnabled;
+    setNativeEnabled(newState);
+    localStorage.setItem('native_enabled', String(newState));
+  };
+
+  const toggleYunwu = () => {
+    const newState = !yunwuEnabled;
+    setYunwuEnabled(newState);
+    localStorage.setItem('yunwu_enabled', String(newState));
+  };
 
   // 保存原生 API Key
   const handleSaveNativeKey = () => {
@@ -158,6 +178,7 @@ const SettingsTab: React.FC = () => {
       return;
     }
     localStorage.setItem('user_api_key', nativeApiKey.trim());
+    localStorage.setItem('native_enabled', String(nativeEnabled));
     setNativeStatus('success');
   };
 
@@ -170,6 +191,7 @@ const SettingsTab: React.FC = () => {
     localStorage.setItem('yunwu_api_key', yunwuApiKey.trim());
     localStorage.setItem('yunwu_base_url', yunwuBaseUrl.trim() || DEFAULT_BASE_URL);
     localStorage.setItem('yunwu_default_model', selectedModel);
+    localStorage.setItem('yunwu_enabled', String(yunwuEnabled));
     setYunwuStatus('success');
   };
 
@@ -321,253 +343,278 @@ const SettingsTab: React.FC = () => {
           <div className="space-y-6">
 
             {/* 当前API状态指示器 */}
-            <div className={`p-4 rounded-xl border flex items-center gap-3 ${yunwuStatus === 'success'
-              ? 'bg-purple-50 border-purple-200'
-              : nativeStatus === 'success'
-                ? 'bg-blue-50 border-blue-200'
-                : 'bg-amber-50 border-amber-200'
+            <div className={`p-4 rounded-xl border flex items-center gap-3 ${yunwuStatus === 'success' && yunwuEnabled
+                ? 'bg-purple-50 border-purple-200'
+                : nativeStatus === 'success' && nativeEnabled
+                  ? 'bg-blue-50 border-blue-200'
+                  : 'bg-amber-50 border-amber-200'
               }`}>
-              <div className={`p-2 rounded-lg ${yunwuStatus === 'success'
-                ? 'bg-purple-100'
-                : nativeStatus === 'success'
-                  ? 'bg-blue-100'
-                  : 'bg-amber-100'
+              <div className={`p-2 rounded-lg ${yunwuStatus === 'success' && yunwuEnabled
+                  ? 'bg-purple-100'
+                  : nativeStatus === 'success' && nativeEnabled
+                    ? 'bg-blue-100'
+                    : 'bg-amber-100'
                 }`}>
-                {yunwuStatus === 'success' ? (
+                {yunwuStatus === 'success' && yunwuEnabled ? (
                   <Cloud className="w-5 h-5 text-purple-600" />
-                ) : nativeStatus === 'success' ? (
+                ) : nativeStatus === 'success' && nativeEnabled ? (
                   <Cpu className="w-5 h-5 text-blue-600" />
                 ) : (
                   <AlertTriangle className="w-5 h-5 text-amber-600" />
                 )}
               </div>
               <div className="flex-1">
-                <p className={`text-sm font-semibold ${yunwuStatus === 'success'
-                  ? 'text-purple-700'
-                  : nativeStatus === 'success'
-                    ? 'text-blue-700'
-                    : 'text-amber-700'
+                <p className={`text-sm font-semibold ${yunwuStatus === 'success' && yunwuEnabled
+                    ? 'text-purple-700'
+                    : nativeStatus === 'success' && nativeEnabled
+                      ? 'text-blue-700'
+                      : 'text-amber-700'
                   }`}>
-                  {yunwuStatus === 'success'
+                  {yunwuStatus === 'success' && yunwuEnabled
                     ? '🟣 创意中心正在使用：云雾API 中转站'
-                    : nativeStatus === 'success'
+                    : nativeStatus === 'success' && nativeEnabled
                       ? '🔵 创意中心正在使用：Google Gemini 原生 API'
-                      : '⚠️ 未配置API，请先配置以启用AI功能'}
+                      : '⚠️ 未配置API或已禁用，请启用以使用AI功能'}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {yunwuStatus === 'success'
+                  {yunwuStatus === 'success' && yunwuEnabled
                     ? `Base URL: ${yunwuBaseUrl || DEFAULT_BASE_URL}`
-                    : nativeStatus === 'success'
+                    : nativeStatus === 'success' && nativeEnabled
                       ? 'API Key 已配置'
-                      : '视觉策划、图像生成等功能需要配置API'}
+                      : '请在下方启用并配置至少一个 API'}
                 </p>
               </div>
-              {(yunwuStatus === 'success' || nativeStatus === 'success') && (
-                <CheckCircle2 className={`w-5 h-5 ${yunwuStatus === 'success' ? 'text-purple-500' : 'text-blue-500'
-                  }`} />
+              {((yunwuStatus === 'success' && yunwuEnabled) || (nativeStatus === 'success' && nativeEnabled)) && (
+                <CheckCircle2 className={`w-5 h-5 ${yunwuStatus === 'success' && yunwuEnabled ? 'text-purple-500' : 'text-blue-500'}`} />
               )}
             </div>
 
             {/* ========== 1. 原生 Google Gemini API Key ========== */}
-            <div className="bg-pastel-card p-6 rounded-2xl border border-pastel-border shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Cpu className="w-5 h-5 text-blue-600" />
+            <div className={`bg-pastel-card p-6 rounded-2xl border shadow-sm transition-all ${!nativeEnabled ? 'opacity-70 border-gray-200 bg-gray-50' : 'border-pastel-border'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${nativeEnabled ? 'bg-blue-100' : 'bg-gray-200'}`}>
+                    <Cpu className={`w-5 h-5 ${nativeEnabled ? 'text-blue-600' : 'text-gray-500'}`} />
+                  </div>
+                  <div>
+                    <h3 className={`text-lg font-bold ${nativeEnabled ? 'text-pastel-text' : 'text-gray-500'}`}>Google Gemini 原生 API</h3>
+                    <p className="text-xs text-pastel-muted">用于创意中心的核心 AI 功能</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-lg font-bold text-pastel-text">Google Gemini 原生 API</h3>
-                  <p className="text-xs text-pastel-muted">用于创意中心的核心 AI 功能</p>
-                </div>
-              </div>
-
-              <p className="text-pastel-muted mb-6 text-sm leading-relaxed border-l-4 border-blue-300 pl-4 py-2 bg-blue-50/50 rounded-r-lg">
-                请输入您的 Google Gemini API Key 以启用所有 AI 功能。您的密钥将安全地存储在浏览器的本地存储中，不会被上传到其他服务器。
-              </p>
-
-              <div className="space-y-4">
-                <label className="block text-sm font-semibold text-pastel-text">Google Gemini API Key</label>
-                <div className="relative">
-                  <input
-                    type={isNativeKeyVisible ? 'text' : 'password'}
-                    value={nativeApiKey}
-                    onChange={(e) => setNativeApiKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-pastel-pink focus:ring-2 focus:ring-pastel-pink/20 outline-none shadow-sm transition-all font-mono text-sm"
-                  />
-                  <button
-                    onClick={() => setIsNativeKeyVisible(!isNativeKeyVisible)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-pastel-highlight transition-colors p-1 rounded-lg hover:bg-pastel-pink/10"
-                  >
-                    {isNativeKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-6 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {nativeStatus === 'success' && (
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 bg-green-50 px-3 py-2 rounded-full border border-green-200">
-                      <Check className="w-4 h-4" /> ✅ 已保存
-                    </span>
-                  )}
-                  {nativeStatus === 'empty' && (
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded-full border border-amber-200">
-                      <AlertTriangle className="w-4 h-4" /> ⚠️ 未配置
-                    </span>
-                  )}
-                </div>
+                {/* Toggle Switch */}
                 <button
-                  onClick={handleSaveNativeKey}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl shadow-sm transition-all"
+                  onClick={toggleNative}
+                  className={`relative w-11 h-6 rounded-full transition-colors flex items-center px-0.5 ${nativeEnabled ? 'bg-blue-500' : 'bg-gray-300'}`}
                 >
-                  <Save className="w-4 h-4" />
-                  保存
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${nativeEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                 </button>
               </div>
+
+              {nativeEnabled && (
+                <>
+                  <p className="text-pastel-muted mb-6 text-sm leading-relaxed border-l-4 border-blue-300 pl-4 py-2 bg-blue-50/50 rounded-r-lg">
+                    请输入您的 Google Gemini API Key 以启用所有 AI 功能。您的密钥将安全地存储在浏览器的本地存储中，不会被上传到其他服务器。
+                  </p>
+
+                  <div className="space-y-4">
+                    <label className="block text-sm font-semibold text-pastel-text">Google Gemini API Key</label>
+                    <div className="relative">
+                      <input
+                        type={isNativeKeyVisible ? 'text' : 'password'}
+                        value={nativeApiKey}
+                        onChange={(e) => setNativeApiKey(e.target.value)}
+                        placeholder="AIzaSy..."
+                        className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-pastel-pink focus:ring-2 focus:ring-pastel-pink/20 outline-none shadow-sm transition-all font-mono text-sm"
+                      />
+                      <button
+                        onClick={() => setIsNativeKeyVisible(!isNativeKeyVisible)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-pastel-highlight transition-colors p-1 rounded-lg hover:bg-pastel-pink/10"
+                      >
+                        {isNativeKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {nativeStatus === 'success' && (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 bg-green-50 px-3 py-2 rounded-full border border-green-200">
+                          <Check className="w-4 h-4" /> ✅ 已保存
+                        </span>
+                      )}
+                      {nativeStatus === 'empty' && (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded-full border border-amber-200">
+                          <AlertTriangle className="w-4 h-4" /> ⚠️ 未配置
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleSaveNativeKey}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl shadow-sm transition-all"
+                    >
+                      <Save className="w-4 h-4" />
+                      保存
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* ========== 2. 云雾API配置 ========== */}
-            <div className="bg-pastel-card p-6 rounded-2xl border border-pastel-border shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Cloud className="w-5 h-5 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-pastel-text">云雾API 中转站</h3>
-                  <p className="text-xs text-pastel-muted">Yunwu API Proxy for Gemini</p>
-                </div>
-              </div>
-
-              <p className="text-pastel-muted mb-6 text-sm leading-relaxed border-l-4 border-purple-300 pl-4 py-2 bg-purple-50/50 rounded-r-lg">
-                配置云雾API中转站以使用 Gemini AI 功能。支持自定义 Base URL 和多种模型选择。
-              </p>
-
-              <div className="space-y-5">
-                {/* Base URL */}
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
-                    <Globe className="w-4 h-4 text-purple-500" />
-                    API Base URL
-                    <span className="text-xs font-normal text-pastel-muted">(中转站地址)</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={yunwuBaseUrl}
-                      onChange={(e) => setYunwuBaseUrl(e.target.value)}
-                      placeholder="https://yunwu.ai"
-                      className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm"
-                    />
-                    <button
-                      onClick={() => { setYunwuBaseUrl(DEFAULT_BASE_URL); setSelectedModel(DEFAULT_MODEL); }}
-                      title="重置为默认值"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-xs text-pastel-muted pl-1">
-                    默认: <code className="bg-pastel-input px-1.5 py-0.5 rounded text-purple-600">{DEFAULT_BASE_URL}</code>
-                  </p>
-                </div>
-
-                {/* API Key */}
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
-                    <Key className="w-4 h-4 text-purple-500" />
-                    API Key
-                    <span className="text-xs font-normal text-pastel-muted">(密钥)</span>
-                    <span className="text-red-400 text-xs">*必填</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={isYunwuKeyVisible ? 'text' : 'password'}
-                      value={yunwuApiKey}
-                      onChange={(e) => setYunwuApiKey(e.target.value)}
-                      placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                      className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm"
-                    />
-                    <button
-                      onClick={() => setIsYunwuKeyVisible(!isYunwuKeyVisible)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
-                    >
-                      {isYunwuKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* 默认模型 */}
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
-                    <Zap className="w-4 h-4 text-purple-500" />
-                    默认模型
-                    <span className="text-xs font-normal text-pastel-muted">(Default Model)</span>
-                  </label>
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all text-sm appearance-none cursor-pointer"
-                    style={{
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 12px center',
-                      backgroundSize: '16px'
-                    }}
-                  >
-                    {AVAILABLE_MODELS.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name} - {model.description} {model.badge ? `[${model.badge}]` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* 分隔线 */}
-              <div className="my-6 border-t border-pastel-border/50"></div>
-
-              {/* 状态与操作 */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {yunwuStatus === 'success' && (
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 bg-green-50 px-3 py-2 rounded-full border border-green-200">
-                      <Check className="w-4 h-4" /> 配置已保存
-                    </span>
-                  )}
-                  {yunwuStatus === 'empty' && (
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded-full border border-amber-200">
-                      <AlertTriangle className="w-4 h-4" /> 未配置
-                    </span>
-                  )}
-                  {testStatus !== 'idle' && (
-                    <span className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-full border ${testStatus === 'testing' ? 'text-blue-600 bg-blue-50 border-blue-200' :
-                      testStatus === 'success' ? 'text-green-600 bg-green-50 border-green-200' :
-                        'text-red-600 bg-red-50 border-red-200'
-                      }`}>
-                      {testStatus === 'testing' && <RefreshCw className="w-4 h-4 animate-spin" />}
-                      {testMessage}
-                    </span>
-                  )}
-                </div>
-
+            <div className={`bg-pastel-card p-6 rounded-2xl border shadow-sm transition-all ${!yunwuEnabled ? 'opacity-70 border-gray-200 bg-gray-50' : 'border-pastel-border'}`}>
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={testStatus === 'testing'}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-pastel-input hover:bg-pastel-border/50 text-pastel-text font-medium rounded-xl shadow-sm transition-all border border-pastel-border disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${testStatus === 'testing' ? 'animate-spin' : ''}`} />
-                    测试连接
-                  </button>
-                  <button
-                    onClick={handleSaveYunwuConfig}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl shadow-sm transition-all"
-                  >
-                    <Save className="w-4 h-4" />
-                    保存配置
-                  </button>
+                  <div className={`p-2 rounded-lg ${yunwuEnabled ? 'bg-purple-100' : 'bg-gray-200'}`}>
+                    <Cloud className={`w-5 h-5 ${yunwuEnabled ? 'text-purple-600' : 'text-gray-500'}`} />
+                  </div>
+                  <div>
+                    <h3 className={`text-lg font-bold ${yunwuEnabled ? 'text-pastel-text' : 'text-gray-500'}`}>云雾API 中转站</h3>
+                    <p className="text-xs text-pastel-muted">Yunwu API Proxy for Gemini</p>
+                  </div>
                 </div>
+                {/* Toggle Switch */}
+                <button
+                  onClick={toggleYunwu}
+                  className={`relative w-11 h-6 rounded-full transition-colors flex items-center px-0.5 ${yunwuEnabled ? 'bg-purple-500' : 'bg-gray-300'}`}
+                >
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${yunwuEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
               </div>
+
+              {yunwuEnabled && (
+                <>
+                  <p className="text-pastel-muted mb-6 text-sm leading-relaxed border-l-4 border-purple-300 pl-4 py-2 bg-purple-50/50 rounded-r-lg">
+                    配置云雾API中转站以使用 Gemini AI 功能。支持自定义 Base URL 和多种模型选择。
+                  </p>
+
+                  <div className="space-y-5">
+                    {/* Base URL */}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
+                        <Globe className="w-4 h-4 text-purple-500" />
+                        API Base URL
+                        <span className="text-xs font-normal text-pastel-muted">(中转站地址)</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={yunwuBaseUrl}
+                          onChange={(e) => setYunwuBaseUrl(e.target.value)}
+                          placeholder="https://yunwu.ai"
+                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm"
+                        />
+                        <button
+                          onClick={() => { setYunwuBaseUrl(DEFAULT_BASE_URL); setSelectedModel(DEFAULT_MODEL); }}
+                          title="重置为默认值"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-pastel-muted pl-1">
+                        默认: <code className="bg-pastel-input px-1.5 py-0.5 rounded text-purple-600">{DEFAULT_BASE_URL}</code>
+                      </p>
+                    </div>
+
+                    {/* API Key */}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
+                        <Key className="w-4 h-4 text-purple-500" />
+                        API Key
+                        <span className="text-xs font-normal text-pastel-muted">(密钥)</span>
+                        <span className="text-red-400 text-xs">*必填</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={isYunwuKeyVisible ? 'text' : 'password'}
+                          value={yunwuApiKey}
+                          onChange={(e) => setYunwuApiKey(e.target.value)}
+                          placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm"
+                        />
+                        <button
+                          onClick={() => setIsYunwuKeyVisible(!isYunwuKeyVisible)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
+                        >
+                          {isYunwuKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 默认模型 */}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
+                        <Zap className="w-4 h-4 text-purple-500" />
+                        默认模型
+                        <span className="text-xs font-normal text-pastel-muted">(Default Model)</span>
+                      </label>
+                      <select
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all text-sm appearance-none cursor-pointer"
+                        style={{
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 12px center',
+                          backgroundSize: '16px'
+                        }}
+                      >
+                        {AVAILABLE_MODELS.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name} - {model.description} {model.badge ? `[${model.badge}]` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 分隔线 */}
+                  <div className="my-6 border-t border-pastel-border/50"></div>
+
+                  {/* 状态与操作 */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {yunwuStatus === 'success' && (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 bg-green-50 px-3 py-2 rounded-full border border-green-200">
+                          <Check className="w-4 h-4" /> 配置已保存
+                        </span>
+                      )}
+                      {yunwuStatus === 'empty' && (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded-full border border-amber-200">
+                          <AlertTriangle className="w-4 h-4" /> 未配置
+                        </span>
+                      )}
+                      {testStatus !== 'idle' && (
+                        <span className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-full border ${testStatus === 'testing' ? 'text-blue-600 bg-blue-50 border-blue-200' :
+                          testStatus === 'success' ? 'text-green-600 bg-green-50 border-green-200' :
+                            'text-red-600 bg-red-50 border-red-200'
+                          }`}>
+                          {testStatus === 'testing' && <RefreshCw className="w-4 h-4 animate-spin" />}
+                          {testMessage}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleTestConnection}
+                        disabled={testStatus === 'testing'}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-pastel-input hover:bg-pastel-border/50 text-pastel-text font-medium rounded-xl shadow-sm transition-all border border-pastel-border disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${testStatus === 'testing' ? 'animate-spin' : ''}`} />
+                        测试连接
+                      </button>
+                      <button
+                        onClick={handleSaveYunwuConfig}
+                        className="flex items-center gap-2 px-6 py-2.5 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl shadow-sm transition-all"
+                      >
+                        <Save className="w-4 h-4" />
+                        保存配置
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* 使用说明 */}

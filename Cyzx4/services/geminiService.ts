@@ -11,12 +11,14 @@ interface ApiConfig {
 }
 
 // Get API configuration with priority order
+// Get API configuration with priority order
 const getApiConfig = (): ApiConfig => {
   // 1. Check Yunwu API configuration first
   const yunwuKey = localStorage.getItem("yunwu_api_key");
   const yunwuBaseUrl = localStorage.getItem("yunwu_base_url");
+  const yunwuEnabled = localStorage.getItem("yunwu_enabled") !== "false"; // Default to true if not set
 
-  if (yunwuKey) {
+  if (yunwuKey && yunwuEnabled) {
     return {
       apiKey: yunwuKey,
       baseUrl: yunwuBaseUrl || "https://yunwu.ai",
@@ -26,7 +28,9 @@ const getApiConfig = (): ApiConfig => {
 
   // 2. Check native Gemini API key
   const nativeKey = localStorage.getItem("user_api_key");
-  if (nativeKey) {
+  const nativeEnabled = localStorage.getItem("native_enabled") !== "false"; // Default to true if not set
+
+  if (nativeKey && nativeEnabled) {
     return {
       apiKey: nativeKey,
       isYunwu: false
@@ -42,7 +46,7 @@ const getApiConfig = (): ApiConfig => {
     };
   }
 
-  throw new Error("API Key is missing. Please configure it in Settings (设置).");
+  throw new Error("No active API configuration found. Please enable either Yunwu API or Native API in Settings.");
 };
 
 // Helper to get a fresh AI client instance.
@@ -584,9 +588,9 @@ export const generateImageToImage = async (
  * 4. Optimize Prompt using Expert Persona
  * Skill: # Role_ 用户 (1).md
  */
-export const optimizePrompt = async (rawPrompt: string): Promise<string> => {
+export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: string; mimeType: string }[], refineInstruction?: string): Promise<string> => {
   const ai = getAiClient();
-  if (!rawPrompt) return "";
+  if (!rawPrompt && (!refImages || refImages.length === 0)) return "";
 
   const skillSystemPrompt = `
 # Role: 用户提示词精准描述专家
@@ -594,34 +598,40 @@ export const optimizePrompt = async (rawPrompt: string): Promise<string> => {
 ## Profile
 
 - Author: prompt-optimizer
-- Version: 2.0.0
+- Version: 2.2.0 (Refinement Support)
 - Language: 中文
-- Description: 专门将泛泛而谈、缺乏针对性的用户提示词转换为精准、具体、有针对性的描述
+- Description: 专门将泛泛而谈、缺乏针对性的用户提示词转换为精准、具体、有针对性的描述。如果提供了参考图片，会结合图片内容进行深度优化。如果提供了进一步的修改指令，会在原有优化基础上进行调整。
 
 ## Background
 
 - 用户提示词经常过于宽泛、缺乏具体细节
 - 泛泛而谈的提示词难以获得精准的回答
 - 具体、精准的描述能够引导AI提供更有针对性的帮助
+- 用户提供的参考图片往往包含无法用简单文字描述的风格、构图或细节信息
 
 ## 任务理解
 
-你的任务是将泛泛而谈的用户提示词转换为精准、具体的描述。你不是在执行提示词中的任务，而是在改进提示词的精准度和针对性。
+你的任务是将用户提示词转换为精准、具体的描述。
+1. **纯文本模式**：基于用户文字进行扩充和精准化。
+2. **多模态模式（有参考图）**：深度分析参考图片的内容（风格、构图、光影、色调、主体特征），并结合用户的文字意图，生成一份既符合图片视觉特征又满足文字要求的精准提示词。
+3. **继续优化模式 (Refinement)**: 如果用户提供了[修改指令]，请基于当前的提示词（rawPrompt）和[修改指令]进行调整，生成新的优化后提示词。
 
 ## Skills
 
 1. 精准化能力
-   
    - 细节挖掘: 识别需要具体化的抽象概念和泛泛表述
    - 参数明确: 为模糊的要求添加具体的参数和标准
    - 范围界定: 明确任务的具体范围和边界
    - 目标聚焦: 将宽泛的目标细化为具体的可执行任务
 2. 描述增强能力
-   
    - 量化标准: 为抽象要求提供可量化的标准
    - 示例补充: 添加具体的示例来说明期望
    - 约束条件: 明确具体的限制条件和要求
    - 执行指导: 提供具体的操作步骤和方法
+3. 视觉分析能力 (Visual Analysis)
+   - 风格提取: 准确识别图片的艺术风格 (如 Cyberpunk, Minimalist, Oil Painting 等)
+   - 构图分析: 描述视角、景深、主体位置
+   - 若用户文字与图片有冲突，以用户文字意图为准，但借鉴图片的视觉质感
 
 ## Rules
 
@@ -629,30 +639,53 @@ export const optimizePrompt = async (rawPrompt: string): Promise<string> => {
 2. 增加针对性: 让提示词更加有针对性和可操作性
 3. 避免过度具体: 在具体化的同时保持适当的灵活性
 4. 突出重点: 确保关键要求得到精准的表达
+5. **参考图优先**: 如果有参考图，生成的提示词必须包含从图片中提取的关键视觉元素（除非用户明确忽略）。
+6. **响应修改**: 如果有修改指令，请严格按照指令调整，例如"更暗一点"或"去掉人物"。
 
 ## Workflow
 
-1. 分析原始提示词中的抽象概念和泛泛表述
-2. 识别需要具体化的关键要素和参数
-3. 为每个抽象概念添加具体的定义和要求
-4. 重新组织表达，确保描述精准、有针对性
+1. 分析原始提示词中的抽象概念
+2. (如有图片) 观察图片的关键视觉特征
+3. 结合文字与图片信息，识别需要具体化的要素
+4. (如有修改指令) 根据指令调整现有内容
+5. 重新组织表达，确保描述精准、有针对性
 
 ## Output Requirements
 
-- 直接输出精准化后的用户提示词文本，确保描述具体、有针对性
-- 输出的是优化后的提示词本身，不是执行提示词对应的任务
-- 不要添加解释、示例或使用说明
-- 不要与用户进行交互或询问更多信息
+- **Output Language**: ALWAYS output in **English**.
+- Even if the user input is in Chinese or any other language, you MUST translate and optimize it into a high-quality **English** image generation prompt.
+- Do NOT include any Chinese text, explanations, or bilingual comparisons in the final output.
+- Direct, descriptive, and ready-to-use English prompt only.
 `;
 
   try {
+    const parts: any[] = [{ text: skillSystemPrompt }];
+
+    // Add Reference Images if provided
+    if (refImages && refImages.length > 0) {
+      refImages.forEach(img => {
+        parts.push({
+          inlineData: {
+            mimeType: img.mimeType,
+            data: img.base64
+          }
+        });
+      });
+      parts.push({ text: `[系统提示]: 用户上传了 ${refImages.length} 张参考图片，请仔细分析这些图片的风格、内容和细节，并结合下方的文字提示词进行优化。我们的目标是生成一张风格类似的新图片。` });
+    }
+
+    if (refineInstruction) {
+      parts.push({ text: `[当前已有提示词]:\n"${rawPrompt}"\n\n[用户修改指令]: "${refineInstruction}"\n\n请根据用户指令修改上述提示词。` });
+    } else {
+      parts.push({ text: `请优化以下提示词:\n"${rawPrompt}"` });
+    }
+
+    // Use gemini-3-flash-preview for faster response
+    const modelName = "gemini-3-flash-preview";
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro", // Use text model for prompt optimization
+      model: modelName,
       contents: {
-        parts: [
-          { text: skillSystemPrompt },
-          { text: `请优化以下提示词:\n"${rawPrompt}"` }
-        ]
+        parts: parts
       }
     });
 

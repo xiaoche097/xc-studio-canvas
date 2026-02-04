@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage } from '../services/geminiService';
 import { storageService } from '../../services/storageService';
-import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 
 interface EditPoint {
@@ -22,6 +22,11 @@ const FusionTab: React.FC = () => {
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Refinement State
+  const [hasPolished, setHasPolished] = useState(false);
+  const [showRefineInput, setShowRefineInput] = useState(false);
+  const [refineInstruction, setRefineInstruction] = useState('');
 
   // Edit & Interactive States
   const [editPrompts, setEditPrompts] = useState<Record<number, string>>({});
@@ -426,28 +431,131 @@ const FusionTab: React.FC = () => {
                     <Sparkles className="w-4 h-4 text-pastel-highlight" />
                     创意描述
                   </label>
-                  <button
-                    onClick={async () => {
-                      if (!description) return;
-                      setIsOptimizing(true);
-                      try {
-                        const optimized = await optimizePrompt(description);
-                        setDescription(optimized);
-                      } catch (e: any) {
-                        setError("优化提示词失败: " + (e.message || "未知错误"));
-                        setTimeout(() => setError(null), 3000);
-                      } finally {
-                        setIsOptimizing(false);
-                      }
-                    }}
-                    disabled={!description || isOptimizing}
-                    className={`text-xs px-2.5 py-1.5 rounded-full flex items-center gap-1.5 transition-all border ${!description
-                      ? 'text-gray-400 border-transparent cursor-not-allowed bg-gray-50'
-                      : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:border-purple-300 shadow-sm'}`}
-                  >
-                    <Wand2 className={`w-3 h-3 ${isOptimizing ? 'animate-spin' : ''}`} />
-                    {isOptimizing ? '正在优化...' : 'AI 润色'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {/* Refine Popover */}
+                    {showRefineInput && hasPolished && (
+                      <div className="absolute top-10 right-0 z-50 w-72 bg-white rounded-xl shadow-xl border border-pastel-border p-3 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-xs font-bold text-pastel-text">继续优化指令</span>
+                          <button onClick={() => setShowRefineInput(false)} className="text-gray-400 hover:text-gray-600">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <input
+                          autoFocus
+                          value={refineInstruction}
+                          onChange={(e) => setRefineInstruction(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              if (!refineInstruction.trim()) return;
+
+                              setIsOptimizing(true);
+                              setShowRefineInput(false);
+                              try {
+                                // Reuse existing ref images logic? Or just rely on text context? 
+                                // Usually refinement is text-based but keeping context is good.
+                                let refImagesData: { base64: string; mimeType: string }[] | undefined = undefined;
+                                if (selectedFiles.length > 0) {
+                                  const imagesToProcess = selectedFiles.slice(0, 4);
+                                  refImagesData = await Promise.all(imagesToProcess.map(async file => ({
+                                    base64: await blobToBase64(file),
+                                    mimeType: file.type
+                                  })));
+                                }
+
+                                const refined = await optimizePrompt(description, refImagesData, refineInstruction);
+                                setDescription(refined);
+                                setRefineInstruction('');
+                              } catch (e: any) {
+                                setError("优化失败: " + (e.message || "未知错误"));
+                              } finally {
+                                setIsOptimizing(false);
+                              }
+                            }
+                          }}
+                          placeholder="例如：更亮一点、去掉背景..."
+                          className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-pastel-highlight outline-none"
+                        />
+                        <div className="flex justify-end mt-2">
+                          <button
+                            onClick={async () => {
+                              if (!refineInstruction.trim()) return;
+                              setIsOptimizing(true);
+                              setShowRefineInput(false);
+                              try {
+                                let refImagesData: { base64: string; mimeType: string }[] | undefined = undefined;
+                                if (selectedFiles.length > 0) {
+                                  const imagesToProcess = selectedFiles.slice(0, 4);
+                                  refImagesData = await Promise.all(imagesToProcess.map(async file => ({
+                                    base64: await blobToBase64(file),
+                                    mimeType: file.type
+                                  })));
+                                }
+                                const refined = await optimizePrompt(description, refImagesData, refineInstruction);
+                                setDescription(refined);
+                                setRefineInstruction('');
+                              } catch (e: any) {
+                                setError("优化失败: " + (e.message || "未知错误"));
+                              } finally {
+                                setIsOptimizing(false);
+                              }
+                            }}
+                            className="text-xs bg-pastel-highlight text-white px-3 py-1 rounded-md hover:bg-orange-600 transition-colors"
+                          >
+                            确认
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {hasPolished && (
+                      <button
+                        onClick={() => setShowRefineInput(!showRefineInput)}
+                        disabled={isOptimizing}
+                        className="text-xs px-2.5 py-1.5 rounded-full flex items-center gap-1.5 transition-all border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        继续优化
+                      </button>
+                    )}
+
+                    <button
+                      onClick={async () => {
+                        if (!description) return;
+                        setIsOptimizing(true);
+                        try {
+                          // Prepare reference images if any
+                          let refImagesData: { base64: string; mimeType: string }[] | undefined = undefined;
+                          if (selectedFiles.length > 0) {
+                            // Limit to 4 images for prompt optimization context to avoid excessive tokens
+                            const imagesToProcess = selectedFiles.slice(0, 4);
+                            refImagesData = await Promise.all(imagesToProcess.map(async file => ({
+                              base64: await blobToBase64(file),
+                              mimeType: file.type
+                            })));
+                          }
+
+                          const optimized = await optimizePrompt(description, refImagesData);
+                          setDescription(optimized);
+                          setHasPolished(true); // Mark as polished
+                        } catch (e: any) {
+                          setError("优化提示词失败: " + (e.message || "未知错误"));
+                          setTimeout(() => setError(null), 3000);
+                          setHasPolished(false);
+                        } finally {
+                          setIsOptimizing(false);
+                        }
+                      }}
+                      disabled={!description || isOptimizing}
+                      className={`text-xs px-2.5 py-1.5 rounded-full flex items-center gap-1.5 transition-all border ${!description
+                        ? 'text-gray-400 border-transparent cursor-not-allowed bg-gray-50'
+                        : 'text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 hover:border-purple-300 shadow-sm'}`}
+                    >
+                      <Wand2 className={`w-3 h-3 ${isOptimizing ? 'animate-spin' : ''}`} />
+                      {isOptimizing ? '正在优化...' : 'AI 润色'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex-1 relative group">
