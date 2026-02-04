@@ -46,6 +46,9 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
   // NEW: Reference Images State
   const [referenceImages, setReferenceImages] = useState<{ id: string; base64: string; mimeType: string }[]>([]);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  // NEW: Refinement State
+  const [showRefineInput, setShowRefineInput] = useState(false);
+  const [refineInstruction, setRefineInstruction] = useState('');
 
   useEffect(() => {
     if (initialImage) {
@@ -317,7 +320,8 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
 
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    const img = imgRef.current;
+    if (!canvas || !container || !img) return;
 
     const rect = canvas.getBoundingClientRect();
     const x = (('touches' in e) ? e.touches[0].clientX : (e as React.MouseEvent).clientX) - rect.left;
@@ -329,10 +333,46 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
 
       if (points.length >= 10) return;
 
+      // Capture Snapshot (Smart Zoom)
+      let snapshot = "";
+      try {
+        // Create temp canvas to crop
+        const cropSize = 120; // Size of the zoomed visual
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropSize;
+        cropCanvas.height = cropSize;
+        const ctx = cropCanvas.getContext('2d');
+
+        // Calculate source coordinates on the rendered image/canvas
+        // Image behaves as contain, but canvas matches its size?
+        // Actually canvas matches img size in onLoad.
+        // So x, y are relative to canvas display size. We need to map to internal resolution or just use what we see?
+        // The canvasRef has width/height set to img.clientWidth/height in onLoad.
+        // So x,y are correct relative to that.
+
+        if (ctx) {
+          // Draw the relevant part of the image to the crop canvas
+          // Source x = x - cropSize/2
+          // Source y = y - cropSize/2
+          ctx.drawImage(
+            img,
+            x * (img.naturalWidth / rect.width) - (cropSize / 2 * (img.naturalWidth / rect.width)),
+            y * (img.naturalHeight / rect.height) - (cropSize / 2 * (img.naturalHeight / rect.height)),
+            cropSize * (img.naturalWidth / rect.width),
+            cropSize * (img.naturalHeight / rect.height),
+            0, 0, cropSize, cropSize
+          );
+          snapshot = cropCanvas.toDataURL('image/jpeg', 0.8);
+        }
+      } catch (e) {
+        console.error("Snapshot failed", e);
+      }
+
       const newPoint: EditPoint = {
         id: Date.now(),
         x: xPct,
-        y: yPct
+        y: yPct,
+        snapshot // Store the crop
       };
       setPoints([...points, newPoint]);
     } else if (mode === 'eraser') {
@@ -408,14 +448,56 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
       if (!matches) throw new Error("无效的图片格式。");
 
       let resultImages: string[] = [];
-      if (maskBase64) {
-        // Use Inpainting for mask
-        resultImages = await inpaintImage(matches[2], maskBase64, finalPrompt, { resolution: selectedResolution });
-      } else {
-        // Use normal edit for points/text/ref
-        // Convert local ref images to service format
-        const serviceRefs = referenceImages.map(r => ({ base64: r.base64, mimeType: r.mimeType }));
+      const serviceRefs = referenceImages.map(r => ({ base64: r.base64, mimeType: r.mimeType }));
 
+      // LOGIC BRANCHING:
+      // 1. Manual Eraser Mask -> Inpaint
+      // 2. Points -> Auto-Generate Mask -> Inpaint
+      // 3. No Mask/Points -> Global Edit (Image-to-Image)
+
+      let effectiveMaskBase64 = maskBase64;
+
+      // Auto-generate mask from points if no manual mask exists, or combine?
+      // Let's prioritize manual mask if exists. If not, check points.
+      if (!effectiveMaskBase64 && points.length > 0) {
+        // Create a temp canvas to draw the point mask
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = canvas.width;
+          maskCanvas.height = canvas.height;
+          const width = canvas.width;
+          const height = canvas.height;
+          const ctx = maskCanvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = 'white';
+            // Draw circle for each point
+            points.forEach(p => {
+              const x = (p.x / 100) * width;
+              const y = (p.y / 100) * height;
+              ctx.beginPath();
+              ctx.arc(x, y, 100, 0, 2 * Math.PI); // 100px radius logic
+              ctx.fill();
+            });
+            effectiveMaskBase64 = maskCanvas.toDataURL('image/png').split(',')[1];
+          }
+        }
+      }
+
+      if (effectiveMaskBase64) {
+        // Use Inpainting (for Eraser OR Points)
+        // Note: prompt already contains point coordinates text, which is fine, but the mask is the real driver.
+        resultImages = await inpaintImage(
+          matches[2],
+          effectiveMaskBase64,
+          finalPrompt,
+          { resolution: selectedResolution },
+          serviceRefs // Pass refs to inpaint now
+        );
+      } else {
+        // Use normal global edit
         resultImages = await editGeneratedImage(
           matches[2],
           matches[1],
@@ -443,18 +525,60 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
   };
 
   const handleOptimizePrompt = async () => {
-    if (!editPrompt && referenceImages.length === 0) return;
+    if (!editPrompt && referenceImages.length === 0 && !currentImage) return;
     setIsOptimizing(true);
     try {
       const serviceRefs = referenceImages.map(r => ({ base64: r.base64, mimeType: r.mimeType }));
-      const optimized = await optimizePrompt(editPrompt, serviceRefs);
-      setEditPrompt(optimized);
+
+      // NEW: Automatically include the current canvas image as the PRIMARY reference
+      // This ensures the AI "sees" the product/image the user is working on.
+      if (currentImage) {
+        const match = currentImage.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (match) {
+          // Prepend to start of array so it's the first context
+          serviceRefs.unshift({ base64: match[2], mimeType: match[1] });
+        }
+      }
+
+      // Add instruction to force concise output (hacky but effective without changing service signature)
+      const promptWithInstruction = editPrompt + "\n\n(IMPORTANT: Please ignore markdown formatting in output. Return ONLY the optimized prompt text directly.)";
+
+      const optimized = await optimizePrompt(promptWithInstruction, serviceRefs);
+
+      // Clean up potential markdown headers if the model explains itself
+      // This regex removes lines like "## Optimization" or "**Analysis**" if they appear at start
+      const cleanOptimized = optimized.replace(/^#+\s.*\n/gm, '').replace(/\*\*.*\*\*\n/gm, '').trim();
+
+      setEditPrompt(cleanOptimized);
+      setShowRefineInput(false); // Close refine input if open
+      setRefineInstruction('');
     } catch (e) {
       console.error(e);
       // Fail silently or show toast
     } finally {
       setIsOptimizing(false);
     }
+  };
+
+  const handleRefinePrompt = async () => {
+    if (!refineInstruction) return;
+    setIsOptimizing(true);
+    try {
+      const serviceRefs = referenceImages.map(r => ({ base64: r.base64, mimeType: r.mimeType }));
+      if (currentImage) {
+        const match = currentImage.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (match) serviceRefs.unshift({ base64: match[2], mimeType: match[1] });
+      }
+
+      // Call optimize with the REFINE instruction
+      const optimized = await optimizePrompt(editPrompt, serviceRefs, refineInstruction);
+
+      const cleanOptimized = optimized.replace(/^#+\s.*\n/gm, '').replace(/\*\*.*\*\*\n/gm, '').trim();
+      setEditPrompt(cleanOptimized);
+      setRefineInstruction('');
+      setShowRefineInput(false);
+    } catch (e) { console.error(e); }
+    finally { setIsOptimizing(false); }
   };
 
   const handleRefUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -891,14 +1015,22 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
               <div className="bg-pastel-bg/30 border border-pastel-border/60 rounded-[2rem] p-4 max-h-[160px] overflow-y-auto custom-scrollbar">
                 <div className="flex flex-wrap gap-2.5">
                   {points.map((p, i) => (
-                    <div key={p.id} className="bg-white border border-pastel-border/80 px-4 py-2.5 rounded-2xl flex items-center gap-3 group/mark shadow-sm hover:shadow-md hover:border-pastel-pink transition-all">
-                      <div className="w-4 h-4 bg-pastel-highlight text-white rounded-lg flex items-center justify-center text-[9px] font-black">{i + 1}</div>
-                      <span className="text-[10px] font-bold text-pastel-text truncate max-w-[60px]">点位{i + 1}</span>
+                    <div key={p.id} className="relative bg-white border border-pastel-border/80 pl-2 pr-4 py-2 rounded-2xl flex items-center gap-3 group/mark shadow-sm hover:shadow-md hover:border-pastel-pink transition-all">
+                      {/* Thumbnail Preview */}
+                      {p.snapshot && (
+                        <div className="w-8 h-8 rounded-lg overflow-hidden border border-pastel-border shadow-inner shrink-0 relative">
+                          <img src={p.snapshot} alt="Crop" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-pastel-highlight/10"></div>
+                        </div>
+                      )}
+
+                      <div className="w-5 h-5 bg-pastel-highlight text-white rounded-full flex items-center justify-center text-[10px] font-black shrink-0">{i + 1}</div>
+                      <span className="text-[11px] font-bold text-pastel-text truncate max-w-[60px]">点位{i + 1}</span>
                       <button
                         onClick={() => setPoints(points.filter(item => item.id !== p.id))}
-                        className="opacity-0 group-hover/mark:opacity-100 p-1 text-pastel-muted hover:text-red-500 transition-all scale-75 group-hover/mark:scale-100"
+                        className="opacity-0 group-hover/mark:opacity-100 p-1 text-pastel-muted hover:text-red-500 transition-all scale-75 group-hover/mark:scale-100 absolute -top-1 -right-1 bg-white rounded-full shadow-sm border border-pastel-border"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-3 h-3" />
                       </button>
                     </div>
                   ))}
@@ -908,15 +1040,59 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
           )}
 
           {/* 指令输入区 */}
-          <div className="space-y-4">
-            <label className="text-[11px] font-bold text-pastel-muted uppercase tracking-widest flex items-center justify-between">
-              编辑需求指令
-              <div className="flex gap-1.5">
-                <div className="w-1.5 h-1.5 bg-pastel-pink rounded-full opacity-40"></div>
-                <div className="w-1.5 h-1.5 bg-pastel-pink rounded-full opacity-70"></div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-pastel-muted uppercase tracking-widest flex items-center gap-2">
+                编辑需求指令
                 <div className="w-1.5 h-1.5 bg-pastel-pink rounded-full"></div>
+              </label>
+
+              {/* Toolbar Moved Here */}
+              <div className="flex items-center gap-2">
+                {/* Refine / Continue Button */}
+                <button
+                  onClick={() => setShowRefineInput(!showRefineInput)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all
+                     ${showRefineInput ? 'bg-pastel-pink text-white border-pastel-pink' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-pink hover:text-pastel-highlight'}`}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {showRefineInput ? '取消优化' : '继续优化'}
+                </button>
+
+                {/* AI Polish Button */}
+                <button
+                  onClick={handleOptimizePrompt}
+                  disabled={isOptimizing || (!editPrompt && referenceImages.length === 0)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold shadow-sm transition-all
+                     ${isOptimizing ? 'bg-pastel-bg text-pastel-muted cursor-wait' : 'bg-pastel-text text-white hover:bg-black'}`}
+                >
+                  {isOptimizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-yellow-300" />}
+                  AI 润色
+                </button>
               </div>
-            </label>
+            </div>
+
+            {/* Refine Input Area (Conditional) */}
+            {showRefineInput && (
+              <div className="animate-in slide-in-from-top-2 duration-300 flex gap-2">
+                <input
+                  value={refineInstruction}
+                  onChange={(e) => setRefineInstruction(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleRefinePrompt()}
+                  placeholder="请输入优化指令，例如：'更简洁一点' 或 '强调皮革质感'..."
+                  className="flex-1 bg-white border border-pastel-pink/50 rounded-xl px-4 py-2 text-xs font-medium text-pastel-text focus:outline-none focus:ring-2 focus:ring-pastel-pink/20 placeholder:text-pastel-muted/70"
+                  autoFocus
+                />
+                <button
+                  onClick={handleRefinePrompt}
+                  disabled={!refineInstruction || isOptimizing}
+                  className="px-4 py-1.5 bg-pastel-highlight text-white text-xs font-bold rounded-xl hover:bg-pastel-pink transition-colors disabled:opacity-50"
+                >
+                  发送
+                </button>
+              </div>
+            )}
+
             <div className="relative group">
               <textarea
                 value={editPrompt}
@@ -924,19 +1100,6 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
                 placeholder={mode === 'eraser' ? "涂抹区域应该生成或更换为什么内容？" : "描述您的创意想法，例如：'在产品周围添加柔和的玫瑰花瓣'"}
                 className="w-full h-40 bg-pastel-input border border-pastel-border rounded-[2rem] p-6 text-sm focus:ring-4 focus:ring-pastel-pink/10 focus:border-pastel-pink outline-none resize-none text-pastel-text placeholder:text-pastel-muted transition-all font-medium leading-relaxed mb-2"
               />
-              {/* AI Refinement & Style Tools */}
-              <div className="absolute bottom-4 right-4 flex items-center gap-2">
-                <button
-                  onClick={handleOptimizePrompt}
-                  disabled={isOptimizing || (!editPrompt && referenceImages.length === 0)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold shadow-sm backdrop-blur-md transition-all
-                     ${isOptimizing ? 'bg-pastel-bg text-pastel-muted cursor-wait' : 'bg-white/80 text-pastel-highlight border border-pastel-pink/30 hover:bg-pastel-pink hover:text-white'}
-                   `}
-                >
-                  {isOptimizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                  AI 润色
-                </button>
-              </div>
             </div>
 
             {/* Reference Image Upload Area (NEW) */}

@@ -682,7 +682,7 @@ export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: st
       parts.push({ text: `请优化以下提示词:\n"${rawPrompt}"` });
     }
 
-    // Use gemini-3-flash-preview for faster response
+    // Use gemini-3-flash-preview as requested
     const modelName = "gemini-3-flash-preview";
     const response = await ai.models.generateContent({
       model: modelName,
@@ -1020,43 +1020,59 @@ export const inpaintImage = async (
   originalBase64: string,
   maskBase64: string,
   prompt: string,
-  options: { resolution?: ImageResolution } = {}
+  options: { resolution?: ImageResolution } = {},
+  referenceImages: { base64: string; mimeType: string }[] = []
 ) => {
   const ai = getAiClient();
   try {
+    const parts: any[] = [
+      {
+        inlineData: {
+          data: originalBase64,
+          mimeType: "image/png",
+        },
+      },
+      {
+        inlineData: {
+          data: maskBase64,
+          mimeType: "image/png",
+        },
+      },
+    ];
+
+    // Add Reference Images for Inpainting
+    if (referenceImages && referenceImages.length > 0) {
+      referenceImages.forEach((img) => {
+        parts.push({
+          inlineData: {
+            data: img.base64,
+            mimeType: img.mimeType,
+          },
+        });
+      });
+    }
+
+    parts.push({
+      text: `
+      You are a Senior Retoucher for a High-End Brand.
+      
+      INPUTS:
+      - Image 1: Original Image.
+      - Image 2: Mask (White area = edit zone).
+      ${referenceImages.length > 0 ? `- Additional Images: REFERENCE MATERIAL (Style/Texture Guide).` : ''}
+      
+      TASK: Precision Retouching on Image 1.
+      1. Modify ONLY the white area of the mask.
+      2. INSTRUCTION: "${prompt}".
+      ${referenceImages.length > 0 ? `3. STRICT ADHERENCE to Reference Material for texture/style/color independently of the original.` : ''}
+      4. Blend edges naturally.
+      `,
+    });
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro-image",
+      model: "gemini-3-pro-image-preview",
       contents: {
-        parts: [
-          {
-            inlineData: {
-              data: originalBase64,
-              mimeType: "image/png", // Assuming canvas export is png
-            },
-          },
-          {
-            inlineData: {
-              data: maskBase64,
-              mimeType: "image/png",
-            },
-          },
-          {
-            text: `
-            You are a Senior Retoucher for a High-End Brand.
-            
-            You have two input images.
-            Image 1: The original campaign shot.
-            Image 2: A binary mask (white area is the edit zone).
-            
-            TASK: Precision Retouching on Image 1.
-            1. Use Image 2 to identify the EXACT area to modify.
-            2. Apply the change: "${prompt}".
-            3. **CRITICAL**: Match the new texture/object's lighting and perspective to the original scene.
-            4. If changing outfit/material, preserve realistic folds and draping.
-            5. Keep the unmasked area PIXEL-PERFECT identical.
-            `,
-          },
-        ],
+        parts: parts,
       },
       config: {
         imageConfig: {
