@@ -4,13 +4,14 @@ import { ChatStudio } from './components/ChatStudio';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { SettingsModal } from './components/SettingsModal';
 import { ProjectGalleryModal } from './components/ProjectGalleryModal';
-import { History } from 'lucide-react';
+import { History, Cloud } from 'lucide-react';
 
 import { App as VideoStationApp } from './XcAISTUDIO-main/App';
 import AmazonSelectionApp from './amazonxpzj/App';
 import CreativeCenterApp from './Cyzx4/App';
+import YunwuApiStudio from './components/YunwuApiStudio';
 
-type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative';
+type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'yunwu';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -71,6 +72,16 @@ const App: React.FC = () => {
     <div className="h-screen w-full overflow-hidden bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white transition-colors duration-500 relative">
       {/* Top Right Controls */}
       <div className="fixed top-6 right-6 z-50 flex gap-2">
+        {/* Yunwu API Button - 品牌橙色调 */}
+        <button
+          onClick={() => setView('yunwu')}
+          className="p-2.5 rounded-full bg-gradient-to-r from-brand-orange/80 to-orange-500/80 backdrop-blur-md border border-orange-300/30 dark:border-orange-500/30 shadow-lg hover:scale-105 transition-all text-white hover:shadow-orange-500/30 group"
+          aria-label="Yunwu API"
+          title="云雾API Studio"
+        >
+          <Cloud className="w-5 h-5" />
+        </button>
+
         {/* History Button */}
         <button
           onClick={() => setIsGalleryOpen(true)}
@@ -103,7 +114,11 @@ const App: React.FC = () => {
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />
 
-      {view === 'video' ? (
+      {view === 'yunwu' ? (
+        <div className="relative w-full h-full z-[100] overflow-hidden">
+          <YunwuApiStudio onBack={() => setView('home')} />
+        </div>
+      ) : view === 'video' ? (
         <div className="relative w-full h-full bg-black z-[100]">
           <VideoStationApp />
           <button

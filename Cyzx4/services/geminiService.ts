@@ -1,17 +1,81 @@
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
 
-// Helper to get a fresh AI client instance.
-// It checks localStorage for a custom user key first, then falls back to the environment key.
-const getAiClient = () => {
-  const customKey = localStorage.getItem("user_api_key");
-  const apiKey = customKey || process.env.API_KEY;
+// ==================== API Configuration Helper ====================
+// Priority: 1. Yunwu API (base_url + key) -> 2. Native Gemini API Key -> 3. Environment Variable
 
-  if (!apiKey) {
-    throw new Error("API Key is missing. Please configure it in Settings.");
+interface ApiConfig {
+  apiKey: string;
+  baseUrl?: string;
+  isYunwu: boolean;
+}
+
+// Get API configuration with priority order
+const getApiConfig = (): ApiConfig => {
+  // 1. Check Yunwu API configuration first
+  const yunwuKey = localStorage.getItem("yunwu_api_key");
+  const yunwuBaseUrl = localStorage.getItem("yunwu_base_url");
+
+  if (yunwuKey) {
+    return {
+      apiKey: yunwuKey,
+      baseUrl: yunwuBaseUrl || "https://yunwu.ai",
+      isYunwu: true
+    };
   }
 
-  return new GoogleGenAI({ apiKey });
+  // 2. Check native Gemini API key
+  const nativeKey = localStorage.getItem("user_api_key");
+  if (nativeKey) {
+    return {
+      apiKey: nativeKey,
+      isYunwu: false
+    };
+  }
+
+  // 3. Fallback to environment variable
+  const envKey = process.env.API_KEY;
+  if (envKey) {
+    return {
+      apiKey: envKey,
+      isYunwu: false
+    };
+  }
+
+  throw new Error("API Key is missing. Please configure it in Settings (设置).");
+};
+
+// Helper to get a fresh AI client instance.
+// Supports both Yunwu API proxy and native Google Gemini API.
+const getAiClient = () => {
+  const config = getApiConfig();
+
+  // If using Yunwu API, configure with custom base URL
+  if (config.isYunwu && config.baseUrl) {
+    return new GoogleGenAI({
+      apiKey: config.apiKey,
+      httpOptions: {
+        baseUrl: config.baseUrl
+      }
+    });
+  }
+
+  // Native Gemini API
+  return new GoogleGenAI({ apiKey: config.apiKey });
+};
+
+// Export for debugging/status display
+export const getActiveApiInfo = (): { type: 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+  try {
+    const config = getApiConfig();
+    if (config.isYunwu) {
+      return { type: 'yunwu', baseUrl: config.baseUrl };
+    }
+    const nativeKey = localStorage.getItem("user_api_key");
+    return { type: nativeKey ? 'native' : 'env' };
+  } catch {
+    return { type: 'env' };
+  }
 };
 
 // Helper to convert Blob to Base64
