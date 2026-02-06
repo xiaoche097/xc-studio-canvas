@@ -910,6 +910,7 @@ Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
 **MUST AVOID**:
 - ❌ **ANY DEVIATION FROM REFERENCE ANGLE (Strict 0% Tolerance)**
 - ❌ **ZOOMING IN/OUT** (Keep original focal length)
+- ❌ **RETURNING THE REFERENCE IMAGE WITHOUT PRODUCT REPLACEMENT** (This is a CRITICAL FAILURE)
 - ❌ Cartoonish or illustrated style
 - ❌ Incorrect seat geometry for ${carModel}
 - ❌ Product color alteration
