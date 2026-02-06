@@ -828,7 +828,7 @@ ${visualGuide ? `
 - **TASK**: You must **REPLICATE** Image ${guideIndex} exactly (Angle, Lighting, Composition, Surrounding Elements).
 - **INTEGRATION**: Keep the car interior, background, and interaction elements (e.g. Dog, Hands, Sunset) **IDENTICAL** to Image ${guideIndex}.
 - **THE ONLY CHANGE**: **SWAP** the armrest cover in Image ${guideIndex} with the [PRODUCT MASTER] (Images 1-${productCount}).
-- **ANGLE LOCK**: Do not deviate 1% from the camera angle of Image ${guideIndex}.
+- **ANGLE LOCK**: Do not deviate 0.1% from the camera angle of Image ${guideIndex}. **ZERO CREATIVE RE-FRAMING ALLOWED.**
 ` : ""}
 
 ---
@@ -907,6 +907,8 @@ Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
 ## 🚫 NEGATIVE CONSTRAINTS
 
 **MUST AVOID**:
+- ❌ **ANY DEVIATION FROM REFERENCE ANGLE (Strict 0% Tolerance)**
+- ❌ **ZOOMING IN/OUT** (Keep original focal length)
 - ❌ Cartoonish or illustrated style
 - ❌ Incorrect seat geometry for ${carModel}
 - ❌ Product color alteration
