@@ -797,8 +797,8 @@ export const generateSeatCoverFit = async (
       targetRow.toLowerCase().includes('detail') ||
       angleInstruction.toLowerCase().includes('close-up');
 
-    // New: Check if this is a "Lifestyle/Scenario" preset where the PROMPT content (dog, hand, sunset) matters more than the thumbnail pixels
-    const isLifestyleScene = ["A10", "A12", "A13", "A14", "A15", "A18"].some(id => targetRow.startsWith(id));
+    // REVERTED SPLIT LOGIC: usage of 'isLifestyleScene' is removed.
+    // We treating ALL presets (including Lifestyle) as STRICT VISUAL TARGETS because the thumbnails NOW contain the correct content (dogs, hands, etc).
 
     const missionText = isSingleSeat
       ? `MISSION: Create a high-end commercial product catalog asset. Focus is a STANDALONE **${productCategory}**. Background must be a clean, neutral studio gradient. REMOVE all car interior distractions (dashboard, wheels, cabin walls).`
@@ -817,22 +817,19 @@ export const generateSeatCoverFit = async (
 
 ---
 
-## 📐 1. CAMERA & PERSPECTIVE [MANDATORY BLUEPRINT]
+## 📐 1. SCENE & COMPOSITION [MANDATORY BLUEPRINT]
 
 **ANGLE_ID**: ${angleId}
-**SCENE_GEOMETRY**: ${angleInstruction}
-${visualGuide ? (isLifestyleScene ? `
-**SCENE_REFERENCE (IMAGE ${guideIndex})**:
-- **ROLE**: Use Image ${guideIndex} as a STRICT GEOMETRIC FRAMEWORK.
-- **CONTENT**: Generate the scene described in "SCENE_GEOMETRY" (e.g. Dog, Hand, etc.) replacing the original subjects.
-- ⛔ **STRICT ANGLE LOCK**: The camera position, rotation, height, and field of view MUST MATCH Image ${guideIndex} **EXACTLY**.
-- 📐 **COMPOSITION**: Place the armrest box in the **EXACT SAME screen coordinates** as the reference image. Do not change the framing.
-` : `
-**LAYOUT_MASTER (IMAGE ${guideIndex})**: 
-- ⛔ **STRICT MIRRORING REQUIRED**: You MUST treat IMAGE ${guideIndex} as a technical blueprint.
-- **FOCAL_LENGTH**: Match the lens compression of Image ${guideIndex}.
-- **POSITIONING**: The product's placement, scale within the frame, and rotation MUST be a 1:1 match to Image ${guideIndex}.
-- **CROP**: Duplicate the exact framing and peripheral view boundaries of Image ${guideIndex}.`) : ""}
+**SCENE_DESCRIPTION**: ${angleInstruction}
+
+${visualGuide ? `
+**VISUAL_TARGET (IMAGE ${guideIndex})**:
+- ⛔ **ROLE**: Image ${guideIndex} is the **ABSOLUTE GROUND TRUTH** for the scene.
+- **TASK**: You must **REPLICATE** Image ${guideIndex} exactly (Angle, Lighting, Composition, Surrounding Elements).
+- **INTEGRATION**: Keep the car interior, background, and interaction elements (e.g. Dog, Hands, Sunset) **IDENTICAL** to Image ${guideIndex}.
+- **THE ONLY CHANGE**: **SWAP** the armrest cover in Image ${guideIndex} with the [PRODUCT MASTER] (Images 1-${productCount}).
+- **ANGLE LOCK**: Do not deviate 1% from the camera angle of Image ${guideIndex}.
+` : ""}
 
 ---
 
