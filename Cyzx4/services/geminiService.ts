@@ -790,26 +790,41 @@ export const generateSeatCoverFit = async (
     // 3.4 Strict Contextual Awareness (Standalone vs Integration)
     // If we have a reference guide, the MISSION should follow the GUIDE'S context.
 
+    // 3.4 Strict Contextual Awareness (Standalone vs Integration)
+    // If we have a reference guide, the MISSION should follow the GUIDE'S context.
+    const isCloseUp = targetRow.toLowerCase().includes('close-up') ||
+      targetRow.toLowerCase().includes('detail') ||
+      angleInstruction.toLowerCase().includes('close-up');
+
     const missionText = isSingleSeat
       ? `MISSION: Create a high-end commercial product catalog asset. Focus is a STANDALONE **${productCategory}**. Background must be a clean, neutral studio gradient. REMOVE all car interior distractions (dashboard, wheels, cabin walls).`
-      : `MISSION: Create a photorealistic automotive interior visualization. Focus is the **${productCategory}** professionally INSTALLED inside a **${year} ${carModel}**. Maintain full cabin context including dashboard/seats.`;
+      : isCloseUp
+        ? `MISSION: Create a Macro/Detail commercial photograph. Focus strictly on the **${productCategory}** texture and fit. Blur the ${carModel} interior significantly using shallow depth of field. Use a tight crop.`
+        : `MISSION: Create a photorealistic automotive interior visualization. Focus is the **${productCategory}** professionally INSTALLED inside a **${year} ${carModel}**. Maintain full cabin architectural context.`;
 
     // 4. Construct V4.0 Prompt
 
     const v4Prompt = `
-## ✅ AutoFusion™ Pro V4.1 (Structural Lock)
+## ✅ AutoFusion™ Pro V4.2 (Identity-Lock™ Edition)
 
-**SYSTEM**: AutoFusion™ Pro V4.1 - Precision Automotive Visualization
+**SYSTEM**: AutoFusion™ Pro V4.2 - High-Fidelity Automotive Visualization
 **CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
+**PRIORITY**: PRODUCT_IDENTITY > CAMERA_ANGLE > ENVIRONMENT
 
 ---
 
-## 🖼️ INPUT IMAGE ANALYSIS
+## 🖼️ INPUT IMAGE ANALYSIS (STRICT HIERARCHY)
 
-You have received ${productCount + (visualGuide ? 1 : 0)} input images. 
+You have received ${productCount + (visualGuide ? 1 : 0)} input images.
 
-1. **IMAGES 1-${productCount}**: [PRODUCT MASTER] -> Use ONLY for texture, color, and material. IGNORE spatial data.
-${visualGuide ? `2. **IMAGE ${guideIndex}**: [LAYOUT MASTER] -> **ABSOLUTE AUTHORITY** for Perspective, Camera Angle, and Depth. Mirror this exact composition 1.0x.` : ""}
+1. **IMAGES 1-${productCount}**: [PRODUCT MASTER] -> **ABSOLUTE IDENTITY SOURCE**. 
+   - These images define the EXACT design, shape, proportions, patterns (e.g., quilting), and material.
+   - ⛔ **IDENTICAL REPRODUCTION REQUIRED**: The product in the final output MUST be an exact physical replica of these images. 
+   - **STRUCTURAL LOCK**: Do not open/close lids, move parts, or alter the 3D geometry of the product shown here.
+
+${visualGuide ? `2. **IMAGE ${guideIndex}**: [LAYOUT MASTER] -> **SCENE REFERENCE ONLY**.
+   - Use this image ONLY for Camera Perspective, Focal Length, and Positioning.
+   - ⛔ **IGNORE PRODUCT DESIGN IN THIS IMAGE**: Do NOT copy the product appearance from this image. Replace it completely with the [PRODUCT MASTER].` : ""}
 
 ---
 
@@ -822,11 +837,11 @@ ${customRequest ? `
 
 ---
 
-## 📐 CAMERA & PERSPECTIVE [LOCKED]
+## 📐 CAMERA & PERSPECTIVE [STRUCTURAL LOCK]
 
 **ANGLE_REFERENCE**: ${angleId}
 **DIRECTION**: ${angleInstruction}
-${visualGuide ? `\n> **VISUAL LOCK**: You MUST structurally duplicate IMAGE ${guideIndex}. Tripod height, focal length, and object rotation MUST match Image ${guideIndex} perfectly.` : ""}
+${visualGuide ? `\n> **VISUAL ALIGNMENT**: Mirror the camera viewpoint and object rotation of IMAGE ${guideIndex} 1.0x. Ensure the product sits in the exact same spatial coordinates.` : ""}
 
 ---
 
@@ -845,31 +860,29 @@ ${isSingleSeat
 
 ---
 
-## 🎨 COLOR & MATERIAL PROTOCOL
+## 🎨 COLOR & MATERIAL FIDELITY
 
-| Dashboard | ${isSingleSeat ? "REMOVED" : "PURE BLACK"} |
-| Door Panels | ${isSingleSeat ? "REMOVED" : "PURE BLACK / DARK GREY"} |
-| Carpet & Floor | ${isSingleSeat ? "REMOVED" : "BLACK"} |
-| Headliner | ${isSingleSeat ? "REMOVED" : "DARK GREY"} |
-| **PRODUCT** | ⛔ **ORIGINAL COLORS ONLY** |
+| Component | Protocol |
+|-----------|-------|
+| **PRODUCT** | ⛔ **ZERO ALTERATION ALLOWED**. Match original color, sheen, and quilting pattern. |
+| Dashboard | ${isSingleSeat ? "REMOVED" : "High-End OEM Black"} |
+| Cabin Vibe | ${isSingleSeat ? "Studio Catalog" : "Professional Automotive Photography"} |
 
 ---
 
-## 🛠️ PRODUCT INSTALLATION [CORE SKILL]
+## 🛠️ PRODUCT INSTALLATION [PIXEL-PERFECT FIT]
 
 ${productCategory === "Armrest Box" ? `
-### ARMREST BOX SPECIFIC LOGIC
-- **PLACEMENT**: ${isSingleSeat ? "ISOLATED STANDALONE PRODUCT. Place on a neutral horizontal studio surface. Do NOT place inside a car. No center console." : "Install the armrest box ON TOP of the center console between the front seats."}
-- **FIT**: ${isSingleSeat ? "Focus on the 3D geometry and rigid structure of the product." : "The product base must sit FLUSH and STABLE on the console surface. It is a RIGID object, not fabric."}
-- **FEATURES**: Ensure cup holders, storage slots, and phone pads are facing UP and clearly visible.
-- **REALISM**: Render the leather/material quilting with high precision.
-- **INTEGRATION**: ${isSingleSeat ? "Commercial product catalog style." : "The armrest should look like a premium aftermarket addition that matches the car's interior width."}
+### ARMREST BOX IDENTITY LOCK
+- **SHAPE**: Maintain the specific curvature and dimensions shown in [PRODUCT MASTER].
+- **PATTERN**: The quilting pattern (diamonds/lines) must match the density and style of the reference images exactly.
+- **SURFACE**: If the product is leather, render visible grain and soft specular highlights.
+- **PLACEMENT**: ${isSingleSeat ? "Isolated on a clean surface." : "Fits perfectly onto the center console of the " + carModel + "."}
 ` : `
-### SEAT COVER SPECIFIC LOGIC
-- **PLACEMENT**: Install the seat cover TIGHTLY over the ${finalTargetRow} seats.
-- **FIT**: The cover must wrap around seat foam contours. Headrest cover must align with headrest shape.
-- **REALISM**: Show natural tension wrinkles where material pulls tight. Show proper edge tucking into crevices.
-- **INTEGRATION**: The cover should look like a professionally installed "second skin", not a loose bag.
+### SEAT COVER IDENTITY LOCK
+- **DESIGN**: Every panel, stitch line, and color block from the [PRODUCT MASTER] must be preserved.
+- **FIT**: Wrap tightly around the seat frame of the ${carModel}. No deformation of the cover's design.
+- **LOGIC**: The cover is a "skin". It inherits the shape of the seat but keeps its own textures and patterns.
 `}
 
 ### COMMON REALISM CHECKLIST
@@ -897,15 +910,14 @@ Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
 
 ---
 
-## 📤 OUTPUT SPECIFICATION
+## 📤 FINAL QUALITY CHECKLIST (MANDATORY)
+- [ ] Is the product design an IDENTICAL match to Images 1-${productCount}?
+- [ ] Has the product structure (open/closed) been preserved from the reference?
+- [ ] Is the perspective correctly aligned with ${visualGuide ? "Image " + guideIndex : angleId}?
+- [ ] Are there zero digital artifacts or 3D-render characteristics?
+- [ ] Does the material look like real leather/fabric (High texture detail)?
 
-| Parameter | Value |
-|-----------|-------|
-| Aspect Ratio | ${aspectRatio} |
-| Resolution | ${resolution === ImageResolution.RES_4K ? "8K Ultra Detail" : "High Quality"} |
-| Style | Commercial product photography |
-| Realism | Photorealistic, NOT 3D render |
-| Background | ${isSingleSeat ? "Clean Studio Background (Minimal/No Car Interior)" : "White studio (visible through windows)"} |
+⛔ **FAILURE TO REPLICATE THE PRODUCT DESIGN EXACTLY IS UNACCEPTABLE.**
 
 ---
 
