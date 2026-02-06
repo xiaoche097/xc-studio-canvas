@@ -823,12 +823,12 @@ export const generateSeatCoverFit = async (
 **SCENE_DESCRIPTION**: ${angleInstruction}
 
 ${visualGuide ? `
-**VISUAL_LAYOUT_GUIDE (IMAGE ${guideIndex})**:
-- **ROLE**: Image ${guideIndex} contains the **CORRECT ANGLE** but the **WRONG PRODUCT**.
-- ⛔ **IGNORE THE PRODUCT**: The black armrest cover shown in Image ${guideIndex} is a **GENERIC PLACEHOLDER**. You MUST NOT output it.
-- **MANDATORY SWAP**: You must GENERATE A NEW IMAGE where the [PRODUCT MASTER] (Images 1-${productCount}) **REPLACES** the placeholder object.
-- **POSE COPY**: Copy the **exact pose** of the dog/driver from Image ${guideIndex}, but render them interacting with the **NEW** product.
-- **ANGLE LOCK**: Maintain the camera perspective of Image ${guideIndex}, but **RE-RENDER THE PIXELS**. DO NOT return the original image.
+**VISUAL_COMPOSITION_REFERENCE (IMAGE ${guideIndex})**:
+- **PURPOSE**: Use Image ${guideIndex} ONLY for **Camera Angle** and **Element Placement**.
+- **TASK**: **REDRAW THE ENTIRE SCENE FROM SCRATCH**. ⛔ **DO NOT** output the original pixels.
+- **SCENE ELEMENTS**: Your new drawing must contain the SAME elements (e.g. Dog, Hand, Car Interior) in the SAME positions as the reference, but they must be **newly generated**.
+- **PRODUCT**: The armrest cover in your new drawing must be the [PRODUCT MASTER] (Images 1-${productCount}).
+- **CRITICAL CONSTRAINT**: The **Camera Angle** and **Perspective** of your new drawing must MATCH Image ${guideIndex} EXACTLY.
 ` : ""}
 
 ---
