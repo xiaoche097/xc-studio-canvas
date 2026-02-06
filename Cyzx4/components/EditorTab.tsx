@@ -1040,6 +1040,7 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
           )}
 
           {/* 指令输入区 */}
+          {/* 指令输入区 (Redesigned) */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold text-pastel-muted uppercase tracking-widest flex items-center gap-2">
@@ -1047,59 +1048,79 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
                 <div className="w-1.5 h-1.5 bg-pastel-pink rounded-full"></div>
               </label>
 
-              {/* Toolbar Moved Here */}
-              <div className="flex items-center gap-2">
-                {/* Refine / Continue Button */}
+              {/* Optional: Refine Toggle */}
+              {!showRefineInput && (
                 <button
-                  onClick={() => setShowRefineInput(!showRefineInput)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all
-                     ${showRefineInput ? 'bg-pastel-pink text-white border-pastel-pink' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-pink hover:text-pastel-highlight'}`}
+                  onClick={() => setShowRefineInput(true)}
+                  className="text-[10px] font-bold text-pastel-highlight hover:text-pastel-text transition-colors flex items-center gap-1"
                 >
                   <Sparkles className="w-3 h-3" />
-                  {showRefineInput ? '取消优化' : '继续优化'}
+                  高级优化
                 </button>
-
-                {/* AI Polish Button */}
-                <button
-                  onClick={handleOptimizePrompt}
-                  disabled={isOptimizing || (!editPrompt && referenceImages.length === 0)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold shadow-sm transition-all
-                     ${isOptimizing ? 'bg-pastel-bg text-pastel-muted cursor-wait' : 'bg-pastel-text text-white hover:bg-black'}`}
-                >
-                  {isOptimizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-yellow-300" />}
-                  AI 润色
-                </button>
-              </div>
+              )}
             </div>
 
-            {/* Refine Input Area (Conditional) */}
-            {showRefineInput && (
-              <div className="animate-in slide-in-from-top-2 duration-300 flex gap-2">
-                <input
-                  value={refineInstruction}
-                  onChange={(e) => setRefineInstruction(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleRefinePrompt()}
-                  placeholder="请输入优化指令，例如：'更简洁一点' 或 '强调皮革质感'..."
-                  className="flex-1 bg-white border border-pastel-pink/50 rounded-xl px-4 py-2 text-xs font-medium text-pastel-text focus:outline-none focus:ring-2 focus:ring-pastel-pink/20 placeholder:text-pastel-muted/70"
-                  autoFocus
-                />
-                <button
-                  onClick={handleRefinePrompt}
-                  disabled={!refineInstruction || isOptimizing}
-                  className="px-4 py-1.5 bg-pastel-highlight text-white text-xs font-bold rounded-xl hover:bg-pastel-pink transition-colors disabled:opacity-50"
-                >
-                  发送
-                </button>
-              </div>
-            )}
-
             <div className="relative group">
-              <textarea
-                value={editPrompt}
-                onChange={(e) => setEditPrompt(e.target.value)}
-                placeholder={mode === 'eraser' ? "涂抹区域应该生成或更换为什么内容？" : "描述您的创意想法，例如：'在产品周围添加柔和的玫瑰花瓣'"}
-                className="w-full h-40 bg-pastel-input border border-pastel-border rounded-[2rem] p-6 text-sm focus:ring-4 focus:ring-pastel-pink/10 focus:border-pastel-pink outline-none resize-none text-pastel-text placeholder:text-pastel-muted transition-all font-medium leading-relaxed mb-2"
-              />
+              {/* Main Input Container */}
+              <div className={`
+                relative bg-white border transition-all duration-300 rounded-[1.5rem] overflow-hidden
+                ${isOptimizing ? 'border-pastel-pink shadow-[0_0_20px_rgba(212,134,159,0.2)]' : 'border-pastel-border focus-within:border-pastel-pink focus-within:ring-4 focus-within:ring-pastel-pink/10 shadow-sm'}
+              `}>
+                <textarea
+                  value={editPrompt}
+                  onChange={(e) => setEditPrompt(e.target.value)}
+                  placeholder={mode === 'eraser' ? "涂抹区域应该生成或更换为什么内容？" : "描述您的创意想法，例如：'在产品周围添加柔和的玫瑰花瓣'"}
+                  className="w-full h-36 p-5 pr-14 bg-transparent border-none outline-none resize-none text-sm text-pastel-text placeholder:text-pastel-muted/60 font-medium leading-relaxed"
+                  disabled={isOptimizing}
+                />
+
+                {/* Embedded Actions */}
+                <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                  {/* AI Polish Button */}
+                  <button
+                    onClick={handleOptimizePrompt}
+                    disabled={isOptimizing || (!editPrompt && referenceImages.length === 0)}
+                    title="AI 智能润色"
+                    className={`
+                      h-8 w-8 rounded-full flex items-center justify-center transition-all duration-300
+                      ${isOptimizing
+                        ? 'bg-pastel-bg text-pastel-muted cursor-wait animate-spin'
+                        : 'bg-pastel-text text-white hover:bg-gradient-to-r hover:from-pastel-pink hover:to-pastel-highlight hover:scale-110 shadow-md'}
+                    `}
+                  >
+                    {isOptimizing ? <Loader2 className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Refine Input Overlay/Section */}
+              {showRefineInput && (
+                <div className="mt-2 animate-in slide-in-from-top-2 duration-300">
+                  <div className="flex gap-2 p-1 bg-pastel-bg/50 rounded-xl border border-pastel-border/50">
+                    <input
+                      value={refineInstruction}
+                      onChange={(e) => setRefineInstruction(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRefinePrompt()}
+                      placeholder="输入优化指令 (e.g. '更简洁', '强调光影')..."
+                      className="flex-1 bg-transparent px-3 py-1.5 text-xs font-medium text-pastel-text focus:outline-none placeholder:text-pastel-muted/70"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleRefinePrompt}
+                      disabled={!refineInstruction || isOptimizing}
+                      className="px-3 py-1 bg-white border border-pastel-border rounded-lg text-xs font-bold text-pastel-highlight hover:bg-pastel-highlight hover:text-white transition-all shadow-sm disabled:opacity-50"
+                    >
+                      发送
+                    </button>
+                    <button
+                      onClick={() => setShowRefineInput(false)}
+                      className="p-1 px-2 text-pastel-muted hover:text-pastel-text"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Reference Image Upload Area (NEW) */}

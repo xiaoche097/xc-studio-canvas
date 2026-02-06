@@ -44,16 +44,23 @@ const anglePresets = [
   {
     group: "扶手箱 (Armrest Box)",
     options: [
-      { id: "A0 Armrest Front", label: "A0 - 单品正面平视 (Front Eye-Level)", thumb: "/thumbnails/thumb_a0.svg" },
-      { id: "A1 Armrest 3/4 Front", label: "A1 - 单品侧前45° (Front 3/4 Angle)", thumb: "/thumbnails/thumb_a1.svg" },
-      { id: "A2 Armrest Top-Down 60", label: "A2 - 高角度俯拍 (High-Angle Top-Down)", thumb: "/thumbnails/thumb_a2.svg" },
-      { id: "A3 Armrest Passenger Side", label: "A3 - 侧面特写 (Side Profile Close-up)", thumb: "/thumbnails/thumb_a3.svg" },
-      { id: "A4 Armrest Passenger Front 30", label: "A4 - 侧前自然视角 (Natural Front-Side)", thumb: "/thumbnails/thumb_a4.svg" },
-      { id: "A5 Armrest Passenger Side 90", label: "A5 - 正侧面平视 (Straight Side View)", thumb: "/thumbnails/thumb_a5.svg" },
-      { id: "A6 Armrest Passenger Wheel", label: "A6 - 带方向盘侧视 (Side w/ Steering Wheel)", thumb: "/thumbnails/thumb_a6.svg" },
-      { id: "A7 Armrest Top Rear 50", label: "A7 - 后侧俯视 (Rear-Quarter Top-Down)", thumb: "/thumbnails/thumb_a7.svg" },
-      { id: "A8 Armrest Top-Down 45", label: "A8 - 中角度俯视 (Mid-Angle Top-Down)", thumb: "/thumbnails/thumb_a8.svg" },
-      { id: "A9 Armrest Side Interaction", label: "A9 - 侧方交互实拍 (Side Interaction Shot)", thumb: "/thumbnails/thumb_a9.svg" }
+      { id: "A01 White Background 1", label: "A01 - 白底产品图 1 (White Background 1)", thumb: "/thumbnails/armrest_thumb_01.jpg" },
+      { id: "A02 White Background 2", label: "A02 - 白底产品图 2 (White Background 2)", thumb: "/thumbnails/armrest_thumb_02.jpg" },
+      { id: "A03 Rear Top-Down", label: "A03 - 后排高俯视 (Rear Top-Down)", thumb: "/thumbnails/armrest_thumb_03.jpg" },
+      { id: "A04 Rear Panorama", label: "A04 - 后排全景 (Rear Panorama)", thumb: "/thumbnails/armrest_thumb_04.jpg" },
+      { id: "A05 Driver Side View", label: "A05 - 驾驶座侧视 (Driver Side View)", thumb: "/thumbnails/armrest_thumb_05.jpg" },
+      { id: "A06 Passenger Side View", label: "A06 - 副驾侧视 (Passenger Side View)", thumb: "/thumbnails/armrest_thumb_06.jpg" },
+      { id: "A07 Directly Above View", label: "A07 - 正上方俯视 (Directly Above View)", thumb: "/thumbnails/armrest_thumb_07.jpg" },
+      { id: "A08 Passenger Rear Diagonal", label: "A08 - 副驾后方斜视 (Passenger Rear Diagonal)", thumb: "/thumbnails/armrest_thumb_08.jpg" },
+      { id: "A09 Product Close-up", label: "A09 - 产品特写 (Product Close-up)", thumb: "/thumbnails/armrest_thumb_09.jpg" },
+      { id: "A10 Wipe Demo", label: "A10 - 擦拭演示 (Wipe Demo)", thumb: "/thumbnails/armrest_thumb_10.jpg" },
+      { id: "A11 Rear Standard View", label: "A11 - 后排标准俯视 (Rear Standard View)", thumb: "/thumbnails/armrest_thumb_11.jpg" },
+      { id: "A12 Sunset Lifestyle", label: "A12 - 日落使用场景 (Sunset Lifestyle)", thumb: "/thumbnails/armrest_thumb_12.jpg" },
+      { id: "A13 Installation Demo", label: "A13 - 安装演示 (Installation Demo)", thumb: "/thumbnails/armrest_thumb_13.jpg" },
+      { id: "A14 Driver Door View", label: "A14 - 驾驶位门口视角 (Driver Door View)", thumb: "/thumbnails/armrest_thumb_14.jpg" },
+      { id: "A15 Pet Lifestyle", label: "A15 - 宠物生活场景 (Pet Lifestyle)", thumb: "/thumbnails/armrest_thumb_15.jpg" },
+      { id: "A16 Driver Rear Wide", label: "A16 - 驾驶座后方广角 (Driver Rear Wide)", thumb: "/thumbnails/armrest_thumb_16.jpg" },
+      { id: "A17 Driver Side Scenario", label: "A17 - 驾驶位正侧场景 (Driver Side Scenario)", thumb: "/thumbnails/armrest_thumb_17.jpg" }
     ]
   }
 ];
@@ -142,7 +149,7 @@ const SeatCoverTab: React.FC = () => {
     setProductCategory(cat);
     if (cat === "Armrest Box") {
       setSeatConfig("Armrest Box");
-      setTargetRow("A0 Armrest Front");
+      setTargetRow("A01 White Background 1");
     } else {
       setSeatConfig("5-Seater");
       setTargetRow("F1 High-Angle Top-Down");
@@ -495,36 +502,60 @@ const SeatCoverTab: React.FC = () => {
               </div>
 
               {/* Custom Request Input */}
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs text-pastel-muted">额外描述 / 自定义需求 (Additional Request)</label>
-                  <button
-                    onClick={async () => {
-                      if (!customRequest) return;
-                      setIsOptimizing(true);
-                      try {
-                        const optimized = await optimizePrompt(customRequest);
-                        setCustomRequest(optimized);
-                      } catch (e: any) {
-                        setError("优化提示词失败: " + (e.message || "未知错误"));
-                        setTimeout(() => setError(null), 3000);
-                      } finally {
-                        setIsOptimizing(false);
-                      }
-                    }}
-                    disabled={!customRequest || isOptimizing}
-                    className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 transition-colors ${!customRequest ? 'text-gray-400 cursor-not-allowed' : 'text-pastel-highlight hover:bg-pastel-pink/20'}`}
-                  >
-                    <Wand2 className={`w-3 h-3 ${isOptimizing ? 'animate-spin' : ''}`} />
-                    {isOptimizing ? '优化中...' : '智能优化提示词'}
-                  </button>
+              {/* Custom Request Input (Redesigned) */}
+              <div className="mt-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-pastel-muted uppercase tracking-widest flex items-center gap-2">
+                    额外描述 / 自定义需求
+                    <div className="w-1.5 h-1.5 bg-pastel-pink rounded-full"></div>
+                  </label>
+
+                  {/* AI Polish Button used to be here, now inside textarea */}
                 </div>
-                <textarea
-                  value={customRequest}
-                  onChange={(e) => setCustomRequest(e.target.value)}
-                  placeholder="例如: 请加上一只狗在后排 / 增加夕阳氛围 (e.g., Add a dog in the back / Sunset lighting)"
-                  className="w-full bg-pastel-input border border-pastel-border rounded-lg p-3 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text min-h-[80px]"
-                />
+
+                <div className="relative group">
+                  <div className={`
+                    relative bg-white border transition-all duration-300 rounded-[1.2rem] overflow-hidden
+                    ${isOptimizing ? 'border-pastel-pink shadow-[0_0_20px_rgba(212,134,159,0.2)]' : 'border-pastel-border focus-within:border-pastel-pink focus-within:ring-4 focus-within:ring-pastel-pink/10 shadow-sm'}
+                  `}>
+                    <textarea
+                      value={customRequest}
+                      onChange={(e) => setCustomRequest(e.target.value)}
+                      placeholder="例如: 请加上一只狗在后排 / 增加夕阳氛围 (Use natural language to describe changes)"
+                      className="w-full min-h-[100px] p-4 pr-12 bg-transparent border-none outline-none resize-none text-sm text-pastel-text placeholder:text-pastel-muted/60 font-medium leading-relaxed"
+                      disabled={isOptimizing}
+                    />
+
+                    {/* Embedded Actions */}
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          if (!customRequest) return;
+                          setIsOptimizing(true);
+                          try {
+                            const optimized = await optimizePrompt(customRequest);
+                            setCustomRequest(optimized.replace(/^#+\s.*\\n/gm, '').replace(/\\*\\*.*\\*\\*\\n/gm, '').trim());
+                          } catch (e: any) {
+                            setError("优化提示词失败: " + (e.message || "未知错误"));
+                            setTimeout(() => setError(null), 3000);
+                          } finally {
+                            setIsOptimizing(false);
+                          }
+                        }}
+                        disabled={!customRequest || isOptimizing}
+                        title="AI 智能润色"
+                        className={`
+                          h-8 w-8 rounded-full flex items-center justify-center transition-all duration-300
+                          ${isOptimizing
+                            ? 'bg-pastel-bg text-pastel-muted cursor-wait animate-spin'
+                            : 'bg-pastel-text text-white hover:bg-gradient-to-r hover:from-pastel-pink hover:to-pastel-highlight hover:scale-110 shadow-md'}
+                        `}
+                      >
+                        {isOptimizing ? <Loader2 className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
             </div>
@@ -601,31 +632,39 @@ const SeatCoverTab: React.FC = () => {
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setIsTargetRowOpen(false)}></div>
                       <div className="absolute top-full left-0 w-full mt-1 bg-white border border-pastel-border rounded-lg shadow-lg z-40 max-h-64 overflow-y-auto">
-                        {anglePresets.map((group) => (
-                          <div key={group.group}>
-                            <div className="px-3 py-1.5 text-xs font-bold text-pastel-muted bg-gray-50 uppercase tracking-wider sticky top-0 bg-white border-b border-pastel-border/50">
-                              {group.group}
-                            </div>
-                            {group.options.map((option) => (
-                              <div
-                                key={option.id}
-                                onClick={() => {
-                                  setTargetRow(option.id);
-                                  setIsTargetRowOpen(false);
-                                }}
-                                onMouseEnter={() => setHoveredTargetThumb(option.thumb)}
-                                onMouseLeave={() => setHoveredTargetThumb(null)}
-                                className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between ${targetRow === option.id
-                                  ? 'bg-pastel-pink/10 text-pastel-pink'
-                                  : 'text-pastel-text hover:bg-pastel-bg'
-                                  }`}
-                              >
-                                <span>{option.label}</span>
-                                {targetRow === option.id && <Check className="w-4 h-4" />}
+                        {anglePresets
+                          .filter(group => {
+                            if (productCategory === "Armrest Box") {
+                              return group.group.includes("Armrest Box");
+                            } else {
+                              return !group.group.includes("Armrest Box");
+                            }
+                          })
+                          .map((group) => (
+                            <div key={group.group}>
+                              <div className="px-3 py-1.5 text-xs font-bold text-pastel-muted bg-gray-50 uppercase tracking-wider sticky top-0 bg-white border-b border-pastel-border/50">
+                                {group.group}
                               </div>
-                            ))}
-                          </div>
-                        ))}
+                              {group.options.map((option) => (
+                                <div
+                                  key={option.id}
+                                  onClick={() => {
+                                    setTargetRow(option.id);
+                                    setIsTargetRowOpen(false);
+                                  }}
+                                  onMouseEnter={() => setHoveredTargetThumb(option.thumb)}
+                                  onMouseLeave={() => setHoveredTargetThumb(null)}
+                                  className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between ${targetRow === option.id
+                                    ? 'bg-pastel-pink/10 text-pastel-pink'
+                                    : 'text-pastel-text hover:bg-pastel-bg'
+                                    }`}
+                                >
+                                  <span>{option.label}</span>
+                                  {targetRow === option.id && <Check className="w-4 h-4" />}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
                       </div>
 
                       {/* Floating Thumbnail Preview */}
