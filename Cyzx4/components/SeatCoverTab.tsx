@@ -285,6 +285,28 @@ const SeatCoverTab: React.FC = () => {
     }
   };
 
+  const handleRefineRefineEdit = async (index: number) => {
+    const rawInstruction = editRefineInstructions[index];
+    const currentPrompt = editPrompts[index];
+
+    if (!rawInstruction || !currentPrompt) return;
+
+    setIsOptimizingEdit(prev => ({ ...prev, [index]: true }));
+    try {
+      // Use previous prompt as base and new instruction as refinement
+      const optimized = await optimizePrompt(currentPrompt, undefined, rawInstruction);
+      const cleanOptimized = optimized.replace(/^#+\s.*\\n/gm, '').replace(/\\*\\*.*\\*\\*\\n/gm, '').trim();
+
+      setEditPrompts(prev => ({ ...prev, [index]: cleanOptimized }));
+      // Clear instruction but keep input open for more refining
+      setEditRefineInstructions(prev => ({ ...prev, [index]: '' }));
+    } catch (e) {
+      console.error("Optimization failed", e);
+    } finally {
+      setIsOptimizingEdit(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
   const handleEditImage = async (index: number) => {
     const rawPrompt = editPrompts[index];
     const image = generatedImages[index];
@@ -1064,11 +1086,11 @@ const SeatCoverTab: React.FC = () => {
                                       autoFocus
                                     />
                                     <button
-                                      onClick={() => handleRefineEditPrompt(idx)}
+                                      onClick={() => handleRefineEditPrompt(idx)} // Initial refine
                                       disabled={!editRefineInstructions[idx] || isOptimizingEdit[idx]}
                                       className="px-2 py-0.5 bg-white border border-pastel-border rounded-md text-[10px] font-bold text-pastel-highlight hover:bg-pastel-highlight hover:text-white transition-all shadow-sm"
                                     >
-                                      发送
+                                      {editPrompts[idx] ? "继续优化" : "发送"}
                                     </button>
                                     <button
                                       onClick={() => setShowEditRefineInput(prev => ({ ...prev, [idx]: false }))}

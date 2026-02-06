@@ -754,7 +754,7 @@ export const generateSeatCoverFit = async (
     // If we have a reference guide, the MISSION should follow the GUIDE'S context.
     const isArmrestRow = /^A\d/.test(targetRow);
     const isSingleSeat = isArmrestRow
-      ? ["A0 Armrest Front", "A1 Armrest 3/4 Front"].includes(targetRow)
+      ? targetRow.includes("White Background")
       : (seatConfig === 'Single Seat' || /^S\d/.test(targetRow));
 
     // FORCE VISUAL PRIORITY for Armrest to fix mismatch labels
