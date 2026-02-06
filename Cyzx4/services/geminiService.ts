@@ -830,8 +830,11 @@ ${visualGuide ? `
 
 **PRODUCT_SOURCE**: IMAGES 1-${productCount}
 - ⛔ **IDENTICAL REPRODUCTION**: The product in the output MUST be a physical clone of the [PRODUCT MASTER].
-- **STRUCTURE**: Do not change the 3D geometry, pattern density (quilting), or material sheen.
-- **LOCK**: Every stitch line and panel transition from the source MUST be preserved.
+- **STRUCTURE**: Do not change the inherent design, patterns, or seam placements.
+- **PERSPECTIVE PERMISSION**: ✅ **YOU MUST RE-RENDER THE OBJECT IN 3D**.
+  - Rotating the object to match the [CAMERA BLUEPRINT] is REQUIRED.
+  - Changing the visual perspective DOES NOT violate the structural lock.
+- **LOCK**: Internal details (Logo, Texture, Stitching Style) must remain unchanged.
 
 ---
 
