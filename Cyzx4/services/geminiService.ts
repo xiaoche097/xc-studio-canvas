@@ -706,23 +706,25 @@ export const generateSeatCoverFit = async (
       "R5 Top-Down Reclined": "shot from above at 60 degree angle, looking down into cabin, seats reclined",
 
       // === 5. Armrest Box (扶手箱) ===
-      "A01 White Background 1": "Product isolated on pure white background, center-positioned, car center console armrest cover, front-right 3/4 view, 45-degree top-down angle, high-end studio lighting, product photography, sharp focus on leather texture and stitching, clean minimal commercial shot",
-      "A02 White Background 2": "Product isolated on pure white background, center-positioned, car center console armrest cover, front-left 3/4 view, 45-degree top-down angle, high-end studio lighting, product photography, sharp focus on leather texture and stitching, clean minimal commercial shot",
-      "A03 Rear Top-Down": "Car interior shot from rear passenger perspective, high angle 60-degree top-down view, looking toward front center console, camera positioned behind driver seat, armrest cover centered in frame, cup holders visible, front seats partially visible on both sides",
-      "A04 Rear Panorama": "Car interior wide shot from rear center position, 45-degree elevated angle, full front cabin view, armrest lid open showing storage, steering wheel visible on left, side windows and mirrors in frame, natural daylight through windows, both front seats visible",
-      "A05 Driver Side View": "Car interior shot from driver side position, medium high angle looking toward passenger side, steering wheel and dashboard on left edge, gear shifter visible, center console armrest in center-right of frame, moody interior lighting, front windshield partially visible",
-      "A06 Passenger Side View": "Car interior shot from passenger side position, medium high angle looking toward driver side, steering wheel visible on right, gear shifter and center console in frame, armrest cover in center-left of frame, dark interior ambiance, both front seats partially visible",
-      "A07 Directly Above View": "Car interior top-down aerial view, 75-80 degree steep overhead angle, shooting from above front seats, armrest cover centered in frame showing full quilted pattern, both seat edges visible on sides, cup holders and gear area visible, symmetrical composition",
-      "A08 Passenger Rear Diagonal": "Car interior shot from rear passenger side, 50-degree angled top-down view, looking diagonally toward driver side, gear shifter and cup holders visible, steering wheel in background right, armrest cover in center-left of frame, dark premium interior lighting",
-      "A09 Product Close-up": "Close-up interior shot, 45-degree side angle with medium elevation, shallow depth of field, armrest cover as main subject with sharp focus, seat and console softly blurred in background, emphasizing texture and stitching detail, cinematic interior lighting",
-      "A10 Wipe Demo": "Car interior shot from passenger door opening, male driver wiping armrest cover with cloth, water droplets on surface, medium angle slightly elevated, natural daylight from windows, shot from outside looking in through passenger door, torso and arm visible, steering wheel on right",
-      "A11 Rear Standard View": "Car interior shot from rear seat position, 55-60 degree top-down angle, looking forward at center console, armrest cover centered in frame, steering wheel and dashboard visible in background left, gear shifter and cup holders visible, both front seats partially visible, dark interior ambiance",
-      "A12 Sunset Lifestyle": "Car interior shot from passenger seat position, male driver with arm resting on armrest, golden hour sunset lighting through windshield, warm orange-purple sky visible, dashboard and steering wheel visible, medium horizontal angle, lifestyle driving scene, cinematic lighting",
-      "A13 Installation Demo": "Car interior shot from rear seat elevated position, 60 degree top-down angle, female hands installing armrest cover, armrest lid open showing storage compartment, both arms extended holding product, installation demonstration pose, bright natural lighting, both front seats visible",
-      "A14 Driver Door View": "Car interior shot from driver door opening, male driver seated with both hands on steering wheel, arm resting on armrest cover, horizontal angle with slight elevation, natural indoor lighting, shot from outside looking in through driver door, torso visible without face, gear shifter and cup holders visible",
-      "A15 Pet Lifestyle": "Car interior shot from rear seat position, golden retriever dog resting paws on armrest cover, happy expression, horizontal angle with slight elevation, urban street scene visible through windshield, natural daylight, lifestyle pet-friendly scene, both front seats visible, warm friendly atmosphere",
-      "A16 Driver Rear Wide": "Car interior shot from behind driver seat, 50 degree elevated angle looking toward passenger side, gear shifter and cup holders in foreground left, armrest cover in center, passenger seat headrest visible in background, bright overexposed background through windows, wide angle composition",
-      "A17 Driver Side Scenario": "Car interior shot from driver door opening, horizontal eye-level angle, male driver seated with hands on steering wheel, arm naturally resting on armrest cover, bright soft lighting from windows, shot from outside through driver door, upper body visible without full face, relaxed driving posture",
+      "A01 White Background 1": "Product isolated on pure white background, floating composition, black car armrest cover with diamond-quilted pattern, front-right 3/4 view, 45-degree top-down angle, studio lighting, soft shadows beneath, minimal commercial product photography",
+      "A02 White Background 2": "Product isolated on pure white background, resting on surface, black leather armrest cover, eye-level 3/4 view focusing on side thickness and fit, diamond stitching detail visible, clean studio shot, high key lighting",
+      "A03 Rear Closed View": "Car interior shot from rear passenger seat, looking forward at center console, armrest cover installed and closed, black diamond pattern clearly visible, gear shifter and cup holders in foreground, dashboard in soft background focus, neutral daylight",
+      "A04 Rear Open View": "Car interior shot, angled view from rear seat, center console armrest lid flipped open in vertical position, showing empty black storage compartment inside, quilted cover visible on the underside of the lid, steering wheel visible in background",
+      "A05 Driver Side View": "Car interior shot from driver side, looking across center console toward passenger seat, armrest cover prominent in foreground, gear shifter on left, black leather seats, dashboard detail visible, premium interior aesthetic",
+      "A06 Passenger Side View": "Car interior shot from passenger side, looking toward driver seat, steering wheel visible on right, armrest cover centered in lower left frame, diamond texture highlighted by window light, dark luxury car interior",
+      "A07 Top-Down View": "Direct top-down overhead shot of car center console, 90-degree angle, armrest cover centered and symmetrical, diamond quilt pattern filling the frame, cup holders visible at top, gear shifter partial view, geometric composition",
+      "A08 Rear Diagonal": "Car interior shot from rear right passenger position, looking diagonally toward front left driver area, high angle view of armrest cover, driver seat back visible on left, cinematic lighting, sharp focus on product texture",
+      "A09 Material Close-up": "Extreme close-up macro shot of armrest cover surface, diamond-quilted black leather texture, detailed stitching, shallow depth of field with blurred car interior background, soft natural lighting highlighting material quality",
+      "A10 Driving Scenario": "Lifestyle car interior shot, side view from passenger side, male driver wearing grey t-shirt holding steering wheel with both hands, focused on road, black armrest cover visible in foreground, natural daylight, realistic driving scene",
+      "A11 Rear Standard": "Clean car interior shot from rear center position, looking down at center console, armrest cover installed, symmetrical composition, black leather seats on both sides, gear shifter visible, neutral professional lighting",
+      "A12 Pet Interaction Paws": "Car interior shot, Golden Retriever dog in back seat leaning forward with paws resting on the armrest cover, happy expression, tongue out, warm sunlight, focus on dog and armrest texture, pet-friendly product",
+      "A13 Waterproof Wipe": "Close-up action shot, male hand holding a beige microfiber cloth wiping water droplets off the black diamond-quilted armrest cover, showcasing waterproof feature, grey shirt sleeve visible, bright daylight",
+      "A14 Installation Demo": "Instructional shot, view from rear seat, two hands demonstrating installation by stretching the elastic band of the cover over the armrest lid, showing the underside attachment method, clear focus on the action",
+      "A15 Arm Rest Comfort": "Lifestyle shot from driver side, male driver wearing grey t-shirt with arm resting comfortably on the padded armrest cover, close-up on arm and product, showcasing ergonomic support, warm sunset lighting",
+      "A16 Rear Ajar View": "Car interior shot from rear seat, center console armrest lid slightly lifted (ajar), showing the thickness and fit of the cover while in motion, gear shifter visible below, clean high-angle composition",
+      "A17 Driver High Angle": "High-angle shot from driver side looking down at center console, sharp focus on the diamond pattern of the armrest cover, gear shifter and cup holders visible, dramatic interior lighting, premium look",
+      "A18 Pet Interaction Sitting": "Car interior shot, Golden Retriever dog sitting fully on top of the center console armrest cover, facing forward/right, happy expression, warm sunlight from left window, sharp focus on the dog and the black diamond-quilted mat beneath supporting the weight",
+
 
       // Legacy/Fallback mapping
       "Driver's View": "Shot from driver's seated position at 45-degree angle.",
@@ -790,11 +792,13 @@ export const generateSeatCoverFit = async (
     // 3.4 Strict Contextual Awareness (Standalone vs Integration)
     // If we have a reference guide, the MISSION should follow the GUIDE'S context.
 
-    // 3.4 Strict Contextual Awareness (Standalone vs Integration)
-    // If we have a reference guide, the MISSION should follow the GUIDE'S context.
+    // 3.4 Strict Contextual Awareness & Visual Guide Logic
     const isCloseUp = targetRow.toLowerCase().includes('close-up') ||
       targetRow.toLowerCase().includes('detail') ||
       angleInstruction.toLowerCase().includes('close-up');
+
+    // New: Check if this is a "Lifestyle/Scenario" preset where the PROMPT content (dog, hand, sunset) matters more than the thumbnail pixels
+    const isLifestyleScene = ["A10", "A12", "A13", "A14", "A15", "A18"].some(id => targetRow.startsWith(id));
 
     const missionText = isSingleSeat
       ? `MISSION: Create a high-end commercial product catalog asset. Focus is a STANDALONE **${productCategory}**. Background must be a clean, neutral studio gradient. REMOVE all car interior distractions (dashboard, wheels, cabin walls).`
@@ -817,12 +821,18 @@ export const generateSeatCoverFit = async (
 
 **ANGLE_ID**: ${angleId}
 **SCENE_GEOMETRY**: ${angleInstruction}
-${visualGuide ? `
+${visualGuide ? (isLifestyleScene ? `
+**SCENE_REFERENCE (IMAGE ${guideIndex})**:
+- **ROLE**: Use Image ${guideIndex} as a STRICT GEOMETRIC FRAMEWORK.
+- **CONTENT**: Generate the scene described in "SCENE_GEOMETRY" (e.g. Dog, Hand, etc.) replacing the original subjects.
+- ⛔ **STRICT ANGLE LOCK**: The camera position, rotation, height, and field of view MUST MATCH Image ${guideIndex} **EXACTLY**.
+- 📐 **COMPOSITION**: Place the armrest box in the **EXACT SAME screen coordinates** as the reference image. Do not change the framing.
+` : `
 **LAYOUT_MASTER (IMAGE ${guideIndex})**: 
 - ⛔ **STRICT MIRRORING REQUIRED**: You MUST treat IMAGE ${guideIndex} as a technical blueprint.
 - **FOCAL_LENGTH**: Match the lens compression of Image ${guideIndex}.
 - **POSITIONING**: The product's placement, scale within the frame, and rotation MUST be a 1:1 match to Image ${guideIndex}.
-- **CROP**: Duplicate the exact framing and peripheral view boundaries of Image ${guideIndex}.` : ""}
+- **CROP**: Duplicate the exact framing and peripheral view boundaries of Image ${guideIndex}.`) : ""}
 
 ---
 

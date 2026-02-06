@@ -44,23 +44,24 @@ const anglePresets = [
   {
     group: "扶手箱 (Armrest Box)",
     options: [
-      { id: "A01 White Background 1", label: "A01 - 白底产品图 1 (White Background 1)", thumb: "/thumbnails/armrest_thumb_01.jpg" },
-      { id: "A02 White Background 2", label: "A02 - 白底产品图 2 (White Background 2)", thumb: "/thumbnails/armrest_thumb_02.jpg" },
-      { id: "A03 Rear Top-Down", label: "A03 - 后排高俯视 (Rear Top-Down)", thumb: "/thumbnails/armrest_thumb_03.jpg" },
-      { id: "A04 Rear Panorama", label: "A04 - 后排全景 (Rear Panorama)", thumb: "/thumbnails/armrest_thumb_04.jpg" },
-      { id: "A05 Driver Side View", label: "A05 - 驾驶座侧视 (Driver Side View)", thumb: "/thumbnails/armrest_thumb_05.jpg" },
-      { id: "A06 Passenger Side View", label: "A06 - 副驾侧视 (Passenger Side View)", thumb: "/thumbnails/armrest_thumb_06.jpg" },
-      { id: "A07 Directly Above View", label: "A07 - 正上方俯视 (Directly Above View)", thumb: "/thumbnails/armrest_thumb_07.jpg" },
-      { id: "A08 Passenger Rear Diagonal", label: "A08 - 副驾后方斜视 (Passenger Rear Diagonal)", thumb: "/thumbnails/armrest_thumb_08.jpg" },
-      { id: "A09 Product Close-up", label: "A09 - 产品特写 (Product Close-up)", thumb: "/thumbnails/armrest_thumb_09.jpg" },
-      { id: "A10 Wipe Demo", label: "A10 - 擦拭演示 (Wipe Demo)", thumb: "/thumbnails/armrest_thumb_10.jpg" },
-      { id: "A11 Rear Standard View", label: "A11 - 后排标准俯视 (Rear Standard View)", thumb: "/thumbnails/armrest_thumb_11.jpg" },
-      { id: "A12 Sunset Lifestyle", label: "A12 - 日落使用场景 (Sunset Lifestyle)", thumb: "/thumbnails/armrest_thumb_12.jpg" },
-      { id: "A13 Installation Demo", label: "A13 - 安装演示 (Installation Demo)", thumb: "/thumbnails/armrest_thumb_13.jpg" },
-      { id: "A14 Driver Door View", label: "A14 - 驾驶位门口视角 (Driver Door View)", thumb: "/thumbnails/armrest_thumb_14.jpg" },
-      { id: "A15 Pet Lifestyle", label: "A15 - 宠物生活场景 (Pet Lifestyle)", thumb: "/thumbnails/armrest_thumb_15.jpg" },
-      { id: "A16 Driver Rear Wide", label: "A16 - 驾驶座后方广角 (Driver Rear Wide)", thumb: "/thumbnails/armrest_thumb_16.jpg" },
-      { id: "A17 Driver Side Scenario", label: "A17 - 驾驶位正侧场景 (Driver Side Scenario)", thumb: "/thumbnails/armrest_thumb_17.jpg" }
+      { id: "A01 White Background 1", label: "A01 - 白底悬浮展示 (White BG Floating)", thumb: "/thumbnails/1.jpg" },
+      { id: "A02 White Background 2", label: "A02 - 白底平铺展示 (White BG Flat)", thumb: "/thumbnails/2.jpg" },
+      { id: "A03 Rear Closed View", label: "A03 - 后排安装视角-闭合 (Rear Closed)", thumb: "/thumbnails/3.jpg" },
+      { id: "A04 Rear Open View", label: "A04 - 后排功能视角-打开 (Rear Open)", thumb: "/thumbnails/4.jpg" },
+      { id: "A05 Driver Side View", label: "A05 - 驾驶侧视角 (Driver Side)", thumb: "/thumbnails/5.jpg" },
+      { id: "A06 Passenger Side View", label: "A06 - 副驾侧视角 (Passenger Side)", thumb: "/thumbnails/6.jpg" },
+      { id: "A07 Top-Down View", label: "A07 - 垂直俯视 (Top-Down)", thumb: "/thumbnails/7.jpg" },
+      { id: "A08 Rear Diagonal", label: "A08 - 后侧方斜视 (Rear Diagonal)", thumb: "/thumbnails/8.jpg" },
+      { id: "A09 Material Close-up", label: "A09 - 材质特写 (Material Close-up)", thumb: "/thumbnails/9.jpg" },
+      { id: "A10 Driving Scenario", label: "A10 - 驾驶场景-握盘 (Driving Scenario)", thumb: "/thumbnails/10.jpg" },
+      { id: "A11 Rear Standard", label: "A11 - 后排标准俯视 (Rear Standard)", thumb: "/thumbnails/11.jpg" },
+      { id: "A12 Pet Interaction Paws", label: "A12 - 宠物互动-趴姿 (Pet Paws)", thumb: "/thumbnails/12.jpg" },
+      { id: "A13 Waterproof Wipe", label: "A13 - 防水擦拭演示 (Waterproof Wipe)", thumb: "/thumbnails/13.jpg" },
+      { id: "A14 Installation Demo", label: "A14 - 安装演示 (Installation Demo)", thumb: "/thumbnails/14.jpg" },
+      { id: "A15 Arm Rest Comfort", label: "A15 - 手臂倚靠舒适度 (Arm Comfort)", thumb: "/thumbnails/15.jpg" },
+      { id: "A16 Rear Ajar View", label: "A16 - 后排-半开展示 (Rear Ajar)", thumb: "/thumbnails/16.jpg" },
+      { id: "A17 Driver High Angle", label: "A17 - 驾驶侧-高角度 (Driver High Angle)", thumb: "/thumbnails/17.jpg" },
+      { id: "A18 Pet Interaction Sitting", label: "A18 - 宠物互动-坐姿 (Pet Sitting)", thumb: "/thumbnails/18.jpg" }
     ]
   }
 ];
@@ -153,9 +154,11 @@ const SeatCoverTab: React.FC = () => {
     if (cat === "Armrest Box") {
       setSeatConfig("Armrest Box");
       setTargetRow("A01 White Background 1");
+      setAnglePreset("Follow Focus Row"); // FORCE FOLLOW FOCUS for Armrest logic
     } else {
       setSeatConfig("5-Seater");
       setTargetRow("F1 High-Angle Top-Down");
+      setAnglePreset("Follow Focus Row");
     }
   };
 
@@ -717,7 +720,13 @@ const SeatCoverTab: React.FC = () => {
                                     : 'text-pastel-text hover:bg-pastel-bg'
                                     }`}
                                 >
-                                  <span>{option.label}</span>
+                                  <div>
+                                    <span>{option.label}</span>
+                                    {/* Debug: Show Filename */}
+                                    <span className="ml-2 text-[10px] text-gray-400 font-mono">
+                                      ({option.thumb?.split('/').pop()})
+                                    </span>
+                                  </div>
                                   {targetRow === option.id && <Check className="w-4 h-4" />}
                                 </div>
                               ))}
