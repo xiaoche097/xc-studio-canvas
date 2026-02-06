@@ -97,6 +97,9 @@ const SeatCoverTab: React.FC = () => {
   const [selectedPoints, setSelectedPoints] = useState<Record<number, EditPoint[]>>({});
   const [editRefFiles, setEditRefFiles] = useState<Record<number, File[]>>({});
   const [editRefPreviews, setEditRefPreviews] = useState<Record<number, string[]>>({});
+  const [showEditRefineInput, setShowEditRefineInput] = useState<Record<number, boolean>>({});
+  const [editRefineInstructions, setEditRefineInstructions] = useState<Record<number, string>>({});
+  const [isOptimizingEdit, setIsOptimizingEdit] = useState<Record<number, boolean>>({});
 
   // Zoom & Download Helpers
   const [zoomImage, setZoomImage] = useState<string | null>(null);
@@ -247,6 +250,39 @@ const SeatCoverTab: React.FC = () => {
       ...prev,
       [imgIndex]: prev[imgIndex]?.filter((_, i) => i !== fileIndex) || []
     }));
+  };
+
+  const handleOptimizeEditPrompt = async (index: number) => {
+    const prompt = editPrompts[index];
+    if (!prompt) return;
+    setIsOptimizingEdit(prev => ({ ...prev, [index]: true }));
+    try {
+      const optimized = await optimizePrompt(prompt);
+      const cleanOptimized = optimized.replace(/^#+\s.*\\n/gm, '').replace(/\\*\\*.*\\*\\*\\n/gm, '').trim();
+      setEditPrompts(prev => ({ ...prev, [index]: cleanOptimized }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsOptimizingEdit(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
+  const handleRefineEditPrompt = async (index: number) => {
+    const prompt = editPrompts[index];
+    const instruction = editRefineInstructions[index];
+    if (!instruction || !prompt) return;
+    setIsOptimizingEdit(prev => ({ ...prev, [index]: true }));
+    try {
+      const optimized = await optimizePrompt(prompt, undefined, instruction);
+      const cleanOptimized = optimized.replace(/^#+\s.*\\n/gm, '').replace(/\\*\\*.*\\*\\*\\n/gm, '').trim();
+      setEditPrompts(prev => ({ ...prev, [index]: cleanOptimized }));
+      setEditRefineInstructions(prev => ({ ...prev, [index]: '' }));
+      setShowEditRefineInput(prev => ({ ...prev, [index]: false }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsOptimizingEdit(prev => ({ ...prev, [index]: false }));
+    }
   };
 
   const handleEditImage = async (index: number) => {
@@ -969,20 +1005,87 @@ const SeatCoverTab: React.FC = () => {
                         </div>
 
                         <div className="flex gap-2 items-start">
-                          <div className="relative flex-1">
-                            <textarea
-                              value={editPrompts[idx] || ''}
-                              onChange={(e) => setEditPrompts(prev => ({ ...prev, [idx]: e.target.value }))}
-                              placeholder={selectedPoints[idx]?.length
-                                ? `[已标记 ${selectedPoints[idx]?.length} 处区域] 请描述修改内容...`
-                                : "在此输入微调指令 (例如: 座椅换成深红色 / 增加车内光照 / 放置一个手提袋)"}
-                              className={`w-full text-xs bg-white border rounded-lg pl-3 pr-3 py-2 min-h-[80px] focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text shadow-sm placeholder:text-gray-400 transition-colors resize-y ${selectedPoints[idx]?.length ? 'border-blue-300 ring-1 ring-blue-50' : 'border-gray-200'}`}
-                            />
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-center justify-between px-1">
+                              <span className="text-[10px] font-bold text-pastel-muted uppercase tracking-wider">微调指令</span>
+                              {!showEditRefineInput[idx] && (
+                                <button
+                                  onClick={() => setShowEditRefineInput(prev => ({ ...prev, [idx]: true }))}
+                                  className="text-[9px] font-bold text-pastel-highlight hover:text-pastel-text transition-colors flex items-center gap-1"
+                                >
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  继续优化
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="relative group">
+                              <div className={`
+                                relative bg-white border transition-all duration-300 rounded-xl overflow-hidden
+                                ${isOptimizingEdit[idx] ? 'border-pastel-pink shadow-[0_0_15px_rgba(212,134,159,0.15)]' : 'border-gray-200 focus-within:border-pastel-pink focus-within:ring-2 focus-within:ring-pastel-pink/5 shadow-sm'}
+                              `}>
+                                <textarea
+                                  value={editPrompts[idx] || ''}
+                                  onChange={(e) => setEditPrompts(prev => ({ ...prev, [idx]: e.target.value }))}
+                                  placeholder={selectedPoints[idx]?.length
+                                    ? `[已标记 ${selectedPoints[idx]?.length} 处区域] 请描述修改内容...`
+                                    : "在此输入微调指令 (例如: 座椅换成深红色 / 增加车内光照 / 放置一个手提袋)"}
+                                  className="w-full text-xs bg-transparent border-none outline-none p-3 pr-10 min-h-[80px] text-pastel-text placeholder:text-gray-400 group-disabled:opacity-50"
+                                  disabled={isOptimizingEdit[idx]}
+                                />
+                                {/* Embedded Polish Button */}
+                                <div className="absolute bottom-2 right-2">
+                                  <button
+                                    onClick={() => handleOptimizeEditPrompt(idx)}
+                                    disabled={!editPrompts[idx] || isOptimizingEdit[idx]}
+                                    title="AI 智能润色"
+                                    className={`
+                                      h-7 w-7 rounded-full flex items-center justify-center transition-all duration-300
+                                      ${isOptimizingEdit[idx]
+                                        ? 'bg-pastel-bg text-pastel-muted cursor-wait animate-spin'
+                                        : 'bg-pastel-text text-white hover:bg-gradient-to-r hover:from-pastel-pink hover:to-pastel-highlight shadow-sm'}
+                                    `}
+                                  >
+                                    {isOptimizingEdit[idx] ? <Loader2 className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Per-image refinement input section */}
+                              {showEditRefineInput[idx] && (
+                                <div className="mt-1.5 animate-in slide-in-from-top-1 duration-200">
+                                  <div className="flex gap-1.5 p-1 bg-pastel-bg/50 rounded-lg border border-pastel-border/50">
+                                    <input
+                                      value={editRefineInstructions[idx] || ''}
+                                      onChange={(e) => setEditRefineInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
+                                      onKeyDown={(e) => e.key === 'Enter' && handleRefineEditPrompt(idx)}
+                                      placeholder="优化指令..."
+                                      className="flex-1 bg-transparent px-2 py-1 text-[10px] font-medium text-pastel-text focus:outline-none placeholder:text-pastel-muted/70"
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={() => handleRefineEditPrompt(idx)}
+                                      disabled={!editRefineInstructions[idx] || isOptimizingEdit[idx]}
+                                      className="px-2 py-0.5 bg-white border border-pastel-border rounded-md text-[10px] font-bold text-pastel-highlight hover:bg-pastel-highlight hover:text-white transition-all shadow-sm"
+                                    >
+                                      发送
+                                    </button>
+                                    <button
+                                      onClick={() => setShowEditRefineInput(prev => ({ ...prev, [idx]: false }))}
+                                      className="p-1 text-pastel-muted"
+                                    >
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
+
                           <button
                             onClick={() => handleEditImage(idx)}
-                            disabled={!editPrompts[idx] || isEditing[idx]}
-                            className={`h-[80px] w-[80px] rounded-lg font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 flex-shrink-0 ${editPrompts[idx] && !isEditing[idx]
+                            disabled={!editPrompts[idx] || isEditing[idx] || isOptimizingEdit[idx]}
+                            className={`h-[80px] w-[80px] rounded-lg font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-sm active:scale-95 flex-shrink-0 mt-[22px] ${editPrompts[idx] && !isEditing[idx] && !isOptimizingEdit[idx]
                               ? "bg-pastel-pink text-white hover:bg-orange-600 shadow-md"
                               : "bg-gray-100 text-gray-400 cursor-not-allowed"
                               }`}
