@@ -823,13 +823,12 @@ export const generateSeatCoverFit = async (
 **SCENE_DESCRIPTION**: ${angleInstruction}
 
 ${visualGuide ? `
-**VISUAL_TARGET (IMAGE ${guideIndex})**:
-- ⛔ **ROLE**: Image ${guideIndex} is the **BASE CANVAS**.
-- **OPERATION**: Perform **DIGITAL SURGERY** on Image ${guideIndex}.
-- **FREEZE**: Do NOT regenerate the dog, the car interior, the lighting, or the angle. Keep them pixel-perfect.
-- **ACTION**: **INPAINT/RE-RENDER ONLY** the center console armrest surface.
-- **GOAL**: Replace the original armrest surface with the texture and 3D form of the [PRODUCT MASTER] (Images 1-${productCount}).
-- **BLENDING**: Ensure the new product casts correct shadows onto the existing seats and interacts naturally with the dog/hands.
+**VISUAL_REFERENCE_GUIDE (IMAGE ${guideIndex})**:
+- **ROLE**: Image ${guideIndex} is your **COMPOSITION BLUEPRINT**.
+- **MANDATORY ACTION**: RENDER A NEW IMAGE that perfectly matches the **Camera Angle**, **Lighting**, and **Scene Layout** of Image ${guideIndex}.
+- **SUBJECT SWAP**: The central armrest cover in the generated image MUST BE the [PRODUCT MASTER] (Images 1-${productCount}), NOT the one from the reference image.
+- **SURROUNDINGS**: Re-create the environment (e.g. Dog, Hands, Car Interior) to match the reference image's positions and poses, but ensure they interact naturally with the NEW product.
+- **ANGLE COMPLIANCE**: 100% adherence to the reference camera perspective is required.
 ` : ""}
 
 ---
