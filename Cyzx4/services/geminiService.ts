@@ -823,12 +823,12 @@ export const generateSeatCoverFit = async (
 **SCENE_DESCRIPTION**: ${angleInstruction}
 
 ${visualGuide ? `
-**VISUAL_BLUEPRINT (IMAGE ${guideIndex})**:
-- **FUNCTION**: Use Image ${guideIndex} strictly as a **GEOMETRIC DATA SOURCE** for Camera Angle and Composition.
-- **CONTENT HANDLING**: ⛔ **DO NOT COPY PIXELS**. The reference image content is for *layout only*.
-- **SCENE GENERATION**: Generate the scene described in **"SCENE_DESCRIPTION"** (e.g. Dog, Hand, Car Interior) from scratch.
-- **STRICT ANGLE LOCK**: Your camera placement, focal length, and perspective must be a **1:1 MATCH** to Image ${guideIndex}.
-- **PRODUCT PLACEMENT**: The new armrest cover MUST occupy the **exact same screen coordinates** and **3D orientation** as the object in the reference.
+**VISUAL_LAYOUT_GUIDE (IMAGE ${guideIndex})**:
+- **ROLE**: Image ${guideIndex} contains the **CORRECT ANGLE** but the **WRONG PRODUCT**.
+- ⛔ **IGNORE THE PRODUCT**: The black armrest cover shown in Image ${guideIndex} is a **GENERIC PLACEHOLDER**. You MUST NOT output it.
+- **MANDATORY SWAP**: You must GENERATE A NEW IMAGE where the [PRODUCT MASTER] (Images 1-${productCount}) **REPLACES** the placeholder object.
+- **POSE COPY**: Copy the **exact pose** of the dog/driver from Image ${guideIndex}, but render them interacting with the **NEW** product.
+- **ANGLE LOCK**: Maintain the camera perspective of Image ${guideIndex}, but **RE-RENDER THE PIXELS**. DO NOT return the original image.
 ` : ""}
 
 ---
