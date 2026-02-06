@@ -805,30 +805,37 @@ export const generateSeatCoverFit = async (
     // 4. Construct V4.0 Prompt
 
     const v4Prompt = `
-## ✅ AutoFusion™ Pro V4.2 (Identity-Lock™ Edition)
+## ✅ AutoFusion™ Pro V4.3 (Composition-Command™ Edition)
 
-**SYSTEM**: AutoFusion™ Pro V4.2 - High-Fidelity Automotive Visualization
+**SYSTEM**: AutoFusion™ Pro V4.3 - Strict Perspective & Identity Control
 **CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
-**PRIORITY**: PRODUCT_IDENTITY > CAMERA_ANGLE > ENVIRONMENT
+**ORDER_OF_OPERATIONS**: 1. CAMERA_ANGLE (BLUEPRINT) > 2. PRODUCT_IDENTITY (LOCK) > 3. VEHICLE_MATCH
 
 ---
 
-## 🖼️ INPUT IMAGE ANALYSIS (STRICT HIERARCHY)
+## 📐 1. CAMERA & PERSPECTIVE [MANDATORY BLUEPRINT]
 
-You have received ${productCount + (visualGuide ? 1 : 0)} input images.
-
-1. **IMAGES 1-${productCount}**: [PRODUCT MASTER] -> **ABSOLUTE IDENTITY SOURCE**. 
-   - These images define the EXACT design, shape, proportions, patterns (e.g., quilting), and material.
-   - ⛔ **IDENTICAL REPRODUCTION REQUIRED**: The product in the final output MUST be an exact physical replica of these images. 
-   - **STRUCTURAL LOCK**: Do not open/close lids, move parts, or alter the 3D geometry of the product shown here.
-
-${visualGuide ? `2. **IMAGE ${guideIndex}**: [LAYOUT MASTER] -> **SCENE REFERENCE ONLY**.
-   - Use this image ONLY for Camera Perspective, Focal Length, and Positioning.
-   - ⛔ **IGNORE PRODUCT DESIGN IN THIS IMAGE**: Do NOT copy the product appearance from this image. Replace it completely with the [PRODUCT MASTER].` : ""}
+**ANGLE_ID**: ${angleId}
+**SCENE_GEOMETRY**: ${angleInstruction}
+${visualGuide ? `
+**LAYOUT_MASTER (IMAGE ${guideIndex})**: 
+- ⛔ **STRICT MIRRORING REQUIRED**: You MUST treat IMAGE ${guideIndex} as a technical blueprint.
+- **FOCAL_LENGTH**: Match the lens compression of Image ${guideIndex}.
+- **POSITIONING**: The product's placement, scale within the frame, and rotation MUST be a 1:1 match to Image ${guideIndex}.
+- **CROP**: Duplicate the exact framing and peripheral view boundaries of Image ${guideIndex}.` : ""}
 
 ---
 
-## 🎯 ${missionText}
+## 🖼️ 2. PRODUCT IDENTITY [STRUCTURAL LOCK]
+
+**PRODUCT_SOURCE**: IMAGES 1-${productCount}
+- ⛔ **IDENTICAL REPRODUCTION**: The product in the output MUST be a physical clone of the [PRODUCT MASTER].
+- **STRUCTURE**: Do not change the 3D geometry, pattern density (quilting), or material sheen.
+- **LOCK**: Every stitch line and panel transition from the source MUST be preserved.
+
+---
+
+## 🎯 3. ${missionText}
 
 ${customRequest ? `
 ## 🗨️ USER CUSTOM REQUEST [HIGH PRIORITY]
@@ -837,15 +844,7 @@ ${customRequest ? `
 
 ---
 
-## 📐 CAMERA & PERSPECTIVE [STRUCTURAL LOCK]
-
-**ANGLE_REFERENCE**: ${angleId}
-**DIRECTION**: ${angleInstruction}
-${visualGuide ? `\n> **VISUAL ALIGNMENT**: Mirror the camera viewpoint and object rotation of IMAGE ${guideIndex} 1.0x. Ensure the product sits in the exact same spatial coordinates.` : ""}
-
----
-
-## 🚗 VEHICLE & ENVIRONMENT
+## 🚗 4. VEHICLE & ENVIRONMENT
 
 | Attribute | Value |
 |-----------|-------|
@@ -854,57 +853,31 @@ ${visualGuide ? `\n> **VISUAL ALIGNMENT**: Mirror the camera viewpoint and objec
 | Context | ${isSingleSeat ? "STUDIO (Neutral)" : "VEHICLE INTERIOR"} |
 
 ${isSingleSeat
-        ? "**STUDIO RULES**: No seats in background. No steering wheel. Pure product focus."
-        : `**INTERIOR RULES**: Dashboard layout must match ${year} ${carModel} precisely. Integrate naturally into center console.`
+        ? "**ENVIRONMENT**: Clean studio aesthetic. Sharp focus. No background clutter."
+        : `**ENVIRONMENT**: Integrate the product into a high-end ${year} ${carModel} interior. Textures and lighting must match the automotive cabin context.`
       }
 
 ---
 
-## 🎨 COLOR & MATERIAL FIDELITY
+## 🎨 5. MATERIAL & LIGHTING
 
 | Component | Protocol |
 |-----------|-------|
-| **PRODUCT** | ⛔ **ZERO ALTERATION ALLOWED**. Match original color, sheen, and quilting pattern. |
-| Dashboard | ${isSingleSeat ? "REMOVED" : "High-End OEM Black"} |
-| Cabin Vibe | ${isSingleSeat ? "Studio Catalog" : "Professional Automotive Photography"} |
+| **PRODUCT** | **MATCH REFERENCE EXACTLY**. No color shift. |
+| **LIGHTING** | Professional commercial automotive studio lighting. Diffused key light. |
+| **FINISH** | Photorealistic texture. Visible leather grain. No 3D-render smoothness. |
 
 ---
 
-## 🛠️ PRODUCT INSTALLATION [PIXEL-PERFECT FIT]
+## 🛠️ INSTALLATION LOGIC
 
 ${productCategory === "Armrest Box" ? `
-### ARMREST BOX IDENTITY LOCK
-- **SHAPE**: Maintain the specific curvature and dimensions shown in [PRODUCT MASTER].
-- **PATTERN**: The quilting pattern (diamonds/lines) must match the density and style of the reference images exactly.
-- **SURFACE**: If the product is leather, render visible grain and soft specular highlights.
-- **PLACEMENT**: ${isSingleSeat ? "Isolated on a clean surface." : "Fits perfectly onto the center console of the " + carModel + "."}
+- **SHAPE**: Duplicate the curvature and rigid 3D form from [PRODUCT MASTER].
+- **PLACEMENT**: ${isSingleSeat ? "Neutral studio surface." : "Fits perfectly on the " + carModel + " center console."}
 ` : `
-### SEAT COVER IDENTITY LOCK
-- **DESIGN**: Every panel, stitch line, and color block from the [PRODUCT MASTER] must be preserved.
-- **FIT**: Wrap tightly around the seat frame of the ${carModel}. No deformation of the cover's design.
-- **LOGIC**: The cover is a "skin". It inherits the shape of the seat but keeps its own textures and patterns.
+- **FIT**: Wrap tightly around the ${carModel} seat frame.
+- **DESIGN**: Preserve the seat cover's original color-blocking and pattern.
 `}
-
-### COMMON REALISM CHECKLIST
-- [ ] Lighting matches the car interior environment.
-- [ ] Texture Scale is realistic (leather grain size).
-- [ ] No floating artifacts; product must look physically anchored.
-
----
-
-## 💡 LIGHTING SETUP
-
-┌─────────────────────────────────────┐
-│         ☀️ KEY LIGHT               │
-│         (Soft diffused, upper front)│
-└─────────────────────────────────────┘
-
-- **Style**: ${isSingleSeat ? "Product Catalog Studio (Isolated)" : "Commercial Studio (Interior)"}
-- **Environment**: ${isSingleSeat ? "Neutral Studio Grey/White Gradient (No Background Distractions)" : "Pure white cyclorama / Neutral grey studio"}
-
----
-
-## 🏷️ BRAND DNA ADAPTATION
 
 Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
 
