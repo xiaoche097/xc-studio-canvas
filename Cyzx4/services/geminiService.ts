@@ -1732,6 +1732,11 @@ Clone the **Visual Structure & Marketing Layout** of the [LAYOUT MASTER] exactly
    - Re-draw the marketing copy found in the Master image (e.g., "Durable", "Soft").
    - Match the font style, color, and background shapes of the text.
 
+**QUALITY UPSCALING (CRITICAL)**:
+1. **PROFESSIONAL POLISH**: If the input [LAYOUT MASTER] is low-res or screenshot quality, **UPGRADE IT**. The output must look like a high-end 8K render. Eliminate noise and jagged edges.
+2. **AESTHETIC UPGRADE**: Keep the layout structure, but make lighting, shadows, and materials more premium than the source.
+3. **MASTERPIECE RULE**: Even if the reference is ugly, the result must be beautiful.
+
 **STRICT CONSTRAINTS**:
 ${retouch ? `
 - **✨ SMART ENHANCE**: Polish the product (richer textures, better lighting) to match the high-end look of the layout.
@@ -1741,7 +1746,13 @@ ${retouch ? `
 - **✅ ALLOWED**: You ARE allowed to generate text, borders, and UI elements if they exist in the Reference Image.
 - **⛔ MATCH THE FORMAT**: If the reference is a collage, MAKE A COLLAGE. If it's a single shot, make a single shot. **Ignore previous instructions banning collages.**
 
-${customPrompt ? `**CUSTOM USER REQUEST**: ${customPrompt}` : ''}
+${customPrompt ? `
+**USER CONTEXT OVERRIDE (HIGHEST TRUTH)**:
+The user has provided specific scene details. **YOU MUST OBEY THIS over the visual content of the reference image.**
+- **Instruction**: "${customPrompt}"
+- **Logic**: If the user specifies a specific car model (e.g., "Tesla Model Y"), you MUST render that specific car's interior layout/buttons/details, even if the [LAYOUT MASTER] shows a different car.
+- **Priority**: Text Context > Visual Context.
+` : ''}
 
 **OUTPUT SPEC**:
 - Aspect Ratio: ${aspectRatio}

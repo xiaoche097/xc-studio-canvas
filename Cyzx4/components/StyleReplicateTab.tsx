@@ -394,7 +394,7 @@ const StyleReplicateTab: React.FC = () => {
                                                 <img
                                                     src={img.preview}
                                                     alt={`Style Ref ${idx + 1}`}
-                                                    className={`w-full object-cover rounded-lg border border-pastel-border ${styleReferences.length === 1 ? 'h-40 object-contain' : 'h-20'}`}
+                                                    className={`w-full rounded-lg border border-pastel-border ${styleReferences.length === 1 ? 'h-auto max-h-[500px] object-contain' : 'h-24 object-cover'}`}
                                                 />
                                                 <button
                                                     onClick={(e) => {
@@ -488,13 +488,20 @@ const StyleReplicateTab: React.FC = () => {
 
                         {/* Custom Prompt */}
                         <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-                            <h3 className="font-semibold text-pastel-text mb-2">补充提示词（可选）</h3>
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="font-semibold text-pastel-text">场景/细节补充说明</h3>
+                                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-medium">最高优先级</span>
+                            </div>
                             <textarea
                                 value={customPrompt}
                                 onChange={(e) => setCustomPrompt(e.target.value)}
-                                placeholder='例如：添加「限时特惠」文字、使用红色主题...'
-                                className="w-full h-20 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+                                placeholder='例如：这是特斯拉 Model Y 2017 内饰；使用红色节日氛围；添加“限时特惠”文字... (此处的描述将覆盖参考图中的原有物体信息)'
+                                className="w-full h-24 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
                             />
+                            <p className="text-xs text-pastel-muted mt-2 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                AI 将优先遵循此处的文字指令来确定产品型号或场景细节
+                            </p>
                         </div>
 
                         {/* Config Options */}
@@ -737,18 +744,18 @@ const StyleReplicateTab: React.FC = () => {
                 <div className="grid grid-cols-3 gap-4 mt-8">
                     <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
                         <Palette className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
-                        <h4 className="font-semibold text-pastel-text text-sm">智能风格融合</h4>
-                        <p className="text-xs text-pastel-muted mt-1">AI 将准确提取参考图的设计言和视觉风格</p>
+                        <h4 className="font-semibold text-pastel-text text-sm">全案视觉复刻</h4>
+                        <p className="text-xs text-pastel-muted mt-1">AI 像素级还原参考图的排版布局、边框与设计元素</p>
                     </div>
                     <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
                         <Package className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
-                        <h4 className="font-semibold text-pastel-text text-sm">产品特性保留</h4>
-                        <p className="text-xs text-pastel-muted mt-1">完整保留产品细节和卖点，突出商品优势</p>
+                        <h4 className="font-semibold text-pastel-text text-sm">智能文案重写</h4>
+                        <p className="text-xs text-pastel-muted mt-1">自动识别并重绘营销文案，完美融入新产品语境</p>
                     </div>
                     <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
                         <FileOutput className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
-                        <h4 className="font-semibold text-pastel-text text-sm">一键生成导出</h4>
-                        <p className="text-xs text-pastel-muted mt-1">快速生成高清大图，支持多种尺寸导出</p>
+                        <h4 className="font-semibold text-pastel-text text-sm">电商详情导出</h4>
+                        <p className="text-xs text-pastel-muted mt-1">直接生成可商用的高转化详情页，支持拼图与长图</p>
                     </div>
                 </div>
             </div>
