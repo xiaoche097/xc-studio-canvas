@@ -221,24 +221,29 @@ const StyleReplicateTab: React.FC = () => {
             for (const [index, styleRef] of stylesToProcess.entries()) {
                 if (!styleRef.base64) continue;
 
-                // If it's a batch of many styles, maybe reduce generateCount per style to 1 by default?
-                // But let's respect the user setting.
+                try {
+                    console.log(`[Batch] Processing Style ${index + 1}/${stylesToProcess.length}...`);
+                    const results = await generateStyleReplication(
+                        { base64: styleRef.base64, mime: styleRef.mime || 'image/png' },
+                        productImages.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
+                        customPrompt || undefined,
+                        {
+                            aspectRatio,
+                            resolution,
+                            count: generateCount,
+                            model: selectedModel,
+                            retouch: isRetouchEnabled
+                        }
+                    );
+                    allResults.push(...results);
+                } catch (err) {
+                    console.error(`[Batch] Failed to process Style ${index + 1}:`, err);
+                    // Do not stop the loop, continue to next style
+                }
+            }
 
-                // If single mode, stylesToProcess has 1 item.
-
-                const results = await generateStyleReplication(
-                    { base64: styleRef.base64, mime: styleRef.mime || 'image/png' },
-                    productImages.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
-                    customPrompt || undefined,
-                    {
-                        aspectRatio,
-                        resolution,
-                        count: generateCount,
-                        model: selectedModel,
-                        retouch: isRetouchEnabled
-                    }
-                );
-                allResults.push(...results);
+            if (allResults.length === 0) {
+                throw new Error("Batch generation failed completely. Please check inputs and try again.");
             }
 
             // Convert base64 to data URLs for display

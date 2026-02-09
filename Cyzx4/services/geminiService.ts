@@ -1,4 +1,4 @@
-import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
 
 // ==================== API Configuration Helper ====================
@@ -1699,59 +1699,60 @@ export const generateStyleReplication = async (
   const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3-pro-image-preview", retouch = false } = options;
 
   // Build the prompt for style replication
+  // Build the prompt for style replication
+  // Build the prompt for style replication
   const productCount = productImages.length;
-  const prompt = `
-## 🛍️ AutoFusion™ V2 - Product-Centric Style Transfer
+  // Indexing starts at 1. 
+  // Product Images: 1 to productCount
+  // Style Reference: productCount + 1
 
-**PRIORITY HIERARCHY**:
-- **TIER 1 (Supreme Priority)**: 📦 **[THE PRODUCT]** (Images 2-${1 + productCount}) - The geometric and structural truth. AI MUST NOT ALTER THE SHAPE, DESIGN, OR PHYSICAL PROPERTIES of these objects.
-- **TIER 2 (Style Guide)**: 🎨 **[STYLE REFERENCE]** (Image 1) - ONLY for lighting, color grading, background atmosphere, and text layout. DO NOT USE THE OBJECTS INSIDE THIS IMAGE.
+  const prompt = `
+## 🛍️ AutoFusion™ V5 - Full Marketing Layout Cloning
+
+**INPUT MANIFEST**:
+1. **THE PRODUCT (Images 1 to ${productCount})**: 📦 The item to sell. (Keep its shape/design).
+2. **THE LAYOUT MASTER (Image ${productCount + 1})**: 📐 **[Strict Layout Template]**. This image defines the **composition, text overlays, borders, banners, and split-screen structure**.
 
 **MISSION**:
-You are a professional product photographer and compositor. Your goal is to insert the **exact** product from [THE PRODUCT] images into the scene/mood of [STYLE REFERENCE].
+Clone the **Visual Structure & Marketing Layout** of the [LAYOUT MASTER] exactly, but replace the *featured product* with **[THE PRODUCT]**.
 
-**EXECUTION PROTOCOL**:
-1. **Product Extraction**: Isolate the product from Images 2+. Maintain its exact geometry, seams, stitching, and proportions.
-2. **Scene Reconstruction**: Recreate the environment of [STYLE REFERENCE] but **REMOVE** any existing product/object from it.
-3. **Implantation**: Place [THE PRODUCT] into the reconstructed scene.
-   - **Scale**: Match the scale of the original object in the reference (e.g., if the reference shows a seat cover, your product must fill that same space).
-   - **Lighting**: Apply the *exact* lighting direction, softness, and color temperature from the reference to the product.
-   - **Text & UI**: If the reference has text overlays (e.g., "Easy Installation"), re-generate them around the new product.
+**EXECUTION PROTOCOL (MANDATORY)**:
+1. **LAYOUT MATCHING**:
+   - If the Master has a **Split Screen (Before/After)**, you MUST generate a Split Screen.
+   - If the Master has **Text overlays/Banners** (e.g., "Easy Install", "Waterproof"), you MUST recreate similar text/banners in the same position.
+   - If the Master has **Arrows/Icons**, you MUST draw similar graphics.
 
-**STRICT CONSTRAINTS (CRITICAL)**:
+2. **PRODUCT IMPLANTATION**:
+   - Locate where the *main product* is in the [LAYOUT MASTER].
+   - Swap it with **[THE PRODUCT]**.
+   - Keep the background environment of the Master, but ensure it fits the new product.
+
+3. **TEXT & UI RECONSTRUCTION**:
+   - **Do not output a clean photo.** Output a **Marketing Graphic**.
+   - Re-draw the marketing copy found in the Master image (e.g., "Durable", "Soft").
+   - Match the font style, color, and background shapes of the text.
+
+**STRICT CONSTRAINTS**:
 ${retouch ? `
-- **✨ SMART RETOUCH (ENABLED)**:
-  - **Enhance Materials**: improving textures (e.g., make leather look premium/richer, metal more polished).
-  - **Clean Up**: Remove dust, scratches, and minor imperfections from the product source image.
-  - **Optimize Lighting**: Ensure the product is lit flatteringly while matching the scene.
-  - **Constraint**: You may improve *quality* but DO NOT change the *design* (buttons, shape, features must stay).
+- **✨ SMART ENHANCE**: Polish the product (richer textures, better lighting) to match the high-end look of the layout.
 ` : `
-- **⛔ STRUCTURAL LOCK**: The geometry of [THE PRODUCT] is LOCKED. Do not hallucinate new buttons, change curves, or alter materials. It must look exactly like the provided product photos.
-- **⛔ NO REFERENCE LEAKAGE**: Do not output the product found in Image 1. If Image 1 shows a competitor's product, it MUST be replaced.
+- **⛔ STRUCTURAL LOCK**: Keep the product geometry 100% accurate.
 `}
-- **⛔ NO DISTORTION**: Do not stretch or squash the product. If aspect ratios differ, extend the background, do not warp the subject.
-- **Photorealism**: The final result must look like a raw photo, not a collage. Shadows must fall correctly on the product.
+- **✅ ALLOWED**: You ARE allowed to generate text, borders, and UI elements if they exist in the Reference Image.
+- **⛔ MATCH THE FORMAT**: If the reference is a collage, MAKE A COLLAGE. If it's a single shot, make a single shot. **Ignore previous instructions banning collages.**
 
-${customPrompt ? `**USER CUSTOM INSTRUCTIONS (Highest Priority)**: ${customPrompt}` : ''}
+${customPrompt ? `**CUSTOM USER REQUEST**: ${customPrompt}` : ''}
 
-**OUTPUT CONFIGURATION**:
+**OUTPUT SPEC**:
 - Aspect Ratio: ${aspectRatio}
-- Quality: Commercial/Editorial Standard (8k resolution style)
-- Focus: The Product is the Hero.
+- Format: E-commerce Listing Image (with Text/Graphics)
+- Quality: Commercial Design Standard
 `;
 
   // Build parts array
   const parts: any[] = [];
 
-  // Add style reference image first
-  parts.push({
-    inlineData: {
-      mimeType: styleReference.mime,
-      data: styleReference.base64,
-    },
-  });
-
-  // Add product images
+  // 1. Add product images FIRST
   for (const img of productImages) {
     parts.push({
       inlineData: {
@@ -1761,7 +1762,15 @@ ${customPrompt ? `**USER CUSTOM INSTRUCTIONS (Highest Priority)**: ${customPromp
     });
   }
 
-  // Add text prompt
+  // 2. Add style reference image LAST
+  parts.push({
+    inlineData: {
+      mimeType: styleReference.mime,
+      data: styleReference.base64,
+    },
+  });
+
+  // 3. Add text prompt
   parts.push({ text: prompt });
 
   const results: string[] = [];
@@ -1779,6 +1788,12 @@ ${customPrompt ? `**USER CUSTOM INSTRUCTIONS (Highest Priority)**: ${customPromp
             aspectRatio: aspectRatio,
             imageSize: resolution,
           },
+          safetySettings: [
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          ],
         },
       });
 
