@@ -41,3 +41,10 @@ export interface LogMessage {
   text: string;
   timestamp: number;
 }
+
+export interface EditPoint {
+  id: number;
+  x: number;
+  y: number;
+  snapshot?: string;
+}
