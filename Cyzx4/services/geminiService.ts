@@ -806,115 +806,243 @@ export const generateSeatCoverFit = async (
         ? `MISSION: Create a Macro/Detail commercial photograph. Focus strictly on the **${productCategory}** texture and fit. Blur the ${carModel} interior significantly using shallow depth of field. Use a tight crop.`
         : `MISSION: Create a photorealistic automotive interior visualization. Focus is the **${productCategory}** professionally INSTALLED inside a **${year} ${carModel}**. Maintain full cabin architectural context.`;
 
-    // 4. Construct V4.0 Prompt
+    // 4. Construct V5.1 Prompt with explicit IMAGE MANIFEST
 
     const v4Prompt = `
-## ✅ AutoFusion™ Pro V4.3 (Composition-Command™ Edition)
-
-**SYSTEM**: AutoFusion™ Pro V4.3 - Strict Perspective & Identity Control
-**CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
-**ORDER_OF_OPERATIONS**: 1. CAMERA_ANGLE (BLUEPRINT) > 2. PRODUCT_IDENTITY (LOCK) > 3. VEHICLE_MATCH
+## ✅ AutoFusion™ Pro V5.2 (Product-First™ Edition)
 
 ---
 
-## 📐 1. SCENE & COMPOSITION [MANDATORY BLUEPRINT]
+# 🚨 #1 PRIORITY: USE THE CORRECT PRODUCT 🚨
+
+> **THE MOST IMPORTANT THING**: The ${productCategory} in your output MUST come from **Images 1-${productCount}**.
+> **DO NOT** use the ${productCategory === 'Armrest Box' ? 'center console/armrest' : 'seat'} shown in Image ${guideIndex || 'the reference'} - that is a PLACEHOLDER to be REPLACED.
+
+## 🖼️ IMAGE MANIFEST [READ THIS FIRST - CRITICAL]
+
+| Image # | Type | What It Is |
+|---------|------|------------|
+${seatCoverImages.map((_, i) => `| **Image ${i + 1}** | 🛍️ **YOUR PRODUCT** | This is the **${productCategory}** you MUST put in the final image. OBSERVE its exact appearance and copy it EXACTLY as shown. |`).join('\n')}
+${visualGuide ? `| **Image ${guideIndex}** | 📐 Scene Template | This shows the CAMERA ANGLE and SCENE LAYOUT only. The ${productCategory === 'Armrest Box' ? 'armrest/console' : 'seat cover'} in this image is NOT your product - REMOVE IT and PUT your product (from Images 1-${productCount}) in its place. |` : ''}
+
+### 🔴 CRITICAL UNDERSTANDING 🔴
+
+**Your task is a PRODUCT REPLACEMENT task:**
+- Image ${guideIndex || 'the reference'} contains a ${productCategory === 'Armrest Box' ? 'plain/generic center console armrest' : 'vehicle seat'}
+- You must REMOVE that and REPLACE it with the ${productCategory} from Images 1-${productCount}
+- The ${productCategory} in Images 1-${productCount} is a **COVER/ACCESSORY** - LOOK at the images to see its exact appearance (could be smooth, quilted, patterned, or any other texture - copy what you SEE)
+
+**Think of it like this:**
+- Images 1-${productCount} = The "sticker/wrap" to apply
+- Image ${guideIndex || 'reference'} = The "base surface" location and angle
+
+⛔ If your output shows the ORIGINAL ${productCategory === 'Armrest Box' ? 'Tesla/car console WITHOUT the cover from Images 1-' + productCount : 'uncovered seat'}, you have FAILED.
+✅ If your output shows the ${productCategory} from Images 1-${productCount} INSTALLED in the scene, you have SUCCEEDED.
+
+---
+
+⚠️ **PRIORITY ORDER (STRICT)** ⚠️
+
+| Priority | Task | Source |
+|----------|------|--------|
+| **#1 HIGHEST** | Use the correct ${productCategory} product | Images 1-${productCount} |
+| **#2** | Match the camera angle/composition | ${visualGuide ? `Image ${guideIndex}` : angleId} |
+| **#3** | Render correct vehicle interior | ${year} ${carModel} |
+
+**SYSTEM**: AutoFusion™ Pro V5.2 - Product-First Control
+**CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
+**PRODUCT_TYPE**: **${productCategory}** (MUST come from Images 1-${productCount})
+
+---
+
+## 🛍️ 1. PRODUCT INSTALLATION [#1 HIGHEST PRIORITY]
+
+> **THIS IS YOUR PRIMARY TASK**: Install the ${productCategory} from Images 1-${productCount} into the scene.
+
+**LOOK AT IMAGES 1-${productCount} CAREFULLY** - These show your product:
+- **OBSERVE** the exact texture, color, and surface pattern from the uploaded images
+- **COPY** every visual detail exactly as shown - DO NOT assume or add features
+- **MATCH** the material appearance (glossy/matte, smooth/textured, plain/patterned)
+- The product is designed to WRAP OVER/COVER the original ${productCategory === 'Armrest Box' ? 'center console armrest' : 'vehicle seat'}
+
+**⚠️ DO NOT ASSUME the product has any specific pattern:**
+- Only include patterns/textures that are VISIBLE in Images 1-${productCount}
+- If the product appears smooth/plain, render it as smooth/plain
+- If the product has quilting, render quilting
+- If the product has other patterns, render those patterns
+- **COPY EXACTLY** what you see - no additions, no assumptions
+
+**Installation visualization**:
+- The ${productCategory} COVERS/WRAPS the original ${productCategory === 'Armrest Box' ? 'armrest lid' : 'seat'} 
+- It should look INSTALLED and IN-USE, not floating
+- The original OEM surface is HIDDEN beneath the cover
+
+⛔ **WRONG**: Showing the bare ${productCategory === 'Armrest Box' ? 'Tesla armrest without the cover' : 'uncovered seat'}
+⛔ **WRONG**: Adding patterns/textures that are NOT in Images 1-${productCount}
+✅ **RIGHT**: Showing the EXACT product from Images 1-${productCount} wrapped/installed on the surface
+
+---
+
+## 📐 2. SCENE & COMPOSITION [PRIORITY #2 - CAMERA ANGLE]
 
 **ANGLE_ID**: ${angleId}
 **SCENE_DESCRIPTION**: ${angleInstruction}
 
 ${visualGuide ? `
-**VISUAL_COMPOSITION_REFERENCE (IMAGE ${guideIndex})**:
-- **PURPOSE**: Use Image ${guideIndex} ONLY for **Camera Angle** and **Element Placement**.
-- **TASK**: **REDRAW THE ENTIRE SCENE FROM SCRATCH**. ⛔ **DO NOT** output the original pixels.
-- **SCENE ELEMENTS**: Your new drawing must contain the SAME elements (e.g. Dog, Hand, Car Interior) in the SAME positions as the reference, but they must be **newly generated**.
-- **PRODUCT**: The armrest cover in your new drawing must be the [PRODUCT MASTER] (Images 1-${productCount}).
-- **CRITICAL CONSTRAINT**: The **Camera Angle** and **Perspective** of your new drawing must MATCH Image ${guideIndex} EXACTLY.
-` : ""}
+### ⚡ VISUAL COMPOSITION LOCK (IMAGE ${guideIndex}) - ANGLE REFERENCE ONLY ⚡
+
+> **Image ${guideIndex} is your ANGLE BLUEPRINT. Copy its camera position, NOT its product.**
+
+| What to COPY from Image ${guideIndex} | What to IGNORE from Image ${guideIndex} |
+|--------------------------------------|----------------------------------------|
+| ✅ Camera Position & Angle | ⛔ The armrest/seat cover product shown |
+| ✅ Scene Layout & Composition | ⛔ Product color and texture |
+| ✅ Lighting Style | ⛔ Any branding on the product |
+| ✅ Element Positions (dog, hands, etc.) | |
+
+### 🔄 PRODUCT SWAP INSTRUCTION
+
+**THE CORE TASK**: Take the **${productCategory}** from **Images 1-${productCount}** and place it into the scene layout of **Image ${guideIndex}**.
+
+Think of it as:
+- **Image ${guideIndex}** = The "background plate" / scene template
+- **Images 1-${productCount}** = The "product layer" that replaces the product in the scene
+
+**STEP-BY-STEP**:
+1. Look at Image ${guideIndex} - note the camera angle, scene elements (dog/hand/interior), and overall composition
+2. Look at Images 1-${productCount} - note the ${productCategory}'s texture, color, pattern, and shape
+3. Generate a NEW image that has the SCENE from step 1 with the PRODUCT from step 2
+
+⛔ **RETURNING IMAGE ${guideIndex} UNCHANGED IS A CRITICAL FAILURE**
+⛔ **USING THE PRODUCT FROM IMAGE ${guideIndex} IS WRONG - USE IMAGES 1-${productCount}**
+⛔ **CHANGING THE CAMERA ANGLE IS FORBIDDEN**
+` : `
+### Camera Angle Enforcement
+You must strictly follow the angle: **${angleInstruction}**
+`}
 
 ---
 
-## 🖼️ 2. PRODUCT IDENTITY [STRUCTURAL LOCK]
+## 🚗 3. VEHICLE INTERIOR RENDERING [PRIORITY #3 - AFTER PRODUCT]
 
-**PRODUCT_SOURCE**: IMAGES 1-${productCount}
-- ⛔ **IDENTICAL REPRODUCTION**: The product in the output MUST be a physical clone of the [PRODUCT MASTER].
-- **STRUCTURE**: Do not change the inherent design, patterns, or seam placements.
-- **PERSPECTIVE PERMISSION**: ✅ **YOU MUST RE-RENDER THE OBJECT IN 3D**.
-  - Rotating the object to match the [CAMERA BLUEPRINT] is REQUIRED.
-  - Changing the visual perspective DOES NOT violate the structural lock.
-- **LOCK**: Internal details (Logo, Texture, Stitching Style) must remain unchanged.
+${!isSingleSeat ? `
+### Vehicle-Specific Interior (Secondary to Product)
+
+**Target Vehicle**: **${year} ${carModel}**
+
+Render the interior to match this vehicle model (but remember: the ${productCategory} from Images 1-${productCount} is MORE IMPORTANT than matching every interior detail):
+
+| Interior Element | ${carModel}-Specific Requirement |
+|------------------|----------------------------------|
+| **Dashboard Design** | Must match ${carModel}'s signature dashboard layout and screen positions |
+| **Steering Wheel** | Use ${carModel}'s actual steering wheel design (shape, logo, buttons) |
+| **Center Console** | Match ${carModel}'s console design, gear shifter, and cup holder positions |
+| **Door Panels** | Render ${carModel}'s door panel design with correct handle placement |
+| **Seat Shape** | Use ${carModel}'s factory seat frame geometry (headrest, bolstering) |
+| **Interior Color** | Match typical ${carModel} interior color palette (black, grey, tan options) |
+| **Brand Logo** | If steering wheel visible, show ${carModel.split(' ')[0]} brand logo |
+
+⛔ **DO NOT RENDER A GENERIC CAR INTERIOR**
+⛔ **DO NOT USE WRONG BRAND ELEMENTS**
+✅ Research and apply ${carModel}'s actual interior design DNA
+` : `
+**Context**: STUDIO SHOT - Clean neutral background, no vehicle interior required.
+`}
 
 ---
 
-## 🎯 3. ${missionText}
+## 🎨 4. PRODUCT RENDERING DETAILS
+
+**Texture Fidelity** (copy from Images 1-${productCount}):
+- Material texture: OBSERVE and copy EXACTLY what is shown in the product images
+- Surface finish: match exactly from product images (smooth, quilted, or whatever pattern you see)
+- Color accuracy: no alterations allowed - copy the exact color
+
+**3D Perspective Rules**:
+- ✅ Re-render the product from the camera angle specified
+- ✅ Apply realistic lighting and shadows
+- ⛔ Do not modify the product's design, pattern, or color
+
+---
+
+## 🎯 5. MISSION
+
+${missionText}
 
 ${customRequest ? `
-## 🗨️ USER CUSTOM REQUEST [HIGH PRIORITY]
+### 🗨️ USER CUSTOM REQUEST [HIGH PRIORITY]
 > "**${customRequest}**"
+
+Execute this user request while maintaining all other constraints.
 ` : ""}
 
 ---
 
-## 🚗 4. VEHICLE & ENVIRONMENT
-
-| Attribute | Value |
-|-----------|-------|
-| Model | ${carModel} |
-| Year | ${year} |
-| Context | ${isSingleSeat ? "STUDIO (Neutral)" : "VEHICLE INTERIOR"} |
-
-${isSingleSeat
-        ? "**ENVIRONMENT**: Clean studio aesthetic. Sharp focus. No background clutter."
-        : `**ENVIRONMENT**: Integrate the product into a high-end ${year} ${carModel} interior. Textures and lighting must match the automotive cabin context.`
-      }
-
----
-
-## 🎨 5. MATERIAL & LIGHTING
+## 🎨 6. MATERIAL & LIGHTING PROTOCOL
 
 | Component | Protocol |
-|-----------|-------|
-| **PRODUCT** | **MATCH REFERENCE EXACTLY**. No color shift. |
-| **LIGHTING** | Professional commercial automotive studio lighting. Diffused key light. |
-| **FINISH** | Photorealistic texture. Visible leather grain. No 3D-render smoothness. |
+|-----------|----------|
+| **PRODUCT** | **MATCH REFERENCE EXACTLY**. No color shift. Preserve all texture details. |
+| **LIGHTING** | Professional automotive photography lighting. Soft diffused key light. Natural shadows. |
+| **FINISH** | Photorealistic texture. Visible leather grain / fabric weave. NO 3D-render smoothness. |
+| **OVERALL** | The final image must look like a REAL PHOTOGRAPH, not CGI or illustration. |
 
 ---
 
-## 🛠️ INSTALLATION LOGIC
+## 🛠️ 7. INSTALLATION LOGIC
 
 ${productCategory === "Armrest Box" ? `
 - **SHAPE**: Duplicate the curvature and rigid 3D form from [PRODUCT MASTER].
-- **PLACEMENT**: ${isSingleSeat ? "Neutral studio surface." : "Fits perfectly on the " + carModel + " center console."}
+- **PLACEMENT**: ${isSingleSeat ? "Neutral studio surface." : "Fits perfectly on the " + carModel + " center console armrest."}
+- **INTEGRATION**: The armrest cover should look naturally installed, with proper shadows and contact points.
 ` : `
-- **FIT**: Wrap tightly around the ${carModel} seat frame.
+- **FIT**: Wrap tightly around the ${carModel} seat frame with realistic tension and creases.
 - **DESIGN**: Preserve the seat cover's original color-blocking and pattern.
+- **REALISM**: Show natural fabric behavior (slight wrinkles at joints, proper draping).
 `}
 
-Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
+${!isSingleSeat ? `Apply "${carModel}" brand DNA to ALL visible interior elements:
+- Steering wheel, gear shifter, door handles, dashboard buttons must match ${carModel}'s actual design.` : ""}
 
 ---
 
-## 📤 FINAL QUALITY CHECKLIST (MANDATORY)
-- [ ] Is the product design an IDENTICAL match to Images 1-${productCount}?
-- [ ] Has the product structure (open/closed) been preserved from the reference?
-- [ ] Is the perspective correctly aligned with ${visualGuide ? "Image " + guideIndex : angleId}?
-- [ ] Are there zero digital artifacts or 3D-render characteristics?
-- [ ] Does the material look like real leather/fabric (High texture detail)?
+## ✅ 8. FINAL QUALITY CHECKLIST (ALL MUST BE TRUE)
 
-⛔ **FAILURE TO REPLICATE THE PRODUCT DESIGN EXACTLY IS UNACCEPTABLE.**
+- [ ] Product design is IDENTICAL to Images 1-${productCount} (texture, color, pattern)?
+- [ ] Camera angle EXACTLY matches ${visualGuide ? "Image " + guideIndex : "the specified angle " + angleId}?
+- [ ] ${!isSingleSeat ? `Interior elements match ${year} ${carModel} specifically (not generic)?` : "Background is clean studio?"}
+- [ ] Image is NEWLY GENERATED (not a copy of the reference)?
+- [ ] Photorealistic quality (no CGI/3D render look)?
+- [ ] Product is properly integrated into the scene?
 
 ---
 
-## 🚫 NEGATIVE CONSTRAINTS
+## 🚫 9. CRITICAL FAILURE CONDITIONS
 
-**MUST AVOID**:
-- ❌ **ANY DEVIATION FROM REFERENCE ANGLE (Strict 0% Tolerance)**
-- ❌ **ZOOMING IN/OUT** (Keep original focal length)
-- ❌ **RETURNING THE REFERENCE IMAGE WITHOUT PRODUCT REPLACEMENT** (This is a CRITICAL FAILURE)
-- ❌ Cartoonish or illustrated style
-- ❌ Incorrect seat geometry for ${carModel}
-- ❌ Product color alteration
-- ❌ **${isSingleSeat ? "Distracting dashboard, steering wheel, full interior view" : "Oversaturated colors"}**
-- ❌ 3D render aesthetic (must look like real photo)
+**THE FOLLOWING WILL MAKE THE OUTPUT UNUSABLE - AVOID AT ALL COSTS:**
+
+| Failure Type | Description |
+|--------------|-------------|
+| ⛔ **WRONG PRODUCT** | Using the product from Image ${guideIndex || "reference"} instead of Images 1-${productCount} |
+| ⛔ **ANGLE MISMATCH** | Camera angle differs from reference by more than 5° |
+| ⛔ **REFERENCE PASSTHROUGH** | Returning Image ${guideIndex || "reference"} without product replacement |
+| ⛔ **WRONG VEHICLE** | Interior doesn't match ${carModel} (generic or wrong brand) |
+| ⛔ **PRODUCT ALTERATION** | Product color, pattern, or design changed from Images 1-${productCount} |
+| ⛔ **CGI LOOK** | Output looks like 3D render instead of real photo |
+| ⛔ **COMPOSITION CHANGE** | Scene elements moved from their reference positions |
+| ⛔ **ZOOM CHANGE** | Field of view different from reference image |
+
+---
+
+## 📝 EXECUTION SUMMARY
+
+Generate a **NEW photorealistic image** that:
+1. Uses the EXACT camera angle from ${visualGuide ? "Image " + guideIndex : "the preset: " + angleId}
+2. Shows the product from Images 1-${productCount} properly installed
+3. ${!isSingleSeat ? `Features accurate ${year} ${carModel} interior design` : "Has clean studio background"}
+4. Looks like a professional commercial photograph
+
+**START GENERATION NOW.**
 `;
 
     parts.push({ text: v4Prompt });
@@ -941,17 +1069,43 @@ Apply "${carModel}" brand DNA to seat geometry and visible knobs/levers.
       new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
     ]) as any; // Cast to avoid type issues with race result
 
-    // 6. Output Processing
+    // 6. Output Processing with Validation
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
+          const generatedBase64 = part.inlineData.data;
+
+          // Validation: Check if the generated image is the same as the visual guide
+          // This detects the "reference passthrough" issue where AI returns the input unchanged
+          if (visualGuide) {
+            // Compare first 500 chars of base64 - if identical, likely same image
+            const guideSnippet = visualGuide.base64.substring(0, 500);
+            const outputSnippet = generatedBase64.substring(0, 500);
+
+            if (guideSnippet === outputSnippet) {
+              console.warn("⚠️ [AutoFusion] VALIDATION FAILED: Generated image appears identical to visual guide!");
+              console.warn("⚠️ [AutoFusion] This may indicate the model returned the reference without product replacement.");
+              // Continue anyway - user can regenerate, but log the issue
+            } else {
+              console.log("✅ [AutoFusion] Validation passed: Generated image differs from visual guide.");
+            }
+          }
+
           images.push(
-            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+            `data:${part.inlineData.mimeType || "image/png"};base64,${generatedBase64}`,
           );
         }
       }
     }
+
+    // Log generation result
+    if (images.length > 0) {
+      console.log(`✅ [AutoFusion] Successfully generated ${images.length} image(s) for ${year} ${carModel}`);
+    } else {
+      console.warn("⚠️ [AutoFusion] No images were generated. The model may have refused the request.");
+    }
+
     return images;
 
   } catch (error) {
