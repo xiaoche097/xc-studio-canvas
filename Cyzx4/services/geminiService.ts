@@ -1707,44 +1707,44 @@ export const generateStyleReplication = async (
   // Style Reference: productCount + 1
 
   const prompt = `
-## 🛍️ AutoFusion™ V5 - Full Marketing Layout Cloning
+## 🛍️ AutoFusion™ V9 - Dynamic Commercial Reconstruction (The "Art Director" Mode)
 
 **INPUT MANIFEST**:
-1. **THE PRODUCT (Images 1 to ${productCount})**: 📦 The item to sell. (Keep its shape/design).
-2. **THE LAYOUT MASTER (Image ${productCount + 1})**: 📐 **[Strict Layout Template]**. This image defines the **composition, text overlays, borders, banners, and split-screen structure**.
+1. **THE STAR (Images 1 to ${productCount})**: 📦 **[USER PRODUCT]**. This is the hero. Study its material (Leather? Plastic? Matte? Glossy?). You must render this material perfectly.
+2. **THE MOODBOARD (Image ${productCount + 1})**: 🎬 **[REFERENCE LAYOUT]**. This is the *Starting Point*, not the *Prison*. Use its layout, text, and angle, but **MAKE IT BETTER**.
 
 **MISSION**:
-Clone the **Visual Structure & Marketing Layout** of the [LAYOUT MASTER] exactly, but replace the *featured product* with **[THE PRODUCT]**.
+Create a **Flagship E-commerce Image** that follows the [REFERENCE LAYOUT] structure but features [USER PRODUCT] in a **Dynamic, Professional, and High-End** way.
 
-**EXECUTION PROTOCOL (MANDATORY)**:
-1. **LAYOUT MATCHING**:
-   - If the Master has a **Split Screen (Before/After)**, you MUST generate a Split Screen.
-   - If the Master has **Text overlays/Banners** (e.g., "Easy Install", "Waterproof"), you MUST recreate similar text/banners in the same position.
-   - If the Master has **Arrows/Icons**, you MUST draw similar graphics.
+**EXECUTION GUIDELINES (FLEXIBLE & PROFESSIONAL)**:
+1. **DYNAMIC POSING (CRITICAL)**:
+   - **Don't be stiff.** If [USER PRODUCT] is leather/fabric, show natural curves, tension, and micro-folds.
+   - If the proper installation requires the product to be slightly bent or pressed, **SHOW THAT ACTION**.
+   - Make the product look "Alive" and "In Use", not just a static 3D model floating in space.
 
-2. **PRODUCT IMPLANTATION**:
-   - Locate where the *main product* is in the [LAYOUT MASTER].
-   - Swap it with **[THE PRODUCT]**.
-   - Keep the background environment of the Master, but ensure it fits the new product.
+2. **INTELLIGENT CLEANUP (The "No-Foam" Rule)**:
+   - **Analyze the Reference**: Does it have ugly details (e.g., white foam, messy velcro, cheap plastic)?
+   - **Analyze the User Product**: Is it a clean, premium item?
+   - **Action**: **REJECT THE UGLY.** If the reference has messy foam but the user product is clean -> Render a CLEAN, DARK, PREMIUM interior/underside.
+   - **Goal**: The result must look *more expensive* than the reference image.
 
-3. **TEXT & UI RECONSTRUCTION**:
-   - **Do not output a clean photo.** Output a **Marketing Graphic**.
-   - Re-draw the marketing copy found in the Master image (e.g., "Durable", "Soft").
-   - Match the font style, color, and background shapes of the text.
+3. **LIGHTING & INTEGRATION**:
+   - Don't just paste the product. **Light it.**
+   - If the reference suggests sunlight from the left, cast realistic shadows on [USER PRODUCT].
+   - If the user product is black leather, ensure it has premium specular highlights (sheen) so it doesn't look flat.
 
-**QUALITY UPSCALING (CRITICAL)**:
-1. **PROFESSIONAL POLISH**: If the input [LAYOUT MASTER] is low-res or screenshot quality, **UPGRADE IT**. The output must look like a high-end 8K render. Eliminate noise and jagged edges.
-2. **AESTHETIC UPGRADE**: Keep the layout structure, but make lighting, shadows, and materials more premium than the source.
-3. **MASTERPIECE RULE**: Even if the reference is ugly, the result must be beautiful.
+**LAYOUT PROTOCOL**:
+- **Keep**: The 4-step grid, the text (e.g., "Easy Installation"), the arrows.
+- **Adapt**: You can slightly move arrows or text if they block important parts of the [USER PRODUCT]. **Prioritize Visual Balance.**
 
 **STRICT CONSTRAINTS**:
 ${retouch ? `
-- **✨ SMART ENHANCE**: Polish the product (richer textures, better lighting) to match the high-end look of the layout.
+- **✨ MASTERPIECE FILTER**: Upgrade the image quality. Remove noise. Sharpen textures. Make it look like a 4K render.
 ` : `
-- **⛔ STRUCTURAL LOCK**: Keep the product geometry 100% accurate.
+- **⛔ IDENTITY PRESERVATION**: While you can pose it dynamically, do NOT change the fundamental design of the User Product.
 `}
-- **✅ ALLOWED**: You ARE allowed to generate text, borders, and UI elements if they exist in the Reference Image.
-- **⛔ MATCH THE FORMAT**: If the reference is a collage, MAKE A COLLAGE. If it's a single shot, make a single shot. **Ignore previous instructions banning collages.**
+- **✅ ALLOWED**: Changing the "Action" to make sense for this specific product (e.g., Slide-on vs Velcro-on).
+- **⛔ PROHIBITED**: Adding parts that don't exist (e.g., Fake Straps).
 
 ${customPrompt ? `
 **USER CONTEXT OVERRIDE (HIGHEST TRUTH)**:
@@ -1756,8 +1756,8 @@ The user has provided specific scene details. **YOU MUST OBEY THIS over the visu
 
 **OUTPUT SPEC**:
 - Aspect Ratio: ${aspectRatio}
-- Format: E-commerce Listing Image (with Text/Graphics)
-- Quality: Commercial Design Standard
+- Format: High-End Marketing Graphic
+- Quality: 8k Ultra-Realistic Photography
 `;
 
   // Build parts array
