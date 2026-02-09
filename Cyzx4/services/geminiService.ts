@@ -1707,57 +1707,120 @@ export const generateStyleReplication = async (
   // Style Reference: productCount + 1
 
   const prompt = `
-## 🛍️ AutoFusion™ V9 - Dynamic Commercial Reconstruction (The "Art Director" Mode)
+## 🛍️ AutoFusion™ V21 - Structure-First Replication + Quality Pipeline (爆款详情页一键复刻)
 
-**INPUT MANIFEST**:
-1. **THE STAR (Images 1 to ${productCount})**: 📦 **[USER PRODUCT]**. This is the hero. Study its material (Leather? Plastic? Matte? Glossy?). You must render this material perfectly.
-2. **THE MOODBOARD (Image ${productCount + 1})**: 🎬 **[REFERENCE LAYOUT]**. This is the *Starting Point*, not the *Prison*. Use its layout, text, and angle, but **MAKE IT BETTER**.
+**CORE PHILOSOPHY**:
+一键复刻爆款详情页风格。Clone the EXACT STRUCTURE and DESIGN of the Reference Image, then fill it with the User's Product. Apply professional rendering quality.
+
+**STEP 0: STRUCTURE ANALYSIS (DO THIS FIRST - CRITICAL)**:
+Before generating ANYTHING, analyze the [DESIGN REFERENCE]:
+- **COUNT THE SECTIONS**: How many distinct visual panels/images are there? (1? 2? 3? 4? More?)
+- **IDENTIFY THE LAYOUT**: Is it a Vertical Stack? Horizontal Split? 2x2 Grid? Collage?
+- **MAP EACH SECTION**: What is in Section 1? Section 2? etc.
+
+**STRUCTURE REPLICATION RULE (NON-NEGOTIABLE)**:
+- **If Reference has 2 sections → OUTPUT MUST HAVE 2 SECTIONS.**
+- **If Reference has 4 sections → OUTPUT MUST HAVE 4 SECTIONS.**
+- **If Reference has a Product-on-White-Background section → OUTPUT MUST HAVE a Product-on-White-Background section.**
+- **DO NOT COLLAPSE SECTIONS. DO NOT SIMPLIFY THE LAYOUT.**
+
+**INPUT HIERARCHY (PRIORITY ORDER)**:
+1. **[PRIORITY #1] THE USER'S PRODUCT (Images 1 to ${productCount})**: 📦 **ABSOLUTE TRUTH**.
+   - The product in ALL sections of the output must be [THE USER'S PRODUCT].
+   - Shape, Texture, Color, Material = 100% from the User's images.
+
+2. **[PRIORITY #2] THE USER'S CONTEXT**: 🧠 **MANDATORY SCENE OVERRIDE**.
+   - User Instruction: "${customPrompt || ''}"
+   ${customPrompt ? `
+   ⚠️ **CRITICAL OVERRIDE DETECTED** ⚠️
+   The user has provided: "${customPrompt}"
+   
+   **YOU MUST**:
+   - **IGNORE** the background/environment from the Reference Image.
+   - **REPLACE** it with: "${customPrompt}"
+   - Example: If user says "道奇 2012", render a DODGE 2012 interior, NOT the reference car.
+   - Example: If user says "厨房台面", render a KITCHEN COUNTERTOP, NOT the reference scene.
+   
+   **VERIFICATION**: Before finalizing, ask yourself: "Does my output show '${customPrompt}'?" If NO, you have FAILED.
+   ` : `
+   - No user context provided. Use the Reference Image's background as default.
+   `}
+
+3. **[PRIORITY #3] THE DESIGN REFERENCE (Image ${productCount + 1})**: 🎨 **STRUCTURE + DESIGN TEMPLATE**.
+   - Provides: Layout Structure, Font Style, Colors, Arrows, Badges, Section Arrangement.
+   - **DO NOT** copy the background/scene from this image if User Context is provided.
 
 **MISSION**:
-Create a **Flagship E-commerce Image** that follows the [REFERENCE LAYOUT] structure but features [USER PRODUCT] in a **Dynamic, Professional, and High-End** way.
+**"Clone the Shell. Fill Each Section with the User's Product. Render with Professional Quality."**
 
-**EXECUTION GUIDELINES (FLEXIBLE & PROFESSIONAL)**:
-1. **DYNAMIC POSING (CRITICAL)**:
-   - **Don't be stiff.** If [USER PRODUCT] is leather/fabric, show natural curves, tension, and micro-folds.
-   - If the proper installation requires the product to be slightly bent or pressed, **SHOW THAT ACTION**.
-   - Make the product look "Alive" and "In Use", not just a static 3D model floating in space.
+**EXECUTION PROTOCOL (SECTION-BY-SECTION)**:
+1. **FOR EACH SECTION IN THE REFERENCE**:
+   - **Identify**: What type of shot is this? (Lifestyle? Product-only? Before/After?)
+   - **Render**: Create the same type of shot featuring [THE USER'S PRODUCT].
+   - **Design**: Apply the same fonts, colors, and graphics from the Reference.
 
-2. **INTELLIGENT CLEANUP (The "No-Foam" Rule)**:
-   - **Analyze the Reference**: Does it have ugly details (e.g., white foam, messy velcro, cheap plastic)?
-   - **Analyze the User Product**: Is it a clean, premium item?
-   - **Action**: **REJECT THE UGLY.** If the reference has messy foam but the user product is clean -> Render a CLEAN, DARK, PREMIUM interior/underside.
-   - **Goal**: The result must look *more expensive* than the reference image.
+2. **EXAMPLE WORKFLOW**:
+   - Reference Structure: [Section A: Product in Car Interior] + [Section B: Product on White Background]
+   - Output Structure: [Section A: USER'S PRODUCT in User's Car Model] + [Section B: USER'S PRODUCT on White Background]
 
-3. **LIGHTING & INTEGRATION**:
-   - Don't just paste the product. **Light it.**
-   - If the reference suggests sunlight from the left, cast realistic shadows on [USER PRODUCT].
-   - If the user product is black leather, ensure it has premium specular highlights (sheen) so it doesn't look flat.
+3. **TYPOGRAPHY & GRAPHICS**:
+   - Copy all text labels (e.g., "Premium Quality", arrows) in the EXACT same style and position.
+   - If Reference has a Gold banner at the top, output a Gold banner at the top.
 
-**LAYOUT PROTOCOL**:
-- **Keep**: The 4-step grid, the text (e.g., "Easy Installation"), the arrows.
-- **Adapt**: You can slightly move arrows or text if they block important parts of the [USER PRODUCT]. **Prioritize Visual Balance.**
+**RENDERING PIPELINE (8-STEP QUALITY PROCESS)**:
+Follow these 8 steps to ensure professional-grade output quality:
+
+**Step 1: 深度解析设计特征 (Design Feature Analysis)**
+- Extract: Font families, text colors, banner styles, arrow shapes, color palette from Reference.
+- Lock: These design elements will be applied to the output.
+
+**Step 2: 构建创意构图与排版 (Composition & Layout Construction)**
+- Replicate: The exact section structure (e.g., 2-panel vertical stack).
+- Position: Place product placeholders in the same coordinates as the Reference.
+
+**Step 3: 模拟物理光影分布 (Physical Lighting Simulation)**
+- Analyze: The Reference's lighting direction, intensity, and mood.
+- Apply: Consistent lighting to [THE USER'S PRODUCT] so it blends naturally.
+
+**Step 4: 高保真像素渲染 (High-Fidelity Pixel Rendering)**
+- Render: [THE USER'S PRODUCT] with sharp edges, accurate proportions.
+- Match: The camera angle and perspective of each section.
+
+**Step 5: 优化图像纹理与细节 (Texture & Detail Optimization)**
+- Enhance: Material textures (leather grain, metal sheen, fabric weave).
+- Preserve: Fine details like stitching, logos, patterns from User's Product images.
+
+**Step 6: 最后润色 (Final Polish)**
+- Remove: Any artifacts, seams, or unnatural blending.
+- Smooth: Transitions between product and background.
+
+**Step 7: 增强图像对比度与饱和度 (Contrast & Saturation Enhancement)**
+- Boost: Commercial-grade contrast for visual impact.
+- Adjust: Saturation to match the vibrant look of e-commerce imagery.
+
+**Step 8: 智能色彩校正 (Intelligent Color Correction)**
+- Match: The overall color temperature and tone of the Reference Image.
+- Harmonize: All sections to have a cohesive color story.
+
+**COMMON FAILURE MODES TO AVOID**:
+- **❌ SECTION COLLAPSE**: Reference has 2 images, but output only has 1. **THIS IS A FAILURE.**
+- **❌ WRONG PRODUCT**: Product looks different from User's uploaded images. **THIS IS A FAILURE.**
+- **❌ MISSING DESIGN ELEMENTS**: Reference has text/arrows, but output doesn't. **THIS IS A FAILURE.**
+- **❌ LOW QUALITY**: Blurry textures, wrong lighting, dull colors. **THIS IS A FAILURE.**
 
 **STRICT CONSTRAINTS**:
 ${retouch ? `
-- **✨ MASTERPIECE FILTER**: Upgrade the image quality. Remove noise. Sharpen textures. Make it look like a 4K render.
+- **✨ COMMERCIAL POLISH**: Apply all 8 rendering steps. Make every section look premium.
 ` : `
-- **⛔ IDENTITY PRESERVATION**: While you can pose it dynamically, do NOT change the fundamental design of the User Product.
+- **⛔ PRODUCT INTEGRITY**: Do not alter the product's shape. Keep it truthful.
 `}
-- **✅ ALLOWED**: Changing the "Action" to make sense for this specific product (e.g., Slide-on vs Velcro-on).
-- **⛔ PROHIBITED**: Adding parts that don't exist (e.g., Fake Straps).
-
-${customPrompt ? `
-**USER CONTEXT OVERRIDE (HIGHEST TRUTH)**:
-The user has provided specific scene details. **YOU MUST OBEY THIS over the visual content of the reference image.**
-- **Instruction**: "${customPrompt}"
-- **Logic**: If the user specifies a specific car model (e.g., "Tesla Model Y"), you MUST render that specific car's interior layout/buttons/details, even if the [LAYOUT MASTER] shows a different car.
-- **Priority**: Text Context > Visual Context.
-` : ''}
+- **✅ ALLOWED**: Changing background scene based on User Context.
+- **⛔ PROHIBITED**: Collapsing sections. Ignoring layout structure. Mixing Reference product with User product. Low-quality rendering.
 
 **OUTPUT SPEC**:
 - Aspect Ratio: ${aspectRatio}
-- Format: High-End Marketing Graphic
-- Quality: 8k Ultra-Realistic Photography
+- Format: Multi-Section E-commerce Detail Image (Matching Reference Structure)
+- Quality: 8k Professional Commercial Render with Full Pipeline Processing
 `;
 
   // Build parts array
