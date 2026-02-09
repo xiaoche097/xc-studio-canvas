@@ -514,7 +514,7 @@ const StyleReplicateTab: React.FC = () => {
                                     className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                                 >
                                     <option value="gemini-3-pro-image-preview">Gemini 3 Pro (旗舰画质)</option>
-                                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash (快速)</option>
+                                    <option value="gemini-3-flash-image-preview">Gemini 3 Flash (快速)</option>
                                 </select>
                             </div>
 
