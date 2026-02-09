@@ -1707,121 +1707,65 @@ export const generateStyleReplication = async (
   // Style Reference: productCount + 1
 
   const prompt = `
-## 🛍️ AutoFusion™ V21 - Structure-First Replication + Quality Pipeline (爆款详情页一键复刻)
+# 风格复刻任务 (Style Replication)
 
-**CORE PHILOSOPHY**:
-一键复刻爆款详情页风格。Clone the EXACT STRUCTURE and DESIGN of the Reference Image, then fill it with the User's Product. Apply professional rendering quality.
+你是一个顶级电商详情页设计师，擅长复刻爆款风格。
 
-**STEP 0: STRUCTURE ANALYSIS (DO THIS FIRST - CRITICAL)**:
-Before generating ANYTHING, analyze the [DESIGN REFERENCE]:
-- **COUNT THE SECTIONS**: How many distinct visual panels/images are there? (1? 2? 3? 4? More?)
-- **IDENTIFY THE LAYOUT**: Is it a Vertical Stack? Horizontal Split? 2x2 Grid? Collage?
-- **MAP EACH SECTION**: What is in Section 1? Section 2? etc.
+## 素材说明
+- **产品图** (图片 1-${productCount}): 客户要卖的真实产品，必须原样使用
+- **参考设计** (图片 ${productCount + 1}): 客户喜欢的风格模板
 
-**STRUCTURE REPLICATION RULE (NON-NEGOTIABLE)**:
-- **If Reference has 2 sections → OUTPUT MUST HAVE 2 SECTIONS.**
-- **If Reference has 4 sections → OUTPUT MUST HAVE 4 SECTIONS.**
-- **If Reference has a Product-on-White-Background section → OUTPUT MUST HAVE a Product-on-White-Background section.**
-- **DO NOT COLLAPSE SECTIONS. DO NOT SIMPLIFY THE LAYOUT.**
+## 核心任务
+**复刻参考设计的"壳"，填入客户的产品。**
 
-**INPUT HIERARCHY (PRIORITY ORDER)**:
-1. **[PRIORITY #1] THE USER'S PRODUCT (Images 1 to ${productCount})**: 📦 **ABSOLUTE TRUTH**.
-   - The product in ALL sections of the output must be [THE USER'S PRODUCT].
-   - Shape, Texture, Color, Material = 100% from the User's images.
+像一个熟练的平面设计师一样工作：
+1. 分析参考设计的布局（几个区块？怎么排列？）
+2. 分析参考设计的视觉风格（配色、光影、氛围）
+3. 把客户的产品"放进去"，保持整体风格一致
 
-2. **[PRIORITY #2] THE USER'S CONTEXT**: 🧠 **MANDATORY SCENE OVERRIDE**.
-   - User Instruction: "${customPrompt || ''}"
-   ${customPrompt ? `
-   ⚠️ **CRITICAL OVERRIDE DETECTED** ⚠️
-   The user has provided: "${customPrompt}"
-   
-   **YOU MUST**:
-   - **IGNORE** the background/environment from the Reference Image.
-   - **REPLACE** it with: "${customPrompt}"
-   - Example: If user says "道奇 2012", render a DODGE 2012 interior, NOT the reference car.
-   - Example: If user says "厨房台面", render a KITCHEN COUNTERTOP, NOT the reference scene.
-   
-   **VERIFICATION**: Before finalizing, ask yourself: "Does my output show '${customPrompt}'?" If NO, you have FAILED.
-   ` : `
-   - No user context provided. Use the Reference Image's background as default.
-   `}
+## 结构复刻规则
+- 参考图有几个画面区块，输出就要有几个
+- 参考图是上下结构，输出就是上下结构
+- 参考图有产品白底图，输出也要有产品白底图
 
-3. **[PRIORITY #3] THE DESIGN REFERENCE (Image ${productCount + 1})**: 🎨 **STRUCTURE + DESIGN TEMPLATE**.
-   - Provides: Layout Structure, Font Style, Colors, Arrows, Badges, Section Arrangement.
-   - **DO NOT** copy the background/scene from this image if User Context is provided.
+${customPrompt ? `
+## 🔥 客户特别要求 (必须执行)
+"${customPrompt}"
 
-**MISSION**:
-**"Clone the Shell. Fill Each Section with the User's Product. Render with Professional Quality."**
+这是客户的明确指示，请在创作中体现出来。
+例如：
+- 如果是汽车用品，客户说"道奇2018"，就调整为道奇内饰风格
+- 如果是家居用品，客户说"北欧风客厅"，就换成北欧风格场景
+- 如果是服装配饰，客户说"户外运动场景"，就换成运动场景
+- 如果是厨房用品，客户说"现代简约厨房"，就换成对应风格
+` : ''}
 
-**EXECUTION PROTOCOL (SECTION-BY-SECTION)**:
-1. **FOR EACH SECTION IN THE REFERENCE**:
-   - **Identify**: What type of shot is this? (Lifestyle? Product-only? Before/After?)
-   - **Render**: Create the same type of shot featuring [THE USER'S PRODUCT].
-   - **Design**: Apply the same fonts, colors, and graphics from the Reference.
+## 品质标准 (8步渲染)
+1. 解析设计特征：提取参考图的配色、字体、图形元素
+2. 构建构图排版：复刻参考图的区块结构
+3. 模拟物理光影：让产品的光影与场景融合
+4. 高保真渲染产品：产品细节清晰、比例准确
+5. 优化纹理细节：皮革、金属等材质要有质感
+6. 精修润色：去除瑕疵、平滑过渡
+7. 增强对比与饱和度：商业级视觉冲击力
+8. 色彩校正：整体色调与参考图协调
 
-2. **EXAMPLE WORKFLOW**:
-   - Reference Structure: [Section A: Product in Car Interior] + [Section B: Product on White Background]
-   - Output Structure: [Section A: USER'S PRODUCT in User's Car Model] + [Section B: USER'S PRODUCT on White Background]
-
-3. **TYPOGRAPHY & GRAPHICS**:
-   - Copy all text labels (e.g., "Premium Quality", arrows) in the EXACT same style and position.
-   - If Reference has a Gold banner at the top, output a Gold banner at the top.
-
-**RENDERING PIPELINE (8-STEP QUALITY PROCESS)**:
-Follow these 8 steps to ensure professional-grade output quality:
-
-**Step 1: 深度解析设计特征 (Design Feature Analysis)**
-- Extract: Font families, text colors, banner styles, arrow shapes, color palette from Reference.
-- Lock: These design elements will be applied to the output.
-
-**Step 2: 构建创意构图与排版 (Composition & Layout Construction)**
-- Replicate: The exact section structure (e.g., 2-panel vertical stack).
-- Position: Place product placeholders in the same coordinates as the Reference.
-
-**Step 3: 模拟物理光影分布 (Physical Lighting Simulation)**
-- Analyze: The Reference's lighting direction, intensity, and mood.
-- Apply: Consistent lighting to [THE USER'S PRODUCT] so it blends naturally.
-
-**Step 4: 高保真像素渲染 (High-Fidelity Pixel Rendering)**
-- Render: [THE USER'S PRODUCT] with sharp edges, accurate proportions.
-- Match: The camera angle and perspective of each section.
-
-**Step 5: 优化图像纹理与细节 (Texture & Detail Optimization)**
-- Enhance: Material textures (leather grain, metal sheen, fabric weave).
-- Preserve: Fine details like stitching, logos, patterns from User's Product images.
-
-**Step 6: 最后润色 (Final Polish)**
-- Remove: Any artifacts, seams, or unnatural blending.
-- Smooth: Transitions between product and background.
-
-**Step 7: 增强图像对比度与饱和度 (Contrast & Saturation Enhancement)**
-- Boost: Commercial-grade contrast for visual impact.
-- Adjust: Saturation to match the vibrant look of e-commerce imagery.
-
-**Step 8: 智能色彩校正 (Intelligent Color Correction)**
-- Match: The overall color temperature and tone of the Reference Image.
-- Harmonize: All sections to have a cohesive color story.
-
-**COMMON FAILURE MODES TO AVOID**:
-- **❌ SECTION COLLAPSE**: Reference has 2 images, but output only has 1. **THIS IS A FAILURE.**
-- **❌ WRONG PRODUCT**: Product looks different from User's uploaded images. **THIS IS A FAILURE.**
-- **❌ MISSING DESIGN ELEMENTS**: Reference has text/arrows, but output doesn't. **THIS IS A FAILURE.**
-- **❌ LOW QUALITY**: Blurry textures, wrong lighting, dull colors. **THIS IS A FAILURE.**
-
-**STRICT CONSTRAINTS**:
 ${retouch ? `
-- **✨ COMMERCIAL POLISH**: Apply all 8 rendering steps. Make every section look premium.
-` : `
-- **⛔ PRODUCT INTEGRITY**: Do not alter the product's shape. Keep it truthful.
-`}
-- **✅ ALLOWED**: Changing background scene based on User Context.
-- **⛔ PROHIBITED**: Collapsing sections. Ignoring layout structure. Mixing Reference product with User product. Low-quality rendering.
+(提示：客户启用了"产品精修"，请适当增强产品的光影和材质表现)
+` : ''}
 
-**OUTPUT SPEC**:
-- Aspect Ratio: ${aspectRatio}
-- Format: Multi-Section E-commerce Detail Image (Matching Reference Structure)
-- Quality: 8k Professional Commercial Render with Full Pipeline Processing
+## 输出要求
+- 宽高比: ${aspectRatio}
+- 质量: 8K专业商业级
+- 风格: 电商详情页主图/场景图
+
+---
+现在开始创作！请灵活运用你的设计经验，产出一张能打动消费者的营销图。
 `;
+
+  // DEBUG: Log the customPrompt value
+  console.log('[StyleReplication] customPrompt:', customPrompt);
+  console.log('[StyleReplication] productCount:', productCount);
 
   // Build parts array
   const parts: any[] = [];
