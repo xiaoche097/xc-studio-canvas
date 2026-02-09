@@ -1675,3 +1675,133 @@ export const estimateCameraAngle = async (
     return { yaw: 0, pitch: 0, zoom: 1 };
   }
 };
+
+/**
+ * 8. Generate Style Replication Image
+ * Uses gemini-3-pro-image-preview
+ * 
+ * This function takes a style reference image and product images,
+ * then generates new images that apply the reference style to the products.
+ */
+export const generateStyleReplication = async (
+  styleReference: { base64: string; mime: string },
+  productImages: { base64: string; mime: string }[],
+  customPrompt?: string,
+  options: {
+    aspectRatio?: AspectRatio;
+    resolution?: ImageResolution;
+    count?: number;
+    model?: string;
+    retouch?: boolean;
+  } = {}
+): Promise<string[]> => {
+  const ai = getAiClient();
+  const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3-pro-image-preview", retouch = false } = options;
+
+  // Build the prompt for style replication
+  const productCount = productImages.length;
+  const prompt = `
+## 🛍️ AutoFusion™ V2 - Product-Centric Style Transfer
+
+**PRIORITY HIERARCHY**:
+- **TIER 1 (Supreme Priority)**: 📦 **[THE PRODUCT]** (Images 2-${1 + productCount}) - The geometric and structural truth. AI MUST NOT ALTER THE SHAPE, DESIGN, OR PHYSICAL PROPERTIES of these objects.
+- **TIER 2 (Style Guide)**: 🎨 **[STYLE REFERENCE]** (Image 1) - ONLY for lighting, color grading, background atmosphere, and text layout. DO NOT USE THE OBJECTS INSIDE THIS IMAGE.
+
+**MISSION**:
+You are a professional product photographer and compositor. Your goal is to insert the **exact** product from [THE PRODUCT] images into the scene/mood of [STYLE REFERENCE].
+
+**EXECUTION PROTOCOL**:
+1. **Product Extraction**: Isolate the product from Images 2+. Maintain its exact geometry, seams, stitching, and proportions.
+2. **Scene Reconstruction**: Recreate the environment of [STYLE REFERENCE] but **REMOVE** any existing product/object from it.
+3. **Implantation**: Place [THE PRODUCT] into the reconstructed scene.
+   - **Scale**: Match the scale of the original object in the reference (e.g., if the reference shows a seat cover, your product must fill that same space).
+   - **Lighting**: Apply the *exact* lighting direction, softness, and color temperature from the reference to the product.
+   - **Text & UI**: If the reference has text overlays (e.g., "Easy Installation"), re-generate them around the new product.
+
+**STRICT CONSTRAINTS (CRITICAL)**:
+${retouch ? `
+- **✨ SMART RETOUCH (ENABLED)**:
+  - **Enhance Materials**: improving textures (e.g., make leather look premium/richer, metal more polished).
+  - **Clean Up**: Remove dust, scratches, and minor imperfections from the product source image.
+  - **Optimize Lighting**: Ensure the product is lit flatteringly while matching the scene.
+  - **Constraint**: You may improve *quality* but DO NOT change the *design* (buttons, shape, features must stay).
+` : `
+- **⛔ STRUCTURAL LOCK**: The geometry of [THE PRODUCT] is LOCKED. Do not hallucinate new buttons, change curves, or alter materials. It must look exactly like the provided product photos.
+- **⛔ NO REFERENCE LEAKAGE**: Do not output the product found in Image 1. If Image 1 shows a competitor's product, it MUST be replaced.
+`}
+- **⛔ NO DISTORTION**: Do not stretch or squash the product. If aspect ratios differ, extend the background, do not warp the subject.
+- **Photorealism**: The final result must look like a raw photo, not a collage. Shadows must fall correctly on the product.
+
+${customPrompt ? `**USER CUSTOM INSTRUCTIONS (Highest Priority)**: ${customPrompt}` : ''}
+
+**OUTPUT CONFIGURATION**:
+- Aspect Ratio: ${aspectRatio}
+- Quality: Commercial/Editorial Standard (8k resolution style)
+- Focus: The Product is the Hero.
+`;
+
+  // Build parts array
+  const parts: any[] = [];
+
+  // Add style reference image first
+  parts.push({
+    inlineData: {
+      mimeType: styleReference.mime,
+      data: styleReference.base64,
+    },
+  });
+
+  // Add product images
+  for (const img of productImages) {
+    parts.push({
+      inlineData: {
+        mimeType: img.mime,
+        data: img.base64,
+      },
+    });
+  }
+
+  // Add text prompt
+  parts.push({ text: prompt });
+
+  const results: string[] = [];
+
+  // Generate the requested number of images
+  for (let i = 0; i < count; i++) {
+    try {
+      console.log(`[StyleReplication] Generating image ${i + 1}/${count}...`);
+
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: [{ role: "user", parts }],
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio,
+            imageSize: resolution,
+          },
+        },
+      });
+
+      // Extract the image from response
+      const imagePart = response.candidates?.[0]?.content?.parts?.find(
+        (p: any) => p.inlineData?.mimeType?.startsWith("image/")
+      );
+
+      if (imagePart?.inlineData?.data) {
+        results.push(imagePart.inlineData.data);
+        console.log(`[StyleReplication] Image ${i + 1} generated successfully`);
+      } else {
+        console.warn(`[StyleReplication] Image ${i + 1} generation returned no image`);
+      }
+    } catch (error) {
+      console.error(`[StyleReplication] Image ${i + 1} generation failed:`, error);
+      // Continue with other images even if one fails
+    }
+  }
+
+  if (results.length === 0) {
+    throw new Error("Style replication failed - no images generated");
+  }
+
+  return results;
+};

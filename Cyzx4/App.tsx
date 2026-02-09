@@ -3,12 +3,12 @@ import { AppMode } from './types';
 import DirectorTab from './components/DirectorTab';
 import EditorTab from './components/EditorTab';
 import TrendTab from './components/TrendTab';
-import ListingTab from './components/ListingTab';
+import StyleReplicateTab from './components/StyleReplicateTab';
 import VideoTab from './components/VideoTab';
 import FusionTab from './components/FusionTab';
 import SeatCoverTab from './components/SeatCoverTab';
 import SettingsTab from './components/SettingsTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.PLANNING);
@@ -66,8 +66,8 @@ const App: React.FC = () => {
           <NavButton
             active={activeTab === AppMode.COPYWRITING}
             onClick={() => setActiveTab(AppMode.COPYWRITING)}
-            icon={<FileText className="w-5 h-5" />}
-            label="爆款文案"
+            icon={<Palette className="w-5 h-5" />}
+            label="风格复刻"
           />
           <NavButton
             active={activeTab === AppMode.VIDEO}
@@ -100,7 +100,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.SEAT_COVER && "座套试装 (Seat Cover Fit)"}
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
             {activeTab === AppMode.RETOUCHING && "智能修图 (Smart Retouching)"}
-            {activeTab === AppMode.COPYWRITING && "爆款文案 (Listing Copilot)"}
+            {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.VIDEO && "视频脚本 (Video Studio)"}
             {activeTab === AppMode.TRENDS && "趋势洞察 (Trend Insights)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
@@ -125,7 +125,12 @@ const App: React.FC = () => {
             <div style={{ display: activeTab === AppMode.RETOUCHING ? 'block' : 'none', height: '100%' }}>
               <EditorTab initialImage={sharedImage} />
             </div>
-            {activeTab === AppMode.COPYWRITING && <ListingTab />}
+
+            {/* Persist StyleReplicateTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.COPYWRITING ? 'block' : 'none', height: '100%' }}>
+              <StyleReplicateTab />
+            </div>
+
             {activeTab === AppMode.VIDEO && <VideoTab />}
             {activeTab === AppMode.TRENDS && <TrendTab />}
             {activeTab === AppMode.SETTINGS && <SettingsTab />}

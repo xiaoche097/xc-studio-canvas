@@ -1,0 +1,772 @@
+import React, { useState, useRef, useCallback } from 'react';
+import { generateStyleReplication, compressImage } from '../services/geminiService';
+import { storageService, Project } from '../../services/storageService';
+import {
+    Sparkles,
+    Upload,
+    Image as ImageIcon,
+    Package,
+    Loader2,
+    Download,
+    ZoomIn,
+    RefreshCw,
+    X,
+    Zap,
+    AlertCircle,
+    Layers,
+    Palette,
+    FileOutput
+} from 'lucide-react';
+import { AspectRatio, ImageResolution } from '../types';
+
+type TabMode = 'single' | 'batch';
+
+interface UploadedImage {
+    file: File;
+    preview: string;
+    base64?: string;
+    mime?: string;
+}
+
+const StyleReplicateTab: React.FC = () => {
+    // Tab state
+    const [tabMode, setTabMode] = useState<TabMode>('single');
+
+    // Image states
+    const [styleReferences, setStyleReferences] = useState<UploadedImage[]>([]);
+    const [productImages, setProductImages] = useState<UploadedImage[]>([]);
+
+    // Config states
+    const [selectedModel, setSelectedModel] = useState<string>("gemini-3-pro-image-preview");
+    const [isRetouchEnabled, setIsRetouchEnabled] = useState(false);
+    const [customPrompt, setCustomPrompt] = useState('');
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+    const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+    const [generateCount, setGenerateCount] = useState(1);
+    const [turboMode, setTurboMode] = useState(false);
+
+    // Drag states
+    const [isDraggingStyle, setIsDraggingStyle] = useState(false);
+    const [isDraggingProduct, setIsDraggingProduct] = useState(false);
+
+    // Result states
+    const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+
+    // Refs
+    const styleInputRef = useRef<HTMLInputElement>(null);
+    const productInputRef = useRef<HTMLInputElement>(null);
+
+    // Handle style reference upload
+    const handleStyleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        // Calculate how many we can add
+        const maxAllowed = tabMode === 'single' ? 1 : 12;
+        const currentCount = tabMode === 'single' ? 0 : styleReferences.length; // Single mode replaces
+        const remaining = maxAllowed - currentCount;
+
+        if (remaining <= 0 && tabMode === 'batch') return;
+
+        const filesToProcess = tabMode === 'single' ? [files[0]] : files.slice(0, remaining);
+
+        const newImages: UploadedImage[] = [];
+        for (const file of filesToProcess) {
+            const preview = URL.createObjectURL(file);
+            const compressed = await compressImage(file);
+            newImages.push({
+                file,
+                preview,
+                base64: compressed.base64,
+                mime: compressed.mime,
+            });
+        }
+
+        if (tabMode === 'single') {
+            setStyleReferences(newImages);
+        } else {
+            setStyleReferences(prev => [...prev, ...newImages]);
+        }
+        setError(null);
+    }, [tabMode, styleReferences]);
+
+    // Remove style reference
+    const removeStyleReference = (index: number) => {
+        setStyleReferences(prev => prev.filter((_, i) => i !== index));
+    };
+
+    // Handle product images upload
+    const handleProductUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        const newImages: UploadedImage[] = [];
+
+        for (const file of files) {
+            const preview = URL.createObjectURL(file);
+            const compressed = await compressImage(file);
+            newImages.push({
+                file,
+                preview,
+                base64: compressed.base64,
+                mime: compressed.mime,
+            });
+        }
+
+        setProductImages(prev => [...prev, ...newImages].slice(0, 5)); // Max 5 images
+        setError(null);
+    }, []);
+
+    // Handle Style Drop
+    const handleStyleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingStyle(false);
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+
+        // Calculate how many we can add
+        const maxAllowed = tabMode === 'single' ? 1 : 12;
+        const currentCount = tabMode === 'single' ? 0 : styleReferences.length;
+        const remaining = maxAllowed - currentCount;
+
+        if (remaining <= 0 && tabMode === 'batch') return;
+
+        const filesToProcess = tabMode === 'single' ? [files[0]] : files.slice(0, remaining);
+
+        const newImages: UploadedImage[] = [];
+        for (const file of filesToProcess) {
+            if (!file.type.startsWith('image/')) continue;
+
+            const preview = URL.createObjectURL(file);
+            const compressed = await compressImage(file);
+            newImages.push({
+                file,
+                preview,
+                base64: compressed.base64,
+                mime: compressed.mime,
+            });
+        }
+
+        if (tabMode === 'single') {
+            if (newImages.length > 0) setStyleReferences(newImages);
+        } else {
+            setStyleReferences(prev => [...prev, ...newImages]);
+        }
+        setError(null);
+    }, [tabMode, styleReferences]);
+
+    // Handle Product Drop
+    const handleProductDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingProduct(false);
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+
+        const newImages: UploadedImage[] = [];
+
+        for (const file of files) {
+            if (!file.type.startsWith('image/')) continue;
+
+            const preview = URL.createObjectURL(file);
+            const compressed = await compressImage(file);
+            newImages.push({
+                file,
+                preview,
+                base64: compressed.base64,
+                mime: compressed.mime,
+            });
+        }
+
+        setProductImages(prev => [...prev, ...newImages].slice(0, 5));
+        setError(null);
+    }, []);
+
+    // Remove product image
+    const removeProductImage = (index: number) => {
+        setProductImages(prev => prev.filter((_, i) => i !== index));
+    };
+
+    // Generate handler
+    const handleGenerate = async () => {
+        if (styleReferences.length === 0 || productImages.length === 0) {
+            setError('请上传参考设计图和产品素材图');
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setGeneratedImages([]);
+
+        try {
+            const allResults: string[] = [];
+
+            // In batch mode, if multiple styles, we might want to generate result for each style?
+            // Or just use the first one? 
+            // The prompt "Batch replication" implies applying different styles or batch producing.
+            // If user uploads multiple styles in batch mode, let's assuming we generate 1 image per style 
+            // unless generateCount > style count.
+
+            // Actually, simplest implementation for now:
+            // Loop through each style reference and generate 'generateCount' images for it.
+
+            const stylesToProcess = styleReferences;
+
+            for (const [index, styleRef] of stylesToProcess.entries()) {
+                if (!styleRef.base64) continue;
+
+                // If it's a batch of many styles, maybe reduce generateCount per style to 1 by default?
+                // But let's respect the user setting.
+
+                // If single mode, stylesToProcess has 1 item.
+
+                const results = await generateStyleReplication(
+                    { base64: styleRef.base64, mime: styleRef.mime || 'image/png' },
+                    productImages.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
+                    customPrompt || undefined,
+                    {
+                        aspectRatio,
+                        resolution,
+                        count: generateCount,
+                        model: selectedModel,
+                        retouch: isRetouchEnabled
+                    }
+                );
+                allResults.push(...results);
+            }
+
+            // Convert base64 to data URLs for display
+            const generatedDataUrls = allResults.map(b64 => `data:image/png;base64,${b64}`);
+            setGeneratedImages(generatedDataUrls);
+
+            // Save to Project History
+            try {
+                // Prepare original assets as Data URIs
+                const originalAssets = [
+                    ...styleReferences.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : ''),
+                    ...productImages.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : '')
+                ].filter(Boolean);
+
+                const projectId = crypto.randomUUID();
+                const newProject: Project = {
+                    id: projectId,
+                    type: 'MARKETING',
+                    createdAt: Date.now(),
+                    thumbnail: generatedDataUrls[0], // Use first generated image as thumbnail (Data URL)
+                    assets: {
+                        original: originalAssets,
+                        generated: generatedDataUrls
+                    },
+                    metadata: {
+                        prompt: customPrompt,
+                        styleRefCount: styleReferences.length,
+                        productCount: productImages.length,
+                        resolution,
+                        aspectRatio,
+                        model: selectedModel,
+                        subType: 'style_replication'
+                    }
+                };
+
+                await storageService.saveProject(newProject);
+                console.log('Project saved to history:', projectId);
+            } catch (err) {
+                console.error('Failed to save project to history:', err);
+            }
+
+        } catch (err: any) {
+            console.error('Generation failed:', err);
+            setError(err.message || '生成失败，请重试');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Download handler
+    const handleDownload = (imageUrl: string, index: number) => {
+        const link = document.createElement('a');
+        link.href = imageUrl;
+        link.download = `style-replicate-${Date.now()}-${index + 1}.png`;
+        link.click();
+    };
+
+    // Reset handler
+    const handleReset = () => {
+        setStyleReferences([]);
+        setProductImages([]);
+        setGeneratedImages([]);
+        setError(null);
+        setCustomPrompt('');
+    };
+
+    const canGenerate = styleReferences.length > 0 && productImages.length > 0 && !isLoading;
+
+    return (
+        <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white">
+            {/* Hero Header */}
+            <div className="text-center py-8 px-4">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-pastel-border rounded-full text-sm text-pastel-muted mb-4 shadow-sm">
+                    <Sparkles className="w-4 h-4 text-pastel-highlight" />
+                    AI 驱动
+                </div>
+                <h1 className="text-2xl md:text-3xl font-bold text-pastel-text mb-3">
+                    一键复刻爆款详情页风格
+                </h1>
+                <p className="text-pastel-muted max-w-xl mx-auto text-sm md:text-base">
+                    上传您喜欢的设计参考图和产品素材，AI 将智能融合风格与产品特性，生成专属于您的高转化详情图
+                </p>
+            </div>
+
+            {/* Tab Switcher */}
+            <div className="flex justify-center mb-6">
+                <div className="inline-flex bg-white border border-pastel-border rounded-full p-1 shadow-sm">
+                    <button
+                        onClick={() => setTabMode('single')}
+                        className={`px-6 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${tabMode === 'single'
+                            ? 'bg-pastel-text text-white shadow-sm'
+                            : 'text-pastel-muted hover:text-pastel-text'
+                            }`}
+                    >
+                        <Sparkles className="w-4 h-4" />
+                        单张复刻
+                    </button>
+                    <button
+                        onClick={() => setTabMode('batch')}
+                        className={`px-6 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${tabMode === 'batch'
+                            ? 'bg-pastel-text text-white shadow-sm'
+                            : 'text-pastel-muted hover:text-pastel-text'
+                            }`}
+                    >
+                        <Layers className="w-4 h-4" />
+                        批量复刻
+                    </button>
+                </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="max-w-7xl mx-auto px-4 pb-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                    {/* Left Panel - Upload & Config */}
+                    <div className="space-y-4">
+                        {/* Style Reference Upload */}
+                        <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Palette className="w-5 h-5 text-pastel-highlight" />
+                                <h3 className="font-semibold text-pastel-text">参考设计图 {tabMode === 'batch' && <span className="text-xs font-normal text-pastel-muted">(支持最多12张)</span>}</h3>
+                            </div>
+                            <p className="text-xs text-pastel-muted mb-3">上传具有期望风格的参考图</p>
+
+                            <div
+                                onClick={() => styleInputRef.current?.click()}
+                                onDragOver={(e) => { e.preventDefault(); setIsDraggingStyle(true); }}
+                                onDragLeave={(e) => { e.preventDefault(); setIsDraggingStyle(false); }}
+                                onDrop={handleStyleDrop}
+                                className={`relative border-2 border-dashed rounded-lg p-4 cursor-pointer transition-all group ${isDraggingStyle
+                                    ? 'border-pastel-highlight bg-pastel-bg/80'
+                                    : 'border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50'
+                                    }`}
+                            >
+                                <input
+                                    ref={styleInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple={tabMode === 'batch'}
+                                    onChange={handleStyleUpload}
+                                    className="hidden"
+                                />
+
+                                {styleReferences.length > 0 ? (
+                                    <div className={`grid gap-2 ${styleReferences.length === 1 ? 'grid-cols-1' : 'grid-cols-3'}`}>
+                                        {styleReferences.map((img, idx) => (
+                                            <div key={idx} className="relative group/item">
+                                                <img
+                                                    src={img.preview}
+                                                    alt={`Style Ref ${idx + 1}`}
+                                                    className={`w-full object-cover rounded-lg border border-pastel-border ${styleReferences.length === 1 ? 'h-40 object-contain' : 'h-20'}`}
+                                                />
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        removeStyleReference(idx);
+                                                    }}
+                                                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {(tabMode === 'batch' && styleReferences.length < 12) && (
+                                            <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
+                                                <Upload className="w-5 h-5" />
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-6">
+                                        <Upload className="w-8 h-8 mx-auto mb-2 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
+                                        <p className="text-sm text-pastel-highlight">拖拽图片到这里</p>
+                                        <p className="text-xs text-pastel-muted mt-1">或点击选择文件 (PNG, JPG)</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Product Images Upload */}
+                        <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Package className="w-5 h-5 text-pastel-highlight" />
+                                <h3 className="font-semibold text-pastel-text">产品素材图</h3>
+                            </div>
+                            <p className="text-xs text-pastel-muted mb-3">上传您希望出现在图片中的元素素材</p>
+
+                            <div
+                                onClick={() => productInputRef.current?.click()}
+                                onDragOver={(e) => { e.preventDefault(); setIsDraggingProduct(true); }}
+                                onDragLeave={(e) => { e.preventDefault(); setIsDraggingProduct(false); }}
+                                onDrop={handleProductDrop}
+                                className={`relative border-2 border-dashed rounded-lg p-4 cursor-pointer transition-all group ${isDraggingProduct
+                                    ? 'border-pastel-highlight bg-pastel-bg/80'
+                                    : 'border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50'
+                                    }`}
+                            >
+                                <input
+                                    ref={productInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={handleProductUpload}
+                                    className="hidden"
+                                />
+
+                                {productImages.length > 0 ? (
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {productImages.map((img, idx) => (
+                                            <div key={idx} className="relative group/item">
+                                                <img
+                                                    src={img.preview}
+                                                    alt={`Product ${idx + 1}`}
+                                                    className="w-full h-20 object-cover rounded-lg border border-pastel-border"
+                                                />
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        removeProductImage(idx);
+                                                    }}
+                                                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {productImages.length < 5 && (
+                                            <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
+                                                <Upload className="w-5 h-5" />
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-6">
+                                        <Upload className="w-8 h-8 mx-auto mb-2 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
+                                        <p className="text-sm text-pastel-highlight">上传产品图片 (最多5张)</p>
+                                        <p className="text-xs text-pastel-muted mt-1">支持多选</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Custom Prompt */}
+                        <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
+                            <h3 className="font-semibold text-pastel-text mb-2">补充提示词（可选）</h3>
+                            <textarea
+                                value={customPrompt}
+                                onChange={(e) => setCustomPrompt(e.target.value)}
+                                placeholder='例如：添加「限时特惠」文字、使用红色主题...'
+                                className="w-full h-20 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+                            />
+                        </div>
+
+                        {/* Config Options */}
+                        <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
+                            <div className="mb-4">
+                                <label className="text-xs text-pastel-muted mb-1 block">AI 模型</label>
+                                <select
+                                    value={selectedModel}
+                                    onChange={(e) => setSelectedModel(e.target.value)}
+                                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                                >
+                                    <option value="gemini-3-pro-image-preview">Gemini 3 Pro (旗舰画质)</option>
+                                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash (快速)</option>
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                {/* Aspect Ratio */}
+                                <div>
+                                    <label className="text-xs text-pastel-muted mb-1 block">尺寸比例</label>
+                                    <select
+                                        value={aspectRatio}
+                                        onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+                                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                                    >
+                                        <option value="1:1">1:1 正方形</option>
+                                        <option value="2:3">2:3 坚版</option>
+                                        <option value="3:2">3:2 横版</option>
+                                        <option value="3:4">3:4 坚版</option>
+                                        <option value="4:3">4:3 横版</option>
+                                        <option value="4:5">4:5 坚版</option>
+                                        <option value="5:4">5:4 横版</option>
+                                        <option value="9:16">9:16 手机坚屏</option>
+                                        <option value="16:9">16:9 宽屏</option>
+                                        <option value="21:9">21:9 超宽屏</option>
+                                    </select>
+                                </div>
+
+                                {/* Resolution */}
+                                <div>
+                                    <label className="text-xs text-pastel-muted mb-1 block">清晰度</label>
+                                    <select
+                                        value={resolution}
+                                        onChange={(e) => setResolution(e.target.value as ImageResolution)}
+                                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                                    >
+                                        <option value="1K">1K 标清</option>
+                                        <option value="2K">2K 高清 (Pro)</option>
+                                        <option value="4K">4K 超清</option>
+                                    </select>
+                                </div>
+
+                                {/* Generate Count */}
+                                <div>
+                                    <label className="text-xs text-pastel-muted mb-1 block">生成数量</label>
+                                    <select
+                                        value={generateCount}
+                                        onChange={(e) => setGenerateCount(Number(e.target.value))}
+                                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                                    >
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                                            <option key={num} value={num}>{num} 张</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Turbo Mode */}
+                                <div className="flex items-end">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <div className={`relative w-10 h-5 rounded-full transition-colors ${turboMode ? 'bg-pastel-highlight' : 'bg-gray-200'}`}>
+                                            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${turboMode ? 'translate-x-5' : ''}`} />
+                                            <input
+                                                type="checkbox"
+                                                checked={turboMode}
+                                                onChange={(e) => setTurboMode(e.target.checked)}
+                                                className="sr-only"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-1 text-sm text-pastel-text">
+                                            <Zap className="w-4 h-4 text-yellow-500" />
+                                            Turbo
+                                        </div>
+                                    </label>
+                                </div>
+
+                                {/* Retouch Mode */}
+                                <div className="flex items-end">
+                                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                                        <div className="relative">
+                                            <input
+                                                type="checkbox"
+                                                checked={isRetouchEnabled}
+                                                onChange={(e) => setIsRetouchEnabled(e.target.checked)}
+                                                className="sr-only"
+                                            />
+                                            <div className={`w-10 h-5 rounded-full transition-colors ${isRetouchEnabled ? 'bg-pastel-highlight' : 'bg-gray-200'
+                                                }`}></div>
+                                            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform transform ${isRetouchEnabled ? 'translate-x-5' : ''
+                                                }`}></div>
+                                        </div>
+                                        <div className="text-sm text-pastel-text flex items-center gap-1">
+                                            <Sparkles className={`w-3.5 h-3.5 ${isRetouchEnabled ? 'text-pastel-highlight' : 'text-gray-400'}`} />
+                                            产品精修
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* Error Message */}
+                            {error && (
+                                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-sm text-red-600">
+                                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
+                            {/* Generate Button */}
+                            <button
+                                onClick={handleGenerate}
+                                disabled={!canGenerate}
+                                className={`w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all ${canGenerate
+                                    ? 'bg-pastel-highlight text-white hover:bg-orange-600 shadow-lg shadow-orange-200'
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    }`}
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        正在生成中...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles className="w-5 h-5" />
+                                        生成 {generateCount} 张详情图
+                                    </>
+                                )}
+                            </button>
+                            <p className="text-center text-xs text-pastel-muted mt-2">预计 5 秒</p>
+                        </div>
+                    </div>
+
+                    {/* Right Panel - Results */}
+                    <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm min-h-[500px] flex flex-col">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 text-pastel-highlight" />
+                                <h3 className="font-semibold text-pastel-text">生成结果</h3>
+                            </div>
+                            {generatedImages.length > 0 && (
+                                <button
+                                    onClick={handleReset}
+                                    className="text-xs text-pastel-muted hover:text-pastel-text flex items-center gap-1"
+                                >
+                                    <RefreshCw className="w-3 h-3" />
+                                    重置
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="flex-1 bg-pastel-bg/50 rounded-lg border border-pastel-border overflow-hidden">
+                            {isLoading ? (
+                                <div className="h-full flex flex-col items-center justify-center">
+                                    <div className="relative">
+                                        <div className="w-16 h-16 border-4 border-pastel-border border-t-pastel-highlight rounded-full animate-spin" />
+                                        <Sparkles className="w-6 h-6 text-pastel-highlight absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                                    </div>
+                                    <p className="text-sm text-pastel-muted mt-4">AI 正在生成中...</p>
+                                </div>
+                            ) : generatedImages.length > 0 ? (
+                                <div className={`p-4 h-full overflow-y-auto ${generatedImages.length === 1 ? 'flex items-center justify-center' : 'grid grid-cols-2 gap-3'}`}>
+                                    {generatedImages.map((img, idx) => (
+                                        <div
+                                            key={idx}
+                                            className={`relative group rounded-lg overflow-hidden border border-pastel-border bg-white shadow-sm ${generatedImages.length === 1 ? 'max-w-md w-full' : 'w-full'}`}
+                                        >
+                                            <img
+                                                src={img}
+                                                alt={`Generated ${idx + 1}`}
+                                                className="w-full h-auto object-contain"
+                                            />
+                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                                <button
+                                                    onClick={() => setSelectedPreview(img)}
+                                                    className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
+                                                >
+                                                    <ZoomIn className="w-5 h-5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDownload(img, idx)}
+                                                    className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
+                                                >
+                                                    <Download className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-pastel-muted p-8">
+                                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 border border-pastel-border shadow-sm">
+                                        <Sparkles className="w-8 h-8 text-pastel-highlight opacity-50" />
+                                    </div>
+                                    <p className="text-sm">等待生成</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        {generatedImages.length > 0 && (
+                            <div className="mt-4 flex items-center justify-between">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setSelectedPreview(generatedImages[0])}
+                                        className="px-4 py-2 border border-pastel-border rounded-lg text-sm text-pastel-text hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
+                                    >
+                                        <ZoomIn className="w-4 h-4" />
+                                        放大
+                                    </button>
+                                    <button
+                                        onClick={() => generatedImages.forEach((img, i) => handleDownload(img, i))}
+                                        className="px-4 py-2 border border-pastel-border rounded-lg text-sm text-pastel-text hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        下载
+                                    </button>
+                                </div>
+                                <button
+                                    onClick={handleGenerate}
+                                    className="px-4 py-2 bg-pastel-highlight text-white rounded-lg text-sm font-medium hover:bg-orange-600 flex items-center gap-1.5 transition-colors shadow-sm"
+                                >
+                                    <RefreshCw className="w-4 h-4" />
+                                    重新生成
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Feature Cards */}
+                <div className="grid grid-cols-3 gap-4 mt-8">
+                    <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
+                        <Palette className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
+                        <h4 className="font-semibold text-pastel-text text-sm">智能风格融合</h4>
+                        <p className="text-xs text-pastel-muted mt-1">AI 将准确提取参考图的设计言和视觉风格</p>
+                    </div>
+                    <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
+                        <Package className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
+                        <h4 className="font-semibold text-pastel-text text-sm">产品特性保留</h4>
+                        <p className="text-xs text-pastel-muted mt-1">完整保留产品细节和卖点，突出商品优势</p>
+                    </div>
+                    <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
+                        <FileOutput className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
+                        <h4 className="font-semibold text-pastel-text text-sm">一键生成导出</h4>
+                        <p className="text-xs text-pastel-muted mt-1">快速生成高清大图，支持多种尺寸导出</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Preview Modal */}
+            {selectedPreview && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+                    onClick={() => setSelectedPreview(null)}
+                >
+                    <div className="relative max-w-4xl max-h-[90vh]">
+                        <img src={selectedPreview} alt="Preview" className="max-w-full max-h-[90vh] object-contain rounded-lg" />
+                        <button
+                            onClick={() => setSelectedPreview(null)}
+                            className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 rounded-full text-white transition-colors"
+                        >
+                            <X className="w-6 h-6" />
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default StyleReplicateTab;
