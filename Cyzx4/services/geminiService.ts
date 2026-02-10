@@ -1699,22 +1699,21 @@ export const generateStyleReplication = async (
   const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3-pro-image-preview", retouch = false } = options;
 
   // Build the prompt for style replication
-  // Build the prompt for style replication
-  // Build the prompt for style replication
   const productCount = productImages.length;
   // Indexing starts at 1. 
   // Product Images: 1 to productCount
   // Style Reference: productCount + 1
 
   const prompt = `
-复刻图片${productCount + 1}的设计。
+[任务] 复刻图片${productCount + 1}的【排版布局】与【视觉风格】。
+[输入] 图片1-${productCount}是产品素材，图片${productCount + 1}是设计参考。
+[要求]
+1. 布局结构：必须与参考图完全一致（保持原有的排版、色块、文字位置）。
+2. 主体替换：将参考图中的商品替换为图片1-${productCount}中的产品。保持原有透视与光影。
+3. ${customPrompt ? `场景/背景：${customPrompt}` : '场景/背景：保持参考图的原始风格。'}
+4. 输出：仅生成一张高质量的最终设计图。
 
-规则：
-1. 布局完全一样（区块数量、排列方式、文字位置）
-2. 产品换成图片1-${productCount}中的产品
-${customPrompt ? `3. 背景/场景换成：${customPrompt}` : ''}
-
-直接开始，不要解释。
+请直接生成图片。
 `;
 
   // DEBUG: Log the customPrompt value
@@ -1722,9 +1721,12 @@ ${customPrompt ? `3. 背景/场景换成：${customPrompt}` : ''}
   console.log('[StyleReplication] productCount:', productCount);
 
   // Build parts array
+  // 1. Add text prompt FIRST (Best practice for many multimodal models)
+  // [任务]... [输入]...
   const parts: any[] = [];
+  parts.push({ text: prompt });
 
-  // 1. Add product images FIRST
+  // 2. Add product images
   for (const img of productImages) {
     parts.push({
       inlineData: {
@@ -1734,7 +1736,7 @@ ${customPrompt ? `3. 背景/场景换成：${customPrompt}` : ''}
     });
   }
 
-  // 2. Add style reference image LAST
+  // 3. Add style reference image
   parts.push({
     inlineData: {
       mimeType: styleReference.mime,
@@ -1742,14 +1744,37 @@ ${customPrompt ? `3. 背景/场景换成：${customPrompt}` : ''}
     },
   });
 
-  // 3. Add text prompt
-  parts.push({ text: prompt });
-
   // DEBUG: Log full prompt when customPrompt is provided
   if (customPrompt) {
     console.log('[StyleReplication] ⚡ 客户指示检测到:', customPrompt);
     console.log('[StyleReplication] Full prompt being sent:\n', prompt);
   }
+
+
+  // Helper to run generation
+  const runGeneration = async (modelName: string) => {
+    console.log(`[StyleReplication] Attempting generation with model: ${modelName}, Resolution: ${resolution}, Aspect: ${aspectRatio}`);
+
+    const config: any = {
+      temperature: 0.2,
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
+      imageConfig: {
+        aspectRatio: aspectRatio,
+        imageSize: resolution, // Must be '1K', '2K', or '4K'
+      }
+    };
+
+    return await ai.models.generateContent({
+      model: modelName,
+      contents: [{ role: "user", parts }],
+      config: config,
+    });
+  };
 
   const results: string[] = [];
 
@@ -1758,83 +1783,31 @@ ${customPrompt ? `3. 背景/场景换成：${customPrompt}` : ''}
     try {
       console.log(`[StyleReplication] Generating image ${i + 1}/${count}...`);
 
-      const response = await ai.models.generateContent({
-        model: model,
-        contents: [{ role: "user", parts }],
-        config: {
-          systemInstruction: `# 角色：高级电商视觉设计专家
-
-你是一位拥有10年经验的电商详情页设计专家，专精于"风格复刻"技术。你的作品被众多Top卖家使用，转化率提升30%以上。
-
-## 你的专业能力
-
-### 1. 布局分析能力
-- 能精确识别参考图的区块结构（2x2网格、上下分屏、左右对比等）
-- 能识别文字标题、步骤编号、装饰元素的位置
-- 能理解视觉层级和信息架构
-
-### 2. 产品置换能力
-- 能准确识别用户提供的产品图片
-- 能将产品自然融入新场景，保持正确的透视和光影
-- 能保持产品的材质、颜色、细节特征
-
-### 3. 场景适配能力
-- 能根据用户描述生成对应场景（车内饰、家居、户外等）
-- 能让产品与新场景自然融合
-- 能保持整体氛围和色调的协调
-
-## 你的工作流程
-
-**第一步：结构分析**
-仔细观察参考设计图，记录：
-- 区块数量（1/2/4/6/9块？）
-- 排列方式（横向/纵向/网格？）
-- 文字元素位置
-- 装饰图形位置
-
-**第二步：精确复刻**
-输出必须与参考图有完全相同的视觉结构。
-
-**第三步：内容替换**
-在保持结构不变的前提下：
-- 产品 → 用户提供的产品
-- 场景 → 用户指定的场景（如果有）
-
-## 你的质量标准
-
-✅ 正确：
-- 区块数量一致
-- 排列方式一致
-- 产品外观正确
-- 场景符合用户要求
-
-❌ 错误（绝对避免）：
-- 把4区块变成1张图
-- 使用参考图中的产品
-- 忽略用户的场景要求
-- 添加参考图没有的元素
-
-## 你的输出原则
-
-- 专业：输出可直接用于电商平台
-- 精准：每个细节都经过考量
-- 高效：直接输出结果，无需解释`,
-          temperature: 0.1, // 极低随机性
-          imageConfig: {
-            aspectRatio: aspectRatio,
-            imageSize: resolution,
-          },
-          safetySettings: [
-            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          ],
-        },
-      });
+      let response;
+      try {
+        response = await runGeneration(model);
+      } catch (err) {
+        console.warn(`[StyleReplication] Primary model ${model} failed, trying fallback to gemini-2.0-flash-exp`);
+        response = await runGeneration("gemini-2.0-flash-exp");
+      }
 
       // Extract the image from response
-      const imagePart = response.candidates?.[0]?.content?.parts?.find(
+      const candidate = response.candidates?.[0];
+      if (!candidate) {
+        console.error(`[StyleReplication] No candidates returned for image ${i + 1}`);
+        console.log('[StyleReplication] Full Response:', JSON.stringify(response, null, 2));
+        continue;
+      }
+
+      console.log(`[StyleReplication] Finish Reason: ${candidate.finishReason}`);
+
+      // Log text content if any (might contain refusal reason or error description)
+      const textPart = candidate.content?.parts?.find((p: any) => p.text);
+      if (textPart) {
+        console.log(`[StyleReplication] Model Text Response: ${textPart.text}`);
+      }
+
+      const imagePart = candidate.content?.parts?.find(
         (p: any) => p.inlineData?.mimeType?.startsWith("image/")
       );
 
@@ -1843,6 +1816,7 @@ ${customPrompt ? `3. 背景/场景换成：${customPrompt}` : ''}
         console.log(`[StyleReplication] Image ${i + 1} generated successfully`);
       } else {
         console.warn(`[StyleReplication] Image ${i + 1} generation returned no image`);
+        console.log('[StyleReplication] Candidate content:', JSON.stringify(candidate.content, null, 2));
       }
     } catch (error) {
       console.error(`[StyleReplication] Image ${i + 1} generation failed:`, error);
