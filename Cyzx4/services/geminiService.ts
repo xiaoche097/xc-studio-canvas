@@ -1,5 +1,6 @@
 import { GoogleGenAI, LiveServerMessage, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
+import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE } from "./promptUtils";
 
 // ==================== API Configuration Helper ====================
 // Priority: 1. Yunwu API (base_url + key) -> 2. Native Gemini API Key -> 3. Environment Variable
@@ -285,8 +286,8 @@ ${roleDefinition}
 
 3. **Texture is Everything:**
    - Describe textures explicitly to avoid AI smoothness.
-   - Clothes: "wrinkled linen", "soft cotton", "worn leather", "textured wool".
-   - Environment: "sun-drenched concrete", "dappled light", "lived-in cafe".
+    - Clothes: ${TEXTURE_KEYWORDS.FABRIC.map(t => `"${t}"`).join(", ")}.
+    - Environment: ${TEXTURE_KEYWORDS.ENVIRONMENT.map(t => `"${t}"`).join(", ")}.
 
 4. **THE OUTFIT REPLACEMENT PROTOCOL (CRITICAL):**
    - You MUST treat the original image's clothing as **"Invisible/Placeholder"**.
@@ -295,16 +296,10 @@ ${roleDefinition}
    - **Constraint**: If the analysis says "Blue Shirt", the final prompt MUST say "Blue Shirt".
 
 5. **THE SCENE RANDOMIZER (CRITICAL):**
-   - STOP using "City Street" as default.
-   - You MUST cycle through diverse locations.
-   - **Random Pool (Pick ONE that fits the vibe)**:
-     - "Rooftop garden at sunset with lens flare"
-     - "Interior of a brutalist concrete art gallery"
-     - "Ferry boat deck with ocean spray"
-     - "Greenhouse filled with tropical plants"
-     - "Rainy neon alleyway with reflections"
-     - "Old library with dust motes in light beams"
-     - "Windy cliffside with tall grass"
+    - STOP using "City Street" as default.
+    - You MUST cycle through diverse locations.
+    - **Random Pool (Pick ONE that fits the vibe)**:
+${SCENE_POOL.map(s => `      - "${s}"`).join("\n")}
 
 6. **Body Landmark Mapping (Size Control):**
    - User Input Dimensions: "${productScale || "Not specified"}"
@@ -427,9 +422,8 @@ export const generateMarketingImage = async (
 
     // 3. Construct Prompt Logic
     let finalPrompt = "";
-    // UPDATED: Suffix to reinforce Film Look if user wrote their own prompt
-    const genericSuffix =
-      ", analog film photography, Kodak Portra 400, film grain, highly detailed texture, cinematic lighting, editorial aesthetic, photorealistic, f/1.8.";
+    // Dynamic quality suffix from Nano Banana Skills
+    const qualitySuffix = `, ${QUALITY_BOOSTERS.EDITORIAL}`;
 
     if (referenceImage && modelReferenceImage) {
       // Dual Image Scenario
@@ -438,21 +432,21 @@ export const generateMarketingImage = async (
       Image 1 is the [Product Reference]. 
       Image 2 is the [Model Reference].
       
-      Goal: Generate a High-End Instagram Editorial Shot (Analog Film Style).
+      Goal: Generate a High-End Editorial Photograph.
       
       CRITICAL INSTRUCTIONS:
       1. You MUST use the facial features of the person in Image 2.
       2. The model (Image 2) should be interacting with the Product (Image 1) in a CANDID way (not stiff).
       3. The Product (Image 1) must be preserved exactly as shown.
-      4. STYLE: Kodak Portra 400. Visible film grain. Texture.
+      4. STYLE: Cinematic, editorial, photorealistic with natural textures.
       
-      Scene Description: ${prompt} ${genericSuffix}`;
+      Scene Description: ${prompt} ${qualitySuffix}`;
     } else if (referenceImage) {
       // Single Image Scenario
-      finalPrompt = `Create a high quality analog film photograph based on the provided product reference. ${prompt} ${genericSuffix}`;
+      finalPrompt = `Create a high quality editorial photograph based on the provided product reference. ${prompt} ${qualitySuffix}`;
     } else {
       // Text Only Scenario
-      finalPrompt = `${prompt} ${genericSuffix}`;
+      finalPrompt = `${prompt} ${qualitySuffix}`;
     }
 
     parts.push({ text: finalPrompt });
@@ -537,18 +531,21 @@ export const generateImageToImage = async (
       });
     });
 
-    // 2. Construct Prompt
-    // Using AIGC Architect principles for better prompt adherence
+    // 2. Construct Prompt — structured with golden formula principles
     const systemPrompt = `
+    **ROLE**: Professional Image Generation Artist.
     **TASK**: Image-to-Image Generation.
     **INPUT**: ${images.length} Reference Image(s).
-    **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description.
+    
+    **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
+    
     **USER PROMPT**: ${prompt}
     
-    **GUIDELINES**:
-    - High fidelity to the visual style of reference images if not overridden by prompt.
-    - Photorealistic, high resolution, commercial quality.
-    - If multiple images are provided, fuse their elements or styles as implied by the prompt.
+    **QUALITY GUIDELINES**:
+    - Maintain high fidelity to the visual style of reference images unless overridden by the user prompt.
+    - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+    - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
+    - Preserve fine details: textures, material quality, lighting accuracy.
     `;
 
     parts.push({ text: systemPrompt });
@@ -593,14 +590,22 @@ export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: st
   if (!rawPrompt && (!refImages || refImages.length === 0)) return "";
 
   const skillSystemPrompt = `
-# Role: Prompt Optimization Expert
-# Mission: Refine user prompts into precise, high-quality image generation directives.
+# Role: Imagen 图片生成 Prompt 优化大师
+# Mission: 将用户提示词重构为高质量、结构化的图片生成指令。
 
-# Core Rules:
-1. **Precision**: Convert vague terms into concrete visual descriptions (e.g., "beautiful" -> "cinematic lighting, 8k resolution, golden hour").
-2. **Visual Fidelity**: If feedback/images are provided, strictly adhere to their style.
-3. **Language Identity**: Input Chinese -> Output Chinese. Input English -> Output English.
-4. **Output Format**: Return ONLY the optimized prompt text. No markdown, no explanations.
+# 黄金公式（7要素法）— 严格按此顺序输出：
+# [主体描述] + [动作/状态] + [环境/场景] + [风格流派] + [光照描述] + [视角/构图] + [质量增强词]
+
+# 核心规则：
+1. **精准替换**: 将模糊词转化为具体视觉描述（如"好看" → "cinematic lighting, golden hour, soft shadows"）
+2. **主体优先**: 主体描述放在最前面（Imagen 对前部内容权重更高）
+3. **细节密度**: 控制在 50-150 词，避免过少（模糊）或过多（过约束）
+4. **质量增强**: 末尾追加增强词（如 "high resolution, 8K, sharp focus, professional quality"）
+5. **材质具体化**: 用具体材质词替换抽象描述（如"好看的衣服" → "wrinkled linen shirt, soft cotton fabric"）
+6. **光照公式**: [光源类型] + [方向] + [强度] + [色温]
+7. **风格一致**: 如果用户/参考图有明确风格，严格遵循
+8. **语言身份**: 输入中文 → 输出中文。输入英文 → 输出英文。
+9. **输出格式**: 仅返回优化后的提示词文本。不要 Markdown，不要解释。
 `;
 
   try {
@@ -679,59 +684,58 @@ export const generateSeatCoverFit = async (
     }
 
     // 2. Map Definitions & Logic
+    // 2. Map Definitions & Logic (Refined for Physics-Based Precision)
     const viewMap: Record<string, string> = {
       // === 1. Single Seat (单品座椅) ===
-      "S1 Front View": "shot from directly in front, camera at seat height, centered composition",
-      "S2 3/4 Front Angle": "shot from front-left at 40 degree angle, slightly elevated camera, three-quarter view",
-      "S3 Rear 3/4 View": "shot from rear-left at 135 degree angle, showing seat back, three-quarter rear view",
+      "S1 Front View": "Camera Height: 0.9m. Angle: 0 degrees (Dead Center). Distance: 1.5m. Lens: 50mm. Composition: Perfectly symmetrical front view of the single seat. White studio background.",
+      "S2 3/4 Front Angle": "Camera Height: 1.0m. Angle: 30-45 degrees from Front-Left. Lens: 50mm. Composition: Three-quarter product shot showing seat front and side bolster thickness.",
+      "S3 Rear 3/4 View": "Camera Height: 1.0m. Angle: 135 degrees from Rear-Left. Lens: 50mm. Composition: Showing the back of the seat and side airbag slot. Product focus.",
 
       // === 2. Full Set (整套座椅) ===
-      "SET1 Side View Left": "shot from left side at 90 degrees, full seat set in frame, straight-on side view",
-      "SET2 Side View Right": "shot from right side at 90 degrees, full seat set in frame, straight-on side view",
+      "SET1 Side View Left": "Camera Height: 1.1m (Eye Level). Angle: 90 degrees Left Profile. Lens: 85mm. Composition: Full 5-seat set arranged in studio. Flat side view.",
+      "SET2 Side View Right": "Camera Height: 1.1m (Eye Level). Angle: 90 degrees Right Profile. Lens: 85mm. Composition: Full 5-seat set arranged in studio. Flat side view.",
 
       // === 3. Front Interior (车内前排) ===
-      "F1 High-Angle Top-Down": "shot from above front-right at 45 degree downward angle, bird's eye perspective, interior visible",
-      "F2 Driver Side Profile": "shot from driver door side, eye-level, profile view of driver seat and dashboard",
-      "F3 Passenger Front-Quarter": "shot from passenger side front-quarter, doors removed, showing front cabin interior",
-      "F4 Rear-to-Front View": "shot from rear seat position looking forward, interior POV, front seat backs visible",
+      "F1 High-Angle Top-Down": "Camera Position: Sunroof/Ceiling. Angle: 60 degrees Downward. Lens: 24mm Wide. Composition: Bird's eye view of front seats and center console. Interior geometry visible.",
+      "F2 Driver Side Profile": "Camera Position: Outside Driver Door (Open). Height: 1.1m. Angle: 10 degrees to seat profile. Lens: 35mm. Composition: Looking across driver seat towards passenger seat.",
+      "F3 Passenger Front-Quarter": "Camera Position: Outside Passenger Door. Height: 1.0m. Angle: 45 degrees into cabin. Lens: 35mm. Composition: Framing both front seats from passenger side.",
+      "F4 Rear-to-Front View": "Camera Position: Rear Seat Center. Height: 1.2m. Angle: 0 degrees facing forward. Lens: 28mm. Composition: Driver POV looking at front row seat backs and dashboard.",
 
       // === 4. Rear Interior (车内后排) ===
-      // === 4. Rear Interior (车内后排) ===
-      "R6 Rear 3/4 View": "Camera positioned at OPEN REAR-RIGHT DOOR. 3/4 angle view looking across the rear bench. Interior visible. Standard commercial angle.",
-      "R1 Rear Front Close-up": "1-POINT PERSPECTIVE. Camera positioned on the vehicle CENTER LINE (between front seats), facing directly BACKWARDS. Pure symmetrical view of the rear bench. NOT from the side door. 0-degree angle.",
-      "R2 Rear Side Left": "Camera positioned OUTSIDE OPEN REAR-LEFT DOOR, looking INTO the cabin. 45-degree angle towards rear bench. Eye-level commercially standard shot.",
-      "R3 Rear Side Right": "Camera positioned OUTSIDE OPEN REAR-RIGHT DOOR, looking INTO the cabin. 45-degree angle towards rear bench. Eye-level commercially standard shot.",
-      "R4 Rear Folded View": "Functional Shot: Rear Seat Backrest FOLDED DOWN FLAT onto the cushion. Horizontal cargo surface. NOT tipped up.",
-      "R7 Rear Tip-Up View": "Functional Shot: Rear Seat Cushion FLIPPED UP / TIPPED UP VERTICALLY against the backrest. 60/40 split or full bench. Showing the floor space UNDER the seat.",
-      "R5 Top-Down Reclined": "shot from above at 60 degree angle, looking down into cabin, seats reclined",
+      "R6 Rear 3/4 View": "Camera Position: Outside Rear-Right Door. Height: 1.0m. Angle: 45 degrees towards rear bench. Lens: 35mm. Composition: Standard commercial interior shot showing rear seat capacity.",
+      "R1 Rear Front Close-up": "Camera Position: Center Tunnel (Between Front Seats). Height: 0.8m. Angle: 0 degrees facing HUGE Rear Bench. Lens: 35mm. Composition: Symmetrical view of rear seats. 1-Point Perspective.",
+      "R2 Rear Side Left": "Camera Position: Outside Rear-Left Door. Height: 1.0m. Angle: 45 degrees looking in. Lens: 35mm. Composition: Framing left side of rear bench.",
+      "R3 Rear Side Right": "Camera Position: Outside Rear-Right Door. Height: 1.0m. Angle: 45 degrees looking in. Lens: 35mm. Composition: Framing right side of rear bench.",
+      "R4 Rear Folded View": "Camera Height: 1.2m. Angle: 30 degrees down. Action: Rear seat backrest folded FLAT. Composition: Showing cargo space and seat back texture.",
+      "R7 Rear Tip-Up View": "Camera Height: 0.8m. Angle: Low angle up. Action: Rear seat cushion flipped/tipped UP vertically. Composition: Showing under-seat floor space.",
+      "R5 Top-Down Reclined": "Camera Position: Ceiling/Sunroof. Angle: 90 degrees Top-Down. Lens: 24mm. Composition: Layout plan view of vehicle interior.",
 
       // === 5. Armrest Box (扶手箱) ===
-      "A01 White Background 1": "Product isolated on pure white background, floating composition, black car armrest cover with diamond-quilted pattern, front-right 3/4 view, 45-degree top-down angle, studio lighting, soft shadows beneath, minimal commercial product photography",
-      "A02 White Background 2": "Product isolated on pure white background, resting on surface, black leather armrest cover, eye-level 3/4 view focusing on side thickness and fit, diamond stitching detail visible, clean studio shot, high key lighting",
-      "A03 Rear Closed View": "Car interior shot from rear passenger seat, looking forward at center console, armrest cover installed and closed, black diamond pattern clearly visible, gear shifter and cup holders in foreground, dashboard in soft background focus, neutral daylight",
-      "A04 Rear Open View": "Car interior shot, angled view from rear seat, center console armrest lid flipped open in vertical position, showing empty black storage compartment inside, quilted cover visible on the underside of the lid, steering wheel visible in background",
-      "A05 Driver Side View": "Car interior shot from driver side, looking across center console toward passenger seat, armrest cover prominent in foreground, gear shifter on left, black leather seats, dashboard detail visible, premium interior aesthetic",
-      "A06 Passenger Side View": "Car interior shot from passenger side, looking toward driver seat, steering wheel visible on right, armrest cover centered in lower left frame, diamond texture highlighted by window light, dark luxury car interior",
-      "A07 Top-Down View": "Direct top-down overhead shot of car center console, 90-degree angle, armrest cover centered and symmetrical, diamond quilt pattern filling the frame, cup holders visible at top, gear shifter partial view, geometric composition",
-      "A08 Rear Diagonal": "Car interior shot from rear right passenger position, looking diagonally toward front left driver area, high angle view of armrest cover, driver seat back visible on left, cinematic lighting, sharp focus on product texture",
-      "A09 Material Close-up": "Extreme close-up macro shot of armrest cover surface, diamond-quilted black leather texture, detailed stitching, shallow depth of field with blurred car interior background, soft natural lighting highlighting material quality",
-      "A10 Driving Scenario": "Lifestyle car interior shot, side view from passenger side, male driver wearing grey t-shirt holding steering wheel with both hands, focused on road, black armrest cover visible in foreground, natural daylight, realistic driving scene",
-      "A11 Rear Standard": "Clean car interior shot from rear center position, looking down at center console, armrest cover installed, symmetrical composition, black leather seats on both sides, gear shifter visible, neutral professional lighting",
-      "A12 Pet Interaction Paws": "Car interior shot, Golden Retriever dog in back seat leaning forward with paws resting on the armrest cover, happy expression, tongue out, warm sunlight, focus on dog and armrest texture, pet-friendly product",
-      "A13 Waterproof Wipe": "Close-up action shot, male hand holding a beige microfiber cloth wiping water droplets off the black diamond-quilted armrest cover, showcasing waterproof feature, grey shirt sleeve visible, bright daylight",
-      "A14 Installation Demo": "Instructional shot, view from rear seat, two hands demonstrating installation by stretching the elastic band of the cover over the armrest lid, showing the underside attachment method, clear focus on the action",
-      "A15 Arm Rest Comfort": "Lifestyle shot from driver side, male driver wearing grey t-shirt with arm resting comfortably on the padded armrest cover, close-up on arm and product, showcasing ergonomic support, warm sunset lighting",
-      "A16 Rear Ajar View": "Car interior shot from rear seat, center console armrest lid slightly lifted (ajar), showing the thickness and fit of the cover while in motion, gear shifter visible below, clean high-angle composition",
-      "A17 Driver High Angle": "High-angle shot from driver side looking down at center console, sharp focus on the diamond pattern of the armrest cover, gear shifter and cup holders visible, dramatic interior lighting, premium look",
-      "A18 Pet Interaction Sitting": "Car interior shot, Golden Retriever dog sitting fully on top of the center console armrest cover, facing forward/right, happy expression, warm sunlight from left window, sharp focus on the dog and the black diamond-quilted mat beneath supporting the weight",
-
+      "A01 White Background 1": "Camera: Studio Top-Down 45°. Product: Armrest Cover. Context: Floating on White. Style: Clean e-commerce catalog shot.",
+      "A02 White Background 2": "Camera: Eye-Level 0°. Product: Armrest Cover. Context: Resting on White Surface. Style: Side profile showing thickness.",
+      "A03 Rear Closed View": "Camera: From Rear Seat Center. Focus: Center Console (Closed). Context: Car Interior. Style: User POV.",
+      "A04 Rear Open View": "Camera: From Rear Seat. Action: Armrest Lid OPEN vertical. Focus: Storage space & Cover underside. Context: Car Interior.",
+      "A05 Driver Side View": "Camera: Driver Seat POV. Angle: Looking down-right at console. Focus: Armrest usage.",
+      "A06 Passenger Side View": "Camera: Passenger Seat POV. Angle: Looking down-left at console. Focus: Armrest usage.",
+      "A07 Top-Down View": "Camera: 90° Overhead. Focus: Grid/Diamond pattern alignment. Context: Geometric fit check.",
+      "A08 Rear Diagonal": "Camera: Rear-Right Passenger POV. Angle: 45° to center console. Focus: Corner fit.",
+      "A09 Material Close-up": "Camera: Macro Lens (100mm). Distance: 20cm. Focus: Texture grain & Stitching. Depth of Field: Shallow.",
+      "A10 Driving Scenario": "Camera: Passenger Side. Context: Driver's arm resting on cover. Action: Driving. Vibe: Functional comfort.",
+      "A11 Rear Standard": "Camera: Center Rear. Angle: Straight level. Focus: Symmetrical console alignment.",
+      "A12 Pet Interaction Paws": "Camera: Eye Level. Subject: Golden Retriever Paws on Armrest. Focus: Durability/Scratch resistance.",
+      "A13 Waterproof Wipe": "Camera: Close-up 45°. Action: Hand wiping water droplets. Focus: Hydrophobic surface.",
+      "A14 Installation Demo": "Camera: POV or Side. Action: Hands stretching elastic band. Focus: Installation mechanism.",
+      "A15 Arm Rest Comfort": "Camera: Side Profile. Subject: Elbow pressing into foam. Focus: Cushioning softness.",
+      "A16 Rear Ajar View": "Camera: Low Angle Rear. Action: Lid slightly lifted (ajar). Focus: Gap tolerance.",
+      "A17 Driver High Angle": "Viewpoint: High Driver. Angle: Steep down. Focus: Driver's visual confirmation of fit.",
+      "A18 Pet Interaction Sitting": "subject: Golden Retriever sitting ON console. Focus: Weight bearing capacity.",
 
       // Legacy/Fallback mapping
-      "Driver's View": "Shot from driver's seated position at 45-degree angle.",
-      "Rear Row Perspective": "Rear passenger viewpoint, looking forward.",
-      "Side Open Door View": "View from open door position.",
-      "Top Down View": "High angle layout view.",
-      "Detail Shot of Stitching": "Close-up macro shot of stitching.",
+      "Driver's View": "Camera Position: Driver Seat. Perspective: POV.",
+      "Rear Row Perspective": "Camera Position: Rear Seat. Perspective: Forward facing.",
+      "Side Open Door View": "Camera Position: Outside Door. Angle: 45 degrees.",
+      "Top Down View": "Camera Position: Overhead. Angle: 90 degrees.",
+      "Detail Shot of Stitching": "Camera: Macro. Focus: Texture.",
     };
 
     // 3. Resolve Target & Angle Attributes
@@ -808,8 +812,19 @@ export const generateSeatCoverFit = async (
 
     // 4. Construct V5.1 Prompt with explicit IMAGE MANIFEST
 
+    // 4. Construct V5.2 Prompt with explicit IMAGE MANIFEST
+    // UPGRADE: Added Perspective Lock Protocol (Nano Banana Skills)
+
     const v4Prompt = `
 ## ✅ AutoFusion™ Pro V5.2 (Product-First™ Edition)
+
+---
+
+# 📐 CAMERA & PERSPECTIVE LOCK [NON-NEGOTIABLE]
+> **CAMERA INSTRUCTION**: ${angleInstruction}
+> **CRITICAL**: The camera MUST NOT Move. Match the reference/preset angle EXACTLY.
+> **PHYSICS**: DO NOT change the lens focal length or camera height.
+> **COMPOSITION**: Keep the subject centered and framed exactly as described.
 
 ---
 
@@ -849,7 +864,7 @@ ${visualGuide ? `| **Image ${guideIndex}** | 📐 Scene Template | This shows th
 | **#2** | Match the camera angle/composition | ${visualGuide ? `Image ${guideIndex}` : angleId} |
 | **#3** | Render correct vehicle interior | ${year} ${carModel} |
 
-**SYSTEM**: AutoFusion™ Pro V5.2 - Product-First Control
+**SYSTEM**: AutoFusion™ Pro V5.2 - Perspective Locked
 **CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
 **PRODUCT_TYPE**: **${productCategory}** (MUST come from Images 1-${productCount})
 
@@ -962,6 +977,7 @@ Render the interior to match this vehicle model (but remember: the ${productCate
 - ✅ Re-render the product from the camera angle specified
 - ✅ Apply realistic lighting and shadows
 - ⛔ Do not modify the product's design, pattern, or color
+- ⛔ Do not distort the product shape to fit the angle - use correct perspective.
 
 ---
 
@@ -1041,6 +1057,7 @@ Generate a **NEW photorealistic image** that:
 2. Shows the product from Images 1-${productCount} properly installed
 3. ${!isSingleSeat ? `Features accurate ${year} ${carModel} interior design` : "Has clean studio background"}
 4. Looks like a professional commercial photograph
+5. **Quality**: ${QUALITY_BOOSTERS.PRODUCT}
 
 **START GENERATION NOW.**
 `;
@@ -1063,7 +1080,9 @@ Generate a **NEW photorealistic image** that:
           imageConfig: {
             aspectRatio: aspectRatio,
             imageSize: resolution,
-          },
+            // Enhanced Negative Prompt for Perspective Control
+            negativePrompt: buildNegativePrompt('automotive', 'realistic', NEGATIVE_PERSPECTIVE),
+          } as any,
         },
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
@@ -1167,7 +1186,8 @@ export const inpaintImage = async (
       1. Modify ONLY the white area of the mask.
       2. INSTRUCTION: "${prompt}".
       ${referenceImages.length > 0 ? `3. STRICT ADHERENCE to Reference Material for texture/style/color independently of the original.` : ''}
-      4. Blend edges naturally.
+      4. Blend edges naturally — no visible seams, no color mismatch.
+      5. ${QUALITY_BOOSTERS.RETOUCHING}
       `,
     });
 
@@ -1232,7 +1252,19 @@ export const editGeneratedImage = async (
       });
     });
 
-    parts.push({ text: prompt });
+    // Wrap raw prompt with structured editing template
+    const enhancedEditPrompt = `
+    **ROLE**: Professional Photo Editor.
+    **TASK**: Edit the provided image according to the instruction below.
+    ${referenceImages.length > 0 ? `**REFERENCES**: ${referenceImages.length} reference image(s) provided for style/content guidance.` : ''}
+    
+    **EDIT INSTRUCTION**: ${prompt}
+    
+    **QUALITY**: ${QUALITY_BOOSTERS.RETOUCHING}
+    **CONSTRAINT**: Preserve all unedited areas exactly. Only modify what the instruction requests.
+    `;
+
+    parts.push({ text: enhancedEditPrompt });
 
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-image-preview",
@@ -1241,8 +1273,8 @@ export const editGeneratedImage = async (
       },
       config: {
         imageConfig: {
-          aspectRatio: options.aspectRatio, // Optional, model might infer if undefined
-          imageSize: options.resolution || "1K", // Default to 1K if not provided, but we will pass it
+          aspectRatio: options.aspectRatio,
+          imageSize: options.resolution || "1K",
         },
       },
     });
@@ -1297,7 +1329,7 @@ export const generateOutpainting = async (
           },
           {
             text: `
-            You are an Expert Image Extender.
+            You are an Expert Image Extender — seamless quality is paramount.
             
             Image 1: The input image with a transparent/white border.
             Image 2: A mask where BLACK is the original image (KEEP) and WHITE is the empty space (FILL).
@@ -1305,8 +1337,10 @@ export const generateOutpainting = async (
             TASK: Outpaint / Expand the image.
             1. Fill the WHITE area of the mask with new content.
             2. The new content MUST seamlessly blend with the edges of the original image (Black area).
-            3. Context: ${description}
-            4. Do NOT modify the original image content inside the Black mask area.
+            3. Match lighting direction, color temperature, and texture style exactly.
+            4. Context: ${description}
+            5. Do NOT modify the original image content inside the Black mask area.
+            6. Quality: ${QUALITY_BOOSTERS.RETOUCHING}
             `,
           },
         ],
@@ -1712,6 +1746,7 @@ export const generateStyleReplication = async (
 2. 主体替换：将参考图中的商品替换为图片1-${productCount}中的产品。保持原有透视与光影。
 3. ${customPrompt ? `场景/背景：${customPrompt}` : '场景/背景：保持参考图的原始风格。'}
 4. 输出：仅生成一张高质量的最终设计图。
+5. 质量：高分辨率、锐利细节、专业商业品质、色彩准确、无伪影。
 
 请直接生成图片。
 `;
