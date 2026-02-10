@@ -7,6 +7,7 @@ export enum AppMode {
   COPYWRITING = 'COPYWRITING', // Listing Copilot (New)
   VIDEO = 'VIDEO',           // Video Studio (New)
   TRENDS = 'TRENDS',         // Trend Insights (Kept)
+  PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   SETTINGS = 'SETTINGS'      // Settings (New)
 }
 

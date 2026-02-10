@@ -1,6 +1,6 @@
 import { GoogleGenAI, LiveServerMessage, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
-import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE } from "./promptUtils";
+import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE, getAngleNegative, getAngleLens } from "./promptUtils";
 
 // 导入工具函数和类型定义
 import {
@@ -516,55 +516,55 @@ export const generateSeatCoverFit = async (
     // 2. Map Definitions & Logic (Refined for Physics-Based Precision)
     const viewMap: Record<string, string> = {
       // === 1. Single Seat (单品座椅) ===
-      "S1 Front View": "Camera Height: 0.9m. Angle: 0 degrees (Dead Center). Distance: 1.5m. Lens: 50mm. Composition: Perfectly symmetrical front view of the single seat. White studio background.",
-      "S2 3/4 Front Angle": "Camera Height: 1.0m. Angle: 30-45 degrees from Front-Left. Lens: 50mm. Composition: Three-quarter product shot showing seat front and side bolster thickness.",
-      "S3 Rear 3/4 View": "Camera Height: 1.0m. Angle: 135 degrees from Rear-Left. Lens: 50mm. Composition: Showing the back of the seat and side airbag slot. Product focus.",
+      "S1 Front View": "Camera Height: 0.9m. Angle: 0° dead center. Distance: 1.5m. Shot on 50mm standard lens, f/4. Composition: Perfectly symmetrical front view, centered composition. Spatial Anchors: headrest centered at top, seat cushion centered at bottom, armrests symmetric left-right. White studio background.",
+      "S2 3/4 Front Angle": "Camera Height: 1.0m. Angle: 30-45° from front-left. Shot on 50mm lens, f/4. Composition: Three-quarter product shot. Spatial Anchors: left bolster prominent in foreground, right side receding. Seat front face and side thickness both visible.",
+      "S3 Rear 3/4 View": "Camera Height: 1.0m. Angle: 135° from rear-left. Shot on 50mm lens, f/4. Composition: Rear three-quarter view. Spatial Anchors: seatback rear surface dominant, side airbag slot visible on near side.",
 
       // === 2. Full Set (整套座椅) ===
-      "SET1 Side View Left": "Camera Height: 1.1m (Eye Level). Angle: 90 degrees Left Profile. Lens: 85mm. Composition: Full 5-seat set arranged in studio. Flat side view.",
-      "SET2 Side View Right": "Camera Height: 1.1m (Eye Level). Angle: 90 degrees Right Profile. Lens: 85mm. Composition: Full 5-seat set arranged in studio. Flat side view.",
+      "SET1 Side View Left": "Camera Height: 1.1m eye level. Angle: 90° pure left profile. Shot on 85mm portrait lens, f/2.8. Composition: Full 5-seat set, flat side view. Spatial Anchors: all seats in a horizontal row, front seats left, rear bench right.",
+      "SET2 Side View Right": "Camera Height: 1.1m eye level. Angle: 90° pure right profile. Shot on 85mm portrait lens, f/2.8. Composition: Full 5-seat set, flat side view. Spatial Anchors: mirror of SET1.",
 
       // === 3. Front Interior (车内前排) ===
-      "F1 High-Angle Top-Down": "Camera Position: Sunroof/Ceiling. Angle: 60 degrees Downward. Lens: 24mm Wide. Composition: Bird's eye view of front seats and center console. Interior geometry visible.",
-      "F2 Driver Side Profile": "Camera Position: Outside Driver Door (Open). Height: 1.1m. Angle: 10 degrees to seat profile. Lens: 35mm. Composition: Looking across driver seat towards passenger seat.",
-      "F3 Passenger Front-Quarter": "Camera Position: Outside Passenger Door. Height: 1.0m. Angle: 45 degrees into cabin. Lens: 35mm. Composition: Framing both front seats from passenger side.",
-      "F4 Rear-to-Front View": "Camera Position: Rear Seat Center. Height: 1.2m. Angle: 0 degrees facing forward. Lens: 28mm. Composition: Driver POV looking at front row seat backs and dashboard.",
+      "F1 High-Angle Top-Down": "Camera Position: Sunroof/ceiling, looking straight down into cabin. Angle: 60° steep downward. Shot on 24mm wide-angle lens, f/8, deep focus. Composition: Bird's eye view, symmetrical layout. Spatial Anchors: steering wheel at top-center, center console running vertically through middle, driver seat on left half, passenger seat on right half. Dashboard at very top edge.",
+      "F2 Driver Side Profile": "Camera Position: Outside open driver door. Height: 1.1m. Angle: 10° slight inward, near-profile. Shot on 35mm lens, f/5.6. Composition: Side view across driver seat. Spatial Anchors: driver seat fills left 60% of frame, passenger seat visible in background right, steering wheel at upper-left, door frame on far left edge.",
+      "F3 Passenger Front-Quarter": "Camera Position: Outside passenger door. Height: 1.0m. Angle: 45° into cabin. Shot on 35mm lens, f/5.6. Composition: Both front seats visible at 3/4 angle. Spatial Anchors: passenger seat in right foreground, driver seat in left background, center console between them, dashboard across the top.",
+      "F4 Rear-to-Front View": "Camera Position: Rear seat center. Height: 1.2m. Angle: 0° facing forward. Shot on 28mm wide lens, f/8. Composition: Looking forward from back seat. Spatial Anchors: two front seatbacks filling left and right halves, center console between them, dashboard and windshield visible above seatbacks.",
 
       // === 4. Rear Interior (车内后排) ===
-      "R6 Rear 3/4 View": "Camera Position: Outside Rear-Right Door. Height: 1.0m. Angle: 45 degrees towards rear bench. Lens: 35mm. Composition: Standard commercial interior shot showing rear seat capacity.",
-      "R1 Rear Front Close-up": "Camera Position: Center Tunnel (Between Front Seats). Height: 0.8m. Angle: 0 degrees facing HUGE Rear Bench. Lens: 35mm. Composition: Symmetrical view of rear seats. 1-Point Perspective.",
-      "R2 Rear Side Left": "Camera Position: Outside Rear-Left Door. Height: 1.0m. Angle: 45 degrees looking in. Lens: 35mm. Composition: Framing left side of rear bench.",
-      "R3 Rear Side Right": "Camera Position: Outside Rear-Right Door. Height: 1.0m. Angle: 45 degrees looking in. Lens: 35mm. Composition: Framing right side of rear bench.",
-      "R4 Rear Folded View": "Camera Height: 1.2m. Angle: 30 degrees down. Action: Rear seat backrest folded FLAT. Composition: Showing cargo space and seat back texture.",
-      "R7 Rear Tip-Up View": "Camera Height: 0.8m. Angle: Low angle up. Action: Rear seat cushion flipped/tipped UP vertically. Composition: Showing under-seat floor space.",
-      "R5 Top-Down Reclined": "Camera Position: Ceiling/Sunroof. Angle: 90 degrees Top-Down. Lens: 24mm. Composition: Layout plan view of vehicle interior.",
+      "R6 Rear 3/4 View": "Camera Position: Outside rear-right door. Height: 1.0m. Angle: 45° towards rear bench. Shot on 35mm lens, f/5.6. Composition: Standard commercial interior shot. Spatial Anchors: rear bench seat fills center, door opening frames the shot, B-pillar visible on right edge.",
+      "R1 Rear Front Close-up": "Camera Position: Center tunnel between front seats. Height: 0.8m. Angle: 0° facing rearward. Shot on 35mm lens, f/5.6. Composition: Symmetrical 1-point perspective of rear bench. Spatial Anchors: rear bench perfectly centered, left and right sections symmetric, rear headrests at top, seat cushion at bottom.",
+      "R2 Rear Side Left": "Camera Position: Outside rear-left door. Height: 1.0m. Angle: 45° looking in from left. Shot on 35mm lens, f/5.6. Composition: Left side of rear bench emphasized. Spatial Anchors: left rear seat fills foreground, center and right seats recede.",
+      "R3 Rear Side Right": "Camera Position: Outside rear-right door. Height: 1.0m. Angle: 45° looking in from right. Shot on 35mm lens, f/5.6. Composition: Right side of rear bench emphasized. Spatial Anchors: right rear seat fills foreground, center and left seats recede.",
+      "R4 Rear Folded View": "Camera Height: 1.2m. Angle: 30° downward. Shot on 35mm lens, f/5.6. Action: Rear seat backrest folded FLAT. Spatial Anchors: flat seatback surface dominates lower 2/3, cargo area visible behind.",
+      "R7 Rear Tip-Up View": "Camera Height: 0.8m. Angle: Low angle upward. Shot on 35mm lens, f/5.6. Action: Rear seat cushion flipped UP vertically. Spatial Anchors: upright cushion surface fills center frame, floor area visible below.",
+      "R5 Top-Down Reclined": "Camera Position: Ceiling/sunroof. Angle: 90° straight down. Shot on 24mm wide-angle lens, f/8. Composition: Overhead plan view. Spatial Anchors: front seats at top, rear seats at bottom, center console as vertical divider, all seats visible in layout.",
 
       // === 5. Armrest Box (扶手箱) ===
-      "A01 White Background 1": "Camera: Studio Top-Down 45°. Product: Armrest Cover. Context: Floating on White. Style: Clean e-commerce catalog shot.",
-      "A02 White Background 2": "Camera: Eye-Level 0°. Product: Armrest Cover. Context: Resting on White Surface. Style: Side profile showing thickness.",
-      "A03 Rear Closed View": "Camera: From Rear Seat Center. Focus: Center Console (Closed). Context: Car Interior. Style: User POV.",
-      "A04 Rear Open View": "Camera: From Rear Seat. Action: Armrest Lid OPEN vertical. Focus: Storage space & Cover underside. Context: Car Interior.",
-      "A05 Driver Side View": "Camera: Driver Seat POV. Angle: Looking down-right at console. Focus: Armrest usage.",
-      "A06 Passenger Side View": "Camera: Passenger Seat POV. Angle: Looking down-left at console. Focus: Armrest usage.",
-      "A07 Top-Down View": "Camera: 90° Overhead. Focus: Grid/Diamond pattern alignment. Context: Geometric fit check.",
-      "A08 Rear Diagonal": "Camera: Rear-Right Passenger POV. Angle: 45° to center console. Focus: Corner fit.",
-      "A09 Material Close-up": "Camera: Macro Lens (100mm). Distance: 20cm. Focus: Texture grain & Stitching. Depth of Field: Shallow.",
-      "A10 Driving Scenario": "Camera: Passenger Side. Context: Driver's arm resting on cover. Action: Driving. Vibe: Functional comfort.",
-      "A11 Rear Standard": "Camera: Center Rear. Angle: Straight level. Focus: Symmetrical console alignment.",
-      "A12 Pet Interaction Paws": "Camera: Eye Level. Subject: Golden Retriever Paws on Armrest. Focus: Durability/Scratch resistance.",
-      "A13 Waterproof Wipe": "Camera: Close-up 45°. Action: Hand wiping water droplets. Focus: Hydrophobic surface.",
-      "A14 Installation Demo": "Camera: POV or Side. Action: Hands stretching elastic band. Focus: Installation mechanism.",
-      "A15 Arm Rest Comfort": "Camera: Side Profile. Subject: Elbow pressing into foam. Focus: Cushioning softness.",
-      "A16 Rear Ajar View": "Camera: Low Angle Rear. Action: Lid slightly lifted (ajar). Focus: Gap tolerance.",
-      "A17 Driver High Angle": "Viewpoint: High Driver. Angle: Steep down. Focus: Driver's visual confirmation of fit.",
-      "A18 Pet Interaction Sitting": "subject: Golden Retriever sitting ON console. Focus: Weight bearing capacity.",
+      "A01 White Background 1": "Camera: Studio, 45° above. Shot on 50mm standard lens, f/4. Composition: E-commerce catalog shot, product floating on white. Spatial Anchors: armrest cover centered, slight shadow below.",
+      "A02 White Background 2": "Camera: Eye-level 0°. Shot on 50mm lens, f/4. Composition: Side profile on white surface. Spatial Anchors: product at center, showing height/thickness profile.",
+      "A03 Rear Closed View": "Camera: From rear seat center, eye level. Shot on 35mm lens, f/5.6. Composition: User POV looking at center console, lid closed. Spatial Anchors: console centered in frame, front seats flanking left-right, dashboard above.",
+      "A04 Rear Open View": "Camera: From rear seat. Shot on 35mm lens, f/5.6. Action: Armrest lid OPEN vertical. Spatial Anchors: open lid forms vertical element, storage compartment visible below lid.",
+      "A05 Driver Side View": "Camera: Driver seat POV, looking down-right. Shot on 35mm lens, f/5.6. Spatial Anchors: console in lower-right of frame, steering wheel at left, gear shifter nearby.",
+      "A06 Passenger Side View": "Camera: Passenger seat POV, looking down-left. Shot on 35mm lens, f/5.6. Spatial Anchors: console in lower-left of frame, dashboard ahead.",
+      "A07 Top-Down View": "Camera: 90° directly overhead. Shot on 24mm wide-angle lens, f/8. Composition: Geometric top-down. Spatial Anchors: armrest cover centered, pattern alignment visible, surrounding console edges frame it.",
+      "A08 Rear Diagonal": "Camera: Rear-right passenger POV. Angle: 45° to center console. Shot on 35mm lens, f/5.6. Spatial Anchors: console at 3/4 angle, corner fit visible.",
+      "A09 Material Close-up": "Camera: 20cm distance. Shot on 100mm macro lens, f/2.8, shallow DOF. Composition: Extreme close-up of texture. Spatial Anchors: leather grain/fabric weave fills entire frame, stitching lines visible.",
+      "A10 Driving Scenario": "Camera: Passenger side perspective. Shot on 35mm lens, f/5.6. Context: Driver's arm resting on cover. Spatial Anchors: arm on armrest at center, steering wheel in background, driving scene.",
+      "A11 Rear Standard": "Camera: Center rear, straight level. Shot on 35mm lens, f/5.6. Composition: Symmetrical console view. Spatial Anchors: console centered, front seats flanking.",
+      "A12 Pet Interaction Paws": "Camera: Eye level. Shot on 50mm lens, f/4. Subject: Golden Retriever paws on armrest. Spatial Anchors: paws resting on top of cover, armrest at center.",
+      "A13 Waterproof Wipe": "Camera: 45° close-up. Shot on 50mm lens, f/4. Action: Hand wiping water droplets. Spatial Anchors: hand at center, water droplets visible on surface.",
+      "A14 Installation Demo": "Camera: POV or side view. Shot on 35mm lens, f/5.6. Action: Hands stretching elastic band. Spatial Anchors: hands pulling cover edges, armrest console visible beneath.",
+      "A15 Arm Rest Comfort": "Camera: Side profile. Shot on 50mm lens, f/4. Subject: Elbow pressing into foam. Spatial Anchors: arm at center, compression visible on cover surface.",
+      "A16 Rear Ajar View": "Camera: Low angle from rear. Shot on 35mm lens, f/5.6. Action: Lid slightly lifted (ajar). Spatial Anchors: gap between lid and base visible, cover edge detail.",
+      "A17 Driver High Angle": "Camera: High angle from driver side, steep down. Shot on 35mm lens, f/5.6. Spatial Anchors: console viewed from above-left, steering wheel at edge.",
+      "A18 Pet Interaction Sitting": "Camera: Eye level. Shot on 50mm lens, f/4. Subject: Golden Retriever sitting ON console. Spatial Anchors: dog centered on armrest, interior around.",
 
       // Legacy/Fallback mapping
-      "Driver's View": "Camera Position: Driver Seat. Perspective: POV.",
-      "Rear Row Perspective": "Camera Position: Rear Seat. Perspective: Forward facing.",
-      "Side Open Door View": "Camera Position: Outside Door. Angle: 45 degrees.",
-      "Top Down View": "Camera Position: Overhead. Angle: 90 degrees.",
-      "Detail Shot of Stitching": "Camera: Macro. Focus: Texture.",
+      "Driver's View": "Camera Position: Driver seat, looking right. Shot on 35mm lens, f/5.6. Perspective: Driver POV.",
+      "Rear Row Perspective": "Camera Position: Rear seat, looking forward. Shot on 28mm lens, f/8. Perspective: Forward facing.",
+      "Side Open Door View": "Camera Position: Outside open door. Angle: 45°. Shot on 35mm lens, f/5.6.",
+      "Top Down View": "Camera Position: Overhead. Angle: 90° straight down. Shot on 24mm wide-angle lens, f/8.",
+      "Detail Shot of Stitching": "Camera: 20cm distance. Shot on 100mm macro lens, f/2.8. Focus: Texture and stitching.",
     };
 
     // 3. Resolve Target & Angle Attributes
@@ -644,16 +644,36 @@ export const generateSeatCoverFit = async (
     // 4. Construct V5.2 Prompt with explicit IMAGE MANIFEST
     // UPGRADE: Added Perspective Lock Protocol (Nano Banana Skills)
 
+    // Resolve per-angle lens simulation and negative prompt
+    const lensSimulation = getAngleLens(targetRow);
+    const angleNegative = getAngleNegative(targetRow);
+
     const v4Prompt = `
-## ✅ AutoFusion™ Pro V5.2 (Product-First™ Edition)
+## ✅ AutoFusion™ Pro V5.3 (Perspective-Locked™ Edition)
 
 ---
 
 # 📐 CAMERA & PERSPECTIVE LOCK [NON-NEGOTIABLE]
 > **CAMERA INSTRUCTION**: ${angleInstruction}
-> **CRITICAL**: The camera MUST NOT Move. Match the reference/preset angle EXACTLY.
-> **PHYSICS**: DO NOT change the lens focal length or camera height.
-> **COMPOSITION**: Keep the subject centered and framed exactly as described.
+> **LENS SIMULATION**: ${lensSimulation}
+> **CRITICAL**: The camera MUST NOT move. Match the reference/preset angle EXACTLY.
+> **PHYSICS**: DO NOT change the lens focal length, camera height, or field of view.
+> **COMPOSITION**: Keep the subject framed exactly as described in the spatial anchors.
+
+## 📸 PERSPECTIVE LOCK PROTOCOL (Nano Banana Skills)
+
+### Anti-Drift Constraints [ABSOLUTE]
+> - DO NOT rotate the camera from the specified angle
+> - DO NOT change the focal length from what is specified
+> - DO NOT shift the vanishing point or perspective lines
+> - The horizon line MUST remain at the same Y-position as described
+> - All spatial anchors listed in the camera instruction MUST appear in their specified positions
+> - If a visual guide image is provided, the composition grid MUST match it pixel-for-pixel
+
+### Spatial Anchor Enforcement
+> The camera instruction above contains "Spatial Anchors" — these describe WHERE specific elements must appear in the frame.
+> You MUST place these elements in the described positions. This is how we ensure angle accuracy.
+> Example: "steering wheel at top-center" means the steering wheel MUST be in the top-center area of the output image.
 
 ---
 
@@ -689,11 +709,13 @@ ${visualGuide ? `| **Image ${guideIndex}** | 📐 Scene Template | This shows th
 
 | Priority | Task | Source |
 |----------|------|--------|
-| **#1 HIGHEST** | Use the correct ${productCategory} product | Images 1-${productCount} |
-| **#2** | Match the camera angle/composition | ${visualGuide ? `Image ${guideIndex}` : angleId} |
+| **#1A HIGHEST** | Use the correct ${productCategory} product | Images 1-${productCount} |
+| **#1B HIGHEST** | Match the camera angle/composition EXACTLY | ${visualGuide ? `Image ${guideIndex} (MUST match 1:1)` : angleId} |
 | **#3** | Render correct vehicle interior | ${year} ${carModel} |
 
-**SYSTEM**: AutoFusion™ Pro V5.2 - Perspective Locked
+> ⚠️ #1A and #1B are EQUALLY important. The product MUST be correct AND the angle MUST match exactly.
+
+**SYSTEM**: AutoFusion™ Pro V5.3 - Perspective Locked
 **CONTEXT**: ${isSingleSeat ? "STANDALONE_CATALOG" : "INTERIOR_INTEGRATION"}
 **PRODUCT_TYPE**: **${productCategory}** (MUST come from Images 1-${productCount})
 
@@ -910,7 +932,7 @@ Generate a **NEW photorealistic image** that:
             aspectRatio: aspectRatio,
             imageSize: resolution,
             // Enhanced Negative Prompt for Perspective Control
-            negativePrompt: buildNegativePrompt('automotive', 'realistic', NEGATIVE_PERSPECTIVE),
+            negativePrompt: buildNegativePrompt('automotive', 'realistic', angleNegative),
           },
         } as any,
       })
@@ -1719,4 +1741,195 @@ You MUST process the input through these 8 distinct phases:
   }
 
   return results;
+};
+
+// ==================== Product Swap (1:1 Replacement) ====================
+
+/**
+ * 9. Product Swap — 1:1 Product Replacement in Scene
+ * Uses gemini-3-pro-image-preview
+ *
+ * Takes a reference scene image and product images,
+ * then generates new images that replace the original product in the scene
+ * with the user's product, preserving scene, lighting, and composition.
+ */
+export const generateProductSwap = async (
+  sceneImage: { base64: string; mime: string },
+  productImages: { base64: string; mime: string }[],
+  userPrompt?: string,
+  options: {
+    aspectRatio?: AspectRatio;
+    resolution?: ImageResolution;
+    model?: string;
+  } = {}
+): Promise<string[]> => {
+  const ai = getAiClient();
+  const aspectRatio = options.aspectRatio || AspectRatio.LANDSCAPE_4_3;
+  const resolution = options.resolution || "2K";
+  const model = options.model || "gemini-2.0-flash-exp";
+  const productCount = productImages.length;
+
+  // ============ PROMPT ENGINE (Nano Banana Golden Formula) ============
+  const prompt = `
+# 🎯 ROLE: Professional Product Replacement Specialist & CGI Compositor
+
+You are a world-class digital compositor specializing in **seamless product replacement**.
+Your task is to perform a pixel-perfect product swap in a reference scene.
+
+## 📋 INPUT MANIFEST
+- **Image 1**: Reference Scene (BLUEPRINT — keep everything EXCEPT the target product)
+- **Images 2-${productCount + 1}**: Product Source Material (the replacement product)
+
+## 🧠 COGNITIVE PIPELINE (8-Phase Execution)
+
+### PHASE 1: SCENE DEEP ANALYSIS 🔍
+Analyze the Reference Scene (Image 1) completely:
+- Identify the **target product** to be replaced (the main product/object being showcased)
+- Map the **exact position, size, rotation, and perspective** of the target product
+- Catalog the **scene context**: background, surrounding objects, people, composition
+- Analyze **lighting physics**: direction, intensity, color temperature, shadow patterns
+
+### PHASE 2: PRODUCT SOURCE ANALYSIS 📍
+Analyze the Product Source (Images 2-${productCount + 1}):
+- Extract the **product's true shape, proportions, and material properties**
+- Identify **texture details**: surface finish, color, patterns, branding
+- Note **key visual features** that must be preserved in the final output
+
+### PHASE 3: LIGHTING PHYSICS MATCHING 💡
+- Calculate how the scene's lighting would interact with the replacement product
+- Match **shadow direction and softness** to the scene
+- Apply correct **specular highlights** and **ambient occlusion**
+- Ensure **color temperature consistency** between product and scene
+
+### PHASE 4: PERSPECTIVE & SCALE CALIBRATION 📐
+- Match the **camera angle** of the replacement product to the scene's perspective
+- Scale the product to **exactly match** the original product's size in the scene
+- Apply correct **lens distortion** if present in the scene
+- Ensure **proportional accuracy** — the product must look naturally placed
+
+### PHASE 5: 1:1 PRECISION SWAP 🔄
+- Remove the original product from the scene
+- Place the replacement product in the **exact same position**
+- Maintain the **identical composition and framing**
+- Keep ALL non-product elements **100% unchanged**: people, background, props, text
+
+### PHASE 6: EDGE BLENDING & INTEGRATION ✨
+- Seamlessly blend product edges with the surrounding scene
+- Apply correct **contact shadows** where the product meets surfaces
+- Handle **occlusion** — if fingers, straps, or other elements overlap the product
+- Ensure no visible seams, halos, or artifacts
+
+### PHASE 7: MATERIAL FIDELITY 🧶
+- Preserve the replacement product's **authentic material texture**
+- Render leather grains, fabric weave, metal reflections, or plastic sheen accurately
+- Maintain product color accuracy under the scene's lighting conditions
+
+### PHASE 8: FINAL QUALITY ASSURANCE 🏆
+- Verify the swap looks **100% natural and photorealistic**
+- Check for any inconsistencies in lighting, perspective, or scale
+- Ensure the output looks like a **real photograph**, not a composite
+- Apply final color grading to match the scene's overall mood
+
+---
+
+## 🎯 MISSION SUMMARY
+
+**KEEP UNCHANGED**: Scene background, people, poses, composition, camera angle, lighting setup
+**REPLACE**: The main product/object with the user's product (Images 2-${productCount + 1})
+${userPrompt ? `**USER INSTRUCTION**: "${userPrompt}"` : '**DEFAULT**: Replace the most prominent product in the scene with the provided product images.'}
+
+**QUALITY STANDARD**: ${QUALITY_BOOSTERS.PRODUCT}
+Professional commercial photography quality. The result must be indistinguishable from a real photograph.
+
+**OUTPUT**: Generate ONE high-fidelity image. Do NOT output any text, only the final image.
+`;
+
+  console.log('[ProductSwap] Starting product swap generation...');
+  console.log('[ProductSwap] Product count:', productCount);
+  if (userPrompt) console.log('[ProductSwap] User prompt:', userPrompt);
+
+  // Build parts array
+  const parts: any[] = [];
+  parts.push({ text: prompt });
+
+  // Add scene reference image first
+  parts.push({
+    inlineData: {
+      mimeType: sceneImage.mime,
+      data: sceneImage.base64,
+    },
+  });
+
+  // Add product images
+  for (const img of productImages) {
+    parts.push({
+      inlineData: {
+        mimeType: img.mime,
+        data: img.base64,
+      },
+    });
+  }
+
+  // Helper to run generation
+  const runGeneration = async (modelName: string) => {
+    console.log(`[ProductSwap] Generating with model: ${modelName}, Resolution: ${resolution}, Aspect: ${aspectRatio}`);
+
+    const config: any = {
+      temperature: 0.15, // Lower temp for more faithful reproduction
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
+      imageConfig: {
+        aspectRatio: aspectRatio,
+        imageSize: resolution,
+      }
+    };
+
+    return await ai.models.generateContent({
+      model: modelName,
+      contents: [{ role: "user", parts }],
+      config: config,
+    });
+  };
+
+  // Generate
+  try {
+    let response;
+    try {
+      response = await runGeneration(model);
+    } catch (err) {
+      console.warn(`[ProductSwap] Primary model ${model} failed, trying fallback...`);
+      response = await runGeneration("gemini-2.0-flash-exp");
+    }
+
+    const candidate = response.candidates?.[0];
+    if (!candidate) {
+      console.error('[ProductSwap] No candidates returned');
+      throw new Error('产品替换失败 — 模型未返回结果，请重试');
+    }
+
+    // Log text if any
+    const textPart = candidate.content?.parts?.find((p: any) => p.text);
+    if (textPart) {
+      console.log(`[ProductSwap] Model text: ${textPart.text}`);
+    }
+
+    const imagePart = candidate.content?.parts?.find(
+      (p: any) => p.inlineData?.mimeType?.startsWith("image/")
+    );
+
+    if (imagePart?.inlineData?.data) {
+      console.log('[ProductSwap] Image generated successfully');
+      return [imagePart.inlineData.data];
+    } else {
+      console.warn('[ProductSwap] No image in response');
+      throw new Error('产品替换失败 — 未生成图片，请检查输入后重试');
+    }
+  } catch (error) {
+    console.error('[ProductSwap] Generation failed:', error);
+    throw error;
+  }
 };

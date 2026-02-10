@@ -55,8 +55,71 @@ const NEGATIVE_STYLE: Record<string, string> = {
     film: "digital render, smooth skin, CGI, plastic, artificial lighting, 3D render",
 };
 
-/** Specific negative prompts for perspective and angle issues */
-export const NEGATIVE_PERSPECTIVE = "wrong angle, distorted perspective, fisheye effect (unless wanted), bird's eye view (unless wanted), worm's eye view (unless wanted), tilted horizon, off-center composition, wide angle distortion, incorrect field of view";
+/** Specific negative prompts for perspective and angle issues (legacy, kept for backward compat) */
+export const NEGATIVE_PERSPECTIVE = "wrong angle, distorted perspective, fisheye effect, tilted horizon, off-center composition, wide angle distortion, incorrect field of view";
+
+/**
+ * Per-angle-category negative prompts for precision perspective control.
+ * Based on Skills §5 — Layered Combination Strategy & §2.2 Composition.
+ * Each category blocks the specific opposing viewpoints to prevent angle drift.
+ */
+export const NEGATIVE_PERSPECTIVE_MAP: Record<string, string> = {
+    FRONT: "side view, rear view, bird's eye view, worm's eye view, Dutch angle, tilted horizon, profile shot, over-the-shoulder, diagonal perspective",
+    SIDE: "front view, rear view, top-down view, overhead shot, symmetrical front, centered front-facing, bird's eye",
+    TOP_DOWN: "eye-level shot, side view, low angle, worm's eye view, front profile, horizon visible, level perspective",
+    REAR: "front view, side profile, bird's eye view, overhead shot, dashboard visible from front, driver POV forward",
+    CLOSE_UP: "wide shot, full body, establishing shot, distant subject, tiny subject, wide angle, panoramic, full cabin visible",
+    THREE_QUARTER: "dead center front, pure side profile, pure rear view, top-down, overhead, bird's eye",
+    DEFAULT: "wrong angle, distorted perspective, fisheye effect, tilted horizon, off-center composition, wide angle distortion",
+};
+
+/**
+ * Lens simulation constants for camera parameter anchoring.
+ * Based on Skills §2.2 — 焦距/镜头 and 质量增强词.
+ * These phrases help the AI "simulate" a physical camera configuration.
+ */
+export const LENS_SIMULATION: Record<string, string> = {
+    WIDE: "shot on 24mm wide-angle lens, f/8, deep depth of field, full scene in focus",
+    STANDARD: "shot on 50mm standard lens, f/4, natural perspective, moderate depth of field",
+    PORTRAIT: "shot on 85mm portrait lens, f/2.8, shallow depth of field, soft background bokeh",
+    MACRO: "shot on 100mm macro lens, f/2.8, extreme shallow depth of field, razor-thin focus plane",
+    AUTOMOTIVE: "shot on 35mm lens, f/5.6, automotive interior photography, professional commercial quality",
+    PRODUCT: "shot on 50mm standard lens, f/4, studio product photography, clean neutral background",
+};
+
+/**
+ * Helper: resolve a targetRow ID to the correct NEGATIVE_PERSPECTIVE_MAP category.
+ * @param targetRow - The angle preset ID (e.g. "F1 High-Angle Top-Down", "R2 Rear Side Left")
+ * @returns The matching negative prompt string for that angle category
+ */
+export function getAngleNegative(targetRow: string): string {
+    // Top-down / overhead angles
+    if (/top.?down|overhead|F1|R5|A07/i.test(targetRow)) return NEGATIVE_PERSPECTIVE_MAP.TOP_DOWN;
+    // Front-facing / symmetrical
+    if (/front.?view|S1|R1|A03|A11/i.test(targetRow)) return NEGATIVE_PERSPECTIVE_MAP.FRONT;
+    // Rear-facing
+    if (/rear.?to.?front|F4/i.test(targetRow)) return NEGATIVE_PERSPECTIVE_MAP.REAR;
+    // Side profiles
+    if (/side|profile|F2|R2|R3|A05|A06/i.test(targetRow)) return NEGATIVE_PERSPECTIVE_MAP.SIDE;
+    // Close-up / detail / macro
+    if (/close.?up|detail|macro|A09|A13|A14|A15/i.test(targetRow)) return NEGATIVE_PERSPECTIVE_MAP.CLOSE_UP;
+    // 3/4 angles
+    if (/3\/4|quarter|S2|S3|F3|R6|A08/i.test(targetRow)) return NEGATIVE_PERSPECTIVE_MAP.THREE_QUARTER;
+    // Default fallback
+    return NEGATIVE_PERSPECTIVE_MAP.DEFAULT;
+}
+
+/**
+ * Helper: resolve a targetRow ID to the correct LENS_SIMULATION preset.
+ * @param targetRow - The angle preset ID
+ * @returns The matching lens simulation string
+ */
+export function getAngleLens(targetRow: string): string {
+    if (/top.?down|overhead|F1|R5|A07/i.test(targetRow)) return LENS_SIMULATION.WIDE;
+    if (/close.?up|detail|macro|A09|A13|A14|A15/i.test(targetRow)) return LENS_SIMULATION.MACRO;
+    if (/^S\d|white.?background|A01|A02/i.test(targetRow)) return LENS_SIMULATION.PRODUCT;
+    return LENS_SIMULATION.AUTOMOTIVE;
+}
 
 /**
  * Build a layered negative prompt.

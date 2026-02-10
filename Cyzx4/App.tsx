@@ -7,8 +7,9 @@ import StyleReplicateTab from './components/StyleReplicateTab';
 import VideoTab from './components/VideoTab';
 import FusionTab from './components/FusionTab';
 import SeatCoverTab from './components/SeatCoverTab';
+import ProductSwapTab from './components/ProductSwapTab';
 import SettingsTab from './components/SettingsTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.PLANNING);
@@ -46,6 +47,12 @@ const App: React.FC = () => {
             onClick={() => setActiveTab(AppMode.SEAT_COVER)}
             icon={<CarFront className="w-5 h-5" />}
             label="座套试装"
+          />
+          <NavButton
+            active={activeTab === AppMode.PRODUCT_SWAP}
+            onClick={() => setActiveTab(AppMode.PRODUCT_SWAP)}
+            icon={<ArrowLeftRight className="w-5 h-5" />}
+            label="产品替换"
           />
           <NavButton
             active={activeTab === AppMode.FUSION}
@@ -98,6 +105,7 @@ const App: React.FC = () => {
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === AppMode.PLANNING && "视觉策划 (Visual Planning)"}
             {activeTab === AppMode.SEAT_COVER && "座套试装 (Seat Cover Fit)"}
+            {activeTab === AppMode.PRODUCT_SWAP && "产品替换 (Product Swap)"}
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
             {activeTab === AppMode.RETOUCHING && "智能修图 (Smart Retouching)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
@@ -114,6 +122,11 @@ const App: React.FC = () => {
             {/* Persist SeatCoverTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.SEAT_COVER ? 'block' : 'none', height: '100%' }}>
               <SeatCoverTab />
+            </div>
+
+            {/* Persist ProductSwapTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.PRODUCT_SWAP ? 'block' : 'none', height: '100%' }}>
+              <ProductSwapTab />
             </div>
 
             {/* Persist FusionTab state by hiding instead of unmounting */}
