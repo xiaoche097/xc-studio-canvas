@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { generateSeatCoverFit, blobToBase64, compressImage, optimizePrompt, editGeneratedImage } from '../services/geminiService';
+import { getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X, Box, Wand2 } from 'lucide-react';
 import { storageService } from '../../services/storageService';
@@ -114,6 +115,7 @@ const SeatCoverTab: React.FC = () => {
     document.body.removeChild(link);
   };
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string>('');
 
   const handleSeatFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -372,10 +374,12 @@ const SeatCoverTab: React.FC = () => {
 
     setIsGenerating(true);
     setError(null);
+    setProgress('');
     setGeneratedImages([]);
 
     try {
-      // Optimize: Compress seat images before upload to speed up API request
+      // Step 1: 压缩图片
+      setProgress('正在压缩产品图片...');
       const seatImagePromises = seatFiles.map(async (file) => {
         return await compressImage(file);
       });
@@ -384,7 +388,7 @@ const SeatCoverTab: React.FC = () => {
       let angleValue: string | { base64: string, mime: string }[] = anglePreset;
 
       if (angleMode === 'REFERENCE' && angleRefFiles.length > 0) {
-        // Optimize: Compress reference images too
+        setProgress('正在压缩参考图...');
         const refPromises = angleRefFiles.map(async (file) => {
           return await compressImage(file);
         });
@@ -405,6 +409,7 @@ const SeatCoverTab: React.FC = () => {
       // If a preset is selected, ALWAYS try to fetch its thumbnail to use as a strict visual guide.
       // This ensures "1:1 Match" behavior for all presets.
       if (angleMode === 'PRESET' && targetRow) {
+        setProgress('正在加载视角参考...');
         // Find the current target row option to get the thumb path
         const allOptions = anglePresets.flatMap(g => g.options);
         const selectedOption = allOptions.find(o => o.id === targetRow);
@@ -432,6 +437,8 @@ const SeatCoverTab: React.FC = () => {
         }
       }
 
+      // Step 2: 生成试装效果
+      setProgress(`正在渲染 ${carModel} 试装效果 (预计30-90秒)...`);
       const images = await generateSeatCoverFit(
         seatImages, // Image Array
         productCategory,
@@ -446,6 +453,8 @@ const SeatCoverTab: React.FC = () => {
         customRequest, // NEW: Custom Request
         visualGuide // Pass strict visual guide
       );
+
+      setProgress('渲染完成！');
       setGeneratedImages(images);
 
       // Save Project
@@ -466,14 +475,10 @@ const SeatCoverTab: React.FC = () => {
         }
       });
     } catch (error: any) {
-      const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
-      if (isPermissionError) {
-        setError("权限不足：需要配置 API Key。");
-      } else {
-        setError("生成失败: " + (error.message || "未知错误"));
-      }
+      setError(getErrorMessage(error));
     } finally {
       setIsGenerating(false);
+      setProgress('');
     }
   };
 
@@ -1134,7 +1139,14 @@ const SeatCoverTab: React.FC = () => {
                   {isGenerating ? (
                     <>
                       <div className="w-12 h-12 border-4 border-pastel-pink border-t-pastel-highlight rounded-full animate-spin mb-4"></div>
-                      <p className="text-sm">正在计算座舱光影与材质贴合...</p>
+                      <p className="text-sm font-medium text-pastel-text">
+                        {progress || '正在计算座舱光影与材质贴合...'}
+                      </p>
+                      <p className="text-xs text-pastel-muted mt-2">
+                        {progress.includes('渲染')
+                          ? 'Gemini Pro 正在生成专业试装效果，请耐心等待'
+                          : 'Gemini Pro 正在处理您的请求'}
+                      </p>
                     </>
                   ) : (
                     <>

@@ -2,210 +2,41 @@ import { GoogleGenAI, LiveServerMessage, Modality, HarmCategory, HarmBlockThresh
 import { AspectRatio, ImageResolution } from "../types";
 import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE } from "./promptUtils";
 
-// ==================== API Configuration Helper ====================
-// Priority: 1. Yunwu API (base_url + key) -> 2. Native Gemini API Key -> 3. Environment Variable
+// 导入工具函数和类型定义
+import {
+  getAiClient,
+  getActiveApiInfo,
+  executeWithTimeout,
+  blobToBase64,
+  compressImage,
+  decodeAudioData,
+  floatTo16BitPCM,
+  API_TIMEOUT_MS
+} from "../utils/apiHelpers";
 
-interface ApiConfig {
-  apiKey: string;
-  baseUrl?: string;
-  isYunwu: boolean;
-}
+import type {
+  GeminiResponse,
+  ImageGenerationConfig,
+  ImageReference,
+  ProductAnalysisResult,
+  GenerationOptions
+} from "../types/gemini.types";
 
-// Get API configuration with priority order
-// Get API configuration with priority order
-const getApiConfig = (): ApiConfig => {
-  // 1. Check Yunwu API configuration first
-  const yunwuKey = localStorage.getItem("yunwu_api_key");
-  const yunwuBaseUrl = localStorage.getItem("yunwu_base_url");
-  const yunwuEnabled = localStorage.getItem("yunwu_enabled") !== "false"; // Default to true if not set
+// ==================== 已删除重复定义 ====================
+// getApiConfig, getAiClient, getActiveApiInfo, blobToBase64, compressImage, decodeAudioData
+// 现在从 ../utils/apiHelpers.ts 导入使用
 
-  if (yunwuKey && yunwuEnabled) {
-    return {
-      apiKey: yunwuKey,
-      baseUrl: yunwuBaseUrl || "https://yunwu.ai",
-      isYunwu: true
-    };
-  }
+// 导出getActiveApiInfo以保持向后兼容
+export { getActiveApiInfo };
 
-  // 2. Check native Gemini API key
-  const nativeKey = localStorage.getItem("user_api_key");
-  const nativeEnabled = localStorage.getItem("native_enabled") !== "false"; // Default to true if not set
+// 导出blobToBase64以保持向后兼容
+export { blobToBase64 };
 
-  if (nativeKey && nativeEnabled) {
-    return {
-      apiKey: nativeKey,
-      isYunwu: false
-    };
-  }
+// 导出compressImage以保持向后兼容
+export { compressImage };
 
-  // 3. Fallback to environment variable
-  const envKey = process.env.API_KEY;
-  if (envKey) {
-    return {
-      apiKey: envKey,
-      isYunwu: false
-    };
-  }
-
-  throw new Error("No active API configuration found. Please enable either Yunwu API or Native API in Settings.");
-};
-
-// Helper to get a fresh AI client instance.
-// Supports both Yunwu API proxy and native Google Gemini API.
-const getAiClient = () => {
-  const config = getApiConfig();
-
-  // If using Yunwu API, configure with custom base URL
-  if (config.isYunwu && config.baseUrl) {
-    return new GoogleGenAI({
-      apiKey: config.apiKey,
-      httpOptions: {
-        baseUrl: config.baseUrl
-      }
-    });
-  }
-
-  // Native Gemini API
-  return new GoogleGenAI({ apiKey: config.apiKey });
-};
-
-// Export for debugging/status display
-export const getActiveApiInfo = (): { type: 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
-  try {
-    const config = getApiConfig();
-    if (config.isYunwu) {
-      return { type: 'yunwu', baseUrl: config.baseUrl };
-    }
-    const nativeKey = localStorage.getItem("user_api_key");
-    return { type: nativeKey ? 'native' : 'env' };
-  } catch {
-    return { type: 'env' };
-  }
-};
-
-// Helper to convert Blob to Base64
-export const blobToBase64 = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (reader.error) {
-        reject(new Error(`File reading failed: ${reader.error.message}`));
-        return;
-      }
-
-      const base64String = reader.result as string;
-      if (!base64String) {
-        reject(new Error("File read result is empty"));
-        return;
-      }
-
-      // Remove data url prefix (e.g. "data:image/jpeg;base64,")
-      const parts = base64String.split(",");
-      if (parts.length < 2) {
-        reject(new Error("Invalid data URL format"));
-        return;
-      }
-
-      resolve(parts[1]);
-    };
-    reader.onerror = () => {
-      reject(
-        new Error(
-          `File reading error: ${reader.error?.message || "Unknown error"}`,
-        ),
-      );
-    };
-    reader.readAsDataURL(blob);
-  });
-};
-
-// Helper to compress image for faster upload
-export const compressImage = async (
-  file: File,
-  maxWidth: number = 1536,
-  quality: number = 0.85
-): Promise<{ base64: string, mime: string }> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
-
-        // Scale down if too large
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error("Canvas context failed"));
-          return;
-        }
-        ctx.fillStyle = '#FFFFFF'; // Fill background for transparency handling
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Output as JPEG for API efficiency (smaller payload)
-        const mime = 'image/jpeg';
-        const base64Url = canvas.toDataURL(mime, quality);
-        const data = base64Url.split(',')[1];
-
-        resolve({ base64: data, mime });
-      };
-      img.onerror = (e) => reject(e);
-    };
-    reader.onerror = (e) => reject(e);
-  });
-};
-
-// PCM Audio Helpers
-function floatTo16BitPCM(
-  output: DataView,
-  offset: number,
-  input: Float32Array,
-) {
-  for (let i = 0; i < input.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-export const decodeAudioData = async (
-  base64String: string,
-  audioCtx: AudioContext,
-): Promise<AudioBuffer> => {
-  const bytes = base64ToUint8Array(base64String);
-  // Gemini Live returns raw PCM 24kHz mono
-  const int16Data = new Int16Array(bytes.buffer);
-  const float32Data = new Float32Array(int16Data.length);
-
-  for (let i = 0; i < int16Data.length; i++) {
-    float32Data[i] = int16Data[i] / 32768.0;
-  }
-
-  const buffer = audioCtx.createBuffer(1, float32Data.length, 24000);
-  buffer.getChannelData(0).set(float32Data);
-  return buffer;
-};
+// 导出decodeAudioData以保持向后兼容
+export { decodeAudioData };
 
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
@@ -451,7 +282,7 @@ export const generateMarketingImage = async (
 
     parts.push({ text: finalPrompt });
 
-    const response = await Promise.race([
+    const response = await executeWithTimeout(
       ai.models.generateContent({
         model: "gemini-3-pro-image-preview",
         contents: {
@@ -463,9 +294,8 @@ export const generateMarketingImage = async (
             imageSize: resolution,
           },
         },
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
-    ]) as any;
+      })
+    );
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
@@ -550,7 +380,7 @@ export const generateImageToImage = async (
 
     parts.push({ text: systemPrompt });
 
-    const response = await Promise.race([
+    const response = await executeWithTimeout(
       ai.models.generateContent({
         model: "gemini-3-pro-image-preview",
         contents: { parts: parts },
@@ -560,9 +390,8 @@ export const generateImageToImage = async (
             imageSize: options.resolution || "1K",
           },
         },
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
-    ]) as any;
+      })
+    );
 
     const generatedImages: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
@@ -1072,7 +901,7 @@ Generate a **NEW photorealistic image** that:
     const modelName = "gemini-3-pro-image-preview";
     console.log(`🎨 [AutoFusion] Generating with ${modelName} (Resolution: ${resolution})`);
 
-    const response = await Promise.race([
+    const response = await executeWithTimeout(
       ai.models.generateContent({
         model: modelName,
         contents: { parts: parts },
@@ -1082,11 +911,10 @@ Generate a **NEW photorealistic image** that:
             imageSize: resolution,
             // Enhanced Negative Prompt for Perspective Control
             negativePrompt: buildNegativePrompt('automotive', 'realistic', NEGATIVE_PERSPECTIVE),
-          } as any,
-        },
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Request Timed Out (Target: 90s). The model might be overloaded.")), 90000))
-    ]) as any; // Cast to avoid type issues with race result
+          },
+        } as any,
+      })
+    );
 
     // 6. Output Processing with Validation
     const images: string[] = [];
@@ -1739,16 +1567,43 @@ export const generateStyleReplication = async (
   // Style Reference: productCount + 1
 
   const prompt = `
-[任务] 复刻图片${productCount + 1}的【排版布局】与【视觉风格】。
-[输入] 图片1-${productCount}是产品素材，图片${productCount + 1}是设计参考。
-[要求]
-1. 布局结构：必须与参考图完全一致（保持原有的排版、色块、文字位置）。
-2. 主体替换：将参考图中的商品替换为图片1-${productCount}中的产品。保持原有透视与光影。
-3. ${customPrompt ? `场景/背景：${customPrompt}` : '场景/背景：保持参考图的原始风格。'}
-4. 输出：仅生成一张高质量的最终设计图。
-5. 质量：高分辨率、锐利细节、专业商业品质、色彩准确、无伪影。
+# 🎭 ROLE: Senior Art Director & CGI Specialist
+# 🧠 COGNITIVE PIPELINE (MANDATORY EXECUTION)
 
-请直接生成图片。
+You are NOT just generating an image. You are simulating a high-end rendering engine. 
+You MUST process the input through these 8 distinct phases:
+
+## PHASE 1: ANALYSIS & BLUEPRINT 🔍
+1. **[Design Analysis]**: Deeply analyze Image ${productCount + 1} (Style Ref). Deconstruct its layout grid, color palette hex codes, and lighting physics.
+2. **[Composition Build]**: Map the "skeleton" of the reference image. Prepare to slot the Product Images (1-${productCount}) into this exact skeleton.
+
+## PHASE 2: PHYSICS & RENDERING 🛠️
+3. **[Lighting Simulation]**: Recreate the exact light sources from the reference (Softbox? Hard sun? Neon?). Apply this physics to the new product.
+4. **[Hi-Fi Rendering]**: Render the Product (1-${productCount}) with 8K texture fidelity. No blurring. No hallucinations.
+5. **[Texture Optimization]**: Enhance material properties (leather grains, metal reflections, fabric weave).
+
+## PHASE 3: POST-PROCESSING 🎨
+6. **[Polishing]**: Smooth out edges, blend product into background seamlessly.
+7. **[Dynamic Range]**: Optimize contrast and saturation. Ensure "pop" without over-saturation.
+8. **[Color Correction]**: Apply the final color grade to match the reference image's mood EXACTLY.
+
+---
+
+## 🎯 MISSION
+
+**INPUT**:
+- **Product Images**: 1-${productCount} (Target Object)
+- **Style Reference**: Image ${productCount + 1} (Visual Template)
+
+**EXECUTION**:
+- **Structure**: CLONE the layout of Image ${productCount + 1} pixel-perfectly.
+- **Content**: REPLACE the object in Image ${productCount + 1} with the Product from Images 1-${productCount}.
+- **Context**: ${customPrompt ? `Force Scene Setting: "${customPrompt}"` : 'Keep original background.'}
+- **Quality**: ${QUALITY_BOOSTERS.PRODUCT}
+
+**OUTPUT**:
+- Generate **ONE** high-fidelity image that looks like a finished commercial advertisement.
+- Do NOT output text. Just the final image.
 `;
 
   // DEBUG: Log the customPrompt value

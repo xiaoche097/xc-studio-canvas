@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage } from '../services/geminiService';
+import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
@@ -21,6 +22,7 @@ const FusionTab: React.FC = () => {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Refinement State
@@ -113,6 +115,7 @@ const FusionTab: React.FC = () => {
   const handleGenerate = async () => {
     if (selectedFiles.length === 0 || !description) return;
     setError(null);
+    setProgress('');
     if ((window as any).aistudio) {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
@@ -120,14 +123,20 @@ const FusionTab: React.FC = () => {
     setGeneratedImages([]);
 
     try {
-      // Convert all files to base64
+      // Step 1: 压缩图片
+      setProgress('正在压缩图片...');
       const imagePromises = selectedFiles.map(async file => ({
         base64: await blobToBase64(file),
         mimeType: file.type
       }));
 
       const images = await Promise.all(imagePromises);
+
+      // Step 2: 发送到AI服务器
+      setProgress(`正在生成图片 (预计30-90秒)...`);
       const results = await generateImageToImage(images, description, { aspectRatio, resolution });
+
+      setProgress('生成完成！');
       setGeneratedImages(results);
 
       // Save to Project History
@@ -149,14 +158,10 @@ const FusionTab: React.FC = () => {
         }).catch(err => console.error("Failed to save to history", err));
       });
     } catch (error: any) {
-      const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
-      if (isPermissionError) {
-        setError("权限不足：需要配置 API Key。");
-      } else {
-        setError("生成失败: " + (error.message || "未知错误"));
-      }
+      setError(getErrorMessage(error));
     } finally {
       setIsGenerating(false);
+      setProgress('');
     }
   };
 
@@ -817,8 +822,14 @@ const FusionTab: React.FC = () => {
                         <div className="absolute inset-0 border-4 border-pastel-border rounded-full"></div>
                         <div className="absolute inset-0 border-4 border-pastel-highlight rounded-full border-t-transparent animate-spin"></div>
                       </div>
-                      <p className="text-pastel-text font-medium">正在进行图生图...</p>
-                      <p className="text-sm text-pastel-muted mt-2">Gemini Pro 正在分析参考图并进行创作</p>
+                      <p className="text-pastel-text font-medium">
+                        {progress || '正在进行图生图...'}
+                      </p>
+                      <p className="text-sm text-pastel-muted mt-2">
+                        {progress.includes('生成图片')
+                          ? 'Gemini Pro 正在分析参考图并进行创作，请耐心等待'
+                          : 'Gemini Pro 正在处理您的请求'}
+                      </p>
                     </div>
                   ) : (
                     <>

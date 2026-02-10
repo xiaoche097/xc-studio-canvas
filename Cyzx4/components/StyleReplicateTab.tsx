@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { generateStyleReplication, compressImage } from '../services/geminiService';
+import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
 import {
     Sparkles,
@@ -28,6 +29,17 @@ interface UploadedImage {
     mime?: string;
 }
 
+const COT_STEPS = [
+    { id: 1, label: "全案设计解构", desc: "正在深度解析网格与色彩基因...", icon: "🔍" },
+    { id: 2, label: "骨架重构", desc: "正在构建像素级排版骨架...", icon: "📐" },
+    { id: 3, label: "光影物理模拟", desc: "正在计算场景光照与反射逻辑...", icon: "💡" },
+    { id: 4, label: "高保真渲染", desc: "正在进行 8K 级超清材质渲染...", icon: "🖌️" },
+    { id: 5, label: "材质微粒优化", desc: "正在增强皮革/金属/织物纹理...", icon: "🧶" },
+    { id: 6, label: "边缘光影融合", desc: "正在处理边缘像素与环境融合...", icon: "✨" },
+    { id: 7, label: "动态范围重塑", desc: "正在优化画面对比度与饱和度...", icon: "🎨" },
+    { id: 8, label: "大师级调色", desc: "正在注入参考图的灵魂色调...", icon: "🌈" },
+];
+
 const StyleReplicateTab: React.FC = () => {
     // Tab state
     const [tabMode, setTabMode] = useState<TabMode>('single');
@@ -44,6 +56,11 @@ const StyleReplicateTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [turboMode, setTurboMode] = useState(false);
+
+    // CoT Visualization State
+    const [currentStep, setCurrentStep] = useState(0);
+    const [progress, setProgress] = useState(0);
+    const [batchStatus, setBatchStatus] = useState<string>("");
 
     // Drag states
     const [isDraggingStyle, setIsDraggingStyle] = useState(false);
@@ -204,6 +221,20 @@ const StyleReplicateTab: React.FC = () => {
         setError(null);
         setGeneratedImages([]);
 
+        // Start CoT Simulation
+        setCurrentStep(0);
+        setProgress(0);
+        setBatchStatus("");
+
+        // Timer to simulate the 8 steps
+        const stepInterval = setInterval(() => {
+            setCurrentStep(prev => {
+                if (prev >= COT_STEPS.length - 1) return prev;
+                return prev + 1;
+            });
+            setProgress(prev => Math.min(prev + 12, 95));
+        }, 1500); // 1.5s per step = 12s total (approx generation time)
+
         try {
             const allResults: string[] = [];
 
@@ -220,6 +251,12 @@ const StyleReplicateTab: React.FC = () => {
 
             for (const [index, styleRef] of stylesToProcess.entries()) {
                 if (!styleRef.base64) continue;
+
+                // Sync CoT for Batch Mode
+                if (stylesToProcess.length > 1) {
+                    setBatchStatus(`批量处理进度: ${index + 1}/${stylesToProcess.length}`);
+                    setCurrentStep(0); // Reset animation cycle for new item
+                }
 
                 try {
                     console.log(`[Batch] Processing Style ${index + 1}/${stylesToProcess.length}...`);
@@ -238,12 +275,14 @@ const StyleReplicateTab: React.FC = () => {
                     allResults.push(...results);
                 } catch (err) {
                     console.error(`[Batch] Failed to process Style ${index + 1}:`, err);
+                    const friendlyError = getErrorMessage(err);
+                    console.warn(`[Batch] 友好提示: ${friendlyError}`);
                     // Do not stop the loop, continue to next style
                 }
             }
 
             if (allResults.length === 0) {
-                throw new Error("Batch generation failed completely. Please check inputs and try again.");
+                throw new Error("批量生成完全失败。请检查您的输入内容和网络连接后重试。");
             }
 
             // Convert base64 to data URLs for display
@@ -255,7 +294,7 @@ const StyleReplicateTab: React.FC = () => {
                 // Prepare original assets as Data URIs
                 const originalAssets = [
                     ...styleReferences.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : ''),
-                    ...productImages.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : '')
+                    ...productImages.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.mime}` : '')
                 ].filter(Boolean);
 
                 const projectId = crypto.randomUUID();
@@ -287,9 +326,12 @@ const StyleReplicateTab: React.FC = () => {
 
         } catch (err: any) {
             console.error('Generation failed:', err);
-            setError(err.message || '生成失败，请重试');
+            const friendlyError = getErrorMessage(err);
+            setError(friendlyError);
         } finally {
+            clearInterval(stepInterval);
             setIsLoading(false);
+            setProgress(100);
         }
     };
 
@@ -663,12 +705,68 @@ const StyleReplicateTab: React.FC = () => {
 
                         <div className="flex-1 bg-pastel-bg/50 rounded-lg border border-pastel-border overflow-hidden">
                             {isLoading ? (
-                                <div className="h-full flex flex-col items-center justify-center">
-                                    <div className="relative">
-                                        <div className="w-16 h-16 border-4 border-pastel-border border-t-pastel-highlight rounded-full animate-spin" />
-                                        <Sparkles className="w-6 h-6 text-pastel-highlight absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                                <div className="h-full flex flex-col items-center justify-center p-8 relative overflow-hidden">
+                                    {/* Ambient Background Glow */}
+                                    <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/50 via-white/50 to-blue-50/30 animate-pulse pointer-events-none" />
+
+                                    {/* Glass Card */}
+                                    <div className="z-10 w-full max-w-sm bg-white/70 backdrop-blur-2xl rounded-3xl shadow-[0_8px_32px_rgba(31,38,135,0.07)] p-8 border border-white/50 relative overflow-hidden transition-all duration-500 hover:shadow-[0_8px_40px_rgba(255,166,0,0.15)] transform hover:scale-[1.02]">
+
+                                        {/* Progress Bar (Top) */}
+                                        <div className="absolute top-0 left-0 w-full h-1.5 bg-gray-100/50">
+                                            <div
+                                                className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-orange-400 bg-[length:200%_100%] animate-pulse transition-all duration-500 ease-out rounded-r-full shadow-[0_0_10px_rgba(255,166,0,0.5)]"
+                                                style={{ width: `${((currentStep + 1) / COT_STEPS.length) * 100}%` }}
+                                            />
+                                        </div>
+
+                                        <div className="flex flex-col items-center text-center space-y-6 pt-4">
+                                            {/* Icon with Ring Animation */}
+                                            <div className="relative">
+                                                <div className="absolute inset-0 bg-orange-400/20 rounded-full animate-ping opacity-75" />
+                                                <div className="w-24 h-24 bg-gradient-to-br from-white to-orange-50 rounded-full flex items-center justify-center text-5xl shadow-[inset_0_2px_10px_rgba(255,255,255,0.8),0_10px_20px_rgba(0,0,0,0.05)] border border-white relative z-10 transition-transform duration-500 scale-100">
+                                                    {COT_STEPS[currentStep].icon}
+                                                </div>
+                                            </div>
+
+                                            {/* Text Block */}
+                                            <div className="space-y-3 w-full">
+                                                <h3 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-800 to-gray-600 tracking-tight">
+                                                    {COT_STEPS[currentStep].label}
+                                                </h3>
+                                                <div className="h-8 flex items-center justify-center">
+                                                    <p className="text-sm font-medium text-gray-500 bg-white/60 px-4 py-1.5 rounded-full border border-gray-100/50 shadow-sm backdrop-blur-sm transition-all duration-300">
+                                                        {COT_STEPS[currentStep].desc}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Step Indicators */}
+                                            <div className="flex gap-2 justify-center mt-2 w-full px-4">
+                                                {COT_STEPS.map((step, idx) => (
+                                                    <div
+                                                        key={step.id}
+                                                        className={`h-1.5 rounded-full transition-all duration-500 ${idx === currentStep ? 'w-8 bg-gradient-to-r from-orange-400 to-pink-400 shadow-[0_0_8px_rgba(255,166,0,0.4)]' :
+                                                            idx < currentStep ? 'w-2 bg-orange-200/80' : 'w-2 bg-gray-200'
+                                                            }`}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <p className="text-sm text-pastel-muted mt-4">AI 正在生成中...</p>
+
+                                    {/* Bottom Status Text */}
+                                    <div className="flex flex-col items-center gap-2 mt-8">
+                                        {batchStatus && (
+                                            <span className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-100 shadow-sm animate-pulse">
+                                                {batchStatus}
+                                            </span>
+                                        )}
+                                        <p className="text-xs font-medium text-gray-400 flex items-center gap-2 bg-white/80 px-4 py-2 rounded-full shadow-sm backdrop-blur-sm border border-white/50">
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500" />
+                                            <span className="tracking-wide">AI 深度思维链执行中... ({currentStep + 1}/8)</span>
+                                        </p>
+                                    </div>
                                 </div>
                             ) : generatedImages.length > 0 ? (
                                 <div className={`p-4 h-full overflow-y-auto ${generatedImages.length === 1 ? 'flex items-center justify-center' : 'grid grid-cols-2 gap-3'}`}>
