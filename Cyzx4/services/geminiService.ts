@@ -2064,7 +2064,7 @@ export const analyzeStyle = async (
   - 色彩基调：描述整体的色彩基调、光影特性以及画面中主导的材质与表面质感。
   
   ### 3. 关键细节与氛围 (Key Details & Atmosphere)
-  - 关键细节：列举画面中具有决定性的、富有表现力的细节元素。
+  - 关键细节：列举画面中具有决定性的、富有表现力的细节元素。**必须精确到微观纹理（如皮肤毛孔、布料纱线、头发丝的走向与光泽），确保细节纹理就连头发丝都要一样。**
   - 情绪与故事氛围：概括画面所传递的整体情绪、感觉或故事氛围。
   
   ### 4. 技术参数与视角 (Technical Parameters & Perspective)
@@ -2089,7 +2089,7 @@ export const analyzeStyle = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3-pro-preview", // User explicitly requested gemini-3-pro-preview
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
