@@ -1788,7 +1788,7 @@ export const generateProductSwap = async (
   const ai = getAiClient();
   const aspectRatio = options.aspectRatio || AspectRatio.LANDSCAPE_4_3;
   const resolution = options.resolution || "2K";
-  const model = options.model || "gemini-2.0-flash-exp";
+  const model = options.model || "gemini-3-pro-image-preview";
   const productCount = productImages.length;
 
   // ============ PROMPT ENGINE (Nano Banana Golden Formula) ============
@@ -1967,5 +1967,324 @@ Professional commercial photography quality. The result must be indistinguishabl
   } catch (error) {
     console.error('[ProductSwap] Generation failed:', error);
     throw error;
+  }
+};
+// ==================== HD Upscale (Smart Retouching Upgrade) ====================
+
+/**
+ * 10. HD Upscale - Step 0: Image Quality Assessment
+ * Uses gemini-2.5-flash-image
+ */
+export const analyzeImageQuality = async (
+  imageBase64: string,
+  mimeType: string
+) => {
+  const ai = getAiClient();
+  const prompt = `
+  You are a professional Image Quality Analysis Expert. Please conduct a comprehensive quality assessment of the uploaded image.
+
+  ## Analysis Dimensions
+
+  ### 1. Basic Parameters
+  - Image Resolution (Width x Height)
+  - File Format
+  - Color Mode (RGB/CMYK/Grayscale)
+  - Color Depth
+
+  ### 2. Quality Assessment (Score 1-10 each)
+  - Sharpness Score: Detect blurriness
+  - Noise Score: Detect noise/grain
+  - Compression Artifacts Score: Detect JPEG artifacts
+  - Exposure Score: Detect over/under exposure
+  - Color Saturation Score
+
+  ### 3. Processing Recommendations
+  Based on the assessment, output JSON recommendations:
+
+  \`\`\`json
+  {
+    "original_resolution": "WxH",
+    "quality_score": 0-100,
+    "denoise_strength": 0-1,
+    "sharpen_strength": 0-1,
+    "color_correction_needed": true/false,
+    "recommended_upscale_factor": 2/4/8,
+    "processing_difficulty": "low/medium/high"
+  }
+  \`\`\`
+
+  Please output the JSON result directly.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash", // Use fast model for analysis
+      contents: {
+        parts: [
+          { inlineData: { mimeType, data: imageBase64 } },
+          { text: prompt }
+        ]
+      },
+      config: { responseMimeType: "application/json" }
+    });
+
+    const text = response.text || "{}";
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Quality analysis failed", error);
+    // Return safe default
+    return {
+      quality_score: 50,
+      recommended_upscale_factor: 2,
+      processing_difficulty: "medium"
+    };
+  }
+};
+
+/**
+ * 10.1 HD Upscale - Step 1: Style Analysis (Reverse Prompting)
+ * Uses gemini-2.5-flash-image
+ */
+export const analyzeStyle = async (
+  imageBase64: string,
+  mimeType: string
+) => {
+  const ai = getAiClient();
+  const prompt = `
+  请务必严格按照以下四个模块的框架进行组织与输出，确保内容清晰、完整，且具有高度的通用性与可复用性，能够直接用于指导新的图像生成过程。
+  
+  ## 结构化提示词框架：
+  
+  ### 1. 核心主题与构图 (Core Subject & Composition)
+  - 核心主体：定义画面的核心主体、核心叙事或概念。
+  - 构图布局：描述整体的构图布局（如对称、三分法、透视关系、元素排列与空间层次）。
+  
+  ### 2. 视觉风格与质感 (Visual Style & Texture)
+  - 艺术风格：界定图像的艺术风格（**CRITICAL**: If it looks like a photo, explicitly state "Photorealistic", "Photography", "DSLR"）.
+  - 色彩基调：描述整体的色彩基调、光影特性以及画面中主导的材质与表面质感。
+  
+  ### 3. 关键细节与氛围 (Key Details & Atmosphere)
+  - 关键细节：列举画面中具有决定性的、富有表现力的细节元素。
+  - 情绪与故事氛围：概括画面所传递的整体情绪、感觉或故事氛围。
+  
+  ### 4. 技术参数与视角 (Technical Parameters & Perspective)
+  - 观察视角：明确观察画面的视角（如广角、特写、鸟瞰、主观视角）。
+  - 镜头语言与参数建议：模拟镜头焦段、景深、分辨率等。
+  
+  ## 输出格式 (Output Format)
+  请根据以上分析，输出符合 JSON 格式的结果：
+  \`\`\`json
+  {
+    "positive_prompt": "Based on the 4 modules above, generate a highly detailed, professional English prompt. Start with the Art Style/Medium. Then Subject, Action, Context. Then Lighting, Camera, Color, Texture. End with high quality boosters. IF PHOTO: Start with 'Photorealistic, 8k, highly detailed, raw photo...'",
+    "negative_prompt": "Low quality, bad anatomy, worst quality, lowres, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
+    "style_summary": "请将上述四个模块的详细中文分析汇总在这里，保持结构化排版。",
+    "key_features": ["核心主体", "构图布局", "视觉风格", "关键细节"],
+    "recommended_params": {
+      "aspect_ratio": "1:1",
+      "style_weight": 0.8
+    }
+  }
+  \`\`\`
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: {
+        parts: [
+          { inlineData: { mimeType, data: imageBase64 } },
+          { text: prompt }
+        ]
+      },
+      config: { responseMimeType: "application/json" }
+    });
+
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("Style analysis failed", error);
+    return { positive_prompt: "High quality image", negative_prompt: "low quality" };
+  }
+};
+
+/**
+ * 10.2 HD Upscale - Step 2: Generate Color Map
+ * Uses gemini-3-pro-image-preview
+ */
+export const generateColorMap = async (
+  imageBase64: string,
+  mimeType: string,
+  aspectRatio: AspectRatio = AspectRatio.SQUARE
+) => {
+  const ai = getAiClient();
+  const prompt = `
+  核心目标：对原图进行视觉解构与本质提炼，生成一份用于专业设计流程的标准色彩分析稿。
+  
+  ## 核心要求分解与执行步骤：
+  
+  ### 第一步：色彩提取与分区定义
+  - 分析：系统解析原图内容，明确识别画面中所有独立的物体、元件或功能区域。
+  - 填充：为每一个已识别的独立单元，填充其平整、均匀的固有色。色块内部不得出现渐变或噪点，确保填充绝对均匀。
+  - 构成：通过上述操作，在画面上建立一套清晰、无交叠的色彩分区系统，使形状与色彩区域一一对应。
+  
+  ### 第二步：色彩关系的强化与平衡
+  - 对比度强化：有意识地调整并强化各固有色的明度（亮度）与色相（颜色本身）差异。目的并非完全照搬原图色彩，而是为了构建更明确、更具张力的视觉逻辑。
+  - 关系优化：确保优化后的色块组合在视觉上达到平衡状态，主体突出，层级分明，形成和谐且有力的平面色彩构成。
+  
+  ### 第三步：视觉净化与形式提炼
+  - 剔除干扰元素：必须彻底移除原始图像中存在的所有复杂视觉信息，具体包括：
+    - 光影信息：如阴影、高光、平滑的光影渐变。
+    - 环境影响：如环境色、反射、颜色溢出。
+    - 表面细节：如材质纹理、污渍、图案等一切非轮廓与固有色信息。
+  - 最终输出界定：成果应是一份纯净的色彩构成平面图。画面仅由定义清晰的封闭色块组成，色彩关系成为唯一的核心语言，直接服务于后续的设计推敲或风格化创作。
+  
+  **CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-image-preview",
+      contents: {
+        parts: [
+          { inlineData: { mimeType, data: imageBase64 } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio,
+          imageSize: "1K"
+        }
+      }
+    });
+
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+      ? `data:image/png;base64,${response.candidates[0].content.parts[0].inlineData.data}`
+      : null;
+  } catch (error) {
+    console.error("Color Map Gen failed", error);
+    return null;
+  }
+};
+
+/**
+ * 10.3 HD Upscale - Step 3: Generate Line Art
+ * Uses gemini-3-pro-image-preview
+ */
+export const generateLineArt = async (
+  imageBase64: string,
+  mimeType: string,
+  aspectRatio: AspectRatio = AspectRatio.SQUARE
+) => {
+  const ai = getAiClient();
+  const prompt = `
+  将原图进行解析，并重新构建成具有专业水准的矢量风格草图。线条需保持闭合、流畅且具备表现力，准确描绘主体轮廓与重要内部结构。最终输出应为高对比度、纯粹的黑白图像，去除所有灰色调、杂色及纹理细节，使画面只保留清晰、层次分明的线条关系。
+
+  **CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-image-preview",
+      contents: {
+        parts: [
+          { inlineData: { mimeType, data: imageBase64 } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio,
+          imageSize: "1K" // Line art doesn't need high res
+        }
+      }
+    });
+
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+      ? `data:image/png;base64,${response.candidates[0].content.parts[0].inlineData.data}`
+      : null;
+  } catch (error) {
+    console.error("Line Art Gen failed", error);
+    return null;
+  }
+};
+
+/**
+ * 10.4 HD Upscale - Step 4: Final Reconstruction
+ * Uses gemini-3-pro-image-preview
+ */
+export const generateHDUpscale = async (
+  original: { base64: string, mime: string },
+  colorMap: string | null,
+  lineArt: string | null,
+  promptData: { positive: string, negative: string },
+  upscaleFactor: number = 2,
+  aspectRatio: AspectRatio = AspectRatio.SQUARE
+) => {
+  const ai = getAiClient();
+
+  const parts: any[] = [];
+
+  // 1. Original Image (Reference) - REMOVED per user request (Recipe: Color + Line + Prompt)
+  // parts.push({ inlineData: { mimeType: original.mime, data: original.base64 } });
+
+  // 2. Control Adapters (Color & Line)
+  if (colorMap) {
+    // Remove prefix if present for API
+    const base64Clean = colorMap.split(',')[1] || colorMap;
+    parts.push({ inlineData: { mimeType: "image/png", data: base64Clean } });
+  }
+  if (lineArt) {
+    const base64Clean = lineArt.split(',')[1] || lineArt;
+    parts.push({ inlineData: { mimeType: "image/png", data: base64Clean } });
+  }
+
+  // 3. Prompt Construction
+  const scaleMap = { 2: "2K", 4: "4K", 8: "4K" }; // API only supports up to 4K effectively or map appropriately
+  // Note: Gemini API imageSize enum is '1K', '2K', '4K'. 
+  // 8x might just be '4K' with high detail prompt.
+  const targetRes = (scaleMap as any)[upscaleFactor] || "2K";
+
+  const systemPrompt = `
+  You are a Professional AI Artist & Image Restoration Expert.
+  
+  **MISSION**: Perfectly reconstruct the image at ${upscaleFactor}X resolution (${targetRes}) using ONLY the control maps and the prompt.
+  
+  **CONTROL INPUTS**:
+  ${colorMap ? '1. **[Color Map]**: PRIMARY REFERENCE for color distribution and composition.' : ''}
+  ${lineArt ? `2. **[Line Art]**: PRIMARY REFERENCE for structural boundaries and details.` : ''}
+  
+  **GENERATION PROMPT**:
+  (Photorealistic Enforcement): Raw photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3.
+  ${promptData.positive}
+  
+  **EXECUTION INSTRUCTIONS**:
+  1. **Structure**: Align perfectly with the [Line Art].
+  2. **Color**: Sample exact colors from the [Color Map].
+  3. **Detailing**: Use the **GENERATION PROMPT** to hallucinate high-frequency realism.
+  
+  **NEGATIVE PROMPT**:
+  anime, illustration, painting, drawing, sketch, cartoon, 3d render, ${promptData.negative}, blurry, low resolution, pixelated, distorted, bad anatomy, structural mutation, washed out colors, extra limbs, messy lines.
+  `;
+
+  parts.push({ text: systemPrompt });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-image-preview",
+      contents: { parts: parts },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio,
+          imageSize: targetRes as any
+        }
+      }
+    });
+
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+      ? `data:image/png;base64,${response.candidates[0].content.parts[0].inlineData.data}`
+      : null;
+  } catch (error) {
+    console.error("HD Upscale failed", error);
+    return null;
   }
 };

@@ -2,7 +2,7 @@
 export enum AppMode {
   PLANNING = 'PLANNING',     // Visual Planning (Was Director)
   FUSION = 'FUSION',         // Scene Fusion (New)
-  RETOUCHING = 'RETOUCHING', // Smart Retouching (Was Editor)
+  RETOUCHING = 'RETOUCHING', // HD Upscale (Was Editor)
   SEAT_COVER = 'SEAT_COVER', // Seat Cover Fit (New)
   COPYWRITING = 'COPYWRITING', // Listing Copilot (New)
   VIDEO = 'VIDEO',           // Video Studio (New)

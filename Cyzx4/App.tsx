@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AppMode } from './types';
 import DirectorTab from './components/DirectorTab';
-import EditorTab from './components/EditorTab';
+import HDUpscaleTab from './components/HDUpscaleTab';
 import TrendTab from './components/TrendTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
 import VideoTab from './components/VideoTab';
@@ -64,7 +64,7 @@ const App: React.FC = () => {
             active={activeTab === AppMode.RETOUCHING}
             onClick={() => setActiveTab(AppMode.RETOUCHING)}
             icon={<Wand2 className="w-5 h-5" />}
-            label="智能修图"
+            label="高清放大"
           />
 
           <div className="h-4"></div>
@@ -107,7 +107,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.SEAT_COVER && "座套试装 (Seat Cover Fit)"}
             {activeTab === AppMode.PRODUCT_SWAP && "产品替换 (Product Swap)"}
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
-            {activeTab === AppMode.RETOUCHING && "智能修图 (Smart Retouching)"}
+            {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.VIDEO && "视频脚本 (Video Studio)"}
             {activeTab === AppMode.TRENDS && "趋势洞察 (Trend Insights)"}
@@ -134,9 +134,9 @@ const App: React.FC = () => {
               <FusionTab />
             </div>
 
-            {/* Persist EditorTab state (Smart Retouching) by hiding instead of unmounting */}
+            {/* Persist HDUpscaleTab state (Replacing EditorTab) */}
             <div style={{ display: activeTab === AppMode.RETOUCHING ? 'block' : 'none', height: '100%' }}>
-              <EditorTab initialImage={sharedImage} />
+              <HDUpscaleTab />
             </div>
 
             {/* Persist StyleReplicateTab state by hiding instead of unmounting */}

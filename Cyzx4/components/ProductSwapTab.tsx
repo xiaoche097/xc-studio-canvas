@@ -31,8 +31,8 @@ const SWAP_COT_STEPS = [
 
 // ==================== Model Options ====================
 const MODEL_OPTIONS = [
-    { value: 'gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash (推荐)' },
-    { value: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
+    { value: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image (推荐)' },
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash Image' },
 ];
 
 type ImageData = {
@@ -52,7 +52,7 @@ const ProductSwapTab: React.FC = () => {
     const [userPrompt, setUserPrompt] = useState('');
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.LANDSCAPE_4_3);
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
-    const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
+    const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
 
     // UI state
     const [isLoading, setIsLoading] = useState(false);
@@ -267,8 +267,8 @@ const ProductSwapTab: React.FC = () => {
                                     onDragLeave={(e) => handleDragLeave(e, 'scene')}
                                     onClick={() => sceneInputRef.current?.click()}
                                     className={`h-48 border-2 border-dashed rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all ${isDraggingScene
-                                            ? 'border-blue-400 bg-blue-50'
-                                            : 'border-pastel-border hover:border-pastel-highlight hover:bg-orange-50/30'
+                                        ? 'border-blue-400 bg-blue-50'
+                                        : 'border-pastel-border hover:border-pastel-highlight hover:bg-orange-50/30'
                                         }`}
                                 >
                                     <Upload className="w-8 h-8 text-pastel-muted mb-2" />
@@ -317,8 +317,8 @@ const ProductSwapTab: React.FC = () => {
                                         onDragLeave={(e) => handleDragLeave(e, 'product')}
                                         onClick={() => productInputRef.current?.click()}
                                         className={`aspect-square border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all ${isDraggingProduct
-                                                ? 'border-orange-400 bg-orange-50'
-                                                : 'border-pastel-border hover:border-pastel-highlight'
+                                            ? 'border-orange-400 bg-orange-50'
+                                            : 'border-pastel-border hover:border-pastel-highlight'
                                             }`}
                                     >
                                         <Upload className="w-5 h-5 text-pastel-muted mb-1" />
@@ -416,8 +416,8 @@ const ProductSwapTab: React.FC = () => {
                             onClick={handleGenerate}
                             disabled={!canGenerate}
                             className={`w-full py-3.5 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-all shadow-md ${canGenerate
-                                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 hover:shadow-lg active:scale-[0.98]'
-                                    : 'bg-gray-300 cursor-not-allowed'
+                                ? 'bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 hover:shadow-lg active:scale-[0.98]'
+                                : 'bg-gray-300 cursor-not-allowed'
                                 }`}
                         >
                             <ArrowLeftRight className="w-5 h-5" />
@@ -487,10 +487,10 @@ const ProductSwapTab: React.FC = () => {
                                                     <div
                                                         key={step.id}
                                                         className={`h-1.5 rounded-full transition-all duration-500 ${idx === currentStep
-                                                                ? 'w-8 bg-gradient-to-r from-orange-400 to-pink-400 shadow-[0_0_8px_rgba(255,166,0,0.4)]'
-                                                                : idx < currentStep
-                                                                    ? 'w-2 bg-orange-200/80'
-                                                                    : 'w-2 bg-gray-200'
+                                                            ? 'w-8 bg-gradient-to-r from-orange-400 to-pink-400 shadow-[0_0_8px_rgba(255,166,0,0.4)]'
+                                                            : idx < currentStep
+                                                                ? 'w-2 bg-orange-200/80'
+                                                                : 'w-2 bg-gray-200'
                                                             }`}
                                                     />
                                                 ))}
