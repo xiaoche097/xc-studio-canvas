@@ -1,6 +1,6 @@
 import { GoogleGenAI, LiveServerMessage, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
-import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE, getAngleNegative, getAngleLens } from "./promptUtils";
+import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE, getAngleNegative, getAngleLens, LENS_SIMULATION } from "./promptUtils";
 
 // 导入工具函数和类型定义
 import {
@@ -414,33 +414,50 @@ export const generateImageToImage = async (
  * 4. Optimize Prompt using Expert Persona
  * Skill: # Role_ 用户 (1).md
  */
+/**
+ * 4. Optimize Prompt using Prompt Optimization Agent (Nano Banana Edition)
+ * Skill: Imagen 3.0 (Nano Banana) Skills - Golden Formula & Quality Boosters
+ */
 export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: string; mimeType: string }[], refineInstruction?: string): Promise<string> => {
   const ai = getAiClient();
   if (!rawPrompt && (!refImages || refImages.length === 0)) return "";
 
+  // Nano Banana Skills Knowledge Injection
   const skillSystemPrompt = `
-# Role: Imagen 图片生成 Prompt 优化大师
-# Mission: 将用户提示词重构为高质量、结构化的图片生成指令。
+# Role: Imagen 3.0 Prompt Master (Nano Banana Certified)
+# Mission: Transform user input into a world-class, photorealistic image generation prompt.
 
-# 黄金公式（7要素法）— 严格按此顺序输出：
-# [主体描述] + [动作/状态] + [环境/场景] + [风格流派] + [光照描述] + [视角/构图] + [质量增强词]
+## 🧠 COGNITIVE PROTOCOL (Internal Thought Process)
+1. **ANALYZE**: Understand the user's core intent, subject, and desired vibe.
+2. **EXPAND**: Apply the "Golden Formula" to flesh out missing details.
+   - [Subject]: Add sensory details (material, color, texture).
+   - [Environment]: Add atmospheric context (lighting, time, weather).
+   - [Style]: Definitive art style or photography type.
+   - [Camera]: Choose the perfect lens and angle.
+3. **REFINE**: Apply "Quality Boosters" to ensure high fidelity.
 
-# 核心规则：
-1. **精准替换**: 将模糊词转化为具体视觉描述（如"好看" → "cinematic lighting, golden hour, soft shadows"）
-2. **主体优先**: 主体描述放在最前面（Imagen 对前部内容权重更高）
-3. **细节密度**: 控制在 50-150 词，避免过少（模糊）或过多（过约束）
-4. **质量增强**: 末尾追加增强词（如 "high resolution, 8K, sharp focus, professional quality"）
-5. **材质具体化**: 用具体材质词替换抽象描述（如"好看的衣服" → "wrinkled linen shirt, soft cotton fabric"）
-6. **光照公式**: [光源类型] + [方向] + [强度] + [色温]
-7. **风格一致**: 如果用户/参考图有明确风格，严格遵循
-8. **语言身份**: 输入中文 → 输出中文。输入英文 → 输出英文。
-9. **输出格式**: 仅返回优化后的提示词文本。不要 Markdown，不要解释。
+## 🌟 THE GOLDEN FORMULA (Strict Output Structure)
+Return the prompt as a single paragraph following this sequence:
+**[Subject Description] + [Action/Pose] + [Environment/Scene] + [Art Style] + [Lighting Parameters] + [Camera/Composition] + [Quality Boosters]**
+
+## 📚 KNOWLEDGE BASE
+- **Lens Simulation**: ${Object.values(LENS_SIMULATION).join(', ')}
+- **Quality Boosters**: ${Object.values(QUALITY_BOOSTERS).join(', ')}
+
+## 🎯 EXECUTION RULES
+1. **Precision**: Convert vague terms (e.g., "nice") into visual specifics (e.g., "cinematic lighting, golden hour").
+2. **Subject First**: Always place the main subject at the very beginning.
+3. **Length**: Target 75-150 words for optimal density.
+4. **Language**:
+   - If user input is **Chinese**, output **Chinese**.
+   - If user input is **English**, output **English**.
+5. **Output Format**: Return **ONLY** the optimized prompt text. Do not include labels like "Subject:" or markdown code blocks.
 `;
 
   try {
     const parts: any[] = [{ text: skillSystemPrompt }];
 
-    // Add Reference Images if provided
+    // Add Reference Images if provided (Style Analysis)
     if (refImages && refImages.length > 0) {
       refImages.forEach(img => {
         parts.push({
@@ -450,16 +467,18 @@ export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: st
           }
         });
       });
-      parts.push({ text: `[系统提示]: 用户上传了 ${refImages.length} 张参考图片，请仔细分析这些图片的风格、内容和细节，并结合下方的文字提示词进行优化。我们的目标是生成一张风格类似的新图片。` });
+      parts.push({ text: `[VISUAL CONTEXT]: The user has provided ${refImages.length} reference images. \n**CRITICAL**: Analyze their Art Style, Lighting, and Composition. \nYour optimized prompt MUST adopt these visual characteristics while keeping the user's text subject.` });
     }
 
+    // Construct User Input
+    let userMessage = `[USER INPUT]: "${rawPrompt}"`;
     if (refineInstruction) {
-      parts.push({ text: `[当前已有提示词]:\n"${rawPrompt}"\n\n[用户修改指令]: "${refineInstruction}"\n\n请根据用户指令修改上述提示词。` });
-    } else {
-      parts.push({ text: `请优化以下提示词:\n"${rawPrompt}"` });
+      userMessage += `\n\n[REFINEMENT INSTRUCTION]: The user wants to adjust the previous prompt. \nInstruction: "${refineInstruction}" \n\nPlease rewrite the prompt to incorporate this change while maintaining high quality.`;
     }
 
-    // Use gemini-3-flash-preview as requested
+    parts.push({ text: userMessage });
+
+    // Use gemini-3-flash-preview for fast reasoning & text generation
     const modelName = "gemini-3-flash-preview";
     const response = await ai.models.generateContent({
       model: modelName,
@@ -469,7 +488,10 @@ export const optimizePrompt = async (rawPrompt: string, refImages?: { base64: st
     });
 
     const optimizedText = response.text?.trim();
-    return optimizedText || rawPrompt;
+    // Clean up any potential markdown if the model disobeys
+    const cleanText = optimizedText?.replace(/^```(markdown|text)?\n/, '').replace(/\n```$/, '') || rawPrompt;
+
+    return cleanText;
   } catch (e) {
     console.error("Prompt optimization failed", e);
     return rawPrompt; // Fallback to original
@@ -1777,66 +1799,80 @@ You are a world-class digital compositor specializing in **seamless product repl
 Your task is to perform a pixel-perfect product swap in a reference scene.
 
 ## 📋 INPUT MANIFEST
-- **Image 1**: Reference Scene (BLUEPRINT — keep everything EXCEPT the target product)
-- **Images 2-${productCount + 1}**: Product Source Material (the replacement product)
+- **Image 1**: Reference Scene (BLUEPRINT — keep everything EXCEPT the target products)
+- **Images 2-${productCount + 1}**: **Product Pool** (Candidate products for swapping, labeled internally as Product A, Product B, etc.)
 
 ## 🧠 COGNITIVE PIPELINE (8-Phase Execution)
 
 ### PHASE 1: SCENE DEEP ANALYSIS 🔍
 Analyze the Reference Scene (Image 1) completely:
-- Identify the **target product** to be replaced (the main product/object being showcased)
-- Map the **exact position, size, rotation, and perspective** of the target product
+- Identify the **target product(s)** to be replaced (can be multiple subjects, e.g., two people with bags)
+- Map the **exact position, size, rotation, and perspective** of EACH target product
 - Catalog the **scene context**: background, surrounding objects, people, composition
 - Analyze **lighting physics**: direction, intensity, color temperature, shadow patterns
 
+### PHASE 1.5: OCCLUSION & BACKGROUND PREDICTION 🙈
+- **CRITICAL STEP**: Analyze what lies *behind* the current target product(s).
+- **Predict Hidden Context**: If the current product is removed, what texture/object should appear? (e.g., shirt fabric, chair back, distant landscape).
+- **Prepare Inpainting Data**: Generate mentally the background data for any area currently covered by the product but NOT covered by the new product.
+
 ### PHASE 2: PRODUCT SOURCE ANALYSIS 📍
-Analyze the Product Source (Images 2-${productCount + 1}):
-- Extract the **product's true shape, proportions, and material properties**
-- Identify **texture details**: surface finish, color, patterns, branding
-- Note **key visual features** that must be preserved in the final output
+Analyze the Product Pool (Images 2-${productCount + 1}):
+- Extract the **true shape, proportions, and material properties** of EACH product image.
+- Identify **texture details**: surface finish, color, patterns, branding.
+- Note **key visual features** that must be preserved.
+
+### PHASE 2.5: MULTI-TARGET MAPPING 🗺️
+- **Analyze User Instruction**: Check for specific mapping commands (e.g., "Left person wears Product A (Image 2), Right person wears Product B (Image 3)").
+- **Map Targets**: Identify multiple distinct subjects/products in the scene if applicable.
+- **Assign Sources**: Link each target in the scene to a specific image from the Product Pool.
+- **Default Logic**: If no specific mapping is given, apply Product A (Image 2) to the MAIN subject.
 
 ### PHASE 3: LIGHTING PHYSICS MATCHING 💡
-- Calculate how the scene's lighting would interact with the replacement product
-- Match **shadow direction and softness** to the scene
-- Apply correct **specular highlights** and **ambient occlusion**
-- Ensure **color temperature consistency** between product and scene
+- Calculate how the scene's lighting would interact with EACH replacement product independently.
+- Match **shadow direction and softness** to the scene for each subject.
+- Apply correct **specular highlights** and **ambient occlusion**.
+- Ensure **color temperature consistency** between products and scene.
 
 ### PHASE 4: PERSPECTIVE & SCALE CALIBRATION 📐
-- Match the **camera angle** of the replacement product to the scene's perspective
-- Scale the product to **exactly match** the original product's size in the scene
-- Apply correct **lens distortion** if present in the scene
-- Ensure **proportional accuracy** — the product must look naturally placed
+- Match the **camera angle** of EACH replacement product to its specific location in the scene.
+- Scale the product to **maintain true proportions** relative to the specific person/object it is attached to.
+- Do NOT stretch to fill old space.
 
-### PHASE 5: 1:1 PRECISION SWAP 🔄
-- Remove the original product from the scene
-- Place the replacement product in the **exact same position**
-- Maintain the **identical composition and framing**
-- Keep ALL non-product elements **100% unchanged**: people, background, props, text
+### PHASE 5: SMART ERASE & PRECISION SWAP (Multi-Target Edition) 🔄
+- **Check All Targets**: Iterate through all mapped Target/Source pairs.
+- **For EACH Pair**:
+  - **SIZE MISMATCH PROTOCOL**: If Original > New, **ERASE** -> **INPAINT** -> **PLACE**.
+  - **ANTI-GHOSTING**: Ensure NO residual pixels of the original object remain.
+  - **Placement**: Position the replacement product in the **exact same logical position** (e.g., on the back).
+- **Consistency**: Ensure both products look like they belong in the same physical space.
+- Keep ALL non-product elements **100% unchanged**: people, background, props, text.
 
 ### PHASE 6: EDGE BLENDING & INTEGRATION ✨
-- Seamlessly blend product edges with the surrounding scene
-- Apply correct **contact shadows** where the product meets surfaces
-- Handle **occlusion** — if fingers, straps, or other elements overlap the product
-- Ensure no visible seams, halos, or artifacts
+- Seamlessly blend product edges with the surrounding scene for ALL swapped items.
+- Apply correct **contact shadows** where the product meets surfaces.
+- Handle **occlusion** — if fingers, straps, or other elements overlap the product.
+- Ensure no visible seams, halos, or artifacts.
 
 ### PHASE 7: MATERIAL FIDELITY 🧶
-- Preserve the replacement product's **authentic material texture**
-- Render leather grains, fabric weave, metal reflections, or plastic sheen accurately
-- Maintain product color accuracy under the scene's lighting conditions
+- Preserve the replacement product's **authentic material texture**.
+- Render leather grains, fabric weave, metal reflections, or plastic sheen accurately.
+- Maintain product color accuracy under the scene's lighting conditions.
 
 ### PHASE 8: FINAL QUALITY ASSURANCE 🏆
-- Verify the swap looks **100% natural and photorealistic**
-- Check for any inconsistencies in lighting, perspective, or scale
-- Ensure the output looks like a **real photograph**, not a composite
-- Apply final color grading to match the scene's overall mood
+- Verify the swap looks **100% natural and photorealistic**.
+- Check for any inconsistencies in lighting, perspective, or scale.
+- Ensure the output looks like a **real photograph**, not a composite.
+- Apply final color grading to match the scene's overall mood.
 
 ---
 
 ## 🎯 MISSION SUMMARY
 
 **KEEP UNCHANGED**: Scene background, people, poses, composition, camera angle, lighting setup
-**REPLACE**: The main product/object with the user's product (Images 2-${productCount + 1})
-${userPrompt ? `**USER INSTRUCTION**: "${userPrompt}"` : '**DEFAULT**: Replace the most prominent product in the scene with the provided product images.'}
+**REPLACE**: The target product(s) according to the Multi-Target Mapping.
+**ANTI-GHOSTING**: If replacing a large object with a smaller one, completely ERASE the large object and recover the background.
+${userPrompt ? `**USER INSTRUCTION**: "${userPrompt}"` : '**DEFAULT**: Replace the most prominent product in the scene with the provided Product Pool images.'}
 
 **QUALITY STANDARD**: ${QUALITY_BOOSTERS.PRODUCT}
 Professional commercial photography quality. The result must be indistinguishable from a real photograph.

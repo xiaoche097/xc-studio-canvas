@@ -112,6 +112,9 @@ const FusionTab: React.FC = () => {
     setPreviewUrls(newUrls);
   };
 
+  // Auto-Optimize State
+  const [isAutoOptimize, setIsAutoOptimize] = useState(true);
+
   const handleGenerate = async () => {
     if (selectedFiles.length === 0 || !description) return;
     setError(null);
@@ -119,10 +122,36 @@ const FusionTab: React.FC = () => {
     if ((window as any).aistudio) {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
+
     setIsGenerating(true);
     setGeneratedImages([]);
 
     try {
+      // Step 0: Auto-Optimize Prompt (Nano Banana Agent)
+      let finalPrompt = description;
+      if (isAutoOptimize) {
+        setProgress('🧠 AI 正在思考优化提示词 (Thinking...)...');
+        try {
+          // Prepare context for optimization
+          let refImagesData: { base64: string; mimeType: string }[] | undefined = undefined;
+          if (selectedFiles.length > 0) {
+            const imagesToProcess = selectedFiles.slice(0, 4);
+            refImagesData = await Promise.all(imagesToProcess.map(async file => ({
+              base64: await blobToBase64(file),
+              mimeType: file.type
+            })));
+          }
+
+          const optimized = await optimizePrompt(description, refImagesData);
+          finalPrompt = optimized;
+          setDescription(optimized); // Update UI to show the magic
+
+          await new Promise(resolve => setTimeout(resolve, 800)); // Small delay for user to see the change
+        } catch (e) {
+          console.warn("Auto-optimization failed, proceeding with original prompt", e);
+        }
+      }
+
       // Step 1: 压缩图片
       setProgress('正在压缩图片...');
       const imagePromises = selectedFiles.map(async file => ({
@@ -134,7 +163,7 @@ const FusionTab: React.FC = () => {
 
       // Step 2: 发送到AI服务器
       setProgress(`正在生成图片 (预计30-90秒)...`);
-      const results = await generateImageToImage(images, description, { aspectRatio, resolution });
+      const results = await generateImageToImage(images, finalPrompt, { aspectRatio, resolution });
 
       setProgress('生成完成！');
       setGeneratedImages(results);
@@ -151,9 +180,10 @@ const FusionTab: React.FC = () => {
             original: selectedFiles.map(f => f.name)
           },
           metadata: {
-            prompt: description,
+            prompt: finalPrompt, // Save the optimized prompt
             params: { aspectRatio, resolution },
-            refImageCount: selectedFiles.length
+            refImageCount: selectedFiles.length,
+            autoOptimized: isAutoOptimize
           }
         }).catch(err => console.error("Failed to save to history", err));
       });
@@ -602,17 +632,34 @@ const FusionTab: React.FC = () => {
                 </div>
               )}
 
-              <button
-                onClick={handleGenerate}
-                disabled={selectedFiles.length === 0 || !description || isGenerating}
-                className={`w-full py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${selectedFiles.length === 0 || !description || isGenerating
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'
-                  : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-orange-500/25 hover:shadow-orange-500/40 hover:brightness-105'
-                  }`}
-              >
-                {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                {isGenerating ? '正在生成创意 (Generating...)' : '开始生成 (Generate)'}
-              </button>
+              <div className="flex items-center justify-between gap-3">
+                {/* Auto-Optimize Toggle */}
+                <button
+                  onClick={() => setIsAutoOptimize(!isAutoOptimize)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${isAutoOptimize
+                      ? 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm'
+                      : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                    }`}
+                  title={isAutoOptimize ? "生成前自动优化提示词 (已开启)" : "生成前自动优化提示词 (已关闭)"}
+                >
+                  <div className={`w-8 h-4 rounded-full relative transition-colors ${isAutoOptimize ? 'bg-purple-500' : 'bg-gray-300'}`}>
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${isAutoOptimize ? 'left-4.5' : 'left-0.5'}`} style={{ left: isAutoOptimize ? 'calc(100% - 14px)' : '2px' }} />
+                  </div>
+                  <span>✨ 智能优化</span>
+                </button>
+
+                <button
+                  onClick={handleGenerate}
+                  disabled={selectedFiles.length === 0 || !description || isGenerating}
+                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${selectedFiles.length === 0 || !description || isGenerating
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'
+                    : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-orange-500/25 hover:shadow-orange-500/40 hover:brightness-105'
+                    }`}
+                >
+                  {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  {isGenerating ? '正在生成... (Working)' : isAutoOptimize ? '智能生成 (Smart Generate)' : '开始生成 (Generate)'}
+                </button>
+              </div>
             </div>
 
           </div>
