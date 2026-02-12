@@ -4,12 +4,12 @@ import DirectorTab from './components/DirectorTab';
 import HDUpscaleTab from './components/HDUpscaleTab';
 import TrendTab from './components/TrendTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
-import VideoTab from './components/VideoTab';
+import ImageCleanTab from './components/ImageCleanTab';
 import FusionTab from './components/FusionTab';
 import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
 import SettingsTab from './components/SettingsTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.PLANNING);
@@ -77,10 +77,10 @@ const App: React.FC = () => {
             label="风格复刻"
           />
           <NavButton
-            active={activeTab === AppMode.VIDEO}
-            onClick={() => setActiveTab(AppMode.VIDEO)}
-            icon={<Film className="w-5 h-5" />}
-            label="视频脚本"
+            active={activeTab === AppMode.IMAGE_CLEAN}
+            onClick={() => setActiveTab(AppMode.IMAGE_CLEAN)}
+            icon={<Sparkles className="w-5 h-5" />}
+            label="AI 洗图"
           />
           <NavButton
             active={activeTab === AppMode.TRENDS}
@@ -109,7 +109,8 @@ const App: React.FC = () => {
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
             {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
-            {activeTab === AppMode.VIDEO && "视频脚本 (Video Studio)"}
+            {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
+            {activeTab === AppMode.IMAGE_CLEAN && "AI 洗图 (Image Clean)"}
             {activeTab === AppMode.TRENDS && "趋势洞察 (Trend Insights)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
           </h1>
@@ -144,7 +145,7 @@ const App: React.FC = () => {
               <StyleReplicateTab />
             </div>
 
-            {activeTab === AppMode.VIDEO && <VideoTab />}
+            {activeTab === AppMode.IMAGE_CLEAN && <ImageCleanTab />}
             {activeTab === AppMode.TRENDS && <TrendTab />}
             {activeTab === AppMode.SETTINGS && <SettingsTab />}
           </div>

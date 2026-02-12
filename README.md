@@ -41,6 +41,12 @@ SKYSPER AI Studio 是一个集成化智能系统，专为跨境电商（特别�
 - 历史设计资产回溯。
 - 跨平台创意适配。
 
+### 5. 🧠 提示词引擎 V2.0 (Prompt Engine)
+集成了 Imagen 3.0 Nano Banana Skills 的专业级提示词优化系统：
+- **✨ 精准描述专家**: 将简短文本转化为符合光影、构图标准的专业摄影指令。
+- **🔄 图生图意图识别**: 智能识别 Add/Remove/Replace/Enhance 意图，实现自然且克制的图像编辑。
+- 详情请参阅: [Prompt Engine V2.0 文档](docs/PROMPT_ENGINE_V2_OVERVIEW.md)
+
 ## 📂 项目管理 (Project History)
 内置本地化 IndexedDB 存储系统，完整记录所有生成历史：
 - **分类管理**：支持按类型筛选（SKYSPER 视觉系统、分析专家、营销图等）。

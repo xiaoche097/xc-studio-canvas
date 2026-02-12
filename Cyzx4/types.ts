@@ -5,7 +5,7 @@ export enum AppMode {
   RETOUCHING = 'RETOUCHING', // HD Upscale (Was Editor)
   SEAT_COVER = 'SEAT_COVER', // Seat Cover Fit (New)
   COPYWRITING = 'COPYWRITING', // Listing Copilot (New)
-  VIDEO = 'VIDEO',           // Video Studio (New)
+  IMAGE_CLEAN = 'IMAGE_CLEAN', // Image Cleanup Tool (Replaces Video)
   TRENDS = 'TRENDS',         // Trend Insights (Kept)
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   SETTINGS = 'SETTINGS'      // Settings (New)
