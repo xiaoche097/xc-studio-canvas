@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { editGeneratedImage, blobToBase64, inpaintImage, optimizePrompt } from '../services/geminiService';
+import { editGeneratedImage, blobToBase64, inpaintImage, optimizePrompt, optimizeImageToImagePrompt } from '../services/geminiService';
 import { ImageResolution, AspectRatio, EditPoint } from '../types';
 import EditorCanvas from './editor/EditorCanvas';
 import EditorSidebar from './editor/EditorSidebar';
@@ -342,11 +342,19 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
     } catch (e) { console.error(e); } finally { setIsOptimizing(false); }
   };
 
+  // --- OPTIMIZATION HANDLERS ---
   const handleRefinePrompt = async () => {
     if (!refineInstruction) return;
     setIsOptimizing(true);
     try {
-      const optimized = await optimizePrompt(editPrompt, [], refineInstruction);
+      let optimized = '';
+      // If there is a current image, use the specialized Img2Img optimizer
+      if (currentImage) {
+        optimized = await optimizeImageToImagePrompt(refineInstruction);
+      } else {
+        // Otherwise use the standard Txt2Img optimizer
+        optimized = await optimizePrompt(editPrompt, [], refineInstruction);
+      }
       setEditPrompt(optimized);
       setRefineInstruction('');
       setShowRefineInput(false);

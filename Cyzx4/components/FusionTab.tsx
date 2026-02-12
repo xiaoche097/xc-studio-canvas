@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage } from '../services/geminiService';
+import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle } from 'lucide-react';
@@ -142,7 +142,14 @@ const FusionTab: React.FC = () => {
             })));
           }
 
-          const optimized = await optimizePrompt(description, refImagesData);
+          let optimized = '';
+          // If reference images are present, use the specialized Img2Img optimizer
+          if (refImagesData && refImagesData.length > 0) {
+            optimized = await optimizeImageToImagePrompt(description);
+          } else {
+            // Otherwise use the standard Txt2Img optimizer (Precision Expert)
+            optimized = await optimizePrompt(description, refImagesData);
+          }
           finalPrompt = optimized;
           setDescription(optimized); // Update UI to show the magic
 
@@ -637,8 +644,8 @@ const FusionTab: React.FC = () => {
                 <button
                   onClick={() => setIsAutoOptimize(!isAutoOptimize)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${isAutoOptimize
-                      ? 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm'
-                      : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                    ? 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm'
+                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
                     }`}
                   title={isAutoOptimize ? "生成前自动优化提示词 (已开启)" : "生成前自动优化提示词 (已关闭)"}
                 >
