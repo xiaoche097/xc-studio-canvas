@@ -40,6 +40,8 @@ type ImageData = {
     base64?: string;
     mime?: string;
     preview: string;
+    width?: number;
+    height?: number;
 };
 
 const ProductSwapTab: React.FC = () => {
@@ -50,7 +52,7 @@ const ProductSwapTab: React.FC = () => {
 
     // Config state
     const [userPrompt, setUserPrompt] = useState('');
-    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.LANDSCAPE_4_3);
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio | 'auto'>('auto');
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
 
@@ -72,11 +74,21 @@ const ProductSwapTab: React.FC = () => {
     // ==================== File Handlers ====================
     const processFile = async (file: File): Promise<ImageData> => {
         const compressed = await compressImage(file);
+
+        // Get dimensions
+        const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            img.src = URL.createObjectURL(file);
+        });
+
         return {
             file,
             base64: compressed.base64,
             mime: compressed.mime,
             preview: URL.createObjectURL(file),
+            width: dimensions.width,
+            height: dimensions.height
         };
     };
 
@@ -151,12 +163,33 @@ const ProductSwapTab: React.FC = () => {
         }, 1500);
 
         try {
+            // Determine Aspect Ratio
+            let finalAspectRatio = aspectRatio;
+            if (aspectRatio === 'auto' && sceneImage.width && sceneImage.height) {
+                const ratio = sceneImage.width / sceneImage.height;
+                const ratios = [
+                    { r: 1, val: AspectRatio.SQUARE },
+                    { r: 4 / 3, val: AspectRatio.LANDSCAPE_4_3 },
+                    { r: 3 / 4, val: AspectRatio.PORTRAIT_3_4 },
+                    { r: 16 / 9, val: AspectRatio.LANDSCAPE_16_9 },
+                    { r: 9 / 16, val: AspectRatio.PORTRAIT_9_16 },
+                    { r: 21 / 9, val: AspectRatio.LANDSCAPE_21_9 },
+                ];
+                // Find closest
+                const closest = ratios.reduce((prev, curr) => {
+                    return (Math.abs(curr.r - ratio) < Math.abs(prev.r - ratio) ? curr : prev);
+                });
+                finalAspectRatio = closest.val;
+            } else if (aspectRatio === 'auto') {
+                finalAspectRatio = AspectRatio.LANDSCAPE_4_3; // Fallback
+            }
+
             const results = await generateProductSwap(
                 { base64: sceneImage.base64, mime: sceneImage.mime || 'image/png' },
                 productImages.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
                 userPrompt || undefined,
                 {
-                    aspectRatio,
+                    aspectRatio: finalAspectRatio as AspectRatio,
                     resolution,
                     model: selectedModel,
                 }
@@ -180,7 +213,13 @@ const ProductSwapTab: React.FC = () => {
                     metadata: {
                         prompt: userPrompt,
                         resolution,
-                        aspectRatio,
+                        metadata: {
+                            prompt: userPrompt,
+                            resolution,
+                            aspectRatio: aspectRatio === 'auto' ? 'Auto' : aspectRatio,
+                            model: selectedModel,
+                            subType: 'product_swap',
+                        },
                         model: selectedModel,
                         subType: 'product_swap',
                     },
@@ -358,14 +397,16 @@ const ProductSwapTab: React.FC = () => {
                                     <div className="relative">
                                         <select
                                             value={aspectRatio}
-                                            onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+                                            onChange={(e) => setAspectRatio(e.target.value as AspectRatio | 'auto')}
                                             className="w-full text-xs px-2 py-2 border border-pastel-border rounded-lg bg-white appearance-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                                         >
+                                            <option value="auto">自动识别 (Auto)</option>
                                             <option value="1:1">1:1</option>
                                             <option value="4:3">4:3</option>
                                             <option value="3:4">3:4</option>
                                             <option value="16:9">16:9</option>
                                             <option value="9:16">9:16</option>
+                                            <option value="21:9">21:9 (宽屏)</option>
                                         </select>
                                         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-pastel-muted pointer-events-none" />
                                     </div>
