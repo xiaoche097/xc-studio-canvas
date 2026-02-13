@@ -2126,34 +2126,50 @@ export const analyzeStyle = async (
 ) => {
   const ai = getAiClient();
   const prompt = `
-  请务必严格按照以下四个模块的框架进行组织与输出，确保内容清晰、完整，且具有高度的通用性与可复用性，能够直接用于指导新的图像生成过程。
+  【图像深度解析与提示词生成框架】
   
-  ## 结构化提示词框架：
+  根据输入图像，按以下模块输出完整提示词：
   
-  ### 1. 核心主题与构图 (Core Subject & Composition)
-  - 核心主体：定义画面的核心主体、核心叙事或概念。
-  - 构图布局：描述整体的构图布局（如对称、三分法、透视关系、元素排列与空间层次）。
+  ══ A. 核心主题 ══
+  • 主体识别：[具体是什么——人/物/景/场景]
+  • 核心叙事：[画面在表达/传递什么]
+  • 构图逻辑：[视觉引导、元素排列、空间层次]
   
-  ### 2. 视觉风格与质感 (Visual Style & Texture)
-  - 艺术风格：界定图像的艺术风格（**CRITICAL**: If it looks like a photo, explicitly state "Photorealistic", "Photography", "DSLR"）.
-  - 色彩基调：描述整体的色彩基调、光影特性以及画面中主导的材质与表面质感。
+  ══ B. 风格与质感 ══
+  • 艺术风格：[写实/插画/3D/特定流派]（**CRITICAL**: If it looks like a photo, explicitly state "Photorealistic", "Photography", "DSLR"）
+  • 色彩体系：[主色调、配色逻辑、冷暖氛围]
+  • 光影设计：[光源、明暗比、光质软硬]
+  • 材质表现：[根据主体动态描述]
   
-  ### 3. 关键细节与氛围 (Key Details & Atmosphere)
-  - 关键细节：列举画面中具有决定性的、富有表现力的细节元素。**必须精确到微观纹理（如皮肤毛孔、布料纱线、头发丝的走向与光泽），确保细节纹理就连头发丝都要一样。**
-  - 情绪与故事氛围：概括画面所传递的整体情绪、感觉或故事氛围。
+  ══ C. 细节层级（核心） ══
+  • 宏观细节：[整体形态、大结构特征]
+  • 中观细节：[局部特征、材质分界、色彩过渡]
+  • 微观细节：[根据主体类型动态捕捉]
+    - 生物：毛发丝缕、皮肤毛孔、眼睛湿润反光、血管纹理
+    - 建筑：砖缝灰浆、锈蚀痕迹、玻璃反射、墙面风化
+    - 自然：叶脉经络、水珠折射、岩石层理、云层厚度
+    - 物品：使用磨损、划痕包浆、接缝工艺、材质颗粒
+    - 织物：编织纹理、纤维走向、褶皱阴影、边缘毛边
   
-  ### 4. 技术参数与视角 (Technical Parameters & Perspective)
-  - 观察视角：明确观察画面的视角（如广角、特写、鸟瞰、主观视角）。
-  - 镜头语言与参数建议：模拟镜头焦段、景深、分辨率等。
+  ══ D. 氛围与情绪 ══
+  • 整体氛围：[宁静/紧张/梦幻/史诗/日常等]
+  • 时间暗示：[季节、时段、年代感]
+  • 故事张力：[画面暗示的前因后果]
+  
+  ══ E. 技术参数 ══
+  • 视角：[广角/标准/微距/鸟瞰/平视]
+  • 景深：[全景深/选择性虚化/焦点位置]
+  • 清晰度：[锐利边缘/柔焦/运动模糊]
+  • 渲染品质：[照片级/超写实/风格化]
   
   ## 输出格式 (Output Format)
   请根据以上分析，输出符合 JSON 格式的结果：
   \`\`\`json
   {
-    "positive_prompt": "Based on the 4 modules above, generate a highly detailed, professional English prompt. Start with the Art Style/Medium. Then Subject, Action, Context. Then Lighting, Camera, Color, Texture. End with high quality boosters. IF PHOTO: Start with 'Photorealistic, 8k, highly detailed, raw photo...'",
+    "positive_prompt": "Based on the 5 modules above (A-E), generate a highly detailed, professional English prompt. Start with the Art Style/Medium. Then Subject, Action, Context. Then Lighting, Camera, Color, Texture. End with high quality boosters. IF PHOTO: Start with 'Photorealistic, 8k, highly detailed, raw photo...'",
     "negative_prompt": "Low quality, bad anatomy, worst quality, lowres, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
-    "style_summary": "请将上述四个模块的详细中文分析汇总在这里，保持结构化排版。",
-    "key_features": ["核心主体", "构图布局", "视觉风格", "关键细节"],
+    "style_summary": "请将上述5个模块的详细中文分析汇总在这里，保持结构化排版。",
+    "key_features": ["核心主体", "构图逻辑", "艺术风格", "微观细节"],
     "recommended_params": {
       "aspect_ratio": "1:1",
       "style_weight": 0.8
@@ -2192,26 +2208,33 @@ export const generateColorMap = async (
 ) => {
   const ai = getAiClient();
   const prompt = `
-  核心目标：对原图进行视觉解构与本质提炼，生成一份用于专业设计流程的标准色彩分析稿。
+  【任务】生成专业级平面色彩构成分析图
   
-  ## 核心要求分解与执行步骤：
+  【动态识别流程】
   
-  ### 第一步：色彩提取与分区定义
-  - 分析：系统解析原图内容，明确识别画面中所有独立的物体、元件或功能区域。
-  - 填充：为每一个已识别的独立单元，填充其平整、均匀的固有色。色块内部不得出现渐变或噪点，确保填充绝对均匀。
-  - 构成：通过上述操作，在画面上建立一套清晰、无交叠的色彩分区系统，使形状与色彩区域一一对应。
+  第一步：智能区域划分
+  根据画面内容自适应识别：
+  - 主体与背景的边界
+  - 不同材质/物体的分界
+  - 色彩自然过渡的断点
+  - 光影造成的色域变化
   
-  ### 第二步：色彩关系的强化与平衡
-  - 对比度强化：有意识地调整并强化各固有色的明度（亮度）与色相（颜色本身）差异。目的并非完全照搬原图色彩，而是为了构建更明确、更具张力的视觉逻辑。
-  - 关系优化：确保优化后的色块组合在视觉上达到平衡状态，主体突出，层级分明，形成和谐且有力的平面色彩构成。
+  第二步：色块提纯与填充
+  - 每个识别区域 → 提取代表色 → 均匀填充
+  - 保留色彩的层级关系与空间暗示
+  - 相邻色块需有足够的明度/色相区分
   
-  ### 第三步：视觉净化与形式提炼
-  - 剔除干扰元素：必须彻底移除原始图像中存在的所有复杂视觉信息，具体包括：
-    - 光影信息：如阴影、高光、平滑的光影渐变。
-    - 环境影响：如环境色、反射、颜色溢出。
-    - 表面细节：如材质纹理、污渍、图案等一切非轮廓与固有色信息。
-  - 最终输出界定：成果应是一份纯净的色彩构成平面图。画面仅由定义清晰的封闭色块组成，色彩关系成为唯一的核心语言，直接服务于后续的设计推敲或风格化创作。
+  第三步：全面净化
+  移除所有非色彩本质的信息：
+  × 光影（高光、阴影、环境光）
+  × 材质（纹理、反射、透明度）
+  × 噪声（颗粒、杂色、压缩痕迹）
   
+  【输出】
+  边界清晰的纯色块构成图，
+  色彩关系 = 唯一视觉语言，
+  可直接用于配色提案或风格化创作
+
   **CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.
   `;
 
@@ -2252,7 +2275,24 @@ export const generateLineArt = async (
 ) => {
   const ai = getAiClient();
   const prompt = `
-  将原图进行解析，并重新构建成具有专业水准的矢量风格草图。线条需保持闭合、流畅且具备表现力，准确描绘主体轮廓与重要内部结构。最终输出应为高对比度、纯粹的黑白图像，去除所有灰色调、杂色及纹理细节，使画面只保留清晰、层次分明的线条关系。
+  【任务】将输入图像解析为专业级矢量线稿
+  
+  【自适应分析】
+  首先识别画面主体类型，动态调整线条策略：
+  - 生物类：捕捉毛发走向、皮肤褶皱、肌肉轮廓
+  - 建筑/物品：强调结构边缘、材质分界、几何关系
+  - 自然景观：表现植被层次、地形起伏、水纹流向
+  - 织物/软质：体现垂坠感、褶皱逻辑、编织纹理
+  
+  【线条层级系统】
+  L1 主轮廓：定义物体边界与剪影
+  L2 结构线：表达体积转折、内部形态
+  L3 细节线：材质特征、微观纹理走向
+  L4 氛围线：暗示光影边界、空间深度（可选）
+  
+  【输出标准】
+  ✓ 纯黑白、线条闭合流畅、层次分明
+  ✗ 禁止：灰度填充、渐变、模糊、噪点
 
   **CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.
   `;
@@ -2450,11 +2490,12 @@ export const generateCleanImage = async (
   options: {
     count?: number;
     resolution?: '1K' | '2K' | '4K';
+    aspectRatio?: AspectRatio;
   } = {}
 ): Promise<string[]> => {
   const ai = getAiClient();
   const modelName = 'gemini-3-pro-image-preview';
-  const { count = 1, resolution = '1K' } = options;
+  const { count = 1, resolution = '1K', aspectRatio = AspectRatio.SQUARE } = options;
 
   // Nano Banana Skills: Enhanced Prefixes for Control
   const prefixMap = {
@@ -2490,6 +2531,7 @@ ${prompt4Section}
 
 ## ⚙️ TECHNICAL SPECS
 - Resolution: ${resolution}
+- Aspect Ratio: ${aspectRatio}
 - Quality: Photorealistic, 8K
 `;
 
@@ -2504,14 +2546,14 @@ ${prompt4Section}
       }
     ];
 
-    console.log(`[CleanImage] Generating ${count} images at ${resolution} with ${intensity} mode...`);
+    console.log(`[CleanImage] Generating ${count} images at ${resolution} (${aspectRatio}) with ${intensity} mode...`);
 
     const response = await ai.models.generateContent({
       model: modelName,
       contents: { parts },
       config: {
         numberOfImages: count,
-        aspectRatio: '1:1', // Default 1:1 for now, or could be inferred/passed
+        aspectRatio: aspectRatio,
         safetyFilterLevel: 'block_only_high',
         personGeneration: 'allow_adult',
         imageConfig: {

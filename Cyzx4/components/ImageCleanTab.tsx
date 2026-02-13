@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Upload, X, Wand2, Sparkles, AlertCircle, Loader2, Layout, Sun, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
+import { Upload, X, Wand2, Sparkles, AlertCircle, Loader2, Layout, Sun, Image as ImageIcon, CheckCircle2, ChevronDown } from 'lucide-react';
 import { analyzeAndMergePrompts, generateCleanImage, blobToBase64 } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
+import { AspectRatio } from '../types';
 
 type IntensityMode = 'conservative' | 'balanced' | 'aggressive';
 
@@ -19,6 +20,8 @@ const ImageCleanTab: React.FC = () => {
     // New Options
     const [generateCount, setGenerateCount] = useState<number>(1);
     const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('1K');
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio | 'auto'>('auto');
+    const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -26,6 +29,14 @@ const ImageCleanTab: React.FC = () => {
         try {
             const base64 = await blobToBase64(file);
             const dataUri = `data:${file.type};base64,${base64}`;
+
+            // Get dimensions
+            const img = new Image();
+            img.onload = () => {
+                setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+            };
+            img.src = dataUri;
+
             setSelectedImage(dataUri);
             setGeneratedImages([]);
             setAnalysisResult('');
@@ -62,6 +73,7 @@ const ImageCleanTab: React.FC = () => {
 
     const handleRemoveImage = () => {
         setSelectedImage(null);
+        setImageDimensions(null);
         setGeneratedImages([]);
         setAnalysisResult('');
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -87,11 +99,33 @@ const ImageCleanTab: React.FC = () => {
             }
             setIsAnalyzing(false);
 
+            // Determine Aspect Ratio
+            let finalAspectRatio = aspectRatio;
+            if (aspectRatio === 'auto' && imageDimensions) {
+                const ratio = imageDimensions.width / imageDimensions.height;
+                const ratios = [
+                    { r: 1, val: AspectRatio.SQUARE },
+                    { r: 4 / 3, val: AspectRatio.LANDSCAPE_4_3 },
+                    { r: 3 / 4, val: AspectRatio.PORTRAIT_3_4 },
+                    { r: 16 / 9, val: AspectRatio.LANDSCAPE_16_9 },
+                    { r: 9 / 16, val: AspectRatio.PORTRAIT_9_16 },
+                    { r: 21 / 9, val: AspectRatio.LANDSCAPE_21_9 },
+                ];
+                // Find closest
+                const closest = ratios.reduce((prev, curr) => {
+                    return (Math.abs(curr.r - ratio) < Math.abs(prev.r - ratio) ? curr : prev);
+                });
+                finalAspectRatio = closest.val;
+            } else if (aspectRatio === 'auto') {
+                finalAspectRatio = AspectRatio.SQUARE; // Fallback
+            }
+
             // Step 2: Generate
             setIsGenerating(true);
             const results = await generateCleanImage(finalPrompt, rawBase64, intensity, {
                 count: generateCount,
-                resolution: resolution
+                resolution: resolution,
+                aspectRatio: finalAspectRatio as AspectRatio
             });
 
             // Add prefix to all images
@@ -240,6 +274,30 @@ const ImageCleanTab: React.FC = () => {
                                             </div>
                                         </button>
                                     ))}
+                                </div>
+                            </div>
+
+
+
+                            <div className="space-y-3">
+                                <label className="block text-sm font-semibold text-pastel-text">
+                                    画幅比例 (Aspect Ratio)
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        value={aspectRatio}
+                                        onChange={(e) => setAspectRatio(e.target.value as AspectRatio | 'auto')}
+                                        className="w-full text-sm px-4 py-3 border border-pastel-border rounded-xl bg-pastel-bg outline-none focus:ring-2 focus:ring-pastel-highlight/50 appearance-none cursor-pointer hover:border-pastel-highlight transition-colors"
+                                    >
+                                        <option value="auto">⚡ 自动识别 (Auto)</option>
+                                        <option value="1:1">1:1 方形</option>
+                                        <option value="4:3">4:3 横向</option>
+                                        <option value="3:4">3:4 竖向</option>
+                                        <option value="16:9">16:9 宽屏</option>
+                                        <option value="9:16">9:16 竖屏</option>
+                                        <option value="21:9">21:9 电影级宽屏</option>
+                                    </select>
+                                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-pastel-muted pointer-events-none" />
                                 </div>
                             </div>
 

@@ -109,7 +109,6 @@ const App: React.FC = () => {
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
             {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
-            {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.IMAGE_CLEAN && "AI 洗图 (Image Clean)"}
             {activeTab === AppMode.TRENDS && "趋势洞察 (Trend Insights)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
