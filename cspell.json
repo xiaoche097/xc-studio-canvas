@@ -46,7 +46,10 @@
     "Inpaint",
     "Inpainting",
     "Outpaint",
-    "Outpainting"
+    "Outpainting",
+    "Cyzx",
+    "Yunwu",
+    "yunwu"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

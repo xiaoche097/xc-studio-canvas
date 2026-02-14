@@ -144,7 +144,10 @@ const App: React.FC = () => {
               <StyleReplicateTab />
             </div>
 
-            {activeTab === AppMode.IMAGE_CLEAN && <ImageCleanTab />}
+            {/* Persist ImageCleanTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.IMAGE_CLEAN ? 'block' : 'none', height: '100%' }}>
+              <ImageCleanTab />
+            </div>
             {activeTab === AppMode.TRENDS && <TrendTab />}
             {activeTab === AppMode.SETTINGS && <SettingsTab />}
           </div>

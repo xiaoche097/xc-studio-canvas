@@ -133,8 +133,8 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
         // If not, we command the agent to auto-infer.
         const isAutoMode = !initialInput;
         const prompt = isAutoMode
-          ? "用户未提供文本描述。请基于上传的图片，全自动智能推断该产品的名称、品类、材质、核心卖点及最适合的全球目标市场，生成启动包。请务必输出完整的Markdwon表格和列表，严禁只输出摘要或计划。"
-          : "请严格基于用户的上述具体需求描述，并结合图片分析，生成启动包。重要原则：用户的文本指令（如特定市场、特定材质、特定卖点）拥有最高优先级，必须被包含在启动包中。请务必输出完整的Markdwon表格和列表，严禁只输出摘要或计划。";
+          ? "用户未提供文本描述。请基于上传的图片，全自动智能推断该产品的名称、品类、材质、核心卖点及最适合的全球目标市场，生成启动包。请务必输出完整的Markdown表格和列表，严禁只输出摘要或计划。"
+          : "请严格基于用户的上述具体需求描述，并结合图片分析，生成启动包。重要原则：用户的文本指令（如特定市场、特定材质、特定卖点）拥有最高优先级，必须被包含在启动包中。请务必输出完整的Markdown表格和列表，严禁只输出摘要或计划。";
 
         triggerStep(WorkflowStep.LAUNCH_PACKAGE, prompt, initialImages);
       }
