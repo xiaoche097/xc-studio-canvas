@@ -32,18 +32,43 @@ export interface TimeoutOptions {
 
 /**
  * 获取API配置（优先级：Yunwu > Native > Env）
+ * @param forceIndex 强制使用的 Key 索引（用于自动重试）
  */
-export const getApiConfig = (): ApiConfig => {
+export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: number, currentIndex: number } => {
     // 1. Yunwu API
     const yunwuKey = localStorage.getItem("yunwu_api_key");
     const yunwuBaseUrl = localStorage.getItem("yunwu_base_url");
     const yunwuEnabled = localStorage.getItem("yunwu_enabled") !== "false";
 
     if (yunwuKey && yunwuEnabled) {
+        // 多 Key 轮询逻辑
+        const keys = yunwuKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
+        const keyCount = keys.length;
+        
+        let activeKey = keys[0];
+        let currentIndex = 0;
+
+        if (keyCount > 1) {
+            const lastIndexKey = "yunwu_api_key_last_index";
+            
+            if (forceIndex !== undefined) {
+                currentIndex = forceIndex % keyCount;
+            } else {
+                const lastIndex = parseInt(localStorage.getItem(lastIndexKey) || "-1");
+                currentIndex = (lastIndex + 1) % keyCount;
+                localStorage.setItem(lastIndexKey, currentIndex.toString());
+            }
+            
+            activeKey = keys[currentIndex];
+            console.log(`[API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+        }
+
         return {
-            apiKey: yunwuKey,
+            apiKey: activeKey,
             baseUrl: yunwuBaseUrl || "https://yunwu.ai",
-            isYunwu: true
+            isYunwu: true,
+            keyCount,
+            currentIndex
         };
     }
 
@@ -54,7 +79,9 @@ export const getApiConfig = (): ApiConfig => {
     if (nativeKey && nativeEnabled) {
         return {
             apiKey: nativeKey,
-            isYunwu: false
+            isYunwu: false,
+            keyCount: 1,
+            currentIndex: 0
         };
     }
 
@@ -63,7 +90,9 @@ export const getApiConfig = (): ApiConfig => {
     if (envKey) {
         return {
             apiKey: envKey,
-            isYunwu: false
+            isYunwu: false,
+            keyCount: 1,
+            currentIndex: 0
         };
     }
 

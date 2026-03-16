@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
-import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle } from 'lucide-react';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 
 interface EditPoint {
@@ -11,6 +11,23 @@ interface EditPoint {
   y: number;
   snapshot?: string;
 }
+
+// 自定义香蕉图标组件
+const BananaIcon = ({ className }: { className?: string }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2.5" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+    style={{ color: '#fbbf24' }}
+  >
+    <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+    <path d="M15 3s-1.5 1-2 3" />
+  </svg>
+);
 
 const FusionTab: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -40,6 +57,9 @@ const FusionTab: React.FC = () => {
   // Comparison State
   const [originalImages, setOriginalImages] = useState<Record<number, string>>({});
   const [isComparing, setIsComparing] = useState<Record<number, boolean>>({});
+
+  // Model Selection State
+  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -170,7 +190,11 @@ const FusionTab: React.FC = () => {
 
       // Step 2: 发送到AI服务器
       setProgress(`正在生成图片 (预计30-90秒)...`);
-      const results = await generateImageToImage(images, finalPrompt, { aspectRatio, resolution });
+      const results = await generateImageToImage(images, finalPrompt, { 
+        aspectRatio, 
+        resolution,
+        modelId: selectedModel 
+      });
 
       setProgress('生成完成！');
       setGeneratedImages(results);
@@ -468,6 +492,47 @@ const FusionTab: React.FC = () => {
                       <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* 3. Model Selection (New) */}
+              <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+                <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
+                      selectedModel === 'gemini-3.1-flash-image-preview'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BananaIcon className="w-3.5 h-3.5" />
+                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Nano Banana 2
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
+                      selectedModel === 'gemini-3-pro-image-preview'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BananaIcon className="w-3.5 h-3.5" />
+                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Nano Banana Pro
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-pastel-muted">3 Pro (高质量)</span>
+                  </button>
                 </div>
               </div>
 

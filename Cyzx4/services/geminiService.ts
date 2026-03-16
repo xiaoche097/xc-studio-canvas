@@ -4,6 +4,7 @@ import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTU
 
 // 导入工具函数和类型定义
 import {
+  getApiConfig,
   getAiClient,
   getActiveApiInfo,
   executeWithTimeout,
@@ -340,74 +341,109 @@ export const generateFusionImage = async (
  */
 /**
  * 2.1.1 Image-to-Image Generation (Multi-Image Support)
- * Uses gemini-3-pro-image-preview
+ * Supports dynamic model selection and automatic API key rotation on failure.
  */
 export const generateImageToImage = async (
   images: { base64: string; mimeType: string }[],
   prompt: string,
-  options: { aspectRatio?: AspectRatio; resolution?: ImageResolution } = {}
+  options: { 
+    aspectRatio?: AspectRatio; 
+    resolution?: ImageResolution;
+    modelId?: string; // NEW: Dynamic model support
+  } = {}
 ) => {
-  const ai = getAiClient();
-  try {
-    const parts: any[] = [];
+  const retryLimit = 3;
+  let lastError: any = null;
+  
+  // Get initial config to know how many keys we have
+  const initialConfig = getApiConfig();
+  const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
-    // 1. Add All Input Images
-    images.forEach((img) => {
-      parts.push({
-        inlineData: {
-          mimeType: img.mimeType,
-          data: img.base64,
-        },
-      });
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const config = getApiConfig(initialConfig.currentIndex + attempt);
+    const ai = new GoogleGenAI({
+      apiKey: config.apiKey,
+      httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined
     });
 
-    // 2. Construct Prompt — structured with golden formula principles
-    const systemPrompt = `
-    **ROLE**: Professional Image Generation Artist.
-    **TASK**: Image-to-Image Generation.
-    **INPUT**: ${images.length} Reference Image(s).
-    
-    **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
-    
-    **USER PROMPT**: ${prompt}
-    
-    **QUALITY GUIDELINES**:
-    - Maintain high fidelity to the visual style of reference images unless overridden by the user prompt.
-    - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-    - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
-    - Preserve fine details: textures, material quality, lighting accuracy.
-    `;
+    try {
+      const parts: any[] = [];
 
-    parts.push({ text: systemPrompt });
-
-    const response = await executeWithTimeout(
-      ai.models.generateContent({
-        model: "gemini-3-pro-image-preview",
-        contents: { parts: parts },
-        config: {
-          imageConfig: {
-            aspectRatio: options.aspectRatio || "1:1",
-            imageSize: options.resolution || "1K",
+      // 1. Add All Input Images
+      images.forEach((img) => {
+        parts.push({
+          inlineData: {
+            mimeType: img.mimeType,
+            data: img.base64,
           },
-        },
-      })
-    );
+        });
+      });
 
-    const generatedImages: string[] = [];
-    if (response.candidates?.[0]?.content?.parts) {
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData && part.inlineData.data) {
-          generatedImages.push(
-            `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
-          );
+      // 2. Construct Prompt — structured with golden formula principles
+      const systemPrompt = `
+      **ROLE**: Professional Image Generation Artist.
+      **TASK**: Image-to-Image Generation.
+      **INPUT**: ${images.length} Reference Image(s).
+      
+      **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **QUALITY GUIDELINES**:
+      - Maintain high fidelity to the visual style of reference images unless overridden by the user prompt.
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
+      - Preserve fine details: textures, material quality, lighting accuracy.
+      `;
+
+      parts.push({ text: systemPrompt });
+
+      // Use selected model or fallback
+      const targetModel = options.modelId || "gemini-3-pro-image-preview";
+
+      const response = await executeWithTimeout(
+        ai.models.generateContent({
+          model: targetModel,
+          contents: { parts: parts },
+          config: {
+            imageConfig: {
+              aspectRatio: options.aspectRatio || "1:1",
+              imageSize: options.resolution || "1K",
+            },
+          },
+        })
+      );
+
+      const generatedImages: string[] = [];
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData && part.inlineData.data) {
+            generatedImages.push(
+              `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+            );
+          }
         }
       }
+      return generatedImages;
+
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`[API Retry] Attempt ${attempt + 1} failed with key ${config.currentIndex + 1}. Error:`, error.message);
+      
+      // If it's a rate limit or auth error, try next key immediately
+      if (error.status === 429 || error.status === 401 || error.message?.includes('429') || error.message?.includes('401')) {
+        continue; 
+      }
+      
+      // For other errors, if we have more keys, try one more
+      if (attempt < maxRetries - 1) {
+        continue;
+      }
+      break;
     }
-    return generatedImages;
-  } catch (error) {
-    console.error("Image-to-Image generation failed", error);
-    throw error;
   }
+
+  throw lastError || new Error("Image-to-Image generation failed after multiple attempts.");
 };
 
 /**

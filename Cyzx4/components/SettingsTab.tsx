@@ -22,6 +22,7 @@ import {
   X,
   Cpu
 } from 'lucide-react';
+import { getApiConfig } from '../utils/apiHelpers';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
@@ -206,9 +207,11 @@ const SettingsTab: React.FC = () => {
     setTestMessage('正在测试...');
 
     try {
+      // 获取当前轮询选中的 Key 进行测试
+      const config = getApiConfig();
       const result = await sendToYunwuApi(
         yunwuBaseUrl.trim() || DEFAULT_BASE_URL,
-        yunwuApiKey.trim(),
+        config.apiKey,
         selectedModel,
         'Say OK',
         []
@@ -525,20 +528,24 @@ const SettingsTab: React.FC = () => {
                         <span className="text-red-400 text-xs">*必填</span>
                       </label>
                       <div className="relative">
-                        <input
-                          type={isYunwuKeyVisible ? 'text' : 'password'}
+                        <textarea
                           value={yunwuApiKey}
                           onChange={(e) => setYunwuApiKey(e.target.value)}
-                          placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm"
+                          placeholder="sk-key1,&#10;sk-key2"
+                          rows={3}
+                          style={{ WebkitTextSecurity: isYunwuKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm resize-none"
                         />
                         <button
                           onClick={() => setIsYunwuKeyVisible(!isYunwuKeyVisible)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
+                          className="absolute right-3 top-3 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
                         >
                           {isYunwuKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
+                      <p className="text-[10px] text-pastel-muted mt-1 px-1">
+                        支持输出多个 Key，请使用<span className="text-purple-500 font-bold mx-0.5">逗号</span>或<span className="text-purple-500 font-bold mx-0.5">换行</span>分隔。程序将自动轮询。
+                      </p>
                     </div>
 
                     {/* 默认模型 */}
