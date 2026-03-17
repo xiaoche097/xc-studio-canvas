@@ -10,8 +10,8 @@ export const Sidebar: React.FC = () => {
          {/* Header */}
          <div className="p-4 border-b border-gray-100 dark:border-white/5 flex items-center gap-2">
             <div className="flex items-center gap-2 text-brand-orange font-bold text-lg">
-               <div className="w-6 h-6 bg-brand-orange rounded flex items-center justify-center text-white text-sm">S</div>
-               SKYSPER
+               <div className="w-6 h-6 bg-brand-orange rounded flex items-center justify-center text-white text-sm">X</div>
+               XcAIAGENT
             </div>
             <span className="ml-auto text-xs text-gray-400">Analysis Expert</span>
          </div>

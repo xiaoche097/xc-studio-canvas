@@ -31,7 +31,7 @@ const DEFAULT_MODEL = 'gemini-3-pro-preview';
 // 可用模型列表 - 只保留常用的三个模型
 const AVAILABLE_MODELS = [
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '推荐', type: 'text' },
-  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: '快速响应模型', badge: '快速', type: 'text' },
+  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '快速响应模型', badge: '快速', type: 'text' },
   { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', description: '图片生成模型', badge: '图像', type: 'image' },
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '提示词润色同款模型', badge: '稳定', type: 'text' },
 ];
@@ -124,6 +124,15 @@ const SettingsTab: React.FC = () => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
+  // ========== 柏拉图 API 配置 ==========
+  const [platoApiKey, setPlatoApiKey] = useState('');
+  const [platoBaseUrl, setPlatoBaseUrl] = useState('https://api.bltcy.ai');
+  const [isPlatoKeyVisible, setIsPlatoKeyVisible] = useState(false);
+  const [platoStatus, setPlatoStatus] = useState<'idle' | 'success' | 'empty'>('idle');
+  const [platoEnabled, setPlatoEnabled] = useState(false);
+  const [platoTestStatus, setPlatoTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [platoTestMessage, setPlatoTestMessage] = useState('');
+
   // 聊天状态
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -156,6 +165,16 @@ const SettingsTab: React.FC = () => {
 
     setYunwuEnabled(savedYunwuEnabled !== 'false'); // Default to true
     setYunwuStatus(savedYunwuKey ? 'success' : 'empty');
+
+    // 柏拉图 API 配置
+    const savedPlatoKey = localStorage.getItem('plato_api_key');
+    const savedPlatoUrl = localStorage.getItem('plato_base_url');
+    const savedPlatoEnabled = localStorage.getItem('plato_enabled');
+
+    if (savedPlatoUrl) setPlatoBaseUrl(savedPlatoUrl);
+    if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
+    setPlatoEnabled(savedPlatoEnabled === 'true'); // Default to false
+    setPlatoStatus(savedPlatoKey ? 'success' : 'empty');
   }, []);
 
   // Toggle Handlers
@@ -169,6 +188,12 @@ const SettingsTab: React.FC = () => {
     const newState = !yunwuEnabled;
     setYunwuEnabled(newState);
     localStorage.setItem('yunwu_enabled', String(newState));
+  };
+
+  const togglePlato = () => {
+    const newState = !platoEnabled;
+    setPlatoEnabled(newState);
+    localStorage.setItem('plato_enabled', String(newState));
   };
 
   // 保存原生 API Key
@@ -221,6 +246,55 @@ const SettingsTab: React.FC = () => {
     } catch (error) {
       setTestStatus('error');
       setTestMessage(`❌ ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  };
+  // 保存柏拉图 API 配置
+  const handleSavePlatoConfig = () => {
+    if (!platoApiKey.trim()) {
+      setPlatoStatus('empty');
+      return;
+    }
+    localStorage.setItem('plato_api_key', platoApiKey.trim());
+    localStorage.setItem('plato_base_url', platoBaseUrl.trim() || 'https://api.bltcy.ai');
+    localStorage.setItem('plato_enabled', String(platoEnabled));
+    setPlatoStatus('success');
+  };
+
+  // 测试柏拉图 API 连接
+  const handleTestPlatoConnection = async () => {
+    if (!platoApiKey.trim()) {
+      setPlatoTestStatus('error');
+      setPlatoTestMessage('请先输入 API Key');
+      return;
+    }
+    setPlatoTestStatus('testing');
+    setPlatoTestMessage('正在测试...');
+
+    try {
+      // 优化：测试时直接使用输入框中的 Key 和 URL，而不是从 getApiConfig 读取，
+      // 这样用户在保存前就能测试。
+      // 模型固定为 gemini-3.1-flash-lite-preview (用户指定，最便宜)
+      const testModel = 'gemini-3.1-flash-lite-preview';
+      
+      // 处理多 Key 轮询场景下的首个 Key
+      const firstKey = platoApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
+
+      if (!firstKey) {
+          throw new Error('请输入有效的 API Key');
+      }
+
+      const result = await sendToYunwuApi(
+        platoBaseUrl.trim() || 'https://api.bltcy.ai',
+        firstKey,
+        testModel,
+        'Say OK',
+        []
+      );
+      setPlatoTestStatus(result.text ? 'success' : 'error');
+      setPlatoTestMessage(result.text ? '✅ 连接成功!' : '❌ 无响应');
+    } catch (error) {
+      setPlatoTestStatus('error');
+      setPlatoTestMessage(`❌ ${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
 
@@ -346,19 +420,25 @@ const SettingsTab: React.FC = () => {
           <div className="space-y-6">
 
             {/* 当前API状态指示器 */}
-            <div className={`p-4 rounded-xl border flex items-center gap-3 ${yunwuStatus === 'success' && yunwuEnabled
-                ? 'bg-purple-50 border-purple-200'
-                : nativeStatus === 'success' && nativeEnabled
-                  ? 'bg-blue-50 border-blue-200'
-                  : 'bg-amber-50 border-amber-200'
-              }`}>
-              <div className={`p-2 rounded-lg ${yunwuStatus === 'success' && yunwuEnabled
-                  ? 'bg-purple-100'
+            <div className={`p-4 rounded-xl border flex items-center gap-3 ${platoStatus === 'success' && platoEnabled
+                ? 'bg-rose-50 border-rose-200'
+                : yunwuStatus === 'success' && yunwuEnabled
+                  ? 'bg-purple-50 border-purple-200'
                   : nativeStatus === 'success' && nativeEnabled
-                    ? 'bg-blue-100'
-                    : 'bg-amber-100'
+                    ? 'bg-blue-50 border-blue-200'
+                    : 'bg-amber-50 border-amber-200'
+              }`}>
+              <div className={`p-2 rounded-lg ${platoStatus === 'success' && platoEnabled
+                  ? 'bg-rose-100'
+                  : yunwuStatus === 'success' && yunwuEnabled
+                    ? 'bg-purple-100'
+                    : nativeStatus === 'success' && nativeEnabled
+                      ? 'bg-blue-100'
+                      : 'bg-amber-100'
                 }`}>
-                {yunwuStatus === 'success' && yunwuEnabled ? (
+                {platoStatus === 'success' && platoEnabled ? (
+                  <Zap className="w-5 h-5 text-rose-600" />
+                ) : yunwuStatus === 'success' && yunwuEnabled ? (
                   <Cloud className="w-5 h-5 text-purple-600" />
                 ) : nativeStatus === 'success' && nativeEnabled ? (
                   <Cpu className="w-5 h-5 text-blue-600" />
@@ -367,28 +447,34 @@ const SettingsTab: React.FC = () => {
                 )}
               </div>
               <div className="flex-1">
-                <p className={`text-sm font-semibold ${yunwuStatus === 'success' && yunwuEnabled
-                    ? 'text-purple-700'
-                    : nativeStatus === 'success' && nativeEnabled
-                      ? 'text-blue-700'
-                      : 'text-amber-700'
+                <p className={`text-sm font-semibold ${platoStatus === 'success' && platoEnabled
+                    ? 'text-rose-700'
+                    : yunwuStatus === 'success' && yunwuEnabled
+                      ? 'text-purple-700'
+                      : nativeStatus === 'success' && nativeEnabled
+                        ? 'text-blue-700'
+                        : 'text-amber-700'
                   }`}>
-                  {yunwuStatus === 'success' && yunwuEnabled
-                    ? '🟣 创意中心正在使用：云雾API 中转站'
-                    : nativeStatus === 'success' && nativeEnabled
-                      ? '🔵 创意中心正在使用：Google Gemini 原生 API'
-                      : '⚠️ 未配置API或已禁用，请启用以使用AI功能'}
+                  {platoStatus === 'success' && platoEnabled
+                    ? '⚡️ 创意中心正在使用：柏拉图 API 中转站 (Plato)'
+                    : yunwuStatus === 'success' && yunwuEnabled
+                      ? '🟣 创意中心正在使用：云雾API 中转站'
+                      : nativeStatus === 'success' && nativeEnabled
+                        ? '🔵 创意中心正在使用：Google Gemini 原生 API'
+                        : '⚠️ 未配置API或已禁用，请启用以使用AI功能'}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {yunwuStatus === 'success' && yunwuEnabled
-                    ? `Base URL: ${yunwuBaseUrl || DEFAULT_BASE_URL}`
-                    : nativeStatus === 'success' && nativeEnabled
-                      ? 'API Key 已配置'
-                      : '请在下方启用并配置至少一个 API'}
+                  {platoStatus === 'success' && platoEnabled
+                    ? `Base URL: ${platoBaseUrl || 'https://api.bltcy.ai'}`
+                    : yunwuStatus === 'success' && yunwuEnabled
+                      ? `Base URL: ${yunwuBaseUrl || DEFAULT_BASE_URL}`
+                      : nativeStatus === 'success' && nativeEnabled
+                        ? 'API Key 已配置'
+                        : '请在下方配置任意一个 API。针对您的需求，推荐使用柏拉图 API。'}
                 </p>
               </div>
-              {((yunwuStatus === 'success' && yunwuEnabled) || (nativeStatus === 'success' && nativeEnabled)) && (
-                <CheckCircle2 className={`w-5 h-5 ${yunwuStatus === 'success' && yunwuEnabled ? 'text-purple-500' : 'text-blue-500'}`} />
+              {((platoStatus === 'success' && platoEnabled) || (yunwuStatus === 'success' && yunwuEnabled) || (nativeStatus === 'success' && nativeEnabled)) && (
+                <CheckCircle2 className={`w-5 h-5 ${platoStatus === 'success' && platoEnabled ? 'text-rose-500' : yunwuStatus === 'success' && yunwuEnabled ? 'text-purple-500' : 'text-blue-500'}`} />
               )}
             </div>
 
@@ -614,6 +700,142 @@ const SettingsTab: React.FC = () => {
                       <button
                         onClick={handleSaveYunwuConfig}
                         className="flex items-center gap-2 px-6 py-2.5 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl shadow-sm transition-all"
+                      >
+                        <Save className="w-4 h-4" />
+                        保存配置
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* ========== 3. 柏拉图 API 中转站 ========== */}
+            <div className={`bg-pastel-card p-6 rounded-2xl border shadow-sm transition-all ${!platoEnabled ? 'opacity-70 border-gray-200 bg-gray-50' : 'border-pastel-border'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${platoEnabled ? 'bg-rose-100' : 'bg-gray-200'}`}>
+                    <Zap className={`w-5 h-5 ${platoEnabled ? 'text-rose-600' : 'text-gray-500'}`} />
+                  </div>
+                  <div>
+                    <h3 className={`text-lg font-bold ${platoEnabled ? 'text-pastel-text' : 'text-gray-500'}`}>柏拉图 API 中转站 (推荐)</h3>
+                    <p className="text-xs text-pastel-muted">Plato API Proxy for Gemini</p>
+                  </div>
+                </div>
+                {/* Toggle Switch */}
+                <button
+                  onClick={togglePlato}
+                  className={`relative w-11 h-6 rounded-full transition-colors flex items-center px-0.5 ${platoEnabled ? 'bg-rose-500' : 'bg-gray-300'}`}
+                >
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${platoEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              {platoEnabled && (
+                <>
+                  <p className="text-pastel-muted mb-6 text-sm leading-relaxed border-l-4 border-rose-300 pl-4 py-2 bg-rose-50/50 rounded-r-lg">
+                    配置柏拉图 API 中转站。支持多个节点（主站、美国、香港），具备优秀的稳定性。
+                  </p>
+
+                  <div className="space-y-5">
+                    {/* Base URL */}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
+                        <Globe className="w-4 h-4 text-rose-500" />
+                        API 节点地址
+                      </label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <button
+                          onClick={() => setPlatoBaseUrl('https://api.bltcy.ai')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === 'https://api.bltcy.ai' ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
+                        >
+                          主站节点
+                        </button>
+                        <button
+                          onClick={() => setPlatoBaseUrl('https://api.gptbest.vip')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === 'https://api.gptbest.vip' ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
+                        >
+                          美国节点
+                        </button>
+                        <button
+                          onClick={() => setPlatoBaseUrl('https://hk-api.gptbest.vip')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === 'https://hk-api.gptbest.vip' ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
+                        >
+                          香港节点
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={platoBaseUrl}
+                          onChange={(e) => setPlatoBaseUrl(e.target.value)}
+                          placeholder="https://api.bltcy.ai"
+                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none shadow-sm transition-all font-mono text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* API Key */}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
+                        <Key className="w-4 h-4 text-rose-500" />
+                        API Key
+                        <span className="text-red-400 text-xs">*必填</span>
+                      </label>
+                      <div className="relative">
+                        <textarea
+                          value={platoApiKey}
+                          onChange={(e) => setPlatoApiKey(e.target.value)}
+                          placeholder="sk-..."
+                          rows={3}
+                          style={{ WebkitTextSecurity: isPlatoKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none shadow-sm transition-all font-mono text-sm resize-none"
+                        />
+                        <button
+                          onClick={() => setIsPlatoKeyVisible(!isPlatoKeyVisible)}
+                          className="absolute right-3 top-3 text-pastel-muted hover:text-rose-500 transition-colors p-1 rounded-lg hover:bg-rose-100"
+                        >
+                          {isPlatoKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-pastel-muted mt-1 px-1">
+                        支持多 Key 轮询，请使用逗号或换行分隔。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="my-6 border-t border-pastel-border/50"></div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {platoStatus === 'success' && (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 bg-green-50 px-3 py-2 rounded-full border border-green-200">
+                          <Check className="w-4 h-4" /> 配置已保存
+                        </span>
+                      )}
+                      {platoTestStatus !== 'idle' && (
+                        <span className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-full border ${platoTestStatus === 'testing' ? 'text-blue-600 bg-blue-50 border-blue-200' :
+                          platoTestStatus === 'success' ? 'text-green-600 bg-green-50 border-green-200' :
+                            'text-red-600 bg-red-50 border-red-200'
+                          }`}>
+                          {platoTestStatus === 'testing' && <RefreshCw className="w-4 h-4 animate-spin" />}
+                          {platoTestMessage}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleTestPlatoConnection}
+                        disabled={platoTestStatus === 'testing'}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-pastel-input hover:bg-pastel-border/50 text-pastel-text font-medium rounded-xl shadow-sm transition-all border border-pastel-border disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${platoTestStatus === 'testing' ? 'animate-spin' : ''}`} />
+                        测试连接
+                      </button>
+                      <button
+                        onClick={handleSavePlatoConfig}
+                        className="flex items-center gap-2 px-6 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-semibold rounded-xl shadow-sm transition-all"
                       >
                         <Save className="w-4 h-4" />
                         保存配置

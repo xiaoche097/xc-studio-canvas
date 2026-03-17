@@ -62,7 +62,21 @@
     "DSLR",
     "lowres",
     "dslr",
-    "REIMAGINING"
+    "REIMAGINING",
+    "xcaistudio",
+    "Pollo",
+    "pollo",
+    "DALL",
+    "Kore",
+    "Puck",
+    "midjourney",
+    "llms",
+    "DALL-E",
+    "plato",
+    "bltcy",
+    "gptbest",
+    "XcAI",
+    "XcAIAGENT"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

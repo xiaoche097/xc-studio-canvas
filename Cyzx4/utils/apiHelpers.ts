@@ -15,6 +15,7 @@ export interface ApiConfig {
     apiKey: string;
     baseUrl?: string;
     isYunwu: boolean;
+    isPlato: boolean;
 }
 
 export interface GenerateContentParams {
@@ -31,11 +32,46 @@ export interface TimeoutOptions {
 // ==================== API 配置管理 ====================
 
 /**
- * 获取API配置（优先级：Yunwu > Native > Env）
+ * 获取 API 配置（优先级：Plato > Yunwu > Native > Env）
  * @param forceIndex 强制使用的 Key 索引（用于自动重试）
  */
 export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: number, currentIndex: number } => {
-    // 1. Yunwu API
+    // 1. Plato API (柏拉图)
+    const platoKey = localStorage.getItem("plato_api_key");
+    const platoBaseUrl = localStorage.getItem("plato_base_url");
+    const platoEnabled = localStorage.getItem("plato_enabled") !== "false";
+
+    if (platoKey && platoEnabled) {
+        const keys = platoKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
+        const keyCount = keys.length;
+        
+        let activeKey = keys[0];
+        let currentIndex = 0;
+
+        if (keyCount > 1) {
+            const lastIndexKey = "plato_api_key_last_index";
+            if (forceIndex !== undefined) {
+                currentIndex = forceIndex % keyCount;
+            } else {
+                const lastIndex = parseInt(localStorage.getItem(lastIndexKey) || "-1");
+                currentIndex = (lastIndex + 1) % keyCount;
+                localStorage.setItem(lastIndexKey, currentIndex.toString());
+            }
+            activeKey = keys[currentIndex];
+            console.log(`[Plato API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+        }
+
+        return {
+            apiKey: activeKey,
+            baseUrl: platoBaseUrl || "https://api.bltcy.ai",
+            isYunwu: true, // 柏拉图也使用标准的 OpenAI/Gemini 兼容中转格式，这里复用 isYunwu 逻辑
+            isPlato: true,
+            keyCount,
+            currentIndex
+        };
+    }
+
+    // 2. Yunwu API
     const yunwuKey = localStorage.getItem("yunwu_api_key");
     const yunwuBaseUrl = localStorage.getItem("yunwu_base_url");
     const yunwuEnabled = localStorage.getItem("yunwu_enabled") !== "false";
@@ -60,19 +96,20 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             }
             
             activeKey = keys[currentIndex];
-            console.log(`[API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+            console.log(`[Yunwu API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
         }
 
         return {
             apiKey: activeKey,
             baseUrl: yunwuBaseUrl || "https://yunwu.ai",
             isYunwu: true,
+            isPlato: false,
             keyCount,
             currentIndex
         };
     }
 
-    // 2. Native Gemini API
+    // 3. Native Gemini API
     const nativeKey = localStorage.getItem("user_api_key");
     const nativeEnabled = localStorage.getItem("native_enabled") !== "false";
 
@@ -80,23 +117,25 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
         return {
             apiKey: nativeKey,
             isYunwu: false,
+            isPlato: false,
             keyCount: 1,
             currentIndex: 0
         };
     }
 
-    // 3. 环境变量
+    // 4. 环境变量
     const envKey = process.env.API_KEY;
     if (envKey) {
         return {
             apiKey: envKey,
             isYunwu: false,
+            isPlato: false,
             keyCount: 1,
             currentIndex: 0
         };
     }
 
-    throw new Error("No active API configuration found. Please enable either Yunwu API or Native API in Settings.");
+    throw new Error("No active API configuration found. Please enable Plato, Yunwu or Native API in Settings.");
 };
 
 /**
@@ -120,9 +159,12 @@ export const getAiClient = (): GoogleGenAI => {
 /**
  * 获取当前激活的API信息（用于调试）
  */
-export const getActiveApiInfo = (): { type: 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+export const getActiveApiInfo = (): { type: 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
         const config = getApiConfig();
+        if (localStorage.getItem("plato_api_key") && (localStorage.getItem("plato_enabled") !== "false")) {
+            return { type: 'plato', baseUrl: config.baseUrl };
+        }
         if (config.isYunwu) {
             return { type: 'yunwu', baseUrl: config.baseUrl };
         }

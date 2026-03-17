@@ -63,7 +63,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       }
       /* Add Text "SKYSPER" - Absolute Centering */
       #dify-chatbot-bubble-button::after {
-        content: 'SKYSPER';
+        content: 'XcAIAGENT';
         position: absolute !important;
         top: 50% !important;
         left: 50% !important;
@@ -103,7 +103,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-pro'); // Default to 2.5 Pro
 
   // ... inside the JSX ...
-  { selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : 'Gemini 2.5 Pro' }
+  { selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash-lite-preview' ? 'Gemini 3.1 Flash Lite' : 'Gemini 2.5 Pro' }
   // ...
   <button
     onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
@@ -271,7 +271,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       <div className="w-full max-w-6xl z-10 flex flex-col items-center gap-10">
         <div className="text-center animate-fade-in">
           <h1 className="text-4xl md:text-5xl font-black tracking-tight text-gray-900 dark:text-white mb-2">
-            SKYSPER <span className="text-brand-orange">AGENT</span>
+            XcAI <span className="text-brand-orange">AGENT</span>
           </h1>
           <p className="text-gray-500 dark:text-gray-400 font-light text-lg">
             Create professional e-commerce visuals in seconds.
@@ -323,7 +323,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                     className="px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5"
                   >
                     <SettingsIcon />
-                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3-flash-preview' ? 'Gemini 3 Flash' : 'Gemini 2.5 Pro'}
+                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash-lite-preview' ? 'Gemini 3.1 Flash Lite' : 'Gemini 2.5 Pro'}
                   </button>
 
                   {showModelMenu && (
@@ -337,11 +337,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                       </button>
                       <div className="h-px bg-gray-100 dark:bg-white/5"></div>
                       <button
-                        onClick={() => { setSelectedModel('gemini-3-flash-preview'); setShowModelMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3-flash-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
+                        onClick={() => { setSelectedModel('gemini-3.1-flash-lite-preview'); setShowModelMenu(false); }}
+                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3.1-flash-lite-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
                       >
-                        Gemini 3 Flash
-                        {selectedModel === 'gemini-3-flash-preview' && <span className="text-xs">✓</span>}
+                        Gemini 3.1 Flash Lite
+                        {selectedModel === 'gemini-3.1-flash-lite-preview' && <span className="text-xs">✓</span>}
                       </button>
                       <div className="h-px bg-gray-100 dark:bg-white/5"></div>
                       <button

@@ -484,6 +484,7 @@ const FusionTab: React.FC = () => {
                       onChange={(e) => setResolution(e.target.value as ImageResolution)}
                       className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm text-pastel-text outline-none focus:ring-2 focus:ring-pastel-highlight/20 transition-all font-medium hover:border-pastel-highlight/50 cursor-pointer"
                     >
+                      <option value={ImageResolution.RES_05K}>0.5K (512px)</option>
                       <option value={ImageResolution.RES_1K}>1K (标准)</option>
                       <option value={ImageResolution.RES_2K}>2K (高清)</option>
                       <option value={ImageResolution.RES_4K}>4K (超清)</option>

@@ -399,7 +399,15 @@ export const generateImageToImage = async (
       parts.push({ text: systemPrompt });
 
       // Use selected model or fallback
-      const targetModel = options.modelId || "gemini-3-pro-image-preview";
+      let targetModel = options.modelId || "gemini-3-pro-image-preview";
+
+      // 柏拉图模型映射逻辑 (nanobanana2)
+      if (config.isPlato && targetModel === "gemini-3.1-flash-image-preview") {
+          if (options.resolution === ImageResolution.RES_05K) targetModel = "gemini-3.1-flash-image-preview-512px";
+          else if (options.resolution === ImageResolution.RES_2K) targetModel = "gemini-3.1-flash-image-preview-2k";
+          else if (options.resolution === ImageResolution.RES_4K) targetModel = "gemini-3.1-flash-image-preview-4k";
+          console.log(`[Plato Model Mapping] Mapped ${options.resolution} to ${targetModel}`);
+      }
 
       const response = await executeWithTimeout(
         ai.models.generateContent({
@@ -408,7 +416,7 @@ export const generateImageToImage = async (
           config: {
             imageConfig: {
               aspectRatio: options.aspectRatio || "1:1",
-              imageSize: options.resolution || "1K",
+              imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
             },
           },
         })
@@ -529,8 +537,8 @@ Just the raw text.
 
     parts.push({ text: userMessage });
 
-    // Use gemini-3-flash-preview for fast reasoning & text generation
-    const modelName = "gemini-3-flash-preview";
+    // Use gemini-3.1-flash-lite-preview for fast reasoning & text generation
+    const modelName = "gemini-3.1-flash-lite-preview";
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
@@ -587,7 +595,7 @@ You must analyze the user's request to identify their core intent:
 `;
 
   try {
-    const modelName = "gemini-3-flash-preview"; // Use Flash for speed
+    const modelName = "gemini-3.1-flash-lite-preview"; // Use Flash for speed
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {

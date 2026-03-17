@@ -25,6 +25,7 @@ export enum AspectRatio {
 }
 
 export enum ImageResolution {
+  RES_05K = '0.5K',
   RES_1K = '1K',
   RES_2K = '2K',
   RES_4K = '4K'

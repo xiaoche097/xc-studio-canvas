@@ -128,7 +128,7 @@ export const processSceneDirector = async (
         try {
             let vidData = videoInputNode.data.videoUri;
             if (vidData.startsWith('http')) vidData = await urlToBase64(vidData);
-            upstreamContextStyle = await analyzeVideo(vidData, "Analyze the visual style, lighting, composition, and color grading briefly.", "gemini-3-flash-preview");
+            upstreamContextStyle = await analyzeVideo(vidData, "Analyze the visual style, lighting, composition, and color grading briefly.", "gemini-3.1-flash-lite-preview");
         } catch (e) { /* Ignore analysis failure */ }
     }
 
@@ -228,7 +228,7 @@ export const processCharacterRef = async (
             motionDescription = await analyzeVideo(
                 vidData,
                 "Describe ONLY the physical actions, camera movement, and background environment of this video. Do not describe the person's identity. Example: 'A figure is waving their hand while walking forward in a studio.'",
-                "gemini-3-flash-preview"
+                "gemini-3.1-flash-lite-preview"
             );
         } catch (e) {
             console.warn("CharacterRef: Motion analysis failed", e);

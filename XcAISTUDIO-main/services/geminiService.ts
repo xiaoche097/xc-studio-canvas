@@ -316,11 +316,11 @@ export const sendChatMessage = async (
     const ai = getClient();
 
     // Model Selection
-    let modelName = 'gemini-3-flash-preview';
+    let modelName = 'gemini-3.1-flash-lite-preview';
     let systemInstruction = SYSTEM_INSTRUCTION;
 
     if (options?.isThinkingMode) {
-        modelName = 'gemini-3-flash-preview'; // Or 'gemini-2.0-flash-thinking-exp-1219' if available
+        modelName = 'gemini-3.1-flash-lite-preview'; // Or 'gemini-2.0-flash-thinking-exp-1219' if available
         // Thinking mode logic (mocked by model selection/config here if supported)
     }
 
@@ -577,7 +577,7 @@ export const editImageWithText = async (imageBase64: string, prompt: string, mod
 export const planStoryboard = async (prompt: string, context: string): Promise<string[]> => {
     const ai = getClient();
     const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.1-flash-lite-preview',
         config: {
             responseMimeType: 'application/json',
             systemInstruction: STORYBOARD_INSTRUCTION
@@ -599,7 +599,7 @@ export const orchestrateVideoPrompt = async (images: string[], userPrompt: strin
     parts.push({ text: `Create a single video prompt that transitions between these images. User Intent: ${userPrompt}` });
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.1-flash-lite-preview',
         config: { systemInstruction: VIDEO_ORCHESTRATOR_INSTRUCTION },
         contents: { parts }
     });
@@ -656,7 +656,7 @@ export const transcribeAudio = async (audioBase64: string): Promise<string> => {
     const data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.1-flash-lite-preview',
         contents: {
             parts: [
                 { inlineData: { mimeType: mime, data } },

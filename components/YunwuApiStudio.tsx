@@ -30,7 +30,7 @@ const DEFAULT_MODEL = 'gemini-3-pro-preview';
 // 可用模型列表 - 只保留常用的三个模型
 const AVAILABLE_MODELS = [
     { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '推荐', type: 'text' },
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: '快速响应模型', badge: '快速', type: 'text' },
+    { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '快速响应模型', badge: '快速', type: 'text' },
     { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', description: '图片生成模型', badge: '图像', type: 'image' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '提示词润色同款模型', badge: '稳定', type: 'text' },
 ];
@@ -193,17 +193,28 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
         const savedUrl = localStorage.getItem('yunwu_base_url');
         const savedModel = localStorage.getItem('yunwu_default_model');
 
-        if (savedUrl) setBaseUrl(savedUrl);
-        if (savedKey) setApiKey(savedKey);
-        if (savedModel) setSelectedModel(savedModel);
+        // Plato 优先加载逻辑
+        const platoEnabled = localStorage.getItem('plato_enabled') === 'true';
+        const platoKey = localStorage.getItem('plato_api_key');
+        const platoUrl = localStorage.getItem('plato_base_url');
 
-        if (savedKey && savedUrl) {
-            setConfigStatus('saved');
-        } else if (savedKey) {
+        if (platoEnabled && platoKey && platoUrl) {
+            setBaseUrl(platoUrl);
+            setApiKey(platoKey);
             setConfigStatus('saved');
         } else {
-            setConfigStatus('empty');
+            if (savedUrl) setBaseUrl(savedUrl);
+            if (savedKey) setApiKey(savedKey);
+            if (savedKey && savedUrl) {
+                setConfigStatus('saved');
+            } else if (savedKey) {
+                setConfigStatus('saved');
+            } else {
+                setConfigStatus('empty');
+            }
         }
+
+        if (savedModel) setSelectedModel(savedModel);
     }, []);
 
     // 保存配置

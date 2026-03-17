@@ -306,7 +306,7 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({
           <div className={`col-span-1 ${mode === 'all' ? '' : 'w-full'}`}>
             <Visualizer
               label="P3 MAIN IMAGE"
-              prompt={hasRealPrompt ? mainImage : "SKYSPER Product, Pure White Background, Soft Contact Shadow, 15-degree tilt, levitation effect"}
+              prompt={hasRealPrompt ? mainImage : "XcAIAGENT Product, Pure White Background, Soft Contact Shadow, 15-degree tilt, levitation effect"}
               initialImage={generatedImages['p3-main'] || (!hasRealPrompt ? image : undefined)}
               onImageGenerated={(url) => handleImageUpdate('p3-main', url)}
               autoGenerate={false}
@@ -589,7 +589,7 @@ export const FinalReportCard: React.FC<{ messages: any[] }> = ({ messages }) => 
   }, [messages]);
 
   const generateMarkdown = (msgs: any[]) => {
-    let md = `# SKYSPER AI Studio - Production Report\nGenerated on ${new Date().toLocaleString()}\n\n`;
+    let md = `# XcAIAGENT AI Studio - Production Report\nGenerated on ${new Date().toLocaleString()}\n\n`;
 
     // Helper to clean content (remove JSON blocks and think tags)
     const cleanContent = (text: string) => {
@@ -674,7 +674,7 @@ export const FinalReportCard: React.FC<{ messages: any[] }> = ({ messages }) => 
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `SKYSPER_production_report_${Date.now()}.md`;
+    link.download = `XcAIAGENT_production_report_${Date.now()}.md`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

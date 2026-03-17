@@ -572,7 +572,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                 { l: 'Wan 2.1 (Animate)', v: 'wan-2.1-t2v-14b' }
             ];
         } else if (node.type === NodeType.VIDEO_ANALYZER) {
-            models = [{ l: 'Gemini 3 Flash', v: 'gemini-3-flash-preview' }, { l: 'Gemini 3 Pro', v: 'gemini-3-pro-preview' }];
+            models = [{ l: 'Gemini 3.1 Flash Lite', v: 'gemini-3.1-flash-lite-preview' }, { l: 'Gemini 3 Pro', v: 'gemini-3-pro-preview' }];
         } else if (node.type === NodeType.AUDIO_GENERATOR) {
             models = [{ l: 'Voice Factory (Gemini 2.0)', v: 'gemini-2.5-flash-preview-tts' }];
         } else {

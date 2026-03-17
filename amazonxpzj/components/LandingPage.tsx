@@ -97,9 +97,9 @@ export const LandingPage: React.FC = () => {
         <div className="flex flex-col items-center mb-10 animate-in fade-in zoom-in duration-700">
           <div className="flex items-center gap-4 mb-6">
             <div className="w-16 h-16 bg-brand-orange rounded-2xl flex items-center justify-center text-white font-bold text-4xl shadow-xl shadow-brand-orange/30">
-              S
+              X
             </div>
-            <span className="text-5xl font-bold text-gray-900 dark:text-white tracking-tight">SKYSPER</span>
+            <span className="text-5xl font-bold text-gray-900 dark:text-white tracking-tight">XcAIAGENT</span>
           </div>
 
           <p className="text-2xl md:text-3xl font-medium tracking-wide text-center">
@@ -180,7 +180,7 @@ export const LandingPage: React.FC = () => {
                 className="flex items-center gap-1 bg-gray-100 dark:bg-white/10 px-2 py-1 rounded-md hover:bg-gray-200 dark:hover:bg-white/20 text-gray-900 dark:text-white font-medium transition-colors"
               >
                 <Zap size={14} className={filters.model?.includes('flash') ? "text-yellow-500" : "text-purple-500"} />
-                {filters.model === 'gemini-3-flash-preview' ? 'Flash' : 'Pro'} <ChevronDown size={14} />
+                {filters.model === 'gemini-3.1-flash-lite-preview' ? 'Flash' : 'Pro'} <ChevronDown size={14} />
               </button>
               {showModelMenu && (
                 <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-xl border border-gray-100 dark:border-white/10 overflow-hidden z-50">
@@ -199,10 +199,10 @@ export const LandingPage: React.FC = () => {
                   </button>
                   <button
                     onClick={() => {
-                      setFilters({ model: 'gemini-3-flash-preview' });
+                      setFilters({ model: 'gemini-3.1-flash-lite-preview' });
                       setShowModelMenu(false);
                     }}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-white/5 text-sm flex items-center gap-2 ${filters.model === 'gemini-3-flash-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
+                    className={`w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-white/5 text-sm flex items-center gap-2 ${filters.model === 'gemini-3.1-flash-lite-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
                   >
                     <Zap size={14} className="text-yellow-500" />
                     <div className="flex flex-col">
@@ -320,7 +320,7 @@ export const LandingPage: React.FC = () => {
 
         {/* Footer Text */}
         <div className="mt-12 text-center text-xs text-gray-300 dark:text-gray-600 animate-in fade-in duration-700 delay-300">
-          © 2024 SKYSPER Cross-Border AI. All rights reserved.
+          © 2024 XcAIAGENT Cross-Border AI. All rights reserved.
         </div>
 
       </div>
