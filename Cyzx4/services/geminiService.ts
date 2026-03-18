@@ -405,12 +405,16 @@ export const generateImageToImage = async (
       targetModel = options.modelId || "gemini-3-pro-image-preview";
 
       // 柏拉图模型映射逻辑 (nanobanana2)
+      // 注释掉强制追加 -4k/-2k 的逻辑，因为报错显示柏拉图的 v1/v1beta 路径不识别带后缀的模型名。
+      // 应依靠 imageSize: "4K" 或 "2K" 参数让模型识别分辨率。
+      /*
       if (config.isPlato && targetModel === "gemini-3.1-flash-image-preview") {
           if (options.resolution === ImageResolution.RES_05K) targetModel = "gemini-3.1-flash-image-preview-512px";
           else if (options.resolution === ImageResolution.RES_2K) targetModel = "gemini-3.1-flash-image-preview-2k";
           else if (options.resolution === ImageResolution.RES_4K) targetModel = "gemini-3.1-flash-image-preview-4k";
           console.log(`[Plato Model Mapping] Mapped ${options.resolution} to ${targetModel}`);
       }
+      */
 
       // Calculate dynamic timeout: 4K/2K generation is slow, 180s. Others 120s.
       const generationTimeout = (options.resolution === ImageResolution.RES_4K || options.resolution === ImageResolution.RES_2K) ? 180000 : 120000;
