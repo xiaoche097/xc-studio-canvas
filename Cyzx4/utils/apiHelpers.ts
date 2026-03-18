@@ -297,6 +297,11 @@ export function getErrorMessage(error: any): string {
     const errorMsg = error?.message || error?.toString() || '';
     const errorStatus = error?.status;
 
+    // 路径/模型不支持错误 (Critical)
+    if (error.isPathError || errorMsg.includes('invalid_request') || errorMsg.includes('API 路径')) {
+        return `🚫 模型访问受限\n${errorMsg}`;
+    }
+
     // API Key 相关错误
     if (errorStatus === 403 || errorMsg.includes('403') || errorMsg.includes('permission') || errorMsg.includes('API key')) {
         return '❌ API Key 未配置或已过期\n请到设置中检查您的 API Key 配置';

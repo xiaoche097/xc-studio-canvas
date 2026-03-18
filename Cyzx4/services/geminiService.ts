@@ -359,6 +359,8 @@ export const generateImageToImage = async (
   const initialConfig = getApiConfig();
   const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
+  let targetModel = "gemini-3-pro-image-preview";
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
@@ -400,7 +402,7 @@ export const generateImageToImage = async (
       parts.push({ text: systemPrompt });
 
       // Use selected model or fallback
-      let targetModel = options.modelId || "gemini-3-pro-image-preview";
+      targetModel = options.modelId || "gemini-3-pro-image-preview";
 
       // 柏拉图模型映射逻辑 (nanobanana2)
       if (config.isPlato && targetModel === "gemini-3.1-flash-image-preview") {
@@ -448,6 +450,11 @@ export const generateImageToImage = async (
       const isServiceError = error.status === 503 || error.message?.includes('503');
       
       if (isPathError || isServiceError) {
+        const platoHint = config.isPlato ? `\n[柏拉图提示] 模型 ${targetModel} 在当前节点或路径下暂不可用，请联系管理员或切换节点(如美国/香港)。` : '';
+        const customError = new Error(`${error.message}${platoHint}`);
+        (customError as any).status = error.status;
+        (customError as any).isPathError = isPathError;
+        lastError = customError;
         console.error(`[API Critical] ${error.message}${config.isPlato ? ' (Plato)' : ''}. Stopping retries.`);
         break; // 不再切换 Key 重试，因为模型名/路径错误换 Key 也没用
       }
