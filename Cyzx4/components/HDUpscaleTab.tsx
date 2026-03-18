@@ -275,7 +275,7 @@ const HDUpscaleTab: React.FC = () => {
                                 </div>
 
                                 <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-600 leading-relaxed border border-blue-100">
-                                    💡 <strong>智能提示:</strong> 2x 适合常规修复，4x/8x 适合超清海报级重建 (耗时较长)。
+                                    💡 <strong>还原专家提示:</strong> 当前已启用“多维细节还原框架”，2x 适合快速修复，4x/8x 将深度重建原图纹理（如毛孔、纤维）。
                                 </div>
                             </div>
                         </div>
@@ -376,21 +376,39 @@ const HDUpscaleTab: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Analysis Debug Info (Optional) */}
-                        {results.quality && (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="bg-white p-3 rounded-xl border border-pastel-border text-center">
-                                    <p className="text-xs text-gray-500 uppercase font-bold">质量评分</p>
-                                    <p className="text-lg font-bold text-pastel-highlight">{results.quality.quality_score ?? '-'}</p>
-                                </div>
-                                <div className="bg-white p-3 rounded-xl border border-pastel-border text-center">
-                                    <p className="text-xs text-gray-500 uppercase font-bold">推荐放大</p>
-                                    <p className="text-lg font-bold text-gray-800">{results.quality.recommended_upscale_factor ?? '-'}x</p>
-                                </div>
-                                <div className="bg-white p-3 rounded-xl border border-pastel-border text-center">
-                                    <p className="text-xs text-gray-500 uppercase font-bold">处理难度</p>
-                                    <p className="text-lg font-bold text-gray-800 capitalize">{results.quality.processing_difficulty ?? '-'}</p>
-                                </div>
+                        {/* Analysis Debug Info */}
+                        {(results.quality || results.style) && (
+                            <div className="space-y-4">
+                                {results.quality && (
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                        <div className="bg-white p-3 rounded-xl border border-pastel-border text-center">
+                                            <p className="text-xs text-gray-500 uppercase font-bold">质量评分</p>
+                                            <p className="text-lg font-bold text-pastel-highlight">{results.quality.quality_score ?? '-'}</p>
+                                        </div>
+                                        <div className="bg-white p-3 rounded-xl border border-pastel-border text-center">
+                                            <p className="text-xs text-gray-500 uppercase font-bold">推荐建议</p>
+                                            <p className="text-lg font-bold text-gray-800">{results.quality.recommended_upscale_factor ?? '-'}x</p>
+                                        </div>
+                                        <div className="bg-white p-3 rounded-xl border border-pastel-border text-center">
+                                            <p className="text-xs text-gray-500 uppercase font-bold">处理难度</p>
+                                            <p className="text-lg font-bold text-gray-800 capitalize">
+                                                {results.quality.processing_difficulty === 'high' ? '复杂重构' : 
+                                                 results.quality.processing_difficulty === 'medium' ? '标准增强' : '快速修复'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {results.style?.style_summary && (
+                                    <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+                                        <h4 className="text-xs font-bold text-pastel-muted uppercase mb-2 flex items-center gap-2">
+                                            <Target className="w-3 h-3 text-pastel-highlight" /> 画面特征深度解析 (Micro-Detail Analysis)
+                                        </h4>
+                                        <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">
+                                            {results.style.style_summary}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 

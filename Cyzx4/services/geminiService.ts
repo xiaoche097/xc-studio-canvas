@@ -2195,53 +2195,42 @@ export const analyzeStyle = async (
 ) => {
   const ai = getAiClient();
   const prompt = `
-  【图像深度解析与提示词生成框架】
+  【图像深度解析与细节捕捉框架 - 实时还原版】
   
-  根据输入图像，按以下模块输出完整提示词：
+  请作为一名顶尖的视觉分析专家，对输入图像进行“像素级”拆解。你的目标是生成一套能够支撑 4K 高清放大的结构化提示词，必须捕捉到原图的所有灵魂特征。
+
+  ══ A. 场景核心 (Macro) ══
+  • 主体识别：准确定位视觉中心（人/物/景），描述其具体型号、物种或状态。
+  • 核心叙事：描述当下正在发生的动作、情感或状态。
+  • 空间构图：定位视角（广角/微距/鸟瞰）、光心位置、景深分布。
   
-  ══ A. 核心主题 ══
-  • 主体识别：[具体是什么——人/物/景/场景]
-  • 核心叙事：[画面在表达/传递什么]
-  • 构图逻辑：[视觉引导、元素排列、空间层次]
+  ══ B. 风格 DNA (Medium) ══
+  • 媒介属性：**严命**：如果是照片请务必标注 "Photorealistic", "Unprocessed RAW", "8k UHD"。
+  • 色彩科学：主色调 HEX/色彩倾向、冷暖对比程度、色彩饱和度分布。
+  • 光影物理：光源性质（硬光/柔光/侧逆光）、光影过渡的平滑度。
   
-  ══ B. 风格与质感 ══
-  • 艺术风格：[写实/插画/3D/特定流派]（**CRITICAL**: If it looks like a photo, explicitly state "Photorealistic", "Photography", "DSLR"）
-  • 色彩体系：[主色调、配色逻辑、冷暖氛围]
-  • 光影设计：[光源、明暗比、光质软硬]
-  • 材质表现：[根据主体动态描述]
+  ══ C. 微观细节捕捉 (Micro - 还原核心) ══
+  请针对识别到的主体类型，**极致捕捉**以下细节特征（如有）：
+  - **生物/人像**：[皮肤毛孔、汗毛走向、眼球湿润反光与虹膜细节、发丝微小的毛糙、唇部纹路、血管隐现]。
+  - **建筑/工业**：[砖缝中的灰浆质感、金属拉丝/锈蚀痕迹、玻璃微小的划痕、涂料的风化颗粒、精密接合缝隙]。
+  - **自然/植被**：[叶脉的几何分叉、露珠的折射率、岩石的断层层理、土壤的潮湿颗粒、云层的纤维状边缘]。
+  - **织物/服饰**：[经纬编织的微观纹理、纤维起球情况、缝纫针脚的走线逻辑、布料的细微反光倾向]。
   
-  ══ C. 细节层级（核心） ══
-  • 宏观细节：[整体形态、大结构特征]
-  • 中观细节：[局部特征、材质分界、色彩过渡]
-  • 微观细节：[根据主体类型动态捕捉]
-    - 生物：毛发丝缕、皮肤毛孔、眼睛湿润反光、血管纹理
-    - 建筑：砖缝灰浆、锈蚀痕迹、玻璃反射、墙面风化
-    - 自然：叶脉经络、水珠折射、岩石层理、云层厚度
-    - 物品：使用磨损、划痕包浆、接缝工艺、材质颗粒
-    - 织物：编织纹理、纤维走向、褶皱阴影、边缘毛边
-  
-  ══ D. 氛围与情绪 ══
-  • 整体氛围：[宁静/紧张/梦幻/史诗/日常等]
-  • 时间暗示：[季节、时段、年代感]
-  • 故事张力：[画面暗示的前因后果]
-  
-  ══ E. 技术参数 ══
-  • 视角：[广角/标准/微距/鸟瞰/平视]
-  • 景深：[全景深/选择性虚化/焦点位置]
-  • 清晰度：[锐利边缘/柔焦/运动模糊]
-  • 渲染品质：[照片级/超写实/风格化]
-  
+  ══ D. 技术参数引导 ══
+  • 器材拟真：模拟特定镜头（如 35mm f/1.4, 85mm Prime）的散景质感。
+  • 清晰度控制：强调边缘的锐利度与内部质感的细腻度。
+
   ## 输出格式 (Output Format)
-  请根据以上分析，输出符合 JSON 格式的结果：
+  请输出符合 JSON 格式的结果，确保 positive_prompt 具有极高的还原引导力：
   \`\`\`json
   {
-    "positive_prompt": "Based on the 5 modules above (A-E), generate a highly detailed, professional English prompt. Start with the Art Style/Medium. Then Subject, Action, Context. Then Lighting, Camera, Color, Texture. End with high quality boosters. IF PHOTO: Start with 'Photorealistic, 8k, highly detailed, raw photo...'",
-    "negative_prompt": "Low quality, bad anatomy, worst quality, lowres, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry",
-    "style_summary": "请将上述5个模块的详细中文分析汇总在这里，保持结构化排版。",
-    "key_features": ["核心主体", "构图逻辑", "艺术风格", "微观细节"],
+    "positive_prompt": "以艺术风格开头 (如: Photorealistic, 8k, raw photo)，紧随主体与动作详细描述，接着是[微观细节]部分的具体特征词，最后加入高品质助推词 (如: highly detailed, sharp focus, masterpiece)。",
+    "negative_prompt": "Low quality, blurry, distorted, deformed, text, watermark, CGI, 3d render, plastic skin, smoothed textures, missing details, incorrect perspective, artifacts.",
+    "style_summary": "请用结构化的中文汇总上述分析，特别是微观细节部分的捕捉结果。",
+    "key_features": ["核心主体", "微观纹理", "光影特征"],
     "recommended_params": {
       "aspect_ratio": "1:1",
-      "style_weight": 0.8
+      "style_weight": 0.85
     }
   }
   \`\`\`
@@ -2249,7 +2238,7 @@ export const analyzeStyle = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", // User explicitly requested gemini-3-pro-preview
+      model: "gemini-3-pro-preview",
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -2408,12 +2397,12 @@ export const generateHDUpscale = async (
 
   const parts: any[] = [];
 
-  // 1. Original Image (Reference) - REMOVED per user request (Recipe: Color + Line + Prompt)
-  // parts.push({ inlineData: { mimeType: original.mime, data: original.base64 } });
+  // PHASE 1: IDENTITY REFERENCE (The Blueprint)
+  // Re-introducing the original image as a direct visual anchor to ensure 100% restoration/fidelity.
+  parts.push({ inlineData: { mimeType: original.mime, data: original.base64 } });
 
-  // 2. Control Adapters (Color & Line)
+  // PHASE 2: CONTROL ADAPTERS (Structure & Color Palette)
   if (colorMap) {
-    // Remove prefix if present for API
     const base64Clean = colorMap.split(',')[1] || colorMap;
     parts.push({ inlineData: { mimeType: "image/png", data: base64Clean } });
   }
@@ -2422,32 +2411,34 @@ export const generateHDUpscale = async (
     parts.push({ inlineData: { mimeType: "image/png", data: base64Clean } });
   }
 
-  // 3. Prompt Construction
-  const scaleMap = { 2: "2K", 4: "4K", 8: "4K" }; // API only supports up to 4K effectively or map appropriately
-  // Note: Gemini API imageSize enum is '1K', '2K', '4K'. 
-  // 8x might just be '4K' with high detail prompt.
+  // PHASE 3: UPSCALING PROTOCOL
+  const scaleMap = { 2: "2K", 4: "4K", 8: "4K" }; 
   const targetRes = (scaleMap as any)[upscaleFactor] || "2K";
 
   const systemPrompt = `
-  You are a Professional AI Artist & Image Restoration Expert.
+  # ROLE: Professional Image Reconstruction & Restoration Authority
   
-  **MISSION**: Perfectly reconstruct the image at ${upscaleFactor}X resolution (${targetRes}) using ONLY the control maps and the prompt.
+  # MISSION:
+  Perform a High-Fidelity (Hi-Fi) Reconstruction of **Image 1** (Source Image). 
+  Target Resolution: ${targetRes} (${upscaleFactor}X Expansion).
   
-  **CONTROL INPUTS**:
-  ${colorMap ? '1. **[Color Map]**: PRIMARY REFERENCE for color distribution and composition.' : ''}
-  ${lineArt ? `2. **[Line Art]**: PRIMARY REFERENCE for structural boundaries and details.` : ''}
+  # INPUT HIERARCHY (STRICT):
+  1. **Source Image (Image 1)**: The IDENTITY BLUEPRINT. You must preserve the faces, materials, and essence of this image 100%.
+  2. **Control Maps (Images 2-3)**: 
+     - [Line Art]: Defines the structural skeleton for high-frequency sharpening.
+     - [Color Map]: Defines the color distribution logic.
   
-  **GENERATION PROMPT**:
-  (Photorealistic Enforcement): Raw photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3.
-  ${promptData.positive}
+  # RESTORATION PROMPT:
+  **Style**: Photorealistic, 8k, raw photo, highly detailed texture.
+  **Content**: ${promptData.positive}
   
-  **EXECUTION INSTRUCTIONS**:
-  1. **Structure**: Align perfectly with the [Line Art].
-  2. **Color**: Sample exact colors from the [Color Map].
-  3. **Detailing**: Use the **GENERATION PROMPT** to hallucinate high-frequency realism.
+  # EXECUTION PROTOCOL:
+  1. **Identity Lock**: Do NOT change the facial features or subject identity from Image 1.
+  2. **Texture Hallucination**: Based ONLY on the textures described in the Restoration Prompt, add micro-details (pores, fibers, grain) that were lost in the original low-res image.
+  3. **Seamless Blend**: Use the Color Map and Line Art to ensure the reconstruction remains physically and topologically accurate to the source.
   
-  **NEGATIVE PROMPT**:
-  anime, illustration, painting, drawing, sketch, cartoon, 3d render, ${promptData.negative}, blurry, low resolution, pixelated, distorted, bad anatomy, structural mutation, washed out colors, extra limbs, messy lines.
+  # NEGATIVE PROTOMPT (MANDATORY):
+  CGI, 3D render, anime, illustration, painting, plastic skin, unnatural smoothing, hallucinated objects, distortion, blurry, ${promptData.negative}.
   `;
 
   parts.push({ text: systemPrompt });
@@ -2457,11 +2448,12 @@ export const generateHDUpscale = async (
       model: "gemini-3-pro-image-preview",
       contents: { parts: parts },
       config: {
+        temperature: 0.15, // Extremely low for maximum fidelity
         imageConfig: {
           aspectRatio: aspectRatio,
           imageSize: targetRes as any
         }
-      }
+      } as any
     });
 
     return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
