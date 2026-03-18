@@ -244,8 +244,8 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
  */
 export const compressImage = async (
     file: File,
-    maxWidth: number = 1536,
-    quality: number = 0.85
+    maxWidth: number = 2048,
+    quality: number = 0.95
 ): Promise<{ base64: string; mime: string }> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();

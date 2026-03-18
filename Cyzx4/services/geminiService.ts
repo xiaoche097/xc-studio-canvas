@@ -2308,7 +2308,7 @@ export const generateColorMap = async (
       config: {
         imageConfig: {
           aspectRatio: aspectRatio,
-          imageSize: "1K"
+          imageSize: "2K"
         }
       }
     });
@@ -2367,7 +2367,7 @@ export const generateLineArt = async (
       config: {
         imageConfig: {
           aspectRatio: aspectRatio,
-          imageSize: "1K" // Line art doesn't need high res
+          imageSize: "2K" // Higher res for better structural guidance
         }
       }
     });
@@ -2416,29 +2416,29 @@ export const generateHDUpscale = async (
   const targetRes = (scaleMap as any)[upscaleFactor] || "2K";
 
   const systemPrompt = `
-  # ROLE: Professional Image Reconstruction & Restoration Authority
+  # ROLE: Professional Image Super-Resolution & Reconstruction Expert (Hyper-Fidelity Mode)
   
-  # MISSION:
-  Perform a High-Fidelity (Hi-Fi) Reconstruction of **Image 1** (Source Image). 
-  Target Resolution: ${targetRes} (${upscaleFactor}X Expansion).
+  # CORE MISSION:
+  Transform **Image 1** (Source Blueprint) into a Masterpiece of Clarity at ${targetRes} resolution.
+  Your goal is **Sub-Pixel Enhancement**: sharpening every edge, clarifying every texture, and removing blur/noise while maintaining 100% Identity Integrity.
   
-  # INPUT HIERARCHY (STRICT):
-  1. **Source Image (Image 1)**: The IDENTITY BLUEPRINT. You must preserve the faces, materials, and essence of this image 100%.
-  2. **Control Maps (Images 2-3)**: 
-     - [Line Art]: Defines the structural skeleton for high-frequency sharpening.
-     - [Color Map]: Defines the color distribution logic.
+  # INPUT SYNERGY:
+  - **Image 1 (Identity)**: The absolute master for colors, features, and essence. Do NOT deviate.
+  - **Image 3 (Structural Guide)**: Precise line-work for edge sharpening and structural locking.
+  
+  # RECONSTRUCTION PROTOCOL:
+  1. **Sharpening & Definition**: Aggressively clarify edges, eyes, skin texture, and fabric weave found in Image 1. 
+  2. **Texture Density**: Increase the perception of detail (e.g., skin pores, hair strands) to match the ${targetRes} output. These details must feel "restored", not "added".
+  3. **Zero Content Drift**: Every feature must remain in its exact spatial position as defined by Image 3. No new objects.
+  
+  # STYLE GUIDELINE:
+  Ultra-sharp, 8k professional photography, high-dynamic range, zero compression artifacts, perfect restoration.
   
   # RESTORATION PROMPT:
-  **Style**: Photorealistic, 8k, raw photo, highly detailed texture.
-  **Content**: ${promptData.positive}
-  
-  # EXECUTION PROTOCOL:
-  1. **Identity Lock**: Do NOT change the facial features or subject identity from Image 1.
-  2. **Texture Hallucination**: Based ONLY on the textures described in the Restoration Prompt, add micro-details (pores, fibers, grain) that were lost in the original low-res image.
-  3. **Seamless Blend**: Use the Color Map and Line Art to ensure the reconstruction remains physically and topologically accurate to the source.
-  
-  # NEGATIVE PROTOMPT (MANDATORY):
-  CGI, 3D render, anime, illustration, painting, plastic skin, unnatural smoothing, hallucinated objects, distortion, blurry, ${promptData.negative}.
+  ${promptData.positive}
+
+  # FORBIDDEN (NEGATIVE):
+  blurry, muddy textures, AI-generated artifacts, facial distortion, style alteration, content movement, ${promptData.negative}.
   `;
 
   parts.push({ text: systemPrompt });
