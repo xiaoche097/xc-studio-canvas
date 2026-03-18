@@ -16,6 +16,7 @@ export interface ApiConfig {
     baseUrl?: string;
     isYunwu: boolean;
     isPlato: boolean;
+    apiVersion?: string;
 }
 
 export interface GenerateContentParams {
@@ -66,6 +67,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             baseUrl: platoBaseUrl || "https://api.bltcy.ai",
             isYunwu: true, // 柏拉图也使用标准的 OpenAI/Gemini 兼容中转格式，这里复用 isYunwu 逻辑
             isPlato: true,
+            apiVersion: 'v1', // 强制使用 v1 路径以解决 -4k 模型在 v1beta 下的 generateContent 路径错误
             keyCount,
             currentIndex
         };
@@ -149,11 +151,15 @@ export const getAiClient = (): GoogleGenAI => {
             apiKey: config.apiKey,
             httpOptions: {
                 baseUrl: config.baseUrl
-            }
+            },
+            apiVersion: config.apiVersion as any // 透传配置中的 apiVersion
         });
     }
 
-    return new GoogleGenAI({ apiKey: config.apiKey });
+    return new GoogleGenAI({ 
+        apiKey: config.apiKey,
+        apiVersion: config.apiVersion as any
+    });
 };
 
 /**

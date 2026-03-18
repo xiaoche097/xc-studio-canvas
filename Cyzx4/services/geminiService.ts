@@ -363,7 +363,8 @@ export const generateImageToImage = async (
     const config = getApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
       apiKey: config.apiKey,
-      httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined
+      httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined,
+      apiVersion: config.apiVersion as any
     });
 
     try {
@@ -409,6 +410,9 @@ export const generateImageToImage = async (
           console.log(`[Plato Model Mapping] Mapped ${options.resolution} to ${targetModel}`);
       }
 
+      // Calculate dynamic timeout: 4K/2K generation is slow, 180s. Others 120s.
+      const generationTimeout = (options.resolution === ImageResolution.RES_4K || options.resolution === ImageResolution.RES_2K) ? 180000 : 120000;
+
       const response = await executeWithTimeout(
         ai.models.generateContent({
           model: targetModel,
@@ -419,7 +423,8 @@ export const generateImageToImage = async (
               imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
             },
           },
-        })
+        }),
+        { timeoutMs: generationTimeout }
       );
 
       const generatedImages: string[] = [];
@@ -437,6 +442,12 @@ export const generateImageToImage = async (
     } catch (error: any) {
       lastError = error;
       console.warn(`[API Retry] Attempt ${attempt + 1} failed with key ${config.currentIndex + 1}. Error:`, error.message);
+      
+      // If it's a path support error (invalid_request), don't retry, just fail fast
+      if (error.message?.includes('invalid_request') || error.message?.includes('503')) {
+        console.error(`[API Critical] ${error.message}. Stopping retries.`);
+        break;
+      }
       
       // If it's a rate limit or auth error, try next key immediately
       if (error.status === 429 || error.status === 401 || error.message?.includes('429') || error.message?.includes('401')) {
