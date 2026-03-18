@@ -67,7 +67,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             baseUrl: platoBaseUrl || "https://api.bltcy.ai",
             isYunwu: true, // 柏拉图也使用标准的 OpenAI/Gemini 兼容中转格式，这里复用 isYunwu 逻辑
             isPlato: true,
-            apiVersion: 'v1', // 强制使用 v1 路径以解决 -4k 模型在 v1beta 下的 generateContent 路径错误
+            apiVersion: 'v1beta', // 恢复 v1beta，因为部分中转站对 2k/4k 这种自定义模型 ID 仅在测试版路径开放
             keyCount,
             currentIndex
         };

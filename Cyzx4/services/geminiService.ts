@@ -443,10 +443,13 @@ export const generateImageToImage = async (
       lastError = error;
       console.warn(`[API Retry] Attempt ${attempt + 1} failed with key ${config.currentIndex + 1}. Error:`, error.message);
       
-      // If it's a path support error (invalid_request), don't retry, just fail fast
-      if (error.message?.includes('invalid_request') || error.message?.includes('503')) {
-        console.error(`[API Critical] ${error.message}. Stopping retries.`);
-        break;
+      // Handle specific status codes or error messages
+      const isPathError = error.message?.includes('invalid_request') || error.message?.includes('404') || error.message?.includes('API 路径');
+      const isServiceError = error.status === 503 || error.message?.includes('503');
+      
+      if (isPathError || isServiceError) {
+        console.error(`[API Critical] ${error.message}${config.isPlato ? ' (Plato)' : ''}. Stopping retries.`);
+        break; // 不再切换 Key 重试，因为模型名/路径错误换 Key 也没用
       }
       
       // If it's a rate limit or auth error, try next key immediately
