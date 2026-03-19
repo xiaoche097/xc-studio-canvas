@@ -9,9 +9,10 @@ import { History, Cloud } from 'lucide-react';
 import { App as VideoStationApp } from './XcAISTUDIO-main/App';
 import AmazonSelectionApp from './amazonxpzj/App';
 import CreativeCenterApp from './Cyzx4/App';
+import AIVideoApp from './AIVideo/App';
 import YunwuApiStudio from './components/YunwuApiStudio';
 
-type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'yunwu';
+type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'ai-video' | 'yunwu';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -134,10 +135,12 @@ const App: React.FC = () => {
           {/* Use Amazon Selection App - No Back button here, handled inside AmazonSelectionApp */}
           <AmazonSelectionApp />
         </div>
+      ) : view === 'ai-video' ? (
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          <AIVideoApp />
+        </div>
       ) : view === 'creative' ? (
         <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
-          {/* Back Button Overlay */}
-
           <CreativeCenterApp />
         </div>
       ) : view === 'home' ? (
@@ -146,6 +149,8 @@ const App: React.FC = () => {
             setView('video');
           } else if (step === 14) { // WorkflowStep.AMAZON_SELECTION
             setView('selection');
+          } else if (step === 15) { // WorkflowStep.STORYBOARD_CREATION
+            setView('ai-video');
           } else if (text.startsWith('/creative')) {
             setView('creative');
           } else {

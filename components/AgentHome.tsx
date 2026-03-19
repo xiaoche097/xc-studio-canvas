@@ -164,8 +164,9 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const handleCardClick = (prompt: string, title?: string) => {
     if (title === "模特上身") {
       setShowTryOnModal(true);
-    } else if (title === "营销图生成") {
-      setShowMarketingModal(true);
+    } else if (title === "AI创意视频") {
+      // 跳转到 Cyzx4 工作台的分镜创作 Tab
+      onStart("/storyboard", [], selectedModel, WorkflowStep.STORYBOARD_CREATION);
     } else if (title === "视频工作站") {
       // Direct jump to Video Station, bypassing modal
       onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
@@ -222,8 +223,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: ModelVisual
     },
     {
-      title: "营销图生成",
-      prompt: "/marketing 生成节日促销海报",
+      title: "AI创意视频",
+      prompt: "/storyboard 分镜创作",
       bgClass: "from-white to-red-50/50 dark:from-white/5 dark:to-red-900/20",
       borderClass: "hover:border-red-200 dark:hover:border-red-500/30",
       textClass: "text-gray-800 dark:text-gray-100",

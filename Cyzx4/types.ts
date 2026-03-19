@@ -9,6 +9,7 @@ export enum AppMode {
   TRENDS = 'TRENDS',         // Trend Insights (Kept)
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)
+  STORYBOARD = 'STORYBOARD', // 分镜创作 (Storyboard)
   SETTINGS = 'SETTINGS'      // Settings (New)
 }
 
