@@ -105,41 +105,68 @@ const InpaintingTab: React.FC = () => {
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      const container = canvasContainerRef.current;
-      if (!container) return;
+      
+      const setupCanvas = () => {
+        const container = canvasContainerRef.current;
+        if (!container) return;
 
-      const containerWidth = container.clientWidth;
-      const scale = containerWidth / img.naturalWidth;
-      const displayHeight = img.naturalHeight * scale;
+        const rect = container.getBoundingClientRect();
+        const containerWidth = rect.width;
+        const scale = containerWidth / img.naturalWidth;
+        const displayHeight = img.naturalHeight * scale;
 
-      const srcCanvas = sourceCanvasRef.current;
-      const maskCanvas = maskCanvasRef.current;
-      if (!srcCanvas || !maskCanvas) return;
+        const srcCanvas = sourceCanvasRef.current;
+        const maskCanvas = maskCanvasRef.current;
+        if (!srcCanvas || !maskCanvas) return;
 
-      // 设置画布尺寸
-      srcCanvas.width = containerWidth;
-      srcCanvas.height = displayHeight;
-      maskCanvas.width = containerWidth;
-      maskCanvas.height = displayHeight;
+        // 设置画布物理尺寸（与显示尺寸 1:1）
+        srcCanvas.width = containerWidth;
+        srcCanvas.height = displayHeight;
+        maskCanvas.width = containerWidth;
+        maskCanvas.height = displayHeight;
 
-      // 绘制原图到底层
-      const srcCtx = srcCanvas.getContext('2d');
-      if (srcCtx) {
-        srcCtx.clearRect(0, 0, srcCanvas.width, srcCanvas.height);
-        srcCtx.drawImage(img, 0, 0, containerWidth, displayHeight);
-      }
+        // 设置画布样式高度（确保蒙版层与图片层完全重合）
+        srcCanvas.style.height = `${displayHeight}px`;
+        maskCanvas.style.height = `${displayHeight}px`;
 
-      // 清除蒙版层
-      const maskCtx = maskCanvas.getContext('2d');
-      if (maskCtx) {
-        maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-      }
+        // 绘制原图到底层
+        const srcCtx = srcCanvas.getContext('2d');
+        if (srcCtx) {
+          srcCtx.clearRect(0, 0, srcCanvas.width, srcCanvas.height);
+          srcCtx.drawImage(img, 0, 0, containerWidth, displayHeight);
+        }
+
+        // 注意：不在这里清除蒙版，除非是第一次加载
+        // 如果蒙版已存在，重置画布尺寸会清空它，这里需要根据需要权衡
+      };
+      
+      setupCanvas();
+      
+      // 添加窗口调整监听以自适应
+      window.addEventListener('resize', setupCanvas);
+      return () => window.removeEventListener('resize', setupCanvas);
     };
     img.src = sourceUrl;
   }, [sourceUrl]);
 
   // 画笔绘制
   const getCanvasPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = maskCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    
+    // 计算缩放比例，处理 canvas 显示尺寸与属性尺寸不一致的情况
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  }, []);
+
+  // 辅助函数：根据缩放比例获取展示层的光标位置（用于 CSS Circle 预览）
+  const getDisplayPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = maskCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
@@ -157,6 +184,8 @@ const InpaintingTab: React.FC = () => {
 
     ctx.globalCompositeOperation = isErasing ? 'destination-out' : 'source-over';
     ctx.beginPath();
+    
+    // 关键修正：笔触大小也需要考虑缩放比例，或者确保绘制是在内部坐标系下正确的
     ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255, 80, 80, 0.45)';
     ctx.fill();
@@ -171,11 +200,13 @@ const InpaintingTab: React.FC = () => {
   }, [getCanvasPos, drawAt]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const pos = getCanvasPos(e);
-    setCursorPos(pos);
+    const pos = getCanvasPos(e); // 绘图坐标（内部）
+    const dispPos = getDisplayPos(e); // 显示坐标（外部 CSS）
+    setCursorPos(dispPos);
+    
     if (!isDrawing) return;
     drawAt(pos.x, pos.y);
-  }, [isDrawing, getCanvasPos, drawAt]);
+  }, [isDrawing, getCanvasPos, getDisplayPos, drawAt]);
 
   const handleMouseUp = useCallback(() => {
     setIsDrawing(false);
