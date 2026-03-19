@@ -61,6 +61,9 @@ const FusionTab: React.FC = () => {
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
 
+  // Drag and Drop State
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
@@ -132,11 +135,45 @@ const FusionTab: React.FC = () => {
     setPreviewUrls(newUrls);
   };
 
+  // Drag and Drop Handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Optimization: Add a ghost image or styling if needed
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+    const newFiles = [...selectedFiles];
+    const newUrls = [...previewUrls];
+
+    // Swap files
+    const draggedFile = newFiles[draggedIndex];
+    newFiles.splice(draggedIndex, 1);
+    newFiles.splice(targetIndex, 0, draggedFile);
+
+    // Swap URLs
+    const draggedUrl = newUrls[draggedIndex];
+    newUrls.splice(draggedIndex, 1);
+    newUrls.splice(targetIndex, 0, draggedUrl);
+
+    setSelectedFiles(newFiles);
+    setPreviewUrls(newUrls);
+    setDraggedIndex(null);
+  };
+
   // Auto-Optimize State
   const [isAutoOptimize, setIsAutoOptimize] = useState(true);
 
   const handleGenerate = async () => {
-    if (selectedFiles.length === 0 || !description) return;
+    if (!description) return; // Only require description
     setError(null);
     setProgress('');
     if ((window as any).aistudio) {
@@ -415,8 +452,17 @@ const FusionTab: React.FC = () => {
                 <div className="w-full h-full flex flex-col">
                   <div className="flex-1 grid grid-cols-3 sm:grid-cols-4 gap-3 w-full content-start">
                     {previewUrls.map((url, idx) => (
-                      <div key={idx} className="relative aspect-square group/img rounded-lg overflow-hidden border border-pastel-border shadow-sm bg-white">
-                        <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover" />
+                      <div 
+                        key={idx} 
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, idx)}
+                        className={`relative aspect-square group/img rounded-lg overflow-hidden border shadow-sm bg-white cursor-move transition-all
+                          ${draggedIndex === idx ? 'opacity-40 scale-95 border-pastel-highlight' : 'border-pastel-border hover:border-pastel-highlight/50'}
+                        `}
+                      >
+                        <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover pointer-events-none" />
                         <button
                           onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
                           className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/img:opacity-100 transition-all scale-90 hover:scale-100"
@@ -723,8 +769,8 @@ const FusionTab: React.FC = () => {
 
                 <button
                   onClick={handleGenerate}
-                  disabled={selectedFiles.length === 0 || !description || isGenerating}
-                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${selectedFiles.length === 0 || !description || isGenerating
+                  disabled={!description || isGenerating}
+                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${!description || isGenerating
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'
                     : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-orange-500/25 hover:shadow-orange-500/40 hover:brightness-105'
                     }`}

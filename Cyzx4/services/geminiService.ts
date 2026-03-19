@@ -383,9 +383,10 @@ export const generateImageToImage = async (
       });
 
       // 2. Construct Prompt — structured with golden formula principles
-      const systemPrompt = `
+      const systemPrompt = images.length > 0 
+        ? `
       **ROLE**: Professional Image Generation Artist.
-      **TASK**: Image-to-Image Generation.
+      **TASK**: Image-to-Image Generation (Scene Fusion).
       **INPUT**: ${images.length} Reference Image(s).
       
       **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
@@ -397,6 +398,19 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
       - Preserve fine details: textures, material quality, lighting accuracy.
+      `
+        : `
+      **ROLE**: Professional Image Generation Artist.
+      **TASK**: Text-to-Image Generation.
+      
+      **INSTRUCTION**: Generate a new high-quality image based on the user's description below.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **QUALITY GUIDELINES**:
+      - Follow the prompt's aesthetic style precisely.
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Ensure realistic textures, accurate lighting, and professional composition.
       `;
 
       parts.push({ text: systemPrompt });
