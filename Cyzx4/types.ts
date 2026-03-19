@@ -8,6 +8,7 @@ export enum AppMode {
   IMAGE_CLEAN = 'IMAGE_CLEAN', // Image Cleanup Tool (Replaces Video)
   TRENDS = 'TRENDS',         // Trend Insights (Kept)
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
+  INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)
   SETTINGS = 'SETTINGS'      // Settings (New)
 }
 

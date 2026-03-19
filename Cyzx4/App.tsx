@@ -6,10 +6,11 @@ import TrendTab from './components/TrendTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
 import ImageCleanTab from './components/ImageCleanTab';
 import FusionTab from './components/FusionTab';
+import InpaintingTab from './components/InpaintingTab';
 import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
 import SettingsTab from './components/SettingsTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles, Paintbrush } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.PLANNING);
@@ -61,6 +62,12 @@ const App: React.FC = () => {
             label="图像生成"
           />
           <NavButton
+            active={activeTab === AppMode.INPAINTING}
+            onClick={() => setActiveTab(AppMode.INPAINTING)}
+            icon={<Paintbrush className="w-5 h-5" />}
+            label="局部替换"
+          />
+          <NavButton
             active={activeTab === AppMode.RETOUCHING}
             onClick={() => setActiveTab(AppMode.RETOUCHING)}
             icon={<Wand2 className="w-5 h-5" />}
@@ -107,6 +114,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.SEAT_COVER && "座套试装 (Seat Cover Fit)"}
             {activeTab === AppMode.PRODUCT_SWAP && "产品替换 (Product Swap)"}
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
+            {activeTab === AppMode.INPAINTING && "局部替换 (Inpainting)"}
             {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.IMAGE_CLEAN && "AI 洗图 (Image Clean)"}
@@ -132,6 +140,11 @@ const App: React.FC = () => {
             {/* Persist FusionTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.FUSION ? 'block' : 'none', height: '100%' }}>
               <FusionTab />
+            </div>
+
+            {/* Persist InpaintingTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.INPAINTING ? 'block' : 'none', height: '100%' }}>
+              <InpaintingTab />
             </div>
 
             {/* Persist HDUpscaleTab state (Replacing EditorTab) */}

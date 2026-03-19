@@ -494,6 +494,148 @@ export const generateImageToImage = async (
 };
 
 /**
+ * 2.1.2 Inpainting Generation (局部替换)
+ * 发送原图 + 蒙版 + 提示词，仅在蒙版白色区域重新生成内容。
+ */
+export const generateInpainting = async (
+  sourceImage: { base64: string; mimeType: string },
+  maskImage: { base64: string; mimeType: string },
+  prompt: string,
+  options: {
+    aspectRatio?: AspectRatio;
+    resolution?: ImageResolution;
+    modelId?: string;
+    refImages?: { base64: string; mimeType: string }[];
+  } = {}
+) => {
+  const retryLimit = 3;
+  let lastError: any = null;
+
+  const initialConfig = getApiConfig();
+  const maxRetries = Math.min(initialConfig.keyCount, 3);
+
+  let targetModel = options.modelId || "gemini-3-pro-image-preview";
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const config = getApiConfig(initialConfig.currentIndex + attempt);
+    const ai = new GoogleGenAI({
+      apiKey: config.apiKey,
+      httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined,
+      apiVersion: config.apiVersion as any
+    });
+
+    try {
+      const parts: any[] = [];
+
+      // 1. 原图
+      parts.push({
+        inlineData: {
+          mimeType: sourceImage.mimeType,
+          data: sourceImage.base64,
+        },
+      });
+
+      // 2. 蒙版图（白色=编辑区域, 黑色=保留区域）
+      parts.push({
+        inlineData: {
+          mimeType: maskImage.mimeType,
+          data: maskImage.base64,
+        },
+      });
+
+      // 2.5 参考图（可选）
+      if (options.refImages && options.refImages.length > 0) {
+        options.refImages.forEach((img) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType,
+              data: img.base64,
+            },
+          });
+        });
+      }
+
+      // 3. 构造局部替换提示词
+      const hasRefImages = options.refImages && options.refImages.length > 0;
+      const refImageInstruction = hasRefImages
+        ? `\n      5. Additional reference images (Image 3+) are provided as VISUAL GUIDES for the replacement content. The generated content in the white mask area should look like or be inspired by these reference images.`
+        : '';
+      const systemPrompt = `
+      **ROLE**: Professional Image Inpainting Specialist.
+      **TASK**: Partial Image Replacement (Inpainting).
+      **INPUT**: Image 1 is the [Source Image]. Image 2 is the [Mask] (white areas = regions to regenerate, black areas = regions to preserve EXACTLY).
+
+      **CRITICAL INSTRUCTIONS**:
+      1. You MUST ONLY modify the areas marked as WHITE in the mask image.
+      2. The BLACK areas in the mask MUST remain PIXEL-PERFECT IDENTICAL to the source image. No changes whatsoever.
+      3. The newly generated content in the white areas must seamlessly blend with the surrounding preserved areas in terms of lighting, perspective, color temperature, and style.
+      4. Generate the new content according to the user's description below.${refImageInstruction}
+
+      **USER DESCRIPTION**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - Seamless edge blending between generated and preserved regions.
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Match the original image's artistic style, lighting direction, and color palette.
+      - Ensure photorealistic textures in the regenerated area.
+      `;
+
+      parts.push({ text: systemPrompt });
+
+      const generationTimeout = (options.resolution === ImageResolution.RES_4K || options.resolution === ImageResolution.RES_2K) ? 180000 : 120000;
+
+      const response = await executeWithTimeout(
+        ai.models.generateContent({
+          model: targetModel,
+          contents: { parts: parts },
+          config: {
+            imageConfig: {
+              aspectRatio: options.aspectRatio || "1:1",
+              imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
+            },
+          },
+        }),
+        { timeoutMs: generationTimeout }
+      );
+
+      const generatedImages: string[] = [];
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData && part.inlineData.data) {
+            generatedImages.push(
+              `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
+            );
+          }
+        }
+      }
+      return generatedImages;
+
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`[Inpainting Retry] Attempt ${attempt + 1} failed. Error:`, error.message);
+
+      const isPathError = error.message?.includes('invalid_request') || error.message?.includes('404');
+      const isServiceError = error.status === 503 || error.message?.includes('503');
+
+      if (isPathError || isServiceError) {
+        break;
+      }
+
+      if (error.status === 429 || error.status === 401) {
+        continue;
+      }
+
+      if (attempt < maxRetries - 1) {
+        continue;
+      }
+      break;
+    }
+  }
+
+  throw lastError || new Error("Inpainting generation failed after multiple attempts.");
+};
+
+/**
  * 4. Optimize Prompt using Expert Persona
  * Skill: # Role_ 用户 (1).md
  */
