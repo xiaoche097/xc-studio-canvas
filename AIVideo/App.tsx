@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import StoryboardTab from './StoryboardTab';
-import { Clapperboard, ArrowLeft } from 'lucide-react';
+import SettingsTab from './SettingsTab';
+import { Clapperboard, ArrowLeft, Settings } from 'lucide-react';
 
-type AIVideoMode = 'storyboard';
+type AIVideoMode = 'storyboard' | 'settings';
 
 const AIVideoApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AIVideoMode>('storyboard');
@@ -31,7 +32,12 @@ const AIVideoApp: React.FC = () => {
             label="分镜创作"
           />
 
-          {/* 未来可以在这里添加更多功能按钮 */}
+          <NavButton
+            active={activeTab === 'settings'}
+            onClick={() => setActiveTab('settings')}
+            icon={<Settings className="w-5 h-5" />}
+            label="设置"
+          />
         </nav>
       </aside>
 
@@ -40,6 +46,7 @@ const AIVideoApp: React.FC = () => {
         <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === 'storyboard' && "分镜创作 (Storyboard)"}
+            {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
 
@@ -47,6 +54,9 @@ const AIVideoApp: React.FC = () => {
           <div className="h-full w-full">
             <div style={{ display: activeTab === 'storyboard' ? 'block' : 'none', height: '100%' }}>
               <StoryboardTab />
+            </div>
+            <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
+              <SettingsTab />
             </div>
           </div>
         </div>
