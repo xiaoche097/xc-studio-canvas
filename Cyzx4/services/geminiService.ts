@@ -27,17 +27,8 @@ import type {
 // getApiConfig, getAiClient, getActiveApiInfo, blobToBase64, compressImage, decodeAudioData
 // 现在从 ../utils/apiHelpers.ts 导入使用
 
-// 导出getActiveApiInfo以保持向后兼容
-export { getActiveApiInfo };
-
-// 导出blobToBase64以保持向后兼容
-export { blobToBase64 };
-
-// 导出compressImage以保持向后兼容
-export { compressImage };
-
-// 导出decodeAudioData以保持向后兼容
-export { decodeAudioData };
+// 导出从 ../utils/apiHelpers.ts 导入的工具
+export { getActiveApiInfo, blobToBase64, compressImage, decodeAudioData };
 
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
@@ -213,6 +204,78 @@ Respond in pure **JSON** format. Do not use Markdown code blocks.
   } catch (error) {
     console.error("Analysis failed", error);
     throw error;
+  }
+};
+
+/**
+ * 1.1 Analyze Fission Context (Pose Fission Expert)
+ * Analyzes multiple input images to create a highly detailed descriptive prompt.
+ */
+export const analyzeFissionContext = async (
+  images: { base64: string; mimeType: string }[],
+  aspectRatio: string
+) => {
+  const ai = getAiClient();
+  const isHorizontal = aspectRatio === "16:9";
+  const poseCount = isHorizontal ? 8 : 12;
+
+  const analysisPrompt = `
+**ROLE**: High-End Fashion Editorial Director & Professional Visual Analyst.
+
+**TASK**: Analyze the provided reference images and generate a structured description for a ${isHorizontal ? '4x2' : '3x4'} grid generation (Total ${poseCount} images).
+
+**INPUT IMAGES GUIDE**:
+- Images 1-${images.length}: Reference photos of the Model, Product, and Accessories.
+
+**YOUR ANALYSIS GOALS**:
+1. **PRODUCT FOCUS (CRITICAL)**: Describe the PRIMARY PRODUCT (color, material, specific patterns, fit) with extreme precision. The goal is to show the garment's design, fabric, and how it fits the body. 
+2. **MODEL IDENTITY & DIMENSIONS**: Describe the person in the reference images with hyper-precision.
+   - **FACE**: Ethnicity, hair color/texture, facial structure, eye shape.
+   - **BODY (CRITICAL)**: Describe the model's physical dimensions (height, build, shoulder width, waist/hip ratio). The generated model MUST have the EXACT SAME body proportions as the reference images.
+3. **ACCESSORY DETAIL**: Describe every accessory identifying its key features for 1:1 cloning.
+4. **INTELLIGENT POSE & ANGLE DIVERSITY (STRICT CONFORMITY)**: Design ${poseCount} UNIQUE fashion poses based on the provided reference angles.
+   - **CRITICAL: MATCH REFERENCE ANGLES**. If Ref Image 1 is FRONT, Ref Image 2 is SIDE, and Ref Image 3 is BACK, the generated grid MUST prioritize these angles first.
+   - **MODEL MUST BE PRESENT IN EVERY IMAGE**. NO EXCEPTIONS.
+   - **STRICT PROHIBITION**: Even if one of the reference images is a standalone product (e.g., a pair of shoes, a bag), DO NOT generate a pose that shows just the product. 
+   - **TREAT PRODUCTS AS WEARABLES**: All reference products/accessories must be integrated into the model's outfit.
+   - **ABSOLUTELY FORBIDDEN**: NO standalone shoes, NO standalone bags, NO standalone jewelry, NO flat lays, NO still life shots. 
+   - **ANGLES**: Ensure the grid contains clear Front, Profile (Side), and Back views that match the "Three-view" reference.
+   - Poses should include: Full body (front/side/back), 3/4 body, and specific action poses (walking, sitting, turning) that highlight garment movement.
+   - **CRITICAL**: EXACTLY ${poseCount} distinct poses. NO repetition. 
+
+**OUTPUT FORMAT (MANDATORY JSON)**:
+Return a JSON object with these keys:
+{
+  "model_identity": "Specific physical description for identity locking including facial features AND body dimensions/build...",
+  "product_description": "Detailed text description of the main garment...",
+  "accessory_description": "Detailed text description of accessories...",
+  "poses_list": "A numbered list of EXACTLY ${poseCount} SHARP, DISTINCT fashion poses. Specifically include mapping for FRONT, SIDE, and BACK views to match input angles. NO standalone product shots."
+}
+
+Respond ONLY with valid JSON.
+`;
+
+  try {
+    const parts: any[] = images.map(img => ({
+      inlineData: { mimeType: img.mimeType, data: img.base64 }
+    }));
+    parts.push({ text: analysisPrompt });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-pro-latest", // Use Pro for best analysis
+      contents: { parts }
+    });
+
+    let text = response.text || "{}";
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Fission analysis failed", error);
+    return {
+      product_description: "Professional garment",
+      accessory_description: "Matching accessories",
+      poses_list: "Variety of professional fashion poses"
+    };
   }
 };
 

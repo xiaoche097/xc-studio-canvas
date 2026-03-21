@@ -162,8 +162,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   };
 
   const handleCardClick = (prompt: string, title?: string) => {
-    if (title === "模特上身") {
-      setShowTryOnModal(true);
+    if (title === "模特工厂") {
+      onStart("/model-factory", [], selectedModel, WorkflowStep.MODEL_FACTORY);
     } else if (title === "AI创意视频") {
       // 跳转到 Cyzx4 工作台的分镜创作 Tab
       onStart("/storyboard", [], selectedModel, WorkflowStep.STORYBOARD_CREATION);
@@ -214,8 +214,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   const FEATURE_CARDS = [
     {
-      title: "模特上身",
-      prompt: "/model 模特上身生成，请上传服装平铺图",
+      title: "模特工厂",
+      prompt: "/model-factory 模特工厂生成，开始姿势裂变",
       bgClass: "from-white to-orange-50/50 dark:from-white/5 dark:to-orange-900/20",
       borderClass: "hover:border-orange-200 dark:hover:border-orange-500/30",
       textClass: "text-gray-800 dark:text-gray-100",

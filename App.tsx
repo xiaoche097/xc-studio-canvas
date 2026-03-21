@@ -11,8 +11,9 @@ import AmazonSelectionApp from './amazonxpzj/App';
 import CreativeCenterApp from './Cyzx4/App';
 import AIVideoApp from './AIVideo/App';
 import YunwuApiStudio from './components/YunwuApiStudio';
+import ModelFactoryApp from './ModelFactory/App';
 
-type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'ai-video' | 'yunwu';
+type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'ai-video' | 'yunwu' | 'model-factory';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -139,6 +140,10 @@ const App: React.FC = () => {
         <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
           <AIVideoApp />
         </div>
+      ) : view === 'model-factory' ? (
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          <ModelFactoryApp />
+        </div>
       ) : view === 'creative' ? (
         <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
           <CreativeCenterApp />
@@ -151,6 +156,8 @@ const App: React.FC = () => {
             setView('selection');
           } else if (step === 15) { // WorkflowStep.STORYBOARD_CREATION
             setView('ai-video');
+          } else if (step === 16) { // WorkflowStep.MODEL_FACTORY
+            setView('model-factory');
           } else if (text.startsWith('/creative')) {
             setView('creative');
           } else {
