@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Upload, X, Zap, Loader2 } from 'lucide-react';
+import { Upload, X, Zap, Loader2, Bookmark, FolderHeart, Maximize2, Download } from 'lucide-react';
 import { generateImageToImage, analyzeFissionContext } from '../Cyzx4/services/geminiService';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import PoseGrid from './PoseGrid';
+import PoseLibraryModal, { savePoseSet } from './components/PoseLibraryModal';
 
 const PoseFissionTab: React.FC = () => {
   const [modelImages, setModelImages] = useState<string[]>([]);
@@ -19,6 +20,8 @@ const PoseFissionTab: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState("");
   const [generatedGridImage, setGeneratedGridImage] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
+  
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
 
   // --- Drag and Drop States ---
   const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory', idx: number} | null>(null);
@@ -136,10 +139,12 @@ const PoseFissionTab: React.FC = () => {
       const isHorizontal = aspectRatio === '16:9';
       const gridRules = isHorizontal
         ? `[GRID CONFIG]: Strictly 4x2 matrix (4 columns, 2 rows). Total 8 UNIQUE images.
+[PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
 [SEAMLESS]: NO black lines, NO borders, NO gaps. 
 [SHOT ASSIGNMENT]: Result(0,0)=Ref Image 1, Result(0,1)=Ref Image 2. All 8 cells MUST show the MODEL wearing the product. NO standalone accessory shots (even if a Ref Image is just an accessory).
 [POSES]: Plan 8 dynamic fashion poses based on: ${analysis.poses_list}`
         : `[GRID CONFIG]: Strictly 3x4 matrix (3 columns, 4 rows). Total 12 UNIQUE images.
+[PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
 [SEAMLESS]: NO black lines, NO borders, NO gaps.
 [SHOT ASSIGNMENT]: Result(0,0)=Ref Image 1, Result(0,1)=Ref Image 2. All 12 cells MUST show the MODEL wearing the product. NO standalone accessory shots (even if a Ref Image is just an accessory).
 [POSES]: Plan 12 dynamic fashion poses based on: ${analysis.poses_list}`;
@@ -164,11 +169,11 @@ ${gridRules}
 - DO NOT ZOOM IN ON FACE. Focus on showing the WHOLE garment and fit.
 - Full-body or 3/4 shots are preferred to showcase the product.
 - Background: PURE WHITE (#FFFFFF). NO shadows.
-- Each model must fit perfectly within their grid cell.
-[OUTPUT]: Generate a single ${isHorizontal ? '16:9' : '9:16'} image containing the grid.`;
+- Each model must fit perfectly within their mathematically divided grid cell, maintaining 100% accurate human body proportions (no stretching/squashing).
+[OUTPUT]: Generate a single ${isHorizontal ? '3:2' : '9:16'} image containing the requested grid pattern.`;
 
       const result = await generateImageToImage(apiImages, prompt, {
-        aspectRatio: aspectRatio as any,
+        aspectRatio: isHorizontal ? "3:2" as any : "9:16" as any,
         resolution: resolution as any,
         modelId: modelType
       });
@@ -186,6 +191,51 @@ ${gridRules}
       setIsGenerating(false);
     }
   };
+
+  const handleSavePreset = () => {
+    if (!generatedGridImage || !analysisResult || !analysisResult.poses_list) return;
+    
+    // 生成封面缩略图并保存预设
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      // 降低分辨率作为封面 (1500px 足以支撑还原为网格全图并在网格中进行截取重绘，平衡了 localStorage 的压力)
+      const maxWidth = 1500;
+      canvas.width = maxWidth;
+      canvas.height = img.height * (maxWidth / img.width);
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const cover = canvas.toDataURL("image/jpeg", 0.75);
+      
+      const poses = analysisResult.poses_list.split('\n').filter((p: string) => p.trim() !== '');
+      
+      try {
+        savePoseSet({
+          id: Date.now().toString(),
+          name: `${new Date().toLocaleDateString()} ${aspectRatio} 自动预设大图`,
+          aspectRatio,
+          coverImage: cover,
+          poses,
+          createdAt: Date.now()
+        });
+        alert("🎁 这张整版生成的原图已存入您的历史动作库，以后随时可以打开它进行单独裁切生图！");
+      } catch (err) {
+        alert("保存失败：可能是由于浏览器存储空间不足导致。请先在动作库中删除一些旧的预设。");
+      }
+    };
+    img.src = generatedGridImage;
+  };
+
+  const handleLoadPreset = (preset: any) => {
+    setIsLibraryOpen(false);
+    setGeneratedGridImage(preset.coverImage);
+    setAspectRatio(preset.aspectRatio as '9:16' | '16:9');
+    setAnalysisResult({ ...analysisResult, poses_list: preset.poses.join('\n') });
+    setStatusMessage("✅ 已成功载入历史生成大图！现在您可以把鼠标悬停在图内任何一个小人偶上，点击右上角的“魔法棒”进入单图重绘啦！");
+    // setTimeout to clear status
+    setTimeout(() => setStatusMessage(""), 5000);
+  };
+
 
   return (
     <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text">
@@ -388,24 +438,32 @@ ${gridRules}
 
         </div>
 
-        <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.05)]">
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all active:scale-[0.98] hover:shadow-orange-500/40 hover:brightness-105"
-          >
-            {isGenerating ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                正在生成排版中...
-              </>
-            ) : (
-              <>
-                <Zap className="w-5 h-5" />
-                生成裂变矩阵 ({aspectRatio})
-              </>
-            )}
-          </button>
+        <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.05)] flex flex-col gap-3">
+          <div className="flex gap-2">
+             <button
+                onClick={() => setIsLibraryOpen(true)}
+                className="w-1/3 py-3.5 bg-white text-pink-500 border border-pink-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-pink-50 hover:border-pink-300 transition-all active:scale-[0.98] shadow-sm"
+             >
+                <FolderHeart className="w-5 h-5" /> 动作库
+             </button>
+             <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="flex-1 py-3.5 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all active:scale-[0.98] hover:shadow-orange-500/40 hover:brightness-105"
+             >
+                {isGenerating ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    生成排版中...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-5 h-5" />
+                    生成裂变矩阵 ({aspectRatio})
+                  </>
+                )}
+             </button>
+          </div>
         </div>
       </div>
 
@@ -431,8 +489,9 @@ ${gridRules}
             <div className="w-24 h-24 rounded-2xl bg-white border-2 border-dashed border-pastel-border flex items-center justify-center mb-4 transition-all hover:scale-105 hover:border-pastel-highlight hover:shadow-lg hover:shadow-pastel-highlight/20">
                <Zap className="w-10 h-10 text-pastel-border" />
             </div>
-            <p className="text-sm font-medium tracking-wide">填入侧边栏信息并点击“生成裂变矩阵”</p>
+            <p className="text-sm font-medium tracking-wide">填入侧边栏信息并点击“生成裂变矩阵”<br/><span className="text-xs opacity-70">或打开动作库生成单图</span></p>
           </div>
+
         ) : (
           <PoseGrid 
             imageUrl={generatedGridImage} 
@@ -440,9 +499,17 @@ ${gridRules}
             analysisContext={analysisResult}
             bodyInfo={bodyInfo}
             specificFeatures={specificFeatures}
+            onSavePreset={handleSavePreset}
           />
         )}
       </div>
+      
+      {/* 动作库模态框 */}
+      <PoseLibraryModal 
+         isOpen={isLibraryOpen} 
+         onClose={() => setIsLibraryOpen(false)} 
+         onLoadPreset={handleLoadPreset} 
+      />
     </div>
   );
 };

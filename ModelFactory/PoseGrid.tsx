@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Download, X, Maximize2, Zap, Sparkles, ChevronRight, Camera, PlusIcon } from 'lucide-react';
+import { Loader2, Download, X, Maximize2, Zap, Sparkles, ChevronRight, Camera, PlusIcon, Bookmark } from 'lucide-react';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 
@@ -63,6 +63,7 @@ interface PoseGridProps {
   analysisContext?: any;
   bodyInfo?: string;
   specificFeatures?: string;
+  onSavePreset?: () => void;
 }
 
 const PoseGrid: React.FC<PoseGridProps> = ({ 
@@ -70,7 +71,8 @@ const PoseGrid: React.FC<PoseGridProps> = ({
   aspectRatio = "9:16", 
   analysisContext,
   bodyInfo = '',
-  specificFeatures = ''
+  specificFeatures = '',
+  onSavePreset
 }) => {
   const isHorizontal = aspectRatio === "16:9";
   const config = GET_FIXED_CONFIG(aspectRatio);
@@ -167,6 +169,11 @@ ${contextPrompt}
                  <button onClick={() => setIsFullScreen(true)} className="group flex items-center gap-2 text-[11px] font-bold text-orange-600/80 hover:text-orange-600 transition-all">
                     <Maximize2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> 沉浸预览
                  </button>
+                 {onSavePreset && (
+                   <button onClick={onSavePreset} className="group flex items-center gap-2 text-[11px] font-bold text-pink-600/80 hover:text-pink-600 transition-all">
+                      <Bookmark className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> 保存预设
+                   </button>
+                 )}
                  <div className="h-6 w-px bg-slate-200" />
                  <button 
                     onClick={() => { const link=document.createElement('a'); link.href=imageUrl; link.download="pose-grid.png"; link.click(); }}
@@ -251,13 +258,13 @@ ${contextPrompt}
             {/* 高级放大预览 */}
             {hoveredCell !== null && !cellStates[hoveredCell]?.isGenerating && (
                <div 
-                  className="absolute z-[60] pointer-events-none shadow-[0_64px_128px_rgba(0,0,0,0.15)] border-[8px] border-white bg-slate-50 overflow-hidden rounded-2xl transition-all animate-in fade-in zoom-in-105 duration-400 ease-out ring-1 ring-slate-200"
+                  className="absolute z-[100] pointer-events-none shadow-[0_32px_96px_rgba(0,0,0,0.3)] border-[1.5px] border-white/60 bg-white/90 backdrop-blur-3xl overflow-hidden rounded-[2.5rem] transition-all animate-in slide-in-from-top-6 duration-500 ease-out"
                   style={{
-                    top: '-20px',
-                    left: hoveredCell % cols < cols / 2 ? 'calc(100% + 40px)' : 'auto',
-                    right: hoveredCell % cols >= cols / 2 ? 'calc(100% + 40px)' : 'auto',
-                    width: '460px',
-                    height: isHorizontal ? '360px' : '680px',
+                    top: '-40px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '420px',
+                    height: '560px',
                   }}
                >
                  <div className="absolute top-4 left-4 z-[99] bg-white/80 backdrop-blur-xl px-3 py-1.5 rounded-full shadow-sm border border-slate-100 flex items-center gap-2">
