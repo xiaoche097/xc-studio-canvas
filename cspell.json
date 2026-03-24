@@ -76,7 +76,8 @@
     "bltcy",
     "gptbest",
     "XcAI",
-    "XcAIAGENT"
+    "XcAIAGENT",
+    "oversharpening"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

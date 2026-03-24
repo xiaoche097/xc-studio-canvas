@@ -413,6 +413,7 @@ export const generateImageToImage = async (
     aspectRatio?: AspectRatio; 
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
+    negativePrompt?: string; // NEW: Negative prompt support
   } = {}
 ) => {
   const retryLimit = 3;
@@ -461,6 +462,7 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
       - Preserve fine details: textures, material quality, lighting accuracy.
+      ${options.negativePrompt ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}` : ''}
       `
         : `
       **ROLE**: Professional Image Generation Artist.
@@ -474,6 +476,7 @@ export const generateImageToImage = async (
       - Follow the prompt's aesthetic style precisely.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Ensure realistic textures, accurate lighting, and professional composition.
+      ${options.negativePrompt ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}` : ''}
       `;
 
       parts.push({ text: systemPrompt });
@@ -2681,6 +2684,89 @@ export const generateHDUpscale = async (
   } catch (error) {
     console.error("HD Upscale failed", error);
     return null;
+  }
+};
+
+/**
+ * =========================================================================================
+ *  THREE-VIEW GENERATION (三视图制作)
+ * =========================================================================================
+ */
+
+/**
+ * Analyze product and model images for Three-View generation.
+ * Uses gemini-3.1-flash-lite-preview as the default text analysis model.
+ */
+export const analyzeThreeViewContext = async (
+  images: { base64: string; mimeType: string }[],
+  textModel: string = "gemini-3.1-flash-lite-preview"
+) => {
+  const ai = getAiClient();
+
+  const analysisPrompt = `
+**ROLE**: Professional Product Photographer & 3D Visualization Expert.
+
+**TASK**: Analyze the provided reference images of a product and/or model, then generate structured descriptions for creating THREE distinct views: FRONT, SIDE (profile), and BACK.
+
+**INPUT IMAGES GUIDE**:
+- Images provided may include: product photos, model/person reference photos, or both.
+
+**YOUR ANALYSIS GOALS**:
+
+1. **PRODUCT ANALYSIS (CRITICAL)**:
+   - Identify the product type (garment, accessory, bag, shoes, etc.)
+   - Describe color, material, texture, patterns, logos, and design details with extreme precision
+   - Note any unique features that must be preserved across all three views
+
+2. **MODEL IDENTITY (if model reference provided)**:
+   - Ethnicity, hair color/style, facial features
+   - Body build, height impression, proportions
+   - The model MUST remain identical across all three views
+
+3. **THREE-VIEW SPECIFICATIONS**:
+   For each view, provide specific pose and composition instructions:
+   
+   - **FRONT VIEW**: Direct front-facing, symmetrical composition, full body or 3/4 body, product clearly visible from front
+   - **SIDE VIEW**: Pure 90° profile (left or right), showing product silhouette, depth, and side details
+   - **BACK VIEW**: Direct rear view, showing back design, closure details, rear fit
+
+**OUTPUT FORMAT (MANDATORY JSON)**:
+{
+  "product_type": "Type of product identified",
+  "product_description": "Extremely detailed description of the product appearance, color, material, patterns...",
+  "model_identity": "Detailed physical description of the model for identity locking across views...",
+  "front_view_instruction": "Specific pose, composition, and styling instruction for the FRONT view...",
+  "side_view_instruction": "Specific pose, composition, and styling instruction for the SIDE view...",
+  "back_view_instruction": "Specific pose, composition, and styling instruction for the BACK view..."
+}
+
+Respond ONLY with valid JSON.
+`;
+
+  try {
+    const parts: any[] = images.map(img => ({
+      inlineData: { mimeType: img.mimeType, data: img.base64 }
+    }));
+    parts.push({ text: analysisPrompt });
+
+    const response = await ai.models.generateContent({
+      model: textModel,
+      contents: { parts }
+    });
+
+    let text = response.text || "{}";
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Three-view analysis failed", error);
+    return {
+      product_type: "Product",
+      product_description: "Professional product",
+      model_identity: "Professional model",
+      front_view_instruction: "Front-facing, symmetrical, full body shot",
+      side_view_instruction: "90-degree side profile, full body shot",
+      back_view_instruction: "Rear view, full body shot showing back details"
+    };
   }
 };
 

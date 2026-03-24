@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
+import { StyleModelModal } from './StyleModelModal';
+import { STYLE_PRESETS, StylePreset } from '../constants/stylePresets';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu } from 'lucide-react';
@@ -60,6 +62,10 @@ const FusionTab: React.FC = () => {
 
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+
+  // Style Model State
+  const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
+  const [selectedStyle, setSelectedStyle] = useState<StylePreset | null>(null);
 
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -173,7 +179,7 @@ const FusionTab: React.FC = () => {
   const [isAutoOptimize, setIsAutoOptimize] = useState(true);
 
   const handleGenerate = async () => {
-    if (!description) return; // Only require description
+    if (!description && !selectedStyle) return; // Allow empty description if style is selected
     setError(null);
     setProgress('');
     if ((window as any).aistudio) {
@@ -186,7 +192,7 @@ const FusionTab: React.FC = () => {
     try {
       // Step 0: Auto-Optimize Prompt (Nano Banana Agent)
       let finalPrompt = description;
-      if (isAutoOptimize) {
+      if (isAutoOptimize && description.trim()) {
         setProgress('🧠 AI 正在思考优化提示词 (Thinking...)...');
         try {
           // Prepare context for optimization
@@ -208,6 +214,8 @@ const FusionTab: React.FC = () => {
             optimized = await optimizePrompt(description, refImagesData);
           }
           finalPrompt = optimized;
+          // Note: We don't overwrite with selectedStyle prompt here as optimization happened after.
+          // But if user chose a style, we might want to ensure the style constraints are preserved.
           setDescription(optimized); // Update UI to show the magic
 
           await new Promise(resolve => setTimeout(resolve, 800)); // Small delay for user to see the change
@@ -227,10 +235,27 @@ const FusionTab: React.FC = () => {
 
       // Step 2: 发送到AI服务器
       setProgress(`正在生成图片 (预计30-90秒)...`);
-      const results = await generateImageToImage(images, finalPrompt, { 
+
+      // Inject Style Prompt if selected
+      let generationPrompt = finalPrompt;
+      let negativePrompt = undefined;
+      
+      if (selectedStyle) {
+          const stylePrompt = images.length > 0 ? selectedStyle.promptWithRef : selectedStyle.prompt;
+          // Replace [SUBJECT] in style prompt if it exists, otherwise append
+          if (stylePrompt.includes('[SUBJECT]')) {
+             generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
+          } else {
+             generationPrompt = finalPrompt ? `${finalPrompt}, ${stylePrompt}` : stylePrompt;
+          }
+          negativePrompt = selectedStyle.negativePrompt;
+      }
+
+      const results = await generateImageToImage(images, generationPrompt, { 
         aspectRatio, 
         resolution,
-        modelId: selectedModel 
+        modelId: selectedModel,
+        negativePrompt
       });
 
       setProgress('生成完成！');
@@ -591,6 +616,26 @@ const FusionTab: React.FC = () => {
                     创意描述
                   </label>
                   <div className="flex items-center gap-2">
+                    {/* Style Model Selector Button */}
+                    <button
+                      onClick={() => setIsStyleModalOpen(true)}
+                      className={`text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all border shadow-sm ${
+                        selectedStyle 
+                          ? 'border-orange-200 bg-orange-50 text-orange-600 font-bold' 
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:bg-orange-50'
+                      }`}
+                    >
+                      {selectedStyle ? <Sparkles className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
+                      {selectedStyle ? `风格: ${selectedStyle.name}` : '风格库'}
+                      {selectedStyle && (
+                        <div 
+                          className="ml-1 p-0.5 hover:bg-orange-200 rounded-full"
+                          onClick={(e) => { e.stopPropagation(); setSelectedStyle(null); }}
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </button>
                     {/* Refine Popover */}
                     {showRefineInput && hasPolished && (
                       <div className="absolute top-10 right-0 z-50 w-72 bg-white rounded-xl shadow-xl border border-pastel-border p-3 animate-in fade-in zoom-in-95 duration-200">
@@ -769,8 +814,8 @@ const FusionTab: React.FC = () => {
 
                 <button
                   onClick={handleGenerate}
-                  disabled={!description || isGenerating}
-                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${!description || isGenerating
+                  disabled={(!description && !selectedStyle) || isGenerating}
+                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${((!description && !selectedStyle) || isGenerating)
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'
                     : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-orange-500/25 hover:shadow-orange-500/40 hover:brightness-105'
                     }`}
@@ -1032,6 +1077,19 @@ const FusionTab: React.FC = () => {
                 </div>
               </div>
             )}
+      {/* Style Model Modal */}
+      <StyleModelModal 
+        isOpen={isStyleModalOpen}
+        onClose={() => setIsStyleModalOpen(false)}
+        onSelect={(style) => {
+          setSelectedStyle(style);
+          const wideStyles = ['model-clothing-extraction', 'master-model-no-ref', 'master-model-with-ref'];
+          if (style?.id && wideStyles.includes(style.id)) {
+            setAspectRatio(AspectRatio.LANDSCAPE_16_9);
+          }
+        }}
+        currentSelectedId={selectedStyle?.id}
+      />
           </div>
         </div>
       </div>
