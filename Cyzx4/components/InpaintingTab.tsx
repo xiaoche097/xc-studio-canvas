@@ -38,6 +38,14 @@ const InpaintingTab: React.FC = () => {
   const [refFiles, setRefFiles] = useState<File[]>([]);
   const [refUrls, setRefUrls] = useState<string[]>([]);
 
+  // 面料参考图状态（用于保证面料纹理一致性，最多2张）
+  const [fabricRefFiles, setFabricRefFiles] = useState<File[]>([]);
+  const [fabricRefUrls, setFabricRefUrls] = useState<string[]>([]);
+
+  // 颜色参考图状态（用于保证颜色一致性，最多2张）
+  const [colorRefFiles, setColorRefFiles] = useState<File[]>([]);
+  const [colorRefUrls, setColorRefUrls] = useState<string[]>([]);
+
   // 生成状态
   const [description, setDescription] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
@@ -52,6 +60,8 @@ const InpaintingTab: React.FC = () => {
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
+  const fabricRefInputRef = useRef<HTMLInputElement>(null);
+  const colorRefInputRef = useRef<HTMLInputElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,15 +77,30 @@ const InpaintingTab: React.FC = () => {
       setSourceUrl(url);
       setGeneratedImages([]);
       setHasMask(false);
+      setRefFiles([]);
+      setRefUrls([]);
+      setFabricRefFiles([]);
+      setFabricRefUrls([]);
+      setColorRefFiles([]);
+      setColorRefUrls([]);
     }
   };
 
   const removeSource = () => {
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    refUrls.forEach((url) => URL.revokeObjectURL(url));
+    fabricRefUrls.forEach((url) => URL.revokeObjectURL(url));
+    colorRefUrls.forEach((url) => URL.revokeObjectURL(url));
     setSourceFile(null);
     setSourceUrl(null);
     setHasMask(false);
     setGeneratedImages([]);
+    setRefFiles([]);
+    setRefUrls([]);
+    setFabricRefFiles([]);
+    setFabricRefUrls([]);
+    setColorRefFiles([]);
+    setColorRefUrls([]);
   };
 
   // 参考图操作
@@ -92,10 +117,50 @@ const InpaintingTab: React.FC = () => {
     }
   };
 
+  // 面料参考图操作（最多2张）
+  const handleFabricRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      if (fabricRefFiles.length + files.length > 2) {
+        setError('面料参考最多2张');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+      setFabricRefFiles(prev => [...prev, ...files]);
+      setFabricRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+    }
+  };
+
+  // 颜色参考图操作（最多2张）
+  const handleColorRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      if (colorRefFiles.length + files.length > 2) {
+        setError('颜色参考最多2张');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+      setColorRefFiles(prev => [...prev, ...files]);
+      setColorRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+    }
+  };
+
   const removeRefImage = (idx: number) => {
     URL.revokeObjectURL(refUrls[idx]);
     setRefFiles(prev => prev.filter((_, i) => i !== idx));
     setRefUrls(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeFabricRefImage = (idx: number) => {
+    URL.revokeObjectURL(fabricRefUrls[idx]);
+    setFabricRefFiles(prev => prev.filter((_, i) => i !== idx));
+    setFabricRefUrls(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeColorRefImage = (idx: number) => {
+    URL.revokeObjectURL(colorRefUrls[idx]);
+    setColorRefFiles(prev => prev.filter((_, i) => i !== idx));
+    setColorRefUrls(prev => prev.filter((_, i) => i !== idx));
   };
 
   // 当图片源变化时，初始化双层 canvas
@@ -311,13 +376,40 @@ const InpaintingTab: React.FC = () => {
         })));
       }
 
+      // 3.5 压缩面料参考图
+      let fabricRefImagesData: { base64: string; mimeType: string }[] | undefined;
+      if (fabricRefFiles.length > 0) {
+        setProgress('正在处理面料参考...');
+        fabricRefImagesData = await Promise.all(fabricRefFiles.map(async file => ({
+          base64: await blobToBase64(file),
+          mimeType: file.type
+        })));
+      }
+
+      // 3.6 压缩颜色参考图
+      let colorRefImagesData: { base64: string; mimeType: string }[] | undefined;
+      if (colorRefFiles.length > 0) {
+        setProgress('正在处理颜色参考...');
+        colorRefImagesData = await Promise.all(colorRefFiles.map(async file => ({
+          base64: await blobToBase64(file),
+          mimeType: file.type
+        })));
+      }
+
       // 4. 发送到 AI
       setProgress('正在生成 (预计 30-90 秒)...');
       const results = await generateInpainting(
         { base64: sourceBase64, mimeType: sourceFile.type },
         { base64: maskBase64, mimeType: 'image/png' },
         description,
-        { aspectRatio, resolution, modelId: selectedModel, refImages: refImagesData }
+        {
+          aspectRatio,
+          resolution,
+          modelId: selectedModel,
+          refImages: refImagesData,
+          fabricRefImages: fabricRefImagesData,
+          colorRefImages: colorRefImagesData,
+        }
       );
 
       setProgress('生成完成！');
@@ -545,6 +637,92 @@ const InpaintingTab: React.FC = () => {
               />
               {refFiles.length > 0 && (
                 <p className="text-[10px] text-pastel-muted mt-1.5">已选 {refFiles.length} 张参考图</p>
+              )}
+            </div>
+
+            {/* 1.6 面料参考 */}
+            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+              <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5" /> 面料参考（可选, 保证纹理一致性）
+              </label>
+              <p className="text-[10px] text-pastel-muted mb-2">
+                最多 2 张。建议上传面料特写（织纹/颗粒/光泽），用于让替换区域衣服更贴近同款面料质感。
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {fabricRefUrls.map((url, idx) => (
+                  <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/fabricRef">
+                    <img src={url} alt={`Fabric Ref ${idx}`} className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeFabricRefImage(idx)}
+                      className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/fabricRef:opacity-100 transition-all"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+                {fabricRefFiles.length < 2 && (
+                  <button
+                    onClick={() => fabricRefInputRef.current?.click()}
+                    className="w-16 h-16 flex flex-col items-center justify-center border-2 border-dashed border-pastel-border rounded-lg cursor-pointer hover:bg-pastel-bg hover:border-pastel-highlight/50 transition-colors text-pastel-muted hover:text-pastel-highlight"
+                  >
+                    <Upload className="w-4 h-4 mb-0.5 opacity-50" />
+                    <span className="text-[9px]">添加</span>
+                  </button>
+                )}
+              </div>
+              <input
+                ref={fabricRefInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFabricRefUpload}
+                className="hidden"
+              />
+              {fabricRefFiles.length > 0 && (
+                <p className="text-[10px] text-pastel-muted mt-1.5">已选 {fabricRefFiles.length} 张面料参考</p>
+              )}
+            </div>
+
+            {/* 1.7 颜色参考 */}
+            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+              <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5" /> 颜色参考（可选, 保证颜色一致性）
+              </label>
+              <p className="text-[10px] text-pastel-muted mb-2">
+                最多 2 张。建议上传颜色接近的整衣或色卡，用于让替换区域衣服颜色更稳定。
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {colorRefUrls.map((url, idx) => (
+                  <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/colorRef">
+                    <img src={url} alt={`Color Ref ${idx}`} className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeColorRefImage(idx)}
+                      className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/colorRef:opacity-100 transition-all"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+                {colorRefFiles.length < 2 && (
+                  <button
+                    onClick={() => colorRefInputRef.current?.click()}
+                    className="w-16 h-16 flex flex-col items-center justify-center border-2 border-dashed border-pastel-border rounded-lg cursor-pointer hover:bg-pastel-bg hover:border-pastel-highlight/50 transition-colors text-pastel-muted hover:text-pastel-highlight"
+                  >
+                    <Upload className="w-4 h-4 mb-0.5 opacity-50" />
+                    <span className="text-[9px]">添加</span>
+                  </button>
+                )}
+              </div>
+              <input
+                ref={colorRefInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleColorRefUpload}
+                className="hidden"
+              />
+              {colorRefFiles.length > 0 && (
+                <p className="text-[10px] text-pastel-muted mt-1.5">已选 {colorRefFiles.length} 张颜色参考</p>
               )}
             </div>
 

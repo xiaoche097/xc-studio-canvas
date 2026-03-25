@@ -21,6 +21,26 @@ export const STYLE_PRESETS: StylePreset[] = [
         negativePrompt: 'human, person, face, head, skin, hands, feet, hair, limbs, blurry, low quality, jewelry, hat, glasses, bag, props, text, watermark, logo, frame, background objects, gradient, noisy, messy layout.'
     },
     {
+        id: 'fabric-texture-extract-seamless',
+        name: '面料提取(无缝贴图)',
+        category: '通用',
+        previewUrl: '/styles/fabric_texture_tile.png',
+        description: '从衣服图片中提取面料纹理，输出 1:1 无缝平铺贴图（seamless tileable texture）。',
+        prompt: 'Seamless tileable fabric texture swatch extracted from the garment in the reference image.\nMicro-rib knit jersey fabric with very fine narrow vertical ribs, subtle heather/marl look, matte finish.\nExact color match to the reference garment (no hue shift, no saturation shift, no brightness shift), neutral white balance.\nFlat top-down orthographic scan, full-frame fabric only, uniform scale.\nPerfectly even diffused studio lighting, no shadows, no highlights, no folds, no seams.\nUltra sharp focus, high detail, texture-map quality, clean and consistent.',
+        promptWithRef: 'Seamless tileable fabric texture swatch extracted from the garment in the reference image.\nMicro-rib knit jersey fabric with very fine narrow vertical ribs, subtle heather/marl look, matte finish.\nExact color match to the reference garment (no hue shift, no saturation shift, no brightness shift), neutral white balance.\nFlat top-down orthographic scan, full-frame fabric only, uniform scale.\nPerfectly even diffused studio lighting, no shadows, no highlights, no folds, no seams.\nUltra sharp focus, high detail, texture-map quality, clean and consistent.',
+        negativePrompt: ''
+    },
+    {
+        id: 'color-extract-solid-swatch',
+        name: '颜色提取(纯色卡)',
+        category: '通用',
+        previewUrl: '/styles/color_swatch.png',
+        description: '从衣服图片中提取主色，输出 1:1 纯色颜色卡（solid uniform swatch）。',
+        prompt: '从我提供的衣服图片中提取“主色”，生成一张可用于替换的纯色颜色卡（solid uniform color swatch）。只输出单一均匀的纯色块：准确匹配该衣服的色相/明度/饱和度/冷暖倾向；忽略并剔除阴影、高光、反光与任何光照影响。画面必须是 1:1 方形、高分辨率的纯色矩形色块，禁止任何纹理、织法细节、噪点颗粒、渐变、边框、文字、logo、水印或其他元素。输出为单张图片，不拼图，不加任何文字标注。',
+        promptWithRef: '从我提供的衣服图片中提取“主色”，生成一张可用于替换的纯色颜色卡（solid uniform color swatch）。只输出单一均匀的纯色块：准确匹配该衣服的色相/明度/饱和度/冷暖倾向；忽略并剔除阴影、高光、反光与任何光照影响。画面必须是 1:1 方形、高分辨率的纯色矩形色块，禁止任何纹理、织法细节、噪点颗粒、渐变、边框、文字、logo、水印或其他元素。输出为单张图片，不拼图，不加任何文字标注。',
+        negativePrompt: ''
+    },
+    {
         id: 'master-model-no-ref',
         name: '全身模特母版(无参考)',
         category: '摄影',

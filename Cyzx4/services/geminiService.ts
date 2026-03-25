@@ -572,6 +572,8 @@ export const generateInpainting = async (
     resolution?: ImageResolution;
     modelId?: string;
     refImages?: { base64: string; mimeType: string }[];
+    fabricRefImages?: { base64: string; mimeType: string }[];
+    colorRefImages?: { base64: string; mimeType: string }[];
   } = {}
 ) => {
   const retryLimit = 3;
@@ -621,11 +623,47 @@ export const generateInpainting = async (
         });
       }
 
+      // 2.6 面料参考图（可选）
+      if (options.fabricRefImages && options.fabricRefImages.length > 0) {
+        options.fabricRefImages.forEach((img) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType,
+              data: img.base64,
+            },
+          });
+        });
+      }
+
+      // 2.7 颜色参考图（可选）
+      if (options.colorRefImages && options.colorRefImages.length > 0) {
+        options.colorRefImages.forEach((img) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType,
+              data: img.base64,
+            },
+          });
+        });
+      }
+
       // 3. 构造局部替换提示词
       const hasRefImages = options.refImages && options.refImages.length > 0;
+      const hasFabricRefImages = options.fabricRefImages && options.fabricRefImages.length > 0;
+      const hasColorRefImages = options.colorRefImages && options.colorRefImages.length > 0;
+
       const refImageInstruction = hasRefImages
-        ? `\n      5. Additional reference images (Image 3+) are provided as VISUAL GUIDES for the replacement content. The generated content in the white mask area should look like or be inspired by these reference images.`
+        ? `\n      5. Additional reference images (Image 3+) are provided as VISUAL GUIDES for the replacement content (style / what to replace into). The generated content in the white mask area should look like or be inspired by these images.`
         : '';
+
+      const fabricRefInstruction = hasFabricRefImages
+        ? `\n      6. Fabric reference images are provided. These are STRICT guides for fabric texture/material finish (weave, knit, leather grain, gloss/matte). When generating clothing/fabric in the WHITE mask area, match these fabric textures as closely as possible. Avoid random patterns not present in the references.`
+        : '';
+
+      const colorRefInstruction = hasColorRefImages
+        ? `\n      7. Color reference images are provided. These are STRICT guides for the target garment color palette (hue/saturation/value). When generating clothing in the WHITE mask area, keep the garment color consistent with these references and avoid unwanted color shifts.`
+        : '';
+
       const systemPrompt = `
       **ROLE**: Professional Image Inpainting Specialist.
       **TASK**: Partial Image Replacement (Inpainting).
@@ -635,7 +673,7 @@ export const generateInpainting = async (
       1. You MUST ONLY modify the areas marked as WHITE in the mask image.
       2. The BLACK areas in the mask MUST remain PIXEL-PERFECT IDENTICAL to the source image. No changes whatsoever.
       3. The newly generated content in the white areas must seamlessly blend with the surrounding preserved areas in terms of lighting, perspective, color temperature, and style.
-      4. Generate the new content according to the user's description below.${refImageInstruction}
+      4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}
 
       **USER DESCRIPTION**: ${prompt}
 
