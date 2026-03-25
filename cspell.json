@@ -77,7 +77,8 @@
     "gptbest",
     "XcAI",
     "XcAIAGENT",
-    "oversharpening"
+    "oversharpening",
+    "tileable"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

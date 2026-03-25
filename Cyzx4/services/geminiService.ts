@@ -80,7 +80,7 @@ export const analyzeProductImage = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro-image",
+      model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
           {
@@ -262,7 +262,7 @@ Respond ONLY with valid JSON.
     parts.push({ text: analysisPrompt });
 
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-pro-latest", // Use Pro for best analysis
+      model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
       contents: { parts }
     });
 
@@ -2422,7 +2422,7 @@ export const analyzeImageQuality = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash", // Use fast model for analysis
+      model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -2498,7 +2498,7 @@ export const analyzeStyle = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },

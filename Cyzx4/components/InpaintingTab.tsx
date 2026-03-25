@@ -54,8 +54,13 @@ const InpaintingTab: React.FC = () => {
   const [progress, setProgress] = useState<string>('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
-  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+
+  // 更多拖拽状态
+  const [isDraggingRef, setIsDraggingRef] = useState(false);
+  const [isDraggingFabric, setIsDraggingFabric] = useState(false);
+  const [isDraggingColor, setIsDraggingColor] = useState(false);
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -601,11 +606,32 @@ const InpaintingTab: React.FC = () => {
             </div>
 
             {/* 1.5 参考图上传 */}
-            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+            <div 
+              className={`bg-white p-4 rounded-xl border border-pastel-border shadow-sm transition-all ${isDraggingRef ? 'ring-2 ring-pastel-highlight bg-orange-50/50' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingRef(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingRef(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingRef(false);
+                if (e.dataTransfer.files) {
+                  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                  if (refFiles.length + files.length > 5) {
+                    setError('参考图最多5张');
+                    setTimeout(() => setError(null), 3000);
+                    return;
+                  }
+                  setRefFiles(prev => [...prev, ...files]);
+                  setRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+                }
+              }}
+            >
               <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
                 <ImageIcon className="w-3.5 h-3.5" /> 参考图（可选, 告诉 AI 替换成什么样子）
               </label>
-              <div className="flex flex-wrap gap-2">
+              <div
+                className="flex flex-wrap gap-2 p-2 rounded-lg"
+              >
                 {refUrls.map((url, idx) => (
                   <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/ref">
                     <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover" />
@@ -641,14 +667,35 @@ const InpaintingTab: React.FC = () => {
             </div>
 
             {/* 1.6 面料参考 */}
-            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+            <div 
+              className={`bg-white p-4 rounded-xl border border-pastel-border shadow-sm transition-all ${isDraggingFabric ? 'ring-2 ring-pastel-highlight bg-orange-50/50' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFabric(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFabric(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingFabric(false);
+                if (e.dataTransfer.files) {
+                  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                  if (fabricRefFiles.length + files.length > 2) {
+                    setError('面料参考最多2张');
+                    setTimeout(() => setError(null), 3000);
+                    return;
+                  }
+                  setFabricRefFiles(prev => [...prev, ...files]);
+                  setFabricRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+                }
+              }}
+            >
               <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
                 <ImageIcon className="w-3.5 h-3.5" /> 面料参考（可选, 保证纹理一致性）
               </label>
               <p className="text-[10px] text-pastel-muted mb-2">
                 最多 2 张。建议上传面料特写（织纹/颗粒/光泽），用于让替换区域衣服更贴近同款面料质感。
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div
+                className="flex flex-wrap gap-2 p-2 rounded-lg"
+              >
                 {fabricRefUrls.map((url, idx) => (
                   <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/fabricRef">
                     <img src={url} alt={`Fabric Ref ${idx}`} className="w-full h-full object-cover" />
@@ -684,14 +731,35 @@ const InpaintingTab: React.FC = () => {
             </div>
 
             {/* 1.7 颜色参考 */}
-            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+            <div 
+              className={`bg-white p-4 rounded-xl border border-pastel-border shadow-sm transition-all ${isDraggingColor ? 'ring-2 ring-pastel-highlight bg-orange-50/50' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingColor(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingColor(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingColor(false);
+                if (e.dataTransfer.files) {
+                  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                  if (colorRefFiles.length + files.length > 2) {
+                    setError('颜色参考最多2张');
+                    setTimeout(() => setError(null), 3000);
+                    return;
+                  }
+                  setColorRefFiles(prev => [...prev, ...files]);
+                  setColorRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+                }
+              }}
+            >
               <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
                 <ImageIcon className="w-3.5 h-3.5" /> 颜色参考（可选, 保证颜色一致性）
               </label>
               <p className="text-[10px] text-pastel-muted mb-2">
                 最多 2 张。建议上传颜色接近的整衣或色卡，用于让替换区域衣服颜色更稳定。
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div
+                className="flex flex-wrap gap-2 p-2 rounded-lg"
+              >
                 {colorRefUrls.map((url, idx) => (
                   <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/colorRef">
                     <img src={url} alt={`Color Ref ${idx}`} className="w-full h-full object-cover" />
@@ -728,6 +796,45 @@ const InpaintingTab: React.FC = () => {
 
             {/* 2. Configuration */}
             <div className="flex flex-col gap-5">
+              {/* Model Selection - Moved to top */}
+              <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+                <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BananaIcon className="w-3.5 h-3.5" />
+                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Nano Banana 2
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BananaIcon className="w-3.5 h-3.5" />
+                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Nano Banana Pro
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-pastel-muted">3.0 Pro (推荐)</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Settings Row */}
               <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
                 <div>
@@ -775,44 +882,6 @@ const InpaintingTab: React.FC = () => {
                 </div>
               </div>
 
-              {/* Model Selection */}
-              <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
-                <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
-                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3.5 h-3.5" />
-                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Nano Banana 2
-                      </span>
-                    </div>
-                    <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
-                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3.5 h-3.5" />
-                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Nano Banana Pro
-                      </span>
-                    </div>
-                    <span className="text-[9px] text-pastel-muted">3 Pro (高质量)</span>
-                  </button>
-                </div>
-              </div>
 
               {/* Prompt Area */}
               <div className="flex-1 flex flex-col">

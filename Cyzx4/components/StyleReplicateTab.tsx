@@ -16,8 +16,26 @@ import {
     AlertCircle,
     Layers,
     Palette,
-    FileOutput
+    FileOutput,
+    Cpu
 } from 'lucide-react';
+
+// 自定义香蕉图标组件
+const BananaIcon = ({ className }: { className?: string }) => (
+    <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={{ color: '#fbbf24' }}
+    >
+        <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+        <path d="M15 3s-1.5 1-2 3" />
+    </svg>
+);
 import { AspectRatio, ImageResolution } from '../types';
 
 type TabMode = 'single' | 'batch';
@@ -547,17 +565,43 @@ const StyleReplicateTab: React.FC = () => {
                         </div>
 
                         {/* Config Options */}
-                        <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-                            <div className="mb-4">
-                                <label className="text-xs text-pastel-muted mb-1 block">AI 模型</label>
-                                <select
-                                    value={selectedModel}
-                                    onChange={(e) => setSelectedModel(e.target.value)}
-                                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                                >
-                                    <option value="gemini-3-pro-image-preview">Gemini 3 Pro (旗舰画质)</option>
-                                    <option value="gemini-3-flash-image-preview">Gemini 3 Flash (快速)</option>
-                                </select>
+                        <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm space-y-5">
+                            <div className="border-b border-pastel-border/50 pb-5">
+                                <label className="text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5 px-1">
+                                    <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+                                </label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                                        className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                                            ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                                            : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                                            }`}
+                                    >
+                                        <div className="flex items-center gap-1.5">
+                                            <BananaIcon className="w-3.5 h-3.5" />
+                                            <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                                                Nano Banana 2
+                                            </span>
+                                        </div>
+                                        <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                                        className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                                            ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                                            : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                                            }`}
+                                    >
+                                        <div className="flex items-center gap-1.5">
+                                            <BananaIcon className="w-3.5 h-3.5" />
+                                            <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                                                Nano Banana Pro
+                                            </span>
+                                        </div>
+                                        <span className="text-[9px] text-pastel-muted">3 Pro (高质量)</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4 mb-4">

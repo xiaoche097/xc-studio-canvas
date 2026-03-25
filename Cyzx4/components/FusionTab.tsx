@@ -516,6 +516,44 @@ const FusionTab: React.FC = () => {
 
             {/* 2. Configuration & Prompt Wrapper */}
             <div className="flex-1 flex flex-col gap-5 min-h-0">
+              {/* Model Selection - Top Row for consistency */}
+              <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+                <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BananaIcon className="w-3.5 h-3.5" />
+                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Nano Banana 2
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <BananaIcon className="w-3.5 h-3.5" />
+                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Nano Banana Pro
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-pastel-muted">3.0 Pro (推荐)</span>
+                  </button>
+                </div>
+              </div>
 
               {/* Settings Row */}
               <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
@@ -567,46 +605,6 @@ const FusionTab: React.FC = () => {
                 </div>
               </div>
 
-              {/* 3. Model Selection (New) */}
-              <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
-                <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
-                      selectedModel === 'gemini-3.1-flash-image-preview'
-                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3.5 h-3.5" />
-                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Nano Banana 2
-                      </span>
-                    </div>
-                    <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${
-                      selectedModel === 'gemini-3-pro-image-preview'
-                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3.5 h-3.5" />
-                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Nano Banana Pro
-                      </span>
-                    </div>
-                    <span className="text-[9px] text-pastel-muted">3 Pro (高质量)</span>
-                  </button>
-                </div>
-              </div>
 
               {/* Prompt Area */}
               <div className="flex-1 flex flex-col relative">

@@ -24,7 +24,7 @@ export const STYLE_PRESETS: StylePreset[] = [
         id: 'doll-main-image-generation',
         name: '玩偶主图生成',
         category: '电商',
-        previewUrl: '/styles/studio.png',
+        previewUrl: '/styles/doll_preview.png',
         description: '玩偶产品电商白底主图精修/生成。角度由用户输入（如 正面/左前45°/右前45°/侧面/背面/特写），不输入则默认右前45°（无参考时）。',
         prompt: 'High-end e-commerce studio product photo of a single plush doll/toy. Pure white background #FFFFFF. The user input describes the product and the desired camera angle. If the user does not specify an angle, default to 3/4 front-right (right-front 45°).\nCentered composition, single product only, full product visible, no crop, even margins.\nSoft diffused studio lighting, neutral white balance, realistic plush fiber texture, ultra sharp focus, clean cutout edges, no halos, minimal soft contact shadow.\nNo people, no hands, no props, no text, no watermark, no logo.',
         promptWithRef: 'Use the provided doll/toy product photo as the only reference and constraint. Output an e-commerce studio retouched main image on pure white background #FFFFFF.\nYou MUST preserve 1:1 product identity and design: silhouette, proportions, facial feature placement, embroidery, seams/stitches, plush fiber texture, colors, and all accessories (hat/bow/etc.) exactly as in the reference. Do NOT add/remove/alter any elements.\nRetouch only: clean cutout (no white outline/halo/jaggies), remove dust and stray fibers, correct exposure, keep neutral white balance, enhance clarity while staying realistic (no plastic look).\nLighting: perfectly even diffused softbox; keep a very subtle realistic contact shadow only.\nComposition: single product centered, full product visible, not cropped, even padding.\nAngle: follow the user\'s angle instruction if provided (front / 3/4 front-left / 3/4 front-right / side profile / back / close-up). If the user did not specify an angle, keep the exact same camera angle as the reference image (default; commonly 3/4 front-right). Do NOT flip left/right.',
@@ -34,7 +34,7 @@ export const STYLE_PRESETS: StylePreset[] = [
         id: 'fabric-texture-extract-seamless',
         name: '面料提取(无缝贴图)',
         category: '通用',
-        previewUrl: '/styles/fabric_texture_tile.png',
+        previewUrl: '/styles/fabric_preview.png',
         description: '从衣服图片中提取面料纹理，输出 1:1 无缝平铺贴图（seamless tileable texture）。',
         prompt: 'Seamless tileable fabric texture swatch extracted from the garment in the reference image.\nMicro-rib knit jersey fabric with very fine narrow vertical ribs, subtle heather/marl look, matte finish.\nExact color match to the reference garment (no hue shift, no saturation shift, no brightness shift), neutral white balance.\nFlat top-down orthographic scan, full-frame fabric only, uniform scale.\nPerfectly even diffused studio lighting, no shadows, no highlights, no folds, no seams.\nUltra sharp focus, high detail, texture-map quality, clean and consistent.',
         promptWithRef: 'Seamless tileable fabric texture swatch extracted from the garment in the reference image.\nMicro-rib knit jersey fabric with very fine narrow vertical ribs, subtle heather/marl look, matte finish.\nExact color match to the reference garment (no hue shift, no saturation shift, no brightness shift), neutral white balance.\nFlat top-down orthographic scan, full-frame fabric only, uniform scale.\nPerfectly even diffused studio lighting, no shadows, no highlights, no folds, no seams.\nUltra sharp focus, high detail, texture-map quality, clean and consistent.',
@@ -44,7 +44,7 @@ export const STYLE_PRESETS: StylePreset[] = [
         id: 'color-extract-solid-swatch',
         name: '颜色提取(纯色卡)',
         category: '通用',
-        previewUrl: '/styles/color_swatch.png',
+        previewUrl: '/styles/color_preview.png',
         description: '从衣服图片中提取主色，输出 1:1 纯色颜色卡（solid uniform swatch）。',
         prompt: '从我提供的衣服图片中提取“主色”，生成一张可用于替换的纯色颜色卡（solid uniform color swatch）。只输出单一均匀的纯色块：准确匹配该衣服的色相/明度/饱和度/冷暖倾向；忽略并剔除阴影、高光、反光与任何光照影响。画面必须是 1:1 方形、高分辨率的纯色矩形色块，禁止任何纹理、织法细节、噪点颗粒、渐变、边框、文字、logo、水印或其他元素。输出为单张图片，不拼图，不加任何文字标注。',
         promptWithRef: '从我提供的衣服图片中提取“主色”，生成一张可用于替换的纯色颜色卡（solid uniform color swatch）。只输出单一均匀的纯色块：准确匹配该衣服的色相/明度/饱和度/冷暖倾向；忽略并剔除阴影、高光、反光与任何光照影响。画面必须是 1:1 方形、高分辨率的纯色矩形色块，禁止任何纹理、织法细节、噪点颗粒、渐变、边框、文字、logo、水印或其他元素。输出为单张图片，不拼图，不加任何文字标注。',
@@ -89,5 +89,15 @@ export const STYLE_PRESETS: StylePreset[] = [
         prompt: 'professional 3D ghost mannequin photography of [SUBJECT], voluminous and naturally shaped garment, invisible model effect, three-dimensional representation. Pure white background #FFFFFF, soft professional studio lighting, detailed fabric texture, premium product catalog style, clean edges, sharp focus.',
         promptWithRef: 'professional 3D clothing extraction of [SUBJECT] following reference structure, 3/4 side view by default unless specified, ghost mannequin effect (invisible model), preserving exact silhouette, button placement, and fabric texture from reference. Naturally voluminous, high-end studio photography feel, pure white background #FFFFFF, soft natural shadows. [PARAMETERS]',
         negativePrompt: 'human, person, face, head, skin, hands, feet, hair, limbs, blurry, low quality, flat illustration, vector, 2d, hanger, dummy, background objects, text, watermark, logo, messy lighting, noisy.'
+    },
+    {
+        id: 'hd-upscale-remaster',
+        name: '高清大图(超清重绘)',
+        category: '通用',
+        previewUrl: '/styles/upscale_preview.png',
+        description: '采用“低频+高频”分离重建逻辑，进行高质量超清重绘与细节增强。',
+        prompt: '请以输入图片为唯一核心参考，对原图进行高质量超清重绘与重建。不要只做简单放大或表面锐化，而是先从画面的底层生成逻辑出发，逆向理解并还原其视觉构成，再生成一张新的超高清图像。完整分析并保留原图的主体与陪体关系、画面重心、构图方式、视觉引导线、前中后景层次、镜头视角、拍摄机位、焦段感、透视关系、比例结构、景深表现、光源方向、主光与辅光关系、明暗体积、阴影分布、局部反射、整体曝光、色温倾向、主色调与辅色调、冷暖对比、色彩层次、材质属性、表面纹理、边缘组织、细节密度、氛围感、风格气质与完成度。\n\n采用“低频信息 + 高频信息”分离重建的逻辑进行重绘：先进行低频重建，稳定原图的大关系，保留整体构图、主体比例、空间结构、透视逻辑、体积关系、明暗层次、色块分布、光影节奏、虚实关系和整体氛围，确保重绘后的画面在大形、大光影、大色彩、大空间上与原图保持高度一致；再进行高频重建，在低频稳定的基础上，精细重建纹理、材质肌理、边缘清晰度、微小结构、局部反光、高光层次、表面起伏、真实颗粒感、细节转折、质感差异与局部精修效果，让细节更加完整、清晰、真实、可信，但不堆砌伪细节，不过度锐化，不过度人工化；最后将低频层与高频层自然融合与重新合成，保证整体光影一致、色彩统一、结构稳定、细节服从整体，不出现局部过分突出、纹理断裂、边缘发硬、明暗冲突、颜色漂移或空间错乱。\n\n重绘时必须忠于原图的主体、构图、结构、透视和风格逻辑，保留原图的视觉神韵、氛围和叙事感，同时优化原图中模糊、压缩、噪点、锯齿、脏污、细节断裂等问题；对于参考图中缺失或不清晰的局部，依据整体生成逻辑做合理补全，补全必须自然、可信、统一，不能随意添加无关元素。所有细节提升都必须建立在真实结构和材质逻辑之上，最终效果应像“重新高质量生成”，而不是“强行锐化放大”。\n\n如果参考图是人物，请保持人物身份特征、五官比例、表情气质、肤质逻辑、发丝层次、服装材质和肢体结构稳定一致，避免脸型漂移、五官错位、年龄感变化、皮肤塑料化和头发糊成一片；如果参考图是产品或静物，请保持几何结构准确、边缘完整、材质反射正确、细节精密、工业质感稳定，不要变形，不要出现多余装饰；如果参考图是场景或建筑，请保持空间关系、透视线、体块关系、材质重复规律、远近层次 and 环境光逻辑准确，避免结构错乱和建筑畸变。\n\n最终输出要求：超高清、超精细、结构稳定、构图准确、透视正确、层次通透、光影统一、色彩准确、过渡自然、材质真实、边缘干净、局部细节丰富、整体完成度高、商业级质感、无明显AI痕迹、无涂抹感、无塑料感、无过度磨皮、无过度锐化、无噪点堆积、无假纹理、无脏灰色偏、无结构崩坏。',
+        promptWithRef: '请以输入图片为唯一核心参考，对原图进行高质量超清重绘与重建。不要只做简单放大或表面锐化，而是先从画面的底层生成逻辑出发，逆向理解并还原其视觉构成，再生成一张新的超高清图像。完整分析并保留原图的主体与陪体关系、画面重心、构图方式、视觉引导线、前中后景层次、镜头视角、拍摄机位、焦段感、透视关系、比例结构、景深表现、光源方向、主光与辅光关系、明暗体积、阴影分布、局部反射、整体曝光、色温倾向、主色调与辅色调、冷暖对比、色彩层次、材质属性、表面纹理、边缘组织、细节密度、氛围感、风格气质与完成度。\n\n采用“低频信息 + 高频信息”分离重建的逻辑进行重绘：先进行低频重建，稳定原图的大关系，保留整体构图、主体比例、空间结构、透视逻辑、体积关系、明暗层次、色块分布、光影节奏、虚实关系和整体氛围，确保重绘后的画面在大形、大光影、大色彩、大空间上与原图保持高度一致；再进行高频重建，在低频稳定的基础上，精细重建纹理、材质肌理、边缘清晰度、微小结构、局部反光、高光层次、表面起伏、真实颗粒感、细节转折、质感差异与局部精修效果，让细节更加完整、清晰、真实、可信，但不堆砌伪细节，不过度锐化，不过度人工化；最后将低频层与高频层自然融合与重新合成，保证整体光影一致、色彩统一、结构稳定、细节服从整体，不出现局部过分突出、纹理断裂、边缘发硬、明暗冲突、颜色漂移或空间错乱。\n\n重绘时必须忠于原图的主体、构图、结构、透视和风格逻辑，保留原图的视觉神韵、氛围和叙事感，同时优化原图中模糊、压缩、噪点、锯齿、脏污、细节断裂等问题；对于参考图中缺失或不清晰的局部，依据整体生成逻辑做合理补全，补全必须自然、可信、统一，不能随意添加无关元素。所有细节提升都必须建立在真实结构和材质逻辑之上，最终效果应像“重新高质量生成”，而不是“强行锐化放大”。\n\n如果参考图是人物，请保持人物身份特征、五官比例、表情气质、肤质逻辑、发丝层次、服装材质和肢体结构稳定一致，避免脸型漂移、五官错位、年龄感变化、皮肤塑料化和头发糊成一片；如果参考图是产品 or 静物，请保持几何结构准确、边缘完整、材质反射正确、细节精密、工业质感稳定，不要变形，不要出现多余装饰；如果参考图是场景或建筑，请保持空间关系、透视线、体块关系、材质重复规律、远近层次 and 环境光逻辑准确，避免结构错乱和建筑畸变。\n\n最终输出要求：超高清、超精细、结构稳定、构图准确、透视正确、层次通透、光影统一、色彩准确、过渡自然、材质真实、边缘干净、局部细节丰富、整体完成度高、商业级质感、无明显AI痕迹、无涂抹感、无塑料感、无过度磨皮、无过度锐化、无噪点堆积、无假纹理、无脏灰色偏、无结构崩坏。',
+        negativePrompt: '避免：简单放大、纯锐化痕迹、过度锐化、边缘白边、边缘发硬、局部糊化、细节涂抹、纹理重复、伪细节堆积、错误高光、错误反射、材质失真、塑料感、蜡像感、过度磨皮、过强颗粒、脏噪点、压缩痕迹、色彩脏灰、颜色漂移、曝光失衡、过曝、欠曝、局部死黑、局部死白、明暗断层、结构崩坏、比例错误、透视错误、空间错乱、肢体异常、五官错位、面部变形、发丝粘连、背景穿帮、图像撕裂、双重边缘、重影、水印、错误文字、乱码、明显AI生成痕迹。'
     }
 ];
