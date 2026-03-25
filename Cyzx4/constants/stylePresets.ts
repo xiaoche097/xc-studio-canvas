@@ -21,6 +21,16 @@ export const STYLE_PRESETS: StylePreset[] = [
         negativePrompt: 'human, person, face, head, skin, hands, feet, hair, limbs, blurry, low quality, jewelry, hat, glasses, bag, props, text, watermark, logo, frame, background objects, gradient, noisy, messy layout.'
     },
     {
+        id: 'doll-main-image-generation',
+        name: '玩偶主图生成',
+        category: '电商',
+        previewUrl: '/styles/studio.png',
+        description: '玩偶产品电商白底主图精修/生成。角度由用户输入（如 正面/左前45°/右前45°/侧面/背面/特写），不输入则默认右前45°（无参考时）。',
+        prompt: 'High-end e-commerce studio product photo of a single plush doll/toy. Pure white background #FFFFFF. The user input describes the product and the desired camera angle. If the user does not specify an angle, default to 3/4 front-right (right-front 45°).\nCentered composition, single product only, full product visible, no crop, even margins.\nSoft diffused studio lighting, neutral white balance, realistic plush fiber texture, ultra sharp focus, clean cutout edges, no halos, minimal soft contact shadow.\nNo people, no hands, no props, no text, no watermark, no logo.',
+        promptWithRef: 'Use the provided doll/toy product photo as the only reference and constraint. Output an e-commerce studio retouched main image on pure white background #FFFFFF.\nYou MUST preserve 1:1 product identity and design: silhouette, proportions, facial feature placement, embroidery, seams/stitches, plush fiber texture, colors, and all accessories (hat/bow/etc.) exactly as in the reference. Do NOT add/remove/alter any elements.\nRetouch only: clean cutout (no white outline/halo/jaggies), remove dust and stray fibers, correct exposure, keep neutral white balance, enhance clarity while staying realistic (no plastic look).\nLighting: perfectly even diffused softbox; keep a very subtle realistic contact shadow only.\nComposition: single product centered, full product visible, not cropped, even padding.\nAngle: follow the user\'s angle instruction if provided (front / 3/4 front-left / 3/4 front-right / side profile / back / close-up). If the user did not specify an angle, keep the exact same camera angle as the reference image (default; commonly 3/4 front-right). Do NOT flip left/right.',
+        negativePrompt: 'change design, redesign, altered structure, mismatch, inaccurate details, different product, wrong proportions, wrong color, color shift, hue shift, changed texture, plastic look, glossy, over-smooth, over-sharpen, extra accessories, missing accessories, added patterns, added text, logo, watermark, label, tag, sticker, background props, hands, people, multiple products, duplicated product, cropped, cut off, out of frame, floating, harsh shadow, strong shadow, gray background, gradient background, messy edges, white outline, halo, jagged edges, blur, low resolution, noise, jpeg artifacts, cartoon, illustration, anime, 3D render, CGI'
+    },
+    {
         id: 'fabric-texture-extract-seamless',
         name: '面料提取(无缝贴图)',
         category: '通用',
