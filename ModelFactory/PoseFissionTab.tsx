@@ -5,6 +5,19 @@ import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import PoseGrid from './PoseGrid';
 import PoseLibraryModal, { savePoseSet } from './components/PoseLibraryModal';
 
+// 亚马逊固定角度定义
+const AMAZON_ANGLES = [
+  { id: 'A', label: '正面近景 + 肩背包带', prompt: "front view, straight-on, torso cropped from just below the mouth to upper thighs, shoulders level, slight S-curve posture, both arms placed behind the back, wearing a delicate silver necklace, black leather shoulder bag on the model’s left shoulder with visible strap and buckle" },
+  { id: 'B', label: '背面正对', prompt: "back view, straight-on, torso cropped from just below the mouth to mid-thigh, shoulders square to camera, arms relaxed down along the sides, hands near outer thighs" },
+  { id: 'C', label: '正面全正 + 双手自然下垂', prompt: "front view, straight-on, torso cropped from just below the mouth to mid-thigh, shoulders square, arms relaxed down, both hands resting near outer thighs" },
+  { id: 'D', label: '正面微转 + 一手搭腰', prompt: "front view with slight turn 10–15 degrees to camera-left, torso cropped from just below the mouth to mid-thigh, right hand placed on the waistband/hip with elbow bent, left arm relaxed down" },
+  { id: 'E', label: '正面近景 (主图感)', prompt: "front view, straight-on, slightly closer crop (from collarbones to upper thighs), arms relaxed down, subtle natural posture" },
+  { id: 'F', label: '侧前 3/4', prompt: "three-quarter view, body rotated 35–45 degrees to camera-right, head/face cropped out, torso cropped from just below the mouth to mid-thigh, arms relaxed down, posture upright" },
+  { id: 'G', label: '拉拽下摆展示弹力', prompt: "three-quarter view, body rotated 20–30 degrees to camera-right, torso cropped from just below the mouth to mid-thigh, both hands pulling the bottom hem of the tube top downward and slightly outward to show stretch, skirt remains in place" },
+];
+
+const AMAZON_MOTHER_PROMPT = "Studio e-commerce fashion photo on pure white seamless background, adult female model, eye-level camera, straight horizon, 85mm lens look, medium shot, centered composition, soft even studio lighting, minimal shadows, sharp focus, high resolution, Amazon catalog style, model’s face cropped out (frame cuts at the mouth/chin), same pose and camera angle as specified.";
+
 const PoseFissionTab: React.FC = () => {
   const [modelImages, setModelImages] = useState<string[]>([]);
   const [productImages, setProductImages] = useState<string[]>([]);
@@ -22,6 +35,8 @@ const PoseFissionTab: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isAmazonEnabled, setIsAmazonEnabled] = useState(false);
+  const [selectedAmazonAngles, setSelectedAmazonAngles] = useState<string[]>(AMAZON_ANGLES.map(a => a.id));
 
   // --- Drag and Drop States ---
   const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory', idx: number} | null>(null);
@@ -137,31 +152,90 @@ const PoseFissionTab: React.FC = () => {
       setStatusMessage("分析完成！正在根据动态姿势规划进行最终生成...");
 
       const isHorizontal = aspectRatio === '16:9';
+      const totalPoses = isHorizontal ? 8 : 12;
+
+      // Ensure poses_list is always a string for gridRules
+      let basePoses = analysis.poses_list;
+      if (Array.isArray(basePoses)) {
+        basePoses = basePoses.join('\n');
+      }
+
+      // --- 亚马逊固定角度逻辑处理 ---
+      let finalPosesList = basePoses;
+      let promptPrefix = "";
+      
+      if (isAmazonEnabled && selectedAmazonAngles.length > 0) {
+        promptPrefix = AMAZON_MOTHER_PROMPT + "\n";
+        // 构造亚马逊姿势列表
+        const selectedPrompts = AMAZON_ANGLES
+          .filter(a => selectedAmazonAngles.includes(a.id))
+          .map(a => a.prompt.replace(/\[产品：[^\]]*\]/g, analysis.product_description).replace(/\[产品\]/g, analysis.product_description));
+        
+        // 如果选定的角度不足以填满网格，则循环填充或补充 AI 姿势
+        let combinedPoses = [...selectedPrompts];
+        while (combinedPoses.length < totalPoses) {
+          // 优先从 AI 生成的姿势列表中补充不重复的内容
+          const rawPoses = analysis.poses_list;
+          const aiPoses = Array.isArray(rawPoses) 
+            ? rawPoses 
+            : (typeof rawPoses === 'string' ? rawPoses.split('\n') : []);
+          
+          const validAiPoses = aiPoses.filter((p: any) => typeof p === 'string' && p.trim() !== '');
+          const nextAiPose = validAiPoses[combinedPoses.length % Math.max(1, validAiPoses.length)] || "Natural fashion pose";
+          combinedPoses.push(nextAiPose);
+        }
+        
+        finalPosesList = combinedPoses.map((p, i) => `Pose ${i + 1}: ${p}`).join('\n');
+      }
+
       const gridRules = isHorizontal
         ? `[GRID CONFIG]: Strictly 4x2 matrix (4 columns, 2 rows). Total 8 UNIQUE images.
 [PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
 [SEAMLESS]: NO black lines, NO borders, NO gaps. 
 [SHOT ASSIGNMENT]: Result(0,0)=Ref Image 1, Result(0,1)=Ref Image 2. All 8 cells MUST show the MODEL wearing the product. NO standalone accessory shots (even if a Ref Image is just an accessory).
-[POSES]: Plan 8 dynamic fashion poses based on: ${analysis.poses_list}`
+[POSES]: Plan 8 dynamic fashion poses based on: ${finalPosesList}`
         : `[GRID CONFIG]: Strictly 3x4 matrix (3 columns, 4 rows). Total 12 UNIQUE images.
 [PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
 [SEAMLESS]: NO black lines, NO borders, NO gaps.
 [SHOT ASSIGNMENT]: Result(0,0)=Ref Image 1, Result(0,1)=Ref Image 2. All 12 cells MUST show the MODEL wearing the product. NO standalone accessory shots (even if a Ref Image is just an accessory).
-[POSES]: Plan 12 dynamic fashion poses based on: ${analysis.poses_list}`;
+[POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
 
-      const prompt = `[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the reference images. Zero identity drift. 
+      // --- 动态图像索引计算 (用于精确引导 AI) ---
+      const modelCount = modelImages.length;
+      const productCount = productImages.length;
+      const accessoryCount = accessoryImages.length;
+      
+      const productIdxRange = productCount > 0 
+        ? `Image ${modelCount + 1}${productCount > 1 ? ` to Image ${modelCount + productCount}` : ""}`
+        : "None";
+      
+      const accessoryIdxRange = accessoryCount > 0
+        ? `Image ${modelCount + productCount + 1}${accessoryCount > 1 ? ` to Image ${modelCount + productCount + accessoryCount}` : ""}`
+        : "None";
+
+      const prompt = `${promptPrefix}[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the model reference images (Image 1 to Image ${modelCount}). Zero identity drift. 
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
 - Model Traits (User Input): ${specificFeatures}
-[BODY DIMENSIONS]: CRITICAL: Match the model's build, height, and proportions exactly as shown in the reference images. 
+[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the model reference.
 - Build/Measurements (User Input): ${bodyInfo}
-- NO body shape variation. The model MUST be physically identical to the reference.
-[PRODUCT CLONE]: CRITICAL: The model MUST wear the EXACT SAME product (garment/accessories) as Image 1. Color: ${analysis.product_description}. 1:1 material and style replication. 
+[OUTFIT REPLACEMENT - MANDATORY]:
+- **STRIP AND IGNORE**: CRITICAL: Completely STRIP and IGNORE the original clothing/garment pixels worn by the model in Image 1 to Image ${modelCount}. 
+- **BASE BODY ONLY**: Treat the model in reference images as a blank 'base body' or nude mannequin. 
+- **REPLACE FROM SCRATCH**: Dress the model from scratch using ONLY the items in ${productIdxRange} AND ${accessoryIdxRange}.
+[PRODUCT CLONE - STRUCTURAL IDENTITY]:
+- **MATCH PRODUCT 1:1**: The model MUST wear the EXACT SAME product shown in ${productIdxRange}.
+- **STRUCTURAL CONSISTENCY**: 1:1 exact replication of garment structure, seams, buttons, texture, and fit. NO alterations, NO deformations.
+[ENSEMBLE PIECES & ACCESSORIES - MANDATORY]:
+- **COMPLETE LOOK**: EVERY SINGLE GRID CELL MUST show the model wearing the **COMPLETE LOOK** of ALL items provided.
+- **MANDATORY LOWER GARMENT**: If a lower garment (e.g., JEANS, SKIRT, PANTS) is present in ${accessoryIdxRange}, the model MUST wear it. DO NOT generate alternative or matching-color leggings.
+- **MATERIAL INDEPENDENCE**: Maintain the specific material of each piece. If ${accessoryIdxRange} shows BLUE DENIM JEANS, they MUST be rendered as BLUE DENIM, not pink leggings matching the top.
+- **ACCESSORY SYNC**: All other items in ${accessoryIdxRange} (bags, shoes, jewelry) MUST be worn/carried in every cell.
+- Accessory Detail: ${analysis.accessory_description}.
 [VISUAL ANALYSIS]:
 - Product Detail: ${analysis.product_description}
 - Accessories: ${analysis.accessory_description}
 ${gridRules}
 [ANGLE SYNC]: EVERY grid cell MUST follow the angles (Front/Side/Back) identified in the dynamic poses above. 
-- CRITICAL: Poses mapped to FRONT/SIDE/BACK MUST align with the corresponding views in the reference images.
 [COMPOSITION]: 
 - EVERY grid cell MUST show the MODEL wearing the product. 
 - ABSOLUTELY NO standalone product shots (NO shoes/bags/accessories only).
@@ -170,6 +244,7 @@ ${gridRules}
 - Full-body or 3/4 shots are preferred to showcase the product.
 - Background: PURE WHITE (#FFFFFF). NO shadows.
 - Each model must fit perfectly within their mathematically divided grid cell, maintaining 100% accurate human body proportions (no stretching/squashing).
+- **CRITICAL**: This rule applies to both 16:9 (horizontal) and 9:16 (vertical) layouts. Consistency is mandatory across all ${totalPoses} cells.
 [OUTPUT]: Generate a single ${isHorizontal ? '3:2' : '9:16'} image containing the requested grid pattern.`;
 
       const result = await generateImageToImage(apiImages, prompt, {
@@ -207,7 +282,12 @@ ${gridRules}
       ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
       const cover = canvas.toDataURL("image/jpeg", 0.75);
       
-      const poses = analysisResult.poses_list.split('\n').filter((p: string) => p.trim() !== '');
+      const rawPoses = analysisResult.poses_list;
+      const poses = Array.isArray(rawPoses) 
+        ? rawPoses 
+        : (typeof rawPoses === 'string' ? rawPoses.split('\n') : []);
+      
+      const validPoses = poses.filter((p: any) => typeof p === 'string' && p.trim() !== '');
       
       try {
         savePoseSet({
@@ -215,7 +295,7 @@ ${gridRules}
           name: `${new Date().toLocaleDateString()} ${aspectRatio} 自动预设大图`,
           aspectRatio,
           coverImage: cover,
-          poses,
+          poses: validPoses,
           createdAt: Date.now()
         });
         alert("🎁 这张整版生成的原图已存入您的历史动作库，以后随时可以打开它进行单独裁切生图！");
@@ -384,6 +464,46 @@ ${gridRules}
               onChange={(e) => setSpecificFeatures(e.target.value)}
               className="w-full bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
             />
+          </div>
+
+          <div className="space-y-3 bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-pastel-highlight flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5" /> 亚马逊固定角度
+              </h3>
+              <button 
+                onClick={() => setIsAmazonEnabled(!isAmazonEnabled)}
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold transition-all ${isAmazonEnabled ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+              >
+                {isAmazonEnabled ? '已启用' : '已关闭'}
+              </button>
+            </div>
+            
+            {isAmazonEnabled && (
+              <div className="grid grid-cols-4 gap-2 mt-2">
+                {AMAZON_ANGLES.map(angle => (
+                  <button
+                    key={angle.id}
+                    onClick={() => {
+                      setSelectedAmazonAngles(prev => 
+                        prev.includes(angle.id) ? prev.filter(id => id !== angle.id) : [...prev, angle.id]
+                      );
+                    }}
+                    title={angle.label}
+                    className={`h-8 text-xs font-bold rounded-lg border transition-all ${
+                      selectedAmazonAngles.includes(angle.id) 
+                        ? 'border-orange-400 bg-orange-50 text-orange-600' 
+                        : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-orange-200'
+                    }`}
+                  >
+                    {angle.id}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-pastel-muted italic mt-1">
+              {isAmazonEnabled ? '已锁定 7 个专业电商角度，将覆盖自动分析的姿势。' : '当前使用 AI 全自动姿势裂变。'}
+            </p>
           </div>
 
           <div className="space-y-2">
