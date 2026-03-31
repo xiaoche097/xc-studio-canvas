@@ -38,6 +38,12 @@ const InpaintingTab: React.FC = () => {
   const [refFiles, setRefFiles] = useState<File[]>([]);
   const [refUrls, setRefUrls] = useState<string[]>([]);
 
+  // 批量生成（参考图批量）
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [selectedRefIdxs, setSelectedRefIdxs] = useState<number[]>([]);
+  const [resultView, setResultView] = useState<'single' | 'batch'>('single');
+  const [batchResults, setBatchResults] = useState<Array<{ refIdx: number; refUrl: string; image?: string; error?: string }>>([]);
+
   // 面料参考图状态（用于保证面料纹理一致性，最多2张）
   const [fabricRefFiles, setFabricRefFiles] = useState<File[]>([]);
   const [fabricRefUrls, setFabricRefUrls] = useState<string[]>([]);
@@ -98,13 +104,25 @@ const InpaintingTab: React.FC = () => {
   const handleRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
-      if (refFiles.length + files.length > 5) {
-        setError('参考图最多5张');
+      if (refFiles.length + files.length > 10) {
+        setError('参考图最多10张');
         setTimeout(() => setError(null), 3000);
         return;
       }
+      const startIdx = refFiles.length;
+      const urls = files.map(f => URL.createObjectURL(f));
+
       setRefFiles(prev => [...prev, ...files]);
-      setRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+      setRefUrls(prev => [...prev, ...urls]);
+
+      // 批量模式下，新上传的参考图默认加入勾选
+      if (isBatchMode) {
+        setSelectedRefIdxs(prev => {
+          const next = new Set(prev);
+          for (let i = 0; i < files.length; i++) next.add(startIdx + i);
+          return Array.from(next).sort((a, b) => a - b);
+        });
+      }
     }
   };
 
@@ -140,6 +158,20 @@ const InpaintingTab: React.FC = () => {
     URL.revokeObjectURL(refUrls[idx]);
     setRefFiles(prev => prev.filter((_, i) => i !== idx));
     setRefUrls(prev => prev.filter((_, i) => i !== idx));
+
+    // keep selection indices consistent
+    setSelectedRefIdxs(prev =>
+      prev
+        .filter(i => i !== idx)
+        .map(i => (i > idx ? i - 1 : i))
+    );
+
+    // prune batch results
+    setBatchResults(prev =>
+      prev
+        .filter(r => r.refIdx !== idx)
+        .map(r => (r.refIdx > idx ? { ...r, refIdx: r.refIdx - 1 } : r))
+    );
   };
 
   const removeFabricRefImage = (idx: number) => {
@@ -337,6 +369,7 @@ const InpaintingTab: React.FC = () => {
     if (!sourceFile || !hasMask || !description) return;
     setError(null);
     setProgress('');
+    setResultView('single');
 
     if ((window as any).aistudio) {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
@@ -406,6 +439,100 @@ const InpaintingTab: React.FC = () => {
       setProgress('生成完成！');
       setGeneratedImages(results);
 
+    } catch (error: any) {
+      setError(getErrorMessage(error));
+    } finally {
+      setIsGenerating(false);
+      setProgress('');
+    }
+  };
+
+  const handleBatchGenerate = async () => {
+    if (!sourceFile || !hasMask || !description) return;
+
+    const selected = selectedRefIdxs
+      .filter((idx) => idx >= 0 && idx < refFiles.length)
+      .slice(0, 10);
+
+    if (selected.length === 0) {
+      setError('请至少勾选 1 张参考图进行批量生成');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setError(null);
+    setProgress('');
+    setResultView('batch');
+
+    if ((window as any).aistudio) {
+      try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
+    }
+
+    setIsGenerating(true);
+    setBatchResults([]);
+
+    try {
+      setProgress('正在压缩原图...');
+      const sourceBase64 = await blobToBase64(sourceFile);
+
+      setProgress('正在导出蒙版...');
+      const maskBase64 = exportMask();
+      if (!maskBase64) throw new Error('蒙版导出失败');
+
+      // optional refs
+      let fabricRefImagesData: { base64: string; mimeType: string }[] | undefined;
+      if (fabricRefFiles.length > 0) {
+        setProgress('正在处理面料参考...');
+        fabricRefImagesData = await Promise.all(fabricRefFiles.map(async file => ({
+          base64: await blobToBase64(file),
+          mimeType: file.type
+        })));
+      }
+
+      let colorRefImagesData: { base64: string; mimeType: string }[] | undefined;
+      if (colorRefFiles.length > 0) {
+        setProgress('正在处理颜色参考...');
+        colorRefImagesData = await Promise.all(colorRefFiles.map(async file => ({
+          base64: await blobToBase64(file),
+          mimeType: file.type
+        })));
+      }
+
+      const prompt = `${description}\n\nUse the clothing/outfit (top and pants/shorts) from the reference image (Image 3) for the WHITE mask area. Match garment structure, pattern, and fabric appearance as closely as possible.`;
+
+      for (let i = 0; i < selected.length; i++) {
+        const refIdx = selected[i];
+        const refFile = refFiles[refIdx];
+        const refUrl = refUrls[refIdx];
+
+        setProgress(`批量生成中 ${i + 1}/${selected.length}...`);
+
+        try {
+          const refBase64 = await blobToBase64(refFile);
+          const results = await generateInpainting(
+            { base64: sourceBase64, mimeType: sourceFile.type },
+            { base64: maskBase64, mimeType: 'image/png' },
+            prompt,
+            {
+              aspectRatio,
+              resolution,
+              modelId: selectedModel,
+              refImages: [{ base64: refBase64, mimeType: refFile.type }],
+              fabricRefImages: fabricRefImagesData,
+              colorRefImages: colorRefImagesData,
+            }
+          );
+
+          const first = results?.[0];
+          if (!first) throw new Error('模型未返回图片');
+
+          setBatchResults((prev) => [...prev, { refIdx, refUrl, image: first }]);
+        } catch (e: any) {
+          setBatchResults((prev) => [...prev, { refIdx, refUrl, error: getErrorMessage(e) }]);
+        }
+      }
+
+      setProgress('批量生成完成！');
     } catch (error: any) {
       setError(getErrorMessage(error));
     } finally {
@@ -602,8 +729,8 @@ const InpaintingTab: React.FC = () => {
                 setIsDraggingRef(false);
                 if (e.dataTransfer.files) {
                   const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-                  if (refFiles.length + files.length > 5) {
-                    setError('参考图最多5张');
+                  if (refFiles.length + files.length > 10) {
+                    setError('参考图最多10张');
                     setTimeout(() => setError(null), 3000);
                     return;
                   }
@@ -618,18 +745,45 @@ const InpaintingTab: React.FC = () => {
               <div
                 className="flex flex-wrap gap-2 p-2 rounded-lg"
               >
-                {refUrls.map((url, idx) => (
-                  <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/ref">
-                    <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => removeRefImage(idx)}
-                      className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/ref:opacity-100 transition-all"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                ))}
-                {refFiles.length < 5 && (
+                {refUrls.map((url, idx) => {
+                  const isSelected = selectedRefIdxs.includes(idx);
+                  return (
+                    <div key={idx} className={`relative w-16 h-16 rounded-lg overflow-hidden border group/ref cursor-pointer transition-all ${isBatchMode && isSelected ? 'ring-2 ring-pastel-highlight border-pastel-highlight/50' : 'border-pastel-border'}`}>
+                      <img
+                        src={url}
+                        alt={`Ref ${idx}`}
+                        className="w-full h-full object-cover"
+                        onClick={() => {
+                          if (!isBatchMode) return;
+                          setSelectedRefIdxs(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx].sort((a, b) => a - b));
+                        }}
+                      />
+
+                      {isBatchMode && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setSelectedRefIdxs(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx].sort((a, b) => a - b));
+                          }}
+                          className={`absolute left-0.5 top-0.5 z-10 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-black transition-all ${isSelected ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white/90 border-gray-200 text-gray-500'}`}
+                          title={isSelected ? '已选中' : '点击选中'}
+                        >
+                          {isSelected ? '✓' : ''}
+                        </button>
+                      )}
+
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRefImage(idx); }}
+                        className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/ref:opacity-100 transition-all"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {refFiles.length < 10 && (
                   <button
                     onClick={() => refInputRef.current?.click()}
                     className="w-16 h-16 flex flex-col items-center justify-center border-2 border-dashed border-pastel-border rounded-lg cursor-pointer hover:bg-pastel-bg hover:border-pastel-highlight/50 transition-colors text-pastel-muted hover:text-pastel-highlight"
@@ -647,8 +801,65 @@ const InpaintingTab: React.FC = () => {
                 onChange={handleRefUpload}
                 className="hidden"
               />
-              {refFiles.length > 0 && (
-                <p className="text-[10px] text-pastel-muted mt-1.5">已选 {refFiles.length} 张参考图</p>
+
+              <div className="flex items-center justify-between mt-2">
+                {refFiles.length > 0 ? (
+                  <p className="text-[10px] text-pastel-muted">已选 {refFiles.length} 张参考图</p>
+                ) : (
+                  <span />
+                )}
+
+                <label className="flex items-center gap-2 text-[10px] font-bold text-pastel-muted select-none cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isBatchMode}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setIsBatchMode(next);
+                      if (next) {
+                        setSelectedRefIdxs(refFiles.map((_, i) => i));
+                      } else {
+                        setSelectedRefIdxs([]);
+                      }
+                    }}
+                  />
+                  批量生成
+                </label>
+              </div>
+
+              {isBatchMode && refFiles.length > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRefIdxs(refFiles.map((_, i) => i))}
+                    className="px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-[10px] font-bold text-pastel-muted hover:bg-pastel-bg shadow-sm transition-all"
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRefIdxs([])}
+                    className="px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-[10px] font-bold text-pastel-muted hover:bg-pastel-bg shadow-sm transition-all"
+                  >
+                    全不选
+                  </button>
+
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-[10px] text-pastel-muted">已勾选 {selectedRefIdxs.length} 张</span>
+                    <button
+                      type="button"
+                      onClick={handleBatchGenerate}
+                      disabled={!sourceFile || !hasMask || !description || isGenerating || selectedRefIdxs.length === 0}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 transition-all shadow-sm active:scale-[0.98] ${!sourceFile || !hasMask || !description || isGenerating || selectedRefIdxs.length === 0
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                        : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white hover:brightness-105'
+                        }`}
+                    >
+                      {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      批量生成（{Math.min(10, selectedRefIdxs.length)}）
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -929,52 +1140,136 @@ const InpaintingTab: React.FC = () => {
                 <ImageIcon className="w-5 h-5 text-pastel-highlight" />
                 生成结果
               </h3>
-              {generatedImages.length > 0 && (
-                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
-                  完成
-                </span>
+                {generatedImages.length > 0 || batchResults.length > 0 ? (
+                  <div className="flex items-center gap-1 bg-white border border-pastel-border rounded-lg p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setResultView('single')}
+                      className={`px-2 py-1 rounded-md text-[10px] font-black transition-all ${resultView === 'single'
+                        ? 'bg-pastel-highlight/10 text-pastel-highlight'
+                        : 'text-pastel-muted hover:bg-pastel-bg'}`}
+                    >
+                      单次
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResultView('batch')}
+                      className={`px-2 py-1 rounded-md text-[10px] font-black transition-all ${resultView === 'batch'
+                        ? 'bg-pastel-highlight/10 text-pastel-highlight'
+                        : 'text-pastel-muted hover:bg-pastel-bg'}`}
+                    >
+                      批量
+                    </button>
+                  </div>
+                ) : null}
+
+              {generatedImages.length > 0 && resultView === 'single' && (
+                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">完成</span>
+              )}
+              {batchResults.length > 0 && resultView === 'batch' && (
+                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">完成</span>
               )}
             </div>
 
             <div className="flex-1 flex items-center justify-center bg-pastel-bg rounded-lg border-2 border-dashed border-pastel-border overflow-hidden relative">
-              {generatedImages.length > 0 ? (
-                <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
-                  {generatedImages.map((imgSrc, idx) => (
-                    <div key={idx} className="mb-6 last:mb-0 group/card relative animate-in fade-in slide-in-from-bottom-4 duration-500">
-                      <div className="relative rounded-lg shadow-lg border border-pastel-border overflow-hidden">
-                        <img
-                          src={imgSrc}
-                          alt="Inpainting Result"
-                          className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
-                          onClick={() => setZoomImage(imgSrc)}
-                        />
-                      </div>
-                      {/* Action Buttons */}
-                      <div className="flex items-center gap-2 mt-3">
-                        <button
-                          onClick={() => downloadImage(imgSrc, `inpainting_${Date.now()}.png`)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-xs text-pastel-text hover:bg-pastel-bg shadow-sm transition-all"
-                        >
-                          <Download className="w-3.5 h-3.5" /> 下载
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center text-pastel-muted">
-                  <div className="w-20 h-20 bg-pastel-bg border-2 border-dashed border-pastel-border rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <Paintbrush className="w-10 h-10 text-pastel-border" />
+              {resultView === 'batch' ? (
+                batchResults.length > 0 ? (
+                  <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
+                    {batchResults
+                      .slice()
+                      .sort((a, b) => a.refIdx - b.refIdx)
+                      .map((item) => (
+                        <div key={`batch-${item.refIdx}`} className="mb-6 last:mb-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-10 h-10 rounded-lg overflow-hidden border border-pastel-border bg-white shrink-0">
+                              <img src={item.refUrl} alt={`Ref ${item.refIdx}`} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-xs font-bold text-pastel-text">参考图 #{item.refIdx + 1}</div>
+                              {item.error ? (
+                                <div className="text-[10px] text-red-600">{item.error}</div>
+                              ) : (
+                                <div className="text-[10px] text-green-700">生成成功</div>
+                              )}
+                            </div>
+                          </div>
+
+                          {item.image && (
+                            <div className="group/card relative">
+                              <div className="relative rounded-lg shadow-lg border border-pastel-border overflow-hidden">
+                                <img
+                                  src={item.image}
+                                  alt="Batch Inpainting Result"
+                                  className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
+                                  onClick={() => setZoomImage(item.image!)}
+                                />
+                              </div>
+                              <div className="flex items-center gap-2 mt-3">
+                                <button
+                                  onClick={() => downloadImage(item.image!, `inpainting_batch_${item.refIdx + 1}_${Date.now()}.png`)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-xs text-pastel-text hover:bg-pastel-bg shadow-sm transition-all"
+                                >
+                                  <Download className="w-3.5 h-3.5" /> 下载
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                   </div>
-                  <p className="text-sm">
-                    {isGenerating && progress ? progress : '替换后的图片将显示在这里'}
-                  </p>
-                  {isGenerating && (
-                    <div className="mt-4 flex justify-center">
-                      <Loader2 className="w-6 h-6 animate-spin text-pastel-highlight" />
+                ) : (
+                  <div className="text-center text-pastel-muted">
+                    <div className="w-20 h-20 bg-pastel-bg border-2 border-dashed border-pastel-border rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Grid className="w-10 h-10 text-pastel-border" />
                     </div>
-                  )}
-                </div>
+                    <p className="text-sm">{isGenerating && progress ? progress : '批量生成的结果将显示在这里'}</p>
+                    {isGenerating && (
+                      <div className="mt-4 flex justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-pastel-highlight" />
+                      </div>
+                    )}
+                  </div>
+                )
+              ) : (
+                generatedImages.length > 0 ? (
+                  <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
+                    {generatedImages.map((imgSrc, idx) => (
+                      <div key={idx} className="mb-6 last:mb-0 group/card relative animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="relative rounded-lg shadow-lg border border-pastel-border overflow-hidden">
+                          <img
+                            src={imgSrc}
+                            alt="Inpainting Result"
+                            className="w-full h-auto cursor-zoom-in hover:brightness-[1.02] transition-all duration-300"
+                            onClick={() => setZoomImage(imgSrc)}
+                          />
+                        </div>
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-2 mt-3">
+                          <button
+                            onClick={() => downloadImage(imgSrc, `inpainting_${Date.now()}.png`)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-xs text-pastel-text hover:bg-pastel-bg shadow-sm transition-all"
+                          >
+                            <Download className="w-3.5 h-3.5" /> 下载
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center text-pastel-muted">
+                    <div className="w-20 h-20 bg-pastel-bg border-2 border-dashed border-pastel-border rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Paintbrush className="w-10 h-10 text-pastel-border" />
+                    </div>
+                    <p className="text-sm">
+                      {isGenerating && progress ? progress : '替换后的图片将显示在这里'}
+                    </p>
+                    {isGenerating && (
+                      <div className="mt-4 flex justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-pastel-highlight" />
+                      </div>
+                    )}
+                  </div>
+                )
               )}
             </div>
           </div>
