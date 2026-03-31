@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import PoseFissionTab from './PoseFissionTab.tsx';
-import ModelAdjustTab from './ModelAdjustTab.tsx';
+import ModelAdjustTab from './ModelAdjustTabV2.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
 import { ArrowLeft, UserCircle2, Wand2, Settings } from 'lucide-react';
 

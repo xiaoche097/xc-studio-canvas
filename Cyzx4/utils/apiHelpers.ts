@@ -333,7 +333,15 @@ export function getErrorMessage(error: any): string {
     }
 
     // 图片处理错误
-    if (errorMsg.includes('image') || errorMsg.includes('canvas') || errorMsg.includes('File reading')) {
+    if (
+        errorMsg.includes('canvas') ||
+        errorMsg.includes('File reading') ||
+        errorMsg.includes('data URL') ||
+        errorMsg.includes('mime') ||
+        errorMsg.includes('unsupported image format') ||
+        errorMsg.includes('Invalid image') ||
+        errorMsg.includes('图片格式')
+    ) {
         return '🖼️ 图片处理失败\n请检查图片格式是否正确（支持 JPG、PNG）';
     }
 

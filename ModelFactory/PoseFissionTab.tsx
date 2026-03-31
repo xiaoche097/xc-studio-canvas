@@ -1,22 +1,286 @@
 import React, { useState } from 'react';
 import { Upload, X, Zap, Loader2, FolderHeart } from 'lucide-react';
 import { generateImageToImage, analyzeFissionContext } from '../Cyzx4/services/geminiService';
+import { AspectRatio } from '../Cyzx4/types';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import MainAngleGallery from './MainAngleGallery';
 import PoseGrid from './PoseGrid';
 import PoseLibraryModal, { savePoseSet } from './components/PoseLibraryModal';
 
+type AngleThumbSpec = {
+  view: 'front' | 'back' | 'threeQuarter';
+  hands: 'down' | 'pockets' | 'behindBack' | 'hip' | 'pullHem';
+  crop: 'tight' | 'mid';
+};
+
+const AngleThumb: React.FC<{ spec: AngleThumbSpec; active?: boolean }> = ({ spec, active }) => {
+  // Simple SVG wireframe thumbnail: locks only pose/framing cues, not identity/outfit.
+  const stroke = active ? '#f97316' : '#94a3b8'; // orange-500 / slate-400
+  const fill = active ? 'rgba(249,115,22,0.06)' : 'rgba(148,163,184,0.06)';
+
+  const hasHead = true;
+  const isBack = spec.view === 'back';
+  const is3q = spec.view === 'threeQuarter';
+  const isTight = spec.crop === 'tight';
+
+  // Coordinate system: viewBox 0 0 60 80
+  // Framing: tight -> larger torso, less legs
+  const torsoTop = isTight ? 14 : 12;
+  const torsoBottom = isTight ? 58 : 62;
+  const hipY = isTight ? 44 : 48;
+
+  // Body tilt for 3/4
+  const tiltX = is3q ? 3 : 0;
+
+  // Arms
+  const armMode = spec.hands;
+
+  return (
+    <svg viewBox="0 0 60 80" className="w-10 h-14 rounded-md border border-slate-200 bg-white" aria-hidden="true">
+      <rect x="1" y="1" width="58" height="78" rx="8" fill={fill} stroke="none" />
+
+      {/* head */}
+      {hasHead && (
+        <circle cx={30 + tiltX} cy={10} r={6} fill="none" stroke={stroke} strokeWidth={2} opacity={0.9} />
+      )}
+
+      {/* neck/shoulders */}
+      <path
+        d={`M ${22 + tiltX} ${torsoTop} Q ${30 + tiltX} ${torsoTop - 6} ${38 + tiltX} ${torsoTop}`}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={2}
+        opacity={0.9}
+      />
+
+      {/* torso */}
+      <path
+        d={`M ${20 + tiltX} ${torsoTop} L ${17 + tiltX} ${hipY} Q ${30 + tiltX} ${torsoBottom} ${43 + tiltX} ${hipY} L ${40 + tiltX} ${torsoTop}`}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={2}
+        opacity={0.9}
+      />
+
+      {/* back cue */}
+      {isBack && (
+        <path
+          d={`M ${30 + tiltX} ${torsoTop + 6} L ${30 + tiltX} ${hipY - 4}`}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={1.5}
+          opacity={0.7}
+          strokeDasharray="2 2"
+        />
+      )}
+
+      {/* arms/hands */}
+      {armMode === 'down' && (
+        <>
+          <path d={`M ${20 + tiltX} ${torsoTop + 8} L ${13 + tiltX} ${hipY + 10}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${40 + tiltX} ${torsoTop + 8} L ${47 + tiltX} ${hipY + 10}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+        </>
+      )}
+      {armMode === 'pockets' && (
+        <>
+          <path d={`M ${20 + tiltX} ${torsoTop + 10} L ${24 + tiltX} ${hipY + 4}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${40 + tiltX} ${torsoTop + 10} L ${36 + tiltX} ${hipY + 4}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${23 + tiltX} ${hipY + 4} L ${27 + tiltX} ${hipY + 8}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${37 + tiltX} ${hipY + 4} L ${33 + tiltX} ${hipY + 8}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+        </>
+      )}
+      {armMode === 'behindBack' && (
+        <>
+          <path d={`M ${18 + tiltX} ${torsoTop + 10} Q ${30 + tiltX} ${hipY + 10} ${42 + tiltX} ${torsoTop + 10}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.75} />
+          <circle cx={30 + tiltX} cy={hipY + 10} r={2} fill={stroke} opacity={0.75} />
+        </>
+      )}
+      {armMode === 'hip' && (
+        <>
+          <path d={`M ${20 + tiltX} ${torsoTop + 10} L ${26 + tiltX} ${hipY + 2}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${26 + tiltX} ${hipY + 2} L ${22 + tiltX} ${hipY + 6}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${40 + tiltX} ${torsoTop + 8} L ${47 + tiltX} ${hipY + 10}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+        </>
+      )}
+      {armMode === 'pullHem' && (
+        <>
+          <path d={`M ${20 + tiltX} ${torsoTop + 10} L ${16 + tiltX} ${torsoBottom - 2}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${40 + tiltX} ${torsoTop + 10} L ${44 + tiltX} ${torsoBottom - 2}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${16 + tiltX} ${torsoBottom - 2} L ${12 + tiltX} ${torsoBottom + 2}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+          <path d={`M ${44 + tiltX} ${torsoBottom - 2} L ${48 + tiltX} ${torsoBottom + 2}`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.85} />
+        </>
+      )}
+
+      {/* legs hint (for mid crop only) */}
+      {!isTight && (
+        <>
+          <path d={`M ${27 + tiltX} ${torsoBottom - 2} L ${24 + tiltX} 74`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.65} />
+          <path d={`M ${33 + tiltX} ${torsoBottom - 2} L ${36 + tiltX} 74`} fill="none" stroke={stroke} strokeWidth={2} opacity={0.65} />
+        </>
+      )}
+    </svg>
+  );
+};
+
+type AngleDef = {
+  id: string;
+  label: string;
+  prompt: string;
+  thumb?: AngleThumbSpec;
+};
+
+type AnglePreset = {
+  id: 'ai' | 'amazon' | 'main';
+  label: string;
+  motherPrompt?: string;
+  angles: AngleDef[];
+};
+
+type GeneratedMainAngle = AngleDef & {
+  imageUrl: string;
+};
+
+const ANGLE_META_LABELS = {
+  view: {
+    front: '正面',
+    back: '背面',
+    threeQuarter: '3/4 侧前',
+  },
+  hands: {
+    down: '手臂下垂',
+    pockets: '双手插袋',
+    behindBack: '双手背后',
+    hip: '单手搭腰',
+    pullHem: '拉摆动作',
+  },
+  crop: {
+    tight: '近景',
+    mid: '半身',
+  },
+} as const;
+
+const getAngleMeta = (thumb?: AngleThumbSpec) => {
+  if (!thumb) {
+    return [];
+  }
+
+  return [
+    ANGLE_META_LABELS.view[thumb.view],
+    ANGLE_META_LABELS.hands[thumb.hands],
+    ANGLE_META_LABELS.crop[thumb.crop],
+  ];
+};
+
 // 亚马逊固定角度定义
-const AMAZON_ANGLES = [
-  { id: 'A', label: '正面近景 + 肩背包带', prompt: "front view, straight-on, torso cropped from just below the mouth to upper thighs, shoulders level, slight S-curve posture, both arms placed behind the back, wearing a delicate silver necklace, black leather shoulder bag on the model’s left shoulder with visible strap and buckle" },
-  { id: 'B', label: '背面正对', prompt: "back view, straight-on, torso cropped from just below the mouth to mid-thigh, shoulders square to camera, arms relaxed down along the sides, hands near outer thighs" },
-  { id: 'C', label: '正面全正 + 双手自然下垂', prompt: "front view, straight-on, torso cropped from just below the mouth to mid-thigh, shoulders square, arms relaxed down, both hands resting near outer thighs" },
-  { id: 'D', label: '正面微转 + 一手搭腰', prompt: "front view with slight turn 10–15 degrees to camera-left, torso cropped from just below the mouth to mid-thigh, right hand placed on the waistband/hip with elbow bent, left arm relaxed down" },
-  { id: 'E', label: '正面近景 (主图感)', prompt: "front view, straight-on, slightly closer crop (from collarbones to upper thighs), arms relaxed down, subtle natural posture" },
-  { id: 'F', label: '侧前 3/4', prompt: "three-quarter view, body rotated 35–45 degrees to camera-right, head/face cropped out, torso cropped from just below the mouth to mid-thigh, arms relaxed down, posture upright" },
-  { id: 'G', label: '拉拽下摆展示弹力', prompt: "three-quarter view, body rotated 20–30 degrees to camera-right, torso cropped from just below the mouth to mid-thigh, both hands pulling the bottom hem of the tube top downward and slightly outward to show stretch, skirt remains in place" },
+const AMAZON_ANGLES: AngleDef[] = [
+  {
+    id: 'A',
+    label: '正面近景 + 肩背包带',
+    prompt:
+      "front view, straight-on, torso cropped from just below the mouth to upper thighs, shoulders level, slight S-curve posture, both arms placed behind the back, wearing a delicate silver necklace, black leather shoulder bag on the model’s left shoulder with visible strap and buckle",
+    thumb: { view: 'front', hands: 'behindBack', crop: 'tight' },
+  },
+  {
+    id: 'B',
+    label: '背面正对',
+    prompt:
+      "back view, straight-on, torso cropped from just below the mouth to mid-thigh, shoulders square to camera, arms relaxed down along the sides, hands near outer thighs",
+    thumb: { view: 'back', hands: 'down', crop: 'mid' },
+  },
+  {
+    id: 'C',
+    label: '正面全正 + 双手自然下垂',
+    prompt:
+      "front view, straight-on, torso cropped from just below the mouth to mid-thigh, shoulders square, arms relaxed down, both hands resting near outer thighs",
+    thumb: { view: 'front', hands: 'down', crop: 'mid' },
+  },
+  {
+    id: 'D',
+    label: '正面微转 + 一手搭腰',
+    prompt:
+      "front view with slight turn 10–15 degrees to camera-left, torso cropped from just below the mouth to mid-thigh, right hand placed on the waistband/hip with elbow bent, left arm relaxed down",
+    thumb: { view: 'threeQuarter', hands: 'hip', crop: 'mid' },
+  },
+  {
+    id: 'E',
+    label: '正面近景 (主图感)',
+    prompt:
+      "front view, straight-on, slightly closer crop (from collarbones to upper thighs), arms relaxed down, subtle natural posture",
+    thumb: { view: 'front', hands: 'down', crop: 'tight' },
+  },
+  {
+    id: 'F',
+    label: '侧前 3/4',
+    prompt:
+      "three-quarter view, body rotated 35–45 degrees to camera-right, head/face cropped out, torso cropped from just below the mouth to mid-thigh, arms relaxed down, posture upright",
+    thumb: { view: 'threeQuarter', hands: 'down', crop: 'mid' },
+  },
+  {
+    id: 'G',
+    label: '拉拽下摆展示弹力',
+    prompt:
+      "three-quarter view, body rotated 20–30 degrees to camera-right, torso cropped from just below the mouth to mid-thigh, both hands pulling the bottom hem of the tube top downward and slightly outward to show stretch, skirt remains in place",
+    thumb: { view: 'threeQuarter', hands: 'pullHem', crop: 'mid' },
+  },
 ];
 
-const AMAZON_MOTHER_PROMPT = "Studio e-commerce fashion photo on pure white seamless background, adult female model, eye-level camera, straight horizon, 85mm lens look, medium shot, centered composition, soft even studio lighting, minimal shadows, sharp focus, high resolution, Amazon catalog style, model’s face cropped out (frame cuts at the mouth/chin), same pose and camera angle as specified.";
+const AMAZON_MOTHER_PROMPT =
+  "Studio e-commerce fashion photo on pure white seamless background, adult female model, eye-level camera, straight horizon, 85mm lens look, medium shot, centered composition, soft even studio lighting, minimal shadows, sharp focus, high resolution, Amazon catalog style, model’s face cropped out (frame cuts at the mouth/chin), same pose and camera angle as specified.";
+
+// 主图角度（参考图一致的“角度/构图/姿势/比例”锁定）
+const MAIN_IMAGE_ANGLES: AngleDef[] = [
+  {
+    id: 'M1',
+    label: '主图-背面回眸（半身）',
+    prompt:
+      "back view, torso-focused main image framing, crop from just above the top of the head to upper thighs, shoulders level, arms relaxed down, natural stance, head turned slightly to camera-left (subtle over-shoulder feel), keep the same camera height and framing",
+    thumb: { view: 'back', hands: 'down', crop: 'mid' },
+  },
+  {
+    id: 'M2',
+    label: '主图-正面插袋（半身）',
+    prompt:
+      "front view, straight-on, main image framing, crop from just above the top of the head to upper thighs, both hands placed inside front jean pockets, elbows angled outward slightly, chest open, neutral confident stance, camera at chest level, centered composition",
+    thumb: { view: 'front', hands: 'pockets', crop: 'mid' },
+  },
+  {
+    id: 'M3',
+    label: '主图-正面插袋（更近景）',
+    prompt:
+      "front view, straight-on, closer main image crop (from upper chest to upper thighs), both hands inside front pockets, shoulders relaxed, minimal body twist, centered composition, keep proportions natural",
+    thumb: { view: 'front', hands: 'pockets', crop: 'tight' },
+  },
+  {
+    id: 'M4',
+    label: '主图-正面站姿（自然下垂）',
+    prompt:
+      "front view, straight-on, main image framing, crop from just above the top of the head to upper thighs, arms relaxed down, hands near outer thighs, neutral stance, centered composition, camera eye-level",
+    thumb: { view: 'front', hands: 'down', crop: 'mid' },
+  },
+  {
+    id: 'M5',
+    label: '主图-侧前 3/4（插袋）',
+    prompt:
+      "three-quarter front view, body rotated about 30–40 degrees to camera-left, main image framing crop from just above the top of the head to upper thighs, both hands inside front pockets, weight shifted slightly to one leg, shoulders relaxed, centered composition",
+    thumb: { view: 'threeQuarter', hands: 'pockets', crop: 'mid' },
+  },
+  {
+    id: 'M6',
+    label: '主图-侧前 3/4（视线侧看）',
+    prompt:
+      "three-quarter front view, body rotated about 30–40 degrees to camera-right, main image framing crop from just above the top of the head to upper thighs, arms relaxed down, head turned to look off-camera, neutral stance, centered composition",
+    thumb: { view: 'threeQuarter', hands: 'down', crop: 'mid' },
+  },
+];
+
+const MAIN_IMAGE_MOTHER_PROMPT =
+  "Studio e-commerce main-image style photo on pure white seamless background, adult female model, eye-level camera, straight horizon, clean centered composition, soft even studio lighting, minimal shadows, sharp focus, high resolution. IMPORTANT: Lock only the camera angle + framing/crop + pose/stance + body proportions to match the selected main-image angle specification exactly. Do NOT copy identity/outfit from any reference; only match angle/framing/pose.";
+
+const ANGLE_PRESETS: AnglePreset[] = [
+  { id: 'ai', label: 'AI 自动', angles: [] },
+  { id: 'amazon', label: '亚马逊固定角度', motherPrompt: AMAZON_MOTHER_PROMPT, angles: AMAZON_ANGLES },
+  { id: 'main', label: '主图角度', motherPrompt: MAIN_IMAGE_MOTHER_PROMPT, angles: MAIN_IMAGE_ANGLES },
+];
 
 const PoseFissionTab: React.FC = () => {
   const [modelImages, setModelImages] = useState<string[]>([]);
@@ -32,11 +296,39 @@ const PoseFissionTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [generatedGridImage, setGeneratedGridImage] = useState<string | null>(null);
+  const [generatedMainAngles, setGeneratedMainAngles] = useState<GeneratedMainAngle[]>([]);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
 
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [isAmazonEnabled, setIsAmazonEnabled] = useState(false);
-  const [selectedAmazonAngles, setSelectedAmazonAngles] = useState<string[]>(AMAZON_ANGLES.map(a => a.id));
+
+  const [selectedPresetId, setSelectedPresetId] = useState<AnglePreset['id']>('ai');
+  const [selectedAngleIds, setSelectedAngleIds] = useState<string[]>(AMAZON_ANGLES.map(a => a.id));
+
+  const currentPreset = ANGLE_PRESETS.find(p => p.id === selectedPresetId) || ANGLE_PRESETS[0];
+  const presetAngles = currentPreset.angles;
+  const isMainPreset = selectedPresetId === 'main';
+  const displayedMainAngles = isMainPreset
+    ? presetAngles
+        .filter(angle => selectedAngleIds.includes(angle.id))
+        .map(angle => ({
+          ...angle,
+          imageUrl: generatedMainAngles.find(result => result.id === angle.id)?.imageUrl || null,
+        }))
+    : [];
+
+  const handleSelectPreset = (presetId: AnglePreset['id']) => {
+    setSelectedPresetId(presetId);
+    const preset = ANGLE_PRESETS.find(p => p.id === presetId);
+    if (!preset || presetId === 'ai') {
+      setSelectedAngleIds([]);
+      return;
+    }
+    setSelectedAngleIds(preset.angles.map(a => a.id));
+  };
+
+  const toggleAngleId = (angleId: string) => {
+    setSelectedAngleIds(prev => (prev.includes(angleId) ? prev.filter(id => id !== angleId) : [...prev, angleId]));
+  };
 
   // --- Drag and Drop States ---
   const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory', idx: number} | null>(null);
@@ -134,8 +426,14 @@ const PoseFissionTab: React.FC = () => {
       alert("请提供至少 1 张主产品或模特的图片");
       return;
     }
+
+    if (selectedPresetId !== 'ai' && selectedAngleIds.length === 0) {
+      alert(isMainPreset ? "请至少选择 1 个主图角度" : "请至少选择 1 个固定角度");
+      return;
+    }
+
     setIsGenerating(true);
-    setStatusMessage("正在由 AI 视觉大脑分析产品细节与规划姿势...");
+    setStatusMessage(isMainPreset ? "正在分析参考图并锁定主图角度..." : "正在由 AI 视觉大脑分析产品细节与规划姿势...");
     
     try {
       const apiImages = [...productImages, ...modelImages, ...accessoryImages].map(imgUrl => {
@@ -146,70 +444,17 @@ const PoseFissionTab: React.FC = () => {
          return { mimeType: 'image/jpeg', base64: imgUrl.split(',')[1] || imgUrl };
       });
 
-      // 第二步：智能视觉分析
-      const analysis = await analyzeFissionContext(apiImages, aspectRatio);
-      
-      setStatusMessage("分析完成！正在根据动态姿势规划进行最终生成...");
-
-      const isHorizontal = aspectRatio === '16:9';
-      const totalPoses = isHorizontal ? 8 : 12;
-
-      // Ensure poses_list is always a string for gridRules
-      let basePoses = analysis.poses_list;
-      if (Array.isArray(basePoses)) {
-        basePoses = basePoses.join('\n');
-      }
-
-      // --- 亚马逊固定角度逻辑处理 ---
-      let finalPosesList = basePoses;
-      let promptPrefix = "";
-      
-      if (isAmazonEnabled && selectedAmazonAngles.length > 0) {
-        promptPrefix = AMAZON_MOTHER_PROMPT + "\n";
-        // 构造亚马逊姿势列表
-        const selectedPrompts = AMAZON_ANGLES
-          .filter(a => selectedAmazonAngles.includes(a.id))
-          .map(a => a.prompt.replace(/\[产品：[^\]]*\]/g, analysis.product_description).replace(/\[产品\]/g, analysis.product_description));
-        
-        // 如果选定的角度不足以填满网格，则循环填充或补充 AI 姿势
-        let combinedPoses = [...selectedPrompts];
-        while (combinedPoses.length < totalPoses) {
-          // 优先从 AI 生成的姿势列表中补充不重复的内容
-          const rawPoses = analysis.poses_list;
-          const aiPoses = Array.isArray(rawPoses) 
-            ? rawPoses 
-            : (typeof rawPoses === 'string' ? rawPoses.split('\n') : []);
-          
-          const validAiPoses = aiPoses.filter((p: any) => typeof p === 'string' && p.trim() !== '');
-          const nextAiPose = validAiPoses[combinedPoses.length % Math.max(1, validAiPoses.length)] || "Natural fashion pose";
-          combinedPoses.push(nextAiPose);
-        }
-        
-        finalPosesList = combinedPoses.map((p, i) => `Pose ${i + 1}: ${p}`).join('\n');
-      }
-
-      const gridRules = isHorizontal
-        ? `[GRID CONFIG]: Strictly 4x2 matrix (4 columns, 2 rows). Total 8 UNIQUE images.
-[PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
-[SEAMLESS]: NO black lines, NO borders, NO gaps.
-[REFERENCE USAGE]: Reference images are for guidance ONLY. Do NOT paste/copy any reference image into any grid cell. Every cell must be newly generated.
-[PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
-[POSES]: Plan 8 dynamic fashion poses based on: ${finalPosesList}`
-        : `[GRID CONFIG]: Strictly 3x4 matrix (3 columns, 4 rows). Total 12 UNIQUE images.
-[PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
-[SEAMLESS]: NO black lines, NO borders, NO gaps.
-[REFERENCE USAGE]: Reference images are for guidance ONLY. Do NOT paste/copy any reference image into any grid cell. Every cell must be newly generated.
-[PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
-[POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
+      const analysis = await analyzeFissionContext(apiImages, isMainPreset ? '9:16' : aspectRatio, {
+        productCount: productImages.length,
+        modelCount: modelImages.length,
+        accessoryCount: accessoryImages.length,
+      });
+      setAnalysisResult(analysis);
 
       const modelCount = modelImages.length;
       const productCount = productImages.length;
       const accessoryCount = accessoryImages.length;
 
-      // Image ordering for I2I:
-      // - Product images first (highest priority)
-      // - Then model identity references
-      // - Then optional accessories
       const productStartIdx = 1;
       const modelStartIdx = productCount + 1;
       const accessoryStartIdx = productCount + modelCount + 1;
@@ -226,20 +471,193 @@ const PoseFissionTab: React.FC = () => {
         ? `Image ${accessoryStartIdx}${accessoryCount > 1 ? ` to Image ${accessoryStartIdx + accessoryCount - 1}` : ""}`
         : "None";
 
-      const negativePrompt = [
+      const wardrobeLock = `[WARDROBE WHITELIST / SOURCE OUTFIT REMOVAL]:
+- Clothing from the model identity reference images (${modelIdxRange}) is NEVER allowed to remain in the result.
+- Treat model reference images as identity/body/proportion references only. Their original clothes, inner layers, sleeves, pants, skirts, bras, slips, and styling must be ignored and removed.
+- The ONLY allowed visible wardrobe items are:
+  1. the PRIMARY PRODUCT from ${productIdxRange}
+  2. optional accessories / extra wearable items from ${accessoryIdxRange}
+- If any visible garment is not present in the product or accessory references, remove it completely.
+- Do not preserve any underlayer, undershirt, base tee, original sleeve, original collar, or original hem from the model reference.
+- If the PRIMARY PRODUCT is sleeveless / strapless / cropped / open-back, the result must keep that exact exposed structure with no extra fabric added underneath.`;
+
+      const identityLock = modelCount > 0
+        ? `[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the model identity reference images (${modelIdxRange}). Zero identity drift.
+- Model Traits (Auto-Analysis): ${analysis.model_identity}
+- Model Traits (User Input): ${specificFeatures || "None"}`
+        : `[MODEL CREATION]: No dedicated model identity references were provided.
+- Build one consistent adult female model based on garment fit, user notes, and any visible person in the reference set.
+- Model Traits (User Input): ${specificFeatures || "None"}`;
+
+      const baseNegativePrompt = [
         "original outfit",
         "keep original clothes",
         "different clothing",
         "wrong garment",
+        "source clothing remnants",
+        "visible undershirt",
+        "inner tee",
+        "extra sleeves",
+        "added underlayer",
+        "leftover model-reference clothes",
+        "wrong pants",
+        "wrong skirt",
+        "unreferenced clothing",
         "copy/paste reference",
         "duplicate reference image",
       ].join(", ");
 
-      const prompt = `${promptPrefix}[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the model identity reference images (${modelIdxRange}). Zero identity drift.
+      if (isMainPreset) {
+        const mainAngles = currentPreset.angles.filter(angle => selectedAngleIds.includes(angle.id));
+        setGeneratedGridImage(null);
+        setGeneratedMainAngles([]);
+        setStatusMessage("分析完成，正在逐张生成主图角度...");
+
+        const mainResults: GeneratedMainAngle[] = [];
+
+        for (const [index, angle] of mainAngles.entries()) {
+          setStatusMessage(`正在生成 ${angle.id} ${angle.label} (${index + 1}/${mainAngles.length})...`);
+
+          const mainPrompt = `${currentPreset.motherPrompt || MAIN_IMAGE_MOTHER_PROMPT}
+[SHOT TYPE]: Single fashion catalog main image only. No collage, no grid, no multi-angle sheet.
+[SELECTED ANGLE]: ${angle.id} - ${angle.label}
+[ANGLE BLUEPRINT]: ${angle.prompt}
+
+[NON-NEGOTIABLE ANGLE LOCK]:
+- Match the selected angle blueprint as literally as possible.
+- Preserve the exact view direction, crop distance, head visibility, body rotation, shoulder line, hand placement, and white-space balance.
+- Keep the model centered on a portrait 4:5 canvas.
+- Maintain the same half-body / close crop level described above. Do NOT zoom wider or tighter.
+- Do not improvise a new pose, camera height, lens feel, or composition.
+
+${identityLock}
+[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the reference images.
+- Build/Measurements (User Input): ${bodyInfo || "Use the reference images."}
+
+[PRIMARY PRODUCT (NON-NEGOTIABLE)]:
+- The PRIMARY PRODUCT is shown in ${productIdxRange}. It MUST appear on the model exactly.
+- 1:1 match of garment structure, seams, buttons, texture, print/pattern, color, and fit. NO substitutions.
+
+[OUTFIT RULE]:
+- If the model identity reference already wears the primary product, preserve it exactly.
+- Otherwise, replace any original outfit using ONLY the primary product reference images in ${productIdxRange}.
+${wardrobeLock}
+
+[ACCESSORIES]:
+- Accessories shown in ${accessoryIdxRange} may be used when present and worn naturally on the model.
+- Accessory Detail (Auto-Analysis): ${analysis.accessory_description}
+- Never let accessories change the required pose or crop.
+
+[VISUAL ANALYSIS]:
+- Product Detail: ${analysis.product_description}
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
-- Model Traits (User Input): ${specificFeatures}
-[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the model identity reference.
-- Build/Measurements (User Input): ${bodyInfo}
+- Output background: PURE WHITE (#FFFFFF), clean studio lighting, minimal shadows.
+
+[STRICT NEGATIVE RULES]:
+- NO grid, NO collage, NO multi-panel layout.
+- NO standing full body if the blueprint is half body.
+- NO beauty close-up, NO face zoom, NO tilted camera, NO high angle, NO low angle.
+- NO pose invention, NO hand changes, NO crop drift, NO landscape framing.
+- The result must read as one clean e-commerce main image for angle ${angle.id}.
+
+[OUTPUT]: Generate one standalone 4:5 portrait main image that follows the selected blueprint exactly.`;
+
+          const mainNegativePrompt = [
+            baseNegativePrompt,
+            "grid collage",
+            "multi-panel layout",
+            "wrong camera angle",
+            "wrong crop",
+            "full body",
+            "landscape framing",
+            "beauty close-up",
+            "changed hand pose",
+          ].join(", ");
+
+          const result = await generateImageToImage(apiImages, mainPrompt, {
+            aspectRatio: AspectRatio.PORTRAIT_4_5,
+            resolution: resolution as any,
+            modelId: modelType,
+            negativePrompt: mainNegativePrompt,
+            workflowHint: 'main-angle-lock',
+          });
+
+          if (!result || result.length === 0) {
+            throw new Error(`${angle.id} 未返回图片，请稍后重试`);
+          }
+
+          const nextResult: GeneratedMainAngle = {
+            ...angle,
+            imageUrl: result[0],
+          };
+
+          mainResults.push(nextResult);
+          setGeneratedMainAngles([...mainResults]);
+        }
+
+        return;
+      }
+
+      setStatusMessage("分析完成！正在根据动态姿势规划进行最终生成...");
+
+      const isHorizontal = aspectRatio === '16:9';
+      const totalPoses = isHorizontal ? 8 : 12;
+
+      let basePoses = analysis.poses_list;
+      if (Array.isArray(basePoses)) {
+        basePoses = basePoses.join('\n');
+      }
+
+      let finalPosesList = basePoses;
+      let promptPrefix = "";
+      let poseFramingLock = "";
+
+      if (selectedPresetId !== 'ai' && selectedAngleIds.length > 0) {
+        const preset = ANGLE_PRESETS.find(p => p.id === selectedPresetId);
+        if (preset && preset.angles.length > 0) {
+          promptPrefix = (preset.motherPrompt || "") + "\n";
+          poseFramingLock =
+            "[POSE & FRAMING LOCK]: MUST match the selected angle preset exactly (camera angle, crop/framing distance, stance, hand placement).\n";
+
+          const selectedPrompts = preset.angles
+            .filter(a => selectedAngleIds.includes(a.id))
+            .map(a => a.prompt.replace(/\[产品：[^\]]*\]/g, analysis.product_description).replace(/\[产品\]/g, analysis.product_description));
+
+          let combinedPoses = [...selectedPrompts];
+          while (combinedPoses.length < totalPoses) {
+            const rawPoses = analysis.poses_list;
+            const aiPoses = Array.isArray(rawPoses)
+              ? rawPoses
+              : typeof rawPoses === 'string'
+                ? rawPoses.split('\n')
+                : [];
+
+            const validAiPoses = aiPoses.filter((p: any) => typeof p === 'string' && p.trim() !== '');
+            const nextAiPose = validAiPoses[combinedPoses.length % Math.max(1, validAiPoses.length)] || 'Natural fashion pose';
+            combinedPoses.push(nextAiPose);
+          }
+
+          finalPosesList = combinedPoses.map((p, i) => `Pose ${i + 1}: ${p}`).join('\n');
+        }
+      }
+
+      const gridRules = isHorizontal
+        ? `[GRID CONFIG]: Strictly 4x2 matrix (4 columns, 2 rows). Total 8 UNIQUE images.
+[PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
+[SEAMLESS]: NO black lines, NO borders, NO gaps.
+[REFERENCE USAGE]: Reference images are for guidance ONLY. Do NOT paste/copy any reference image into any grid cell. Every cell must be newly generated.
+[PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
+[POSES]: Plan 8 dynamic fashion poses based on: ${finalPosesList}`
+        : `[GRID CONFIG]: Strictly 3x4 matrix (3 columns, 4 rows). Total 12 UNIQUE images.
+[PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
+[SEAMLESS]: NO black lines, NO borders, NO gaps.
+[REFERENCE USAGE]: Reference images are for guidance ONLY. Do NOT paste/copy any reference image into any grid cell. Every cell must be newly generated.
+[PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
+[POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
+
+      const prompt = `${promptPrefix}${poseFramingLock}${identityLock}
+[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the reference images.
+- Build/Measurements (User Input): ${bodyInfo || "Use the reference images."}
 
 [PRIMARY PRODUCT (NON-NEGOTIABLE)]:
 - The PRIMARY PRODUCT is shown in ${productIdxRange}. It MUST be applied in EVERY grid cell.
@@ -248,6 +666,7 @@ const PoseFissionTab: React.FC = () => {
 [OUTFIT RULE]:
 - If the model identity reference already wears the primary product, preserve it exactly.
 - Otherwise, replace any original outfit using ONLY the primary product reference images in ${productIdxRange}.
+${wardrobeLock}
 
 [ACCESSORIES]:
 - Optional: Accessories shown in ${accessoryIdxRange} should be used when possible, but the PRIMARY PRODUCT takes absolute priority.
@@ -268,16 +687,17 @@ ${gridRules}
 - **CRITICAL**: This rule applies to both 16:9 (horizontal) and 9:16 (vertical) layouts. Consistency is mandatory across all ${totalPoses} cells.
 [OUTPUT]: Generate a single ${isHorizontal ? '3:2' : '9:16'} image containing the requested grid pattern.`;
 
+      setGeneratedMainAngles([]);
+
       const result = await generateImageToImage(apiImages, prompt, {
         aspectRatio: isHorizontal ? "3:2" as any : "9:16" as any,
         resolution: resolution as any,
         modelId: modelType,
-        negativePrompt,
+        negativePrompt: baseNegativePrompt,
       });
       
       if (result && result.length > 0) {
         setGeneratedGridImage(result[0]);
-        setAnalysisResult(analysis);
       } else {
         throw new Error("模型未返回任何图片，请稍后重试");
       }
@@ -330,7 +750,10 @@ ${gridRules}
 
   const handleLoadPreset = (preset: any) => {
     setIsLibraryOpen(false);
+    setSelectedPresetId('ai');
+    setSelectedAngleIds([]);
     setGeneratedGridImage(preset.coverImage);
+    setGeneratedMainAngles([]);
     setAspectRatio(preset.aspectRatio as '9:16' | '16:9');
     setAnalysisResult({ ...analysisResult, poses_list: preset.poses.join('\n') });
     setStatusMessage("✅ 已成功载入历史生成大图！现在您可以把鼠标悬停在图内任何一个小人偶上，点击右上角的“魔法棒”进入单图重绘啦！");
@@ -350,6 +773,9 @@ ${gridRules}
               <span>模特三视图（支持全身/半身图）</span>
               <span className="text-[10px] font-normal text-pastel-muted">最多3张 ({modelImages.length}/3)</span>
             </h3>
+            <p className="text-[10px] leading-5 text-pastel-muted">
+              这些图只用于锁定模特身份、体型和比例，不会保留图里的原衣服。最终穿搭只允许来自主产品图和你上传的配饰图。
+            </p>
             <div 
               className={`flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 transition-all ${isDragOverModel ? 'border-dashed border-pastel-highlight bg-pastel-highlight/5' : 'border-transparent'}`}
               onDragOver={(e) => handleDragOverArea(e, 'model')}
@@ -491,61 +917,153 @@ ${gridRules}
           <div className="space-y-3 bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-pastel-highlight flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5" /> 亚马逊固定角度
+                <Zap className="w-3.5 h-3.5" /> 角度模板
               </h3>
-              <button 
-                onClick={() => setIsAmazonEnabled(!isAmazonEnabled)}
-                className={`text-[10px] px-2 py-0.5 rounded-full font-bold transition-all ${isAmazonEnabled ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'}`}
-              >
-                {isAmazonEnabled ? '已启用' : '已关闭'}
-              </button>
             </div>
-            
-            {isAmazonEnabled && (
-              <div className="grid grid-cols-4 gap-2 mt-2">
-                {AMAZON_ANGLES.map(angle => (
+
+            <div className="flex gap-2">
+              {ANGLE_PRESETS.map(preset => {
+                const active = selectedPresetId === preset.id;
+                return (
                   <button
-                    key={angle.id}
-                    onClick={() => {
-                      setSelectedAmazonAngles(prev => 
-                        prev.includes(angle.id) ? prev.filter(id => id !== angle.id) : [...prev, angle.id]
-                      );
-                    }}
-                    title={angle.label}
-                    className={`h-8 text-xs font-bold rounded-lg border transition-all ${
-                      selectedAmazonAngles.includes(angle.id) 
-                        ? 'border-orange-400 bg-orange-50 text-orange-600' 
-                        : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-orange-200'
+                    key={preset.id}
+                    onClick={() => handleSelectPreset(preset.id)}
+                    className={`flex-1 py-2 text-[11px] font-bold rounded-xl border transition-all ${
+                      active
+                        ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm'
+                        : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-pastel-highlight/40'
                     }`}
                   >
-                    {angle.id}
+                    {preset.label}
                   </button>
-                ))}
-              </div>
+                );
+              })}
+            </div>
+
+            {selectedPresetId !== 'ai' && (
+              <>
+                <div className="flex items-center justify-between mt-3">
+                  <div className="text-[10px] font-bold text-pastel-muted">
+                    已选 {selectedAngleIds.length}/{presetAngles.length}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSelectedAngleIds(presetAngles.map(a => a.id))}
+                      className="text-[10px] font-bold px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 hover:border-pastel-highlight/40"
+                    >
+                      全选
+                    </button>
+                    <button
+                      onClick={() => setSelectedAngleIds([])}
+                      className="text-[10px] font-bold px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 hover:border-pastel-highlight/40"
+                    >
+                      全不选
+                    </button>
+                  </div>
+                </div>
+
+                <div className={`grid gap-2 mt-3 ${isMainPreset ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+                  {presetAngles.map(angle => {
+                    const active = selectedAngleIds.includes(angle.id);
+                    const angleMeta = getAngleMeta(angle.thumb);
+                    return (
+                      <button
+                        key={angle.id}
+                        onClick={() => toggleAngleId(angle.id)}
+                        title={angle.label}
+                        className={`w-full rounded-2xl border p-3 transition-all text-left ${
+                          active
+                            ? 'border-orange-400 bg-orange-50/70 shadow-sm'
+                            : 'border-gray-200 bg-gray-50 hover:border-orange-200'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {angle.thumb ? (
+                            <AngleThumb spec={angle.thumb} active={active} />
+                          ) : (
+                            <div className="w-10 h-14 rounded-md border border-slate-200 bg-white" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`rounded-full px-2 py-1 text-[10px] font-black tracking-[0.18em] ${active ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}>
+                                    {angle.id}
+                                  </span>
+                                  <div className={`text-[11px] font-black ${active ? 'text-orange-700' : 'text-gray-700'}`}>
+                                    {angle.label}
+                                  </div>
+                                </div>
+                                {angleMeta.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {angleMeta.map(meta => (
+                                      <span key={`${angle.id}-${meta}`} className="rounded-full bg-white px-2 py-0.5 text-[9px] font-medium text-gray-500 ring-1 ring-gray-200">
+                                        {meta}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div
+                                className={`mt-0.5 h-5 w-5 shrink-0 rounded-full border flex items-center justify-center text-[10px] font-black ${
+                                  active
+                                    ? 'bg-orange-500 border-orange-500 text-white'
+                                    : 'bg-white border-gray-300 text-gray-300'
+                                }`}
+                              >
+                                ✓
+                              </div>
+                            </div>
+                            <div className="text-[10px] text-gray-400 mt-2 line-clamp-3">
+                              {angle.prompt}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="text-[10px] text-pastel-muted italic mt-2">
+                  {isMainPreset
+                    ? '主图角度模式会固定按 4:5 单张输出，只生成你勾选的角度，不再自动补齐其它姿势。'
+                    : '模板模式会优先覆盖姿势规划；不足网格数量时会用 AI 自动姿势补齐。'}
+                </p>
+              </>
             )}
-            <p className="text-[10px] text-pastel-muted italic mt-1">
-              {isAmazonEnabled ? '已锁定 7 个专业电商角度，将覆盖自动分析的姿势。' : '当前使用 AI 全自动姿势裂变。'}
-            </p>
+
+            {selectedPresetId === 'ai' && (
+              <p className="text-[10px] text-pastel-muted italic mt-2">当前使用 AI 全自动姿势裂变。</p>
+            )}
           </div>
 
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted mb-2">生成画幅比例</h3>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setAspectRatio('9:16')}
-                className={`flex-1 py-3 text-sm font-bold rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${aspectRatio === '9:16' ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/50 hover:bg-white'}`}
-              >
-                <div className="w-3 h-4 border-2 border-current rounded-[2px]"></div>
-                9:16 (竖版 3x4)
-              </button>
-              <button 
-                onClick={() => setAspectRatio('16:9')}
-                className={`flex-1 py-3 text-sm font-bold rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${aspectRatio === '16:9' ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/50 hover:bg-white'}`}
-              >
-                <div className="w-5 h-3 border-2 border-current rounded-[2px]"></div>
-                16:9 (横版 4x2)
-              </button>
-            </div>
+            {isMainPreset ? (
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-orange-700">
+                <div className="text-sm font-bold">主图角度固定为 4:5 单张输出</div>
+                <p className="mt-1 text-xs leading-5 text-orange-600">
+                  为了尽量贴近参考图的比例、构图和留白，主图模式不会再走 3x4 / 4x2 宫格，而是逐张生成独立主图。
+                </p>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setAspectRatio('9:16')}
+                  className={`flex-1 py-3 text-sm font-bold rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${aspectRatio === '9:16' ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/50 hover:bg-white'}`}
+                >
+                  <div className="w-3 h-4 border-2 border-current rounded-[2px]"></div>
+                  9:16 (竖版 3x4)
+                </button>
+                <button 
+                  onClick={() => setAspectRatio('16:9')}
+                  className={`flex-1 py-3 text-sm font-bold rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${aspectRatio === '16:9' ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/50 hover:bg-white'}`}
+                >
+                  <div className="w-5 h-3 border-2 border-current rounded-[2px]"></div>
+                  16:9 (横版 4x2)
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 mt-4">
@@ -596,12 +1114,12 @@ ${gridRules}
                 {isGenerating ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    生成排版中...
+                    {isMainPreset ? '逐张生成主图中...' : '生成排版中...'}
                   </>
                 ) : (
                   <>
                     <Zap className="w-5 h-5" />
-                    生成裂变矩阵 ({aspectRatio})
+                    {isMainPreset ? `生成主图角度 (${selectedAngleIds.length} 张)` : `生成裂变矩阵 (${aspectRatio})`}
                   </>
                 )}
              </button>
@@ -611,7 +1129,13 @@ ${gridRules}
 
       {/* Right Panel - Grid View */}
       <div className="flex-1 flex p-6 overflow-hidden relative items-center justify-center bg-transparent">
-        {isGenerating ? (
+        {isMainPreset ? (
+          <MainAngleGallery
+            items={displayedMainAngles}
+            isGenerating={isGenerating}
+            statusMessage={statusMessage}
+          />
+        ) : isGenerating ? (
           <div className="flex flex-col items-center justify-center w-full h-full">
             <div className="flex flex-col items-center gap-6 p-12 bg-white/50 backdrop-blur-md rounded-3xl border border-white shadow-xl">
               <div className="relative">

@@ -1,19 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { AgentHome } from './components/AgentHome';
-import { ChatStudio } from './components/ChatStudio';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
-import { SettingsModal } from './components/SettingsModal';
-import { ProjectGalleryModal } from './components/ProjectGalleryModal';
 import { History, Cloud } from 'lucide-react';
 
-import { App as VideoStationApp } from './XcAISTUDIO-main/App';
-import AmazonSelectionApp from './amazonxpzj/App';
-import CreativeCenterApp from './Cyzx4/App';
-import AIVideoApp from './AIVideo/App';
-import YunwuApiStudio from './components/YunwuApiStudio';
-import ModelFactoryApp from './ModelFactory/App';
+const ChatStudio = lazy(() => import('./components/ChatStudio').then((module) => ({ default: module.ChatStudio })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then((module) => ({ default: module.SettingsModal })));
+const ProjectGalleryModal = lazy(() => import('./components/ProjectGalleryModal').then((module) => ({ default: module.ProjectGalleryModal })));
+const VideoStationApp = lazy(() => import('./XcAISTUDIO-main/App').then((module) => ({ default: module.App })));
+const AmazonSelectionApp = lazy(() => import('./amazonxpzj/App'));
+const CreativeCenterApp = lazy(() => import('./Cyzx4/App'));
+const AIVideoApp = lazy(() => import('./AIVideo/App'));
+const YunwuApiStudio = lazy(() => import('./components/YunwuApiStudio'));
+const ModelFactoryApp = lazy(() => import('./ModelFactory/App'));
 
 type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'ai-video' | 'yunwu' | 'model-factory';
+
+const LoadingScreen: React.FC<{ label?: string }> = ({ label = 'Loading workspace...' }) => (
+  <div className="flex h-full w-full items-center justify-center bg-[#F8FAFC] dark:bg-[#050505]">
+    <div className="rounded-2xl border border-gray-200 bg-white/80 px-6 py-5 text-sm font-medium text-gray-600 shadow-lg backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
+      {label}
+    </div>
+  </div>
+);
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -68,6 +76,95 @@ const App: React.FC = () => {
     setView('home');
   };
 
+  const renderActiveView = () => {
+    if (view === 'yunwu') {
+      return (
+        <div className="relative w-full h-full z-[100] overflow-hidden">
+          <YunwuApiStudio onBack={() => setView('home')} />
+        </div>
+      );
+    }
+
+    if (view === 'video') {
+      return (
+        <div className="relative w-full h-full bg-black z-[100]">
+          <VideoStationApp />
+          <button
+            onClick={() => setView('home')}
+            className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all font-medium text-sm flex items-center gap-2"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+            Back to Studio
+          </button>
+        </div>
+      );
+    }
+
+    if (view === 'selection') {
+      return (
+        <div className="relative w-full h-full bg-[#F8FAFC] dark:bg-[#050505] z-[100] overflow-y-auto">
+          <AmazonSelectionApp />
+        </div>
+      );
+    }
+
+    if (view === 'ai-video') {
+      return (
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          <AIVideoApp />
+        </div>
+      );
+    }
+
+    if (view === 'model-factory') {
+      return (
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          <ModelFactoryApp />
+        </div>
+      );
+    }
+
+    if (view === 'creative') {
+      return (
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          <CreativeCenterApp />
+        </div>
+      );
+    }
+
+    if (view === 'home') {
+      return (
+        <AgentHome onStart={(text, img, model, step) => {
+          if (step === 12) {
+            setView('video');
+          } else if (step === 14) {
+            setView('selection');
+          } else if (step === 15) {
+            setView('ai-video');
+          } else if (step === 16) {
+            setView('model-factory');
+          } else if (text.startsWith('/creative')) {
+            setView('creative');
+          } else if (Array.isArray(img)) {
+            handleStartAgent(text, img, model, step);
+          } else {
+            handleStartAgent(text, img ? [img] : [], model, step);
+          }
+        }} />
+      );
+    }
+
+    return (
+      <ChatStudio
+        initialInput={initialData.text}
+        initialImages={initialData.images}
+        initialModel={initialData.model}
+        initialStep={initialData.step}
+        onBack={handleBackToHome}
+      />
+    );
+  };
+
   if (!mounted) return null;
 
   return (
@@ -113,70 +210,11 @@ const App: React.FC = () => {
       </div>
 
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-      <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />
-
-      {view === 'yunwu' ? (
-        <div className="relative w-full h-full z-[100] overflow-hidden">
-          <YunwuApiStudio onBack={() => setView('home')} />
-        </div>
-      ) : view === 'video' ? (
-        <div className="relative w-full h-full bg-black z-[100]">
-          <VideoStationApp />
-          <button
-            onClick={() => setView('home')}
-            className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-lg hover:bg-white/20 transition-all font-medium text-sm flex items-center gap-2"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-            Back to Studio
-          </button>
-        </div>
-      ) : view === 'selection' ? (
-        <div className="relative w-full h-full bg-[#F8FAFC] dark:bg-[#050505] z-[100] overflow-y-auto">
-          {/* Use Amazon Selection App - No Back button here, handled inside AmazonSelectionApp */}
-          <AmazonSelectionApp />
-        </div>
-      ) : view === 'ai-video' ? (
-        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
-          <AIVideoApp />
-        </div>
-      ) : view === 'model-factory' ? (
-        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
-          <ModelFactoryApp />
-        </div>
-      ) : view === 'creative' ? (
-        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
-          <CreativeCenterApp />
-        </div>
-      ) : view === 'home' ? (
-        <AgentHome onStart={(text, img, model, step) => {
-          if (step === 12) { // WorkflowStep.VIDEO_GENERATION
-            setView('video');
-          } else if (step === 14) { // WorkflowStep.AMAZON_SELECTION
-            setView('selection');
-          } else if (step === 15) { // WorkflowStep.STORYBOARD_CREATION
-            setView('ai-video');
-          } else if (step === 16) { // WorkflowStep.MODEL_FACTORY
-            setView('model-factory');
-          } else if (text.startsWith('/creative')) {
-            setView('creative');
-          } else {
-            if (Array.isArray(img)) {
-              handleStartAgent(text, img, model, step);
-            } else {
-              handleStartAgent(text, img ? [img] : [], model, step);
-            }
-          }
-        }} />
-      ) : (
-        <ChatStudio
-          initialInput={initialData.text}
-          initialImages={initialData.images}
-          initialModel={initialData.model}
-          initialStep={initialData.step}
-          onBack={handleBackToHome}
-        />
-      )}
+      <Suspense fallback={<LoadingScreen />}>
+        {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />}
+        {isGalleryOpen && <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />}
+        {renderActiveView()}
+      </Suspense>
     </div>
   );
 };

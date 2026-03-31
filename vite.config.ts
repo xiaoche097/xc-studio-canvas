@@ -14,6 +14,42 @@ export default defineConfig(({ mode }) => {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
       },
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              if (!id.includes('node_modules')) {
+                return;
+              }
+
+              if (
+                id.includes('\\node_modules\\react\\') ||
+                id.includes('/node_modules/react/') ||
+                id.includes('\\node_modules\\react-dom\\') ||
+                id.includes('/node_modules/react-dom/') ||
+                id.includes('\\node_modules\\scheduler\\') ||
+                id.includes('/node_modules/scheduler/')
+              ) {
+                return 'react-vendor';
+              }
+
+              if (id.includes('framer-motion')) {
+                return 'motion-vendor';
+              }
+
+              if (
+                id.includes('@google') ||
+                id.includes('\\node_modules\\ai\\') ||
+                id.includes('/node_modules/ai/') ||
+                id.includes('\\node_modules\\@ai-sdk\\') ||
+                id.includes('/node_modules/@ai-sdk/')
+              ) {
+                return 'ai-vendor';
+              }
+            }
+          }
+        }
+      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

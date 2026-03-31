@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, X, Zap, Loader2, Download } from 'lucide-react';
+import { Upload, X, Zap, Loader2, Download, Maximize2, Lock, Sparkles } from 'lucide-react';
 import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { blobToBase64, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -10,12 +10,14 @@ const ModelAdjustTab: React.FC = () => {
   const [poseRefFile, setPoseRefFile] = useState<File | null>(null); // 图2
   const [poseRefUrl, setPoseRefUrl] = useState<string | null>(null);
   const [poseGuidance, setPoseGuidance] = useState('');
+  const [transferScope, setTransferScope] = useState<'upper-body' | 'full-body'>('upper-body');
 
   const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
 
   const [isPoseGenerating, setIsPoseGenerating] = useState(false);
   const [poseStatusMessage, setPoseStatusMessage] = useState('');
   const [poseResultImage, setPoseResultImage] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const detectClosestAspectRatio = async (imageUrl: string): Promise<AspectRatio> => {
     const img = new Image();
@@ -75,6 +77,32 @@ const ModelAdjustTab: React.FC = () => {
     e.target.value = '';
   };
 
+  const handlePoseSourceDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    if (poseSourceUrl) URL.revokeObjectURL(poseSourceUrl);
+
+    setPoseSourceFile(file);
+    setPoseSourceUrl(URL.createObjectURL(file));
+    setPoseResultImage(null);
+    setPoseStatusMessage('');
+  };
+
+  const handlePoseRefDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    if (poseRefUrl) URL.revokeObjectURL(poseRefUrl);
+
+    setPoseRefFile(file);
+    setPoseRefUrl(URL.createObjectURL(file));
+    setPoseResultImage(null);
+    setPoseStatusMessage('');
+  };
+
   const removePoseSource = () => {
     if (poseSourceUrl) URL.revokeObjectURL(poseSourceUrl);
     setPoseSourceFile(null);
@@ -91,10 +119,72 @@ const ModelAdjustTab: React.FC = () => {
     setPoseStatusMessage('');
   };
 
-  const buildPoseTransferPrompt = (userGuidance: string) => {
+  const buildPoseTransferPrompt = (userGuidance: string, scope: 'upper-body' | 'full-body') => {
     const guidance = (userGuidance || '').trim();
-    return `Task: Real-person photo pose transfer.\n\nYou have TWO input images:\n- Image 1 = ORIGINAL PHOTO (must be preserved)\n- Image 2 = POSE REFERENCE (skeleton only)\n\nCRITICAL: First, copy Image 1 completely and keep it unchanged: same person identity, face, skin texture, expression, hairstyle, body shape, clothing & material details, accessories, background, lighting direction/intensity, color temperature, camera angle/lens look, depth of field, composition, framing, subject position and scale. Everything must match Image 1.\n\nONLY ALLOWED CHANGE: pose. Re-pose the person from Image 1 to match Image 2's body skeleton: head direction, shoulder/neck angle, torso tilt/twist, arm placement and bending, hand gesture and finger pose, leg stance/gait/weight shift. Anatomically correct joints, natural motion, correct finger count.\n\nUSER INSTRUCTION (what to change / what must remain fixed): ${guidance || 'Preserve everything from Image 1. Only change pose to match Image 2.'}\n\nOutput: ONE photorealistic image. Pose updated, everything else identical to Image 1.`;
+    const scopeRule = scope === 'upper-body'
+      ? 'Transfer only upper-body pose cues from Image 2: shoulder slope, neck direction, torso twist, arm placement, elbow bend, wrist angle, and visible hand gesture. Keep the lower body, waistline, garment hem, and overall crop from Image 1 fixed.'
+      : 'Transfer the full-body stance from Image 2 while still preserving Image 1 identity, outfit, background, and framing. If the target pose is larger than the current crop, compress it into Image 1 framing instead of zooming out.';
+
+    return `Task: locked pose transfer for a real-person e-commerce photo.
+
+You have TWO input images:
+- Image 1 = source photo to preserve
+- Image 2 = pose cue only
+
+PRIORITY ORDER:
+1. Preserve Image 1 exactly for identity, face, hairstyle, skin texture, body proportions, clothing, accessories, tattoos, bag, background, lighting, camera angle, crop, framing, and subject scale.
+2. Read only pose information from Image 2.
+3. Never import Image 2 clothing, bag, skin tone, background, lighting, zoom level, composition, or body shape into the output.
+
+READ FROM IMAGE 2 ONLY:
+- shoulder line
+- torso rotation
+- arm placement
+- elbow bend
+- wrist direction
+- hand gesture or hand placement if visible
+
+COMPOSITION LOCK:
+- Keep Image 1 framing and camera unchanged.
+- Do not zoom out, recenter, or copy Image 2 composition.
+- If Image 2 suggests a wider crop, adapt the pose inside Image 1's existing crop.
+
+SCOPE:
+${scopeRule}
+
+IGNORE FROM IMAGE 2:
+- clothing and fabric details
+- accessories and props
+- background and lighting
+- crop and subject scale
+- body reshaping
+
+USER LOCK INSTRUCTION:
+${guidance || 'Keep everything from Image 1 unchanged. Only replace the pose using Image 2.'}
+
+Output one photorealistic corrected image. The final result should look like Image 1 after a careful retoucher changed only the pose.`;
   };
+
+  const buildPoseTransferNegativePrompt = (scope: 'upper-body' | 'full-body') => [
+    'copying Image 2 clothing',
+    'copying Image 2 accessories',
+    'copying Image 2 bag',
+    'copying Image 2 background',
+    'copying Image 2 lighting',
+    'different identity',
+    'different hairstyle',
+    'different skin tone',
+    'altered body proportions',
+    'garment redesign',
+    'extra fingers',
+    'extra hands',
+    'missing accessories',
+    'camera angle change',
+    'crop change',
+    scope === 'upper-body'
+      ? 'changed lower body, changed waistband, changed garment hem'
+      : 'zoomed out framing, recentered subject, copied Image 2 composition',
+  ].join(', ');
 
   const handleGeneratePoseTransfer = async () => {
     if (!poseSourceFile || !poseRefFile || !poseSourceUrl) {
@@ -178,11 +268,17 @@ const ModelAdjustTab: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <label className="relative w-full h-28 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
-                    <input type="file" className="hidden" onChange={handlePoseSourceChange} accept="image/*" />
-                    <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
-                    <span className="text-[10px] mt-1 group-hover:text-pastel-highlight">上传图1</span>
-                  </label>
+                  <div
+                    className="relative w-full h-28 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handlePoseSourceDrop}
+                  >
+                    <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer">
+                      <input type="file" className="hidden" onChange={handlePoseSourceChange} accept="image/*" />
+                      <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
+                      <span className="text-[10px] mt-1 group-hover:text-pastel-highlight">拖拽或点击上传图1</span>
+                    </label>
+                  </div>
                 )}
               </div>
 
@@ -200,11 +296,17 @@ const ModelAdjustTab: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <label className="relative w-full h-28 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
-                    <input type="file" className="hidden" onChange={handlePoseRefChange} accept="image/*" />
-                    <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
-                    <span className="text-[10px] mt-1 group-hover:text-pastel-highlight">上传图2</span>
-                  </label>
+                  <div
+                    className="relative w-full h-28 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handlePoseRefDrop}
+                  >
+                    <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer">
+                      <input type="file" className="hidden" onChange={handlePoseRefChange} accept="image/*" />
+                      <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
+                      <span className="text-[10px] mt-1 group-hover:text-pastel-highlight">拖拽或点击上传图2</span>
+                    </label>
+                  </div>
                 )}
               </div>
             </div>
@@ -299,15 +401,33 @@ const ModelAdjustTab: React.FC = () => {
           </div>
         ) : (
           <div className="w-full h-full flex flex-col gap-4 items-center justify-center">
-            <div className="relative w-full max-w-[720px]">
+            <div className="relative w-full max-w-[720px] group">
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="absolute top-3 right-3 z-10 p-2 rounded-full bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
+                title="放大预览"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
+
               <img
                 src={poseResultImage}
                 alt="pose-result"
-                className="w-full h-auto rounded-2xl border border-pastel-border shadow-lg bg-white"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full h-auto rounded-2xl border border-pastel-border shadow-lg bg-white cursor-zoom-in"
               />
             </div>
 
             <div className="flex gap-3">
+              <button
+                onClick={() => setIsPreviewOpen(true)}
+                className="px-4 py-2 bg-white text-gray-700 border border-pastel-border rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-50 transition-all active:scale-[0.98] shadow-sm"
+              >
+                <Maximize2 className="w-4 h-4" />
+                放大查看
+              </button>
+
               <button
                 onClick={() => downloadImage(poseResultImage, `model-adjust-${Date.now()}.png`)}
                 className="px-4 py-2 bg-white text-pastel-highlight border border-pastel-border rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-pastel-highlight/5 transition-all active:scale-[0.98] shadow-sm"
@@ -316,6 +436,43 @@ const ModelAdjustTab: React.FC = () => {
                 下载
               </button>
             </div>
+
+            {isPreviewOpen && (
+              <div
+                className="fixed inset-0 z-[200] bg-slate-900/70 backdrop-blur-2xl flex items-center justify-center p-8"
+                onClick={() => setIsPreviewOpen(false)}
+              >
+                <div className="absolute top-10 right-10 group cursor-pointer" onClick={() => setIsPreviewOpen(false)}>
+                  <div className="bg-white/10 group-hover:bg-white/20 p-4 rounded-full transition-all shadow-2xl backdrop-blur-md border border-white/10">
+                    <X className="w-8 h-8 text-white" />
+                  </div>
+                </div>
+
+                <div
+                  className="relative max-w-6xl w-full h-[90vh] rounded-[2.5rem] overflow-hidden bg-zinc-950 shadow-[0_64px_128px_rgba(0,0,0,0.5)] border border-white/5"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <img src={poseResultImage} className="w-full h-full object-contain" alt="pose-preview" />
+
+                  <div className="absolute bottom-10 inset-x-0 flex justify-center">
+                    <div className="bg-white/10 backdrop-blur-3xl p-2 rounded-full border border-white/10 shadow-2xl flex gap-1">
+                      <button
+                        onClick={() => downloadImage(poseResultImage, `model-adjust-${Date.now()}.png`)}
+                        className="px-8 py-3.5 rounded-full flex items-center gap-3 text-[11px] font-black bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-xl shadow-orange-500/20 active:scale-95"
+                      >
+                        <Download className="w-4 h-4" /> 保存作品
+                      </button>
+                      <button
+                        onClick={() => setIsPreviewOpen(false)}
+                        className="px-8 py-3.5 rounded-full flex items-center gap-3 text-[11px] font-black bg-transparent text-white/70 hover:text-white hover:bg-white/5"
+                      >
+                        <X className="w-4 h-4" /> 退出预览
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

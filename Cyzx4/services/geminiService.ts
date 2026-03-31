@@ -213,11 +213,25 @@ Respond in pure **JSON** format. Do not use Markdown code blocks.
  */
 export const analyzeFissionContext = async (
   images: { base64: string; mimeType: string }[],
-  aspectRatio: string
+  aspectRatio: string,
+  imageGroups?: { productCount: number; modelCount: number; accessoryCount: number }
 ) => {
   const ai = getAiClient();
   const isHorizontal = aspectRatio === "16:9";
   const poseCount = isHorizontal ? 8 : 12;
+  const productCount = imageGroups?.productCount || 0;
+  const modelCount = imageGroups?.modelCount || 0;
+  const accessoryCount = imageGroups?.accessoryCount || 0;
+
+  const productRange = productCount > 0 ? `Images 1-${productCount}` : "None";
+  const modelStart = productCount + 1;
+  const modelRange = modelCount > 0
+    ? `Images ${modelStart}-${modelStart + modelCount - 1}`
+    : "None";
+  const accessoryStart = productCount + modelCount + 1;
+  const accessoryRange = accessoryCount > 0
+    ? `Images ${accessoryStart}-${accessoryStart + accessoryCount - 1}`
+    : "None";
 
   const analysisPrompt = `
 **ROLE**: High-End Fashion Editorial Director & Professional Visual Analyst.
@@ -225,31 +239,32 @@ export const analyzeFissionContext = async (
 **TASK**: Analyze the provided reference images and generate a structured description for a ${isHorizontal ? '4x2' : '3x4'} grid generation (Total ${poseCount} images).
 
 **INPUT IMAGES GUIDE**:
-- Images 1-${images.length}: Reference photos of the Model, Product, and Accessories.
+- ${productRange}: PRIMARY PRODUCT reference images.
+- ${modelRange}: MODEL identity / body / face reference images.
+- ${accessoryRange}: ACCESSORY reference images that must be worn or carried by the model when present.
 
 **YOUR ANALYSIS GOALS**:
-1. **PRODUCT FOCUS (CRITICAL)**: Describe the PRIMARY PRODUCT (color, material, specific patterns, fit) with extreme precision. The goal is to show the garment's design, fabric, and how it fits the body. 
-2. **MODEL IDENTITY & DIMENSIONS**: Describe the person in the reference images with hyper-precision.
+1. **PRODUCT FOCUS (CRITICAL)**: Describe the PRIMARY PRODUCT (color, material, specific patterns, fit) with extreme precision. The goal is to show the garment's design, fabric, and how it fits the body.
+2. **MODEL IDENTITY & DIMENSIONS**: Describe the person in the model reference images with hyper-precision.
    - **FACE**: Ethnicity, hair color/texture, facial structure, eye shape.
    - **BODY (CRITICAL)**: Describe the model's physical dimensions (height, build, shoulder width, waist/hip ratio). The generated model MUST have the EXACT SAME body proportions as the reference images.
-3. **ACCESSORY DETAIL**: Describe every accessory identifying its key features for 1:1 cloning.
+3. **ACCESSORY DETAIL (NON-OPTIONAL WHEN PROVIDED)**: Describe every accessory from ${accessoryRange} with enough detail for 1:1 cloning, and state clearly how each accessory should be worn or carried on the model.
 4. **INTELLIGENT POSE & ANGLE DIVERSITY (STRICT CONFORMITY)**: Design ${poseCount} UNIQUE fashion poses based on the provided reference angles.
-   - **CRITICAL: MATCH REFERENCE ANGLES**. If Ref Image 1 is FRONT, Ref Image 2 is SIDE, and Ref Image 3 is BACK, the generated grid MUST prioritize these angles first.
+   - **CRITICAL: MATCH REFERENCE ANGLES**. Prioritize the exact user-provided angles/crops and preserve them precisely.
    - **MODEL MUST BE PRESENT IN EVERY IMAGE**. NO EXCEPTIONS.
-   - **STRICT PROHIBITION**: Even if one of the reference images is a standalone product (e.g., a pair of shoes, a bag), DO NOT generate a pose that shows just the product. 
+   - **STRICT PROHIBITION**: Even if one of the reference images is a standalone product (e.g., a pair of shoes, a bag), DO NOT generate a pose that shows just the product.
    - **TREAT PRODUCTS AS WEARABLES**: All reference products/accessories must be integrated into the model's outfit.
-   - **ABSOLUTELY FORBIDDEN**: NO standalone shoes, NO standalone bags, NO standalone jewelry, NO flat lays, NO still life shots. 
-   - **ANGLES**: Ensure the grid contains clear Front, Profile (Side), and Back views that match the "Three-view" reference.
-   - Poses should include: Full body (front/side/back), 3/4 body, and specific action poses (walking, sitting, turning) that highlight garment movement.
-   - **CRITICAL**: EXACTLY ${poseCount} distinct poses. NO repetition. 
+   - **ABSOLUTELY FORBIDDEN**: NO standalone shoes, NO standalone bags, NO standalone jewelry, NO flat lays, NO still life shots.
+   - **ANGLES**: Ensure the grid contains clear Front, Profile (Side), and Back views that match the reference angles and crops.
+   - **CRITICAL**: EXACTLY ${poseCount} distinct poses. NO repetition.
 
 **OUTPUT FORMAT (MANDATORY JSON)**:
 Return a JSON object with these keys:
 {
   "model_identity": "Specific physical description for identity locking including facial features AND body dimensions/build...",
   "product_description": "Detailed text description of the main garment...",
-  "accessory_description": "Detailed text description of accessories...",
-  "poses_list": "A numbered list of EXACTLY ${poseCount} SHARP, DISTINCT fashion poses. Specifically include mapping for FRONT, SIDE, and BACK views to match input angles. NO standalone product shots."
+  "accessory_description": "Detailed text description of accessories, and state clearly how they should be worn/carried...",
+  "poses_list": "A numbered list of EXACTLY ${poseCount} SHARP, DISTINCT fashion poses. Specifically include mapping for FRONT, SIDE, and BACK views to match input angles/crops. NO standalone product shots."
 }
 
 Respond ONLY with valid JSON.
@@ -414,6 +429,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
+    workflowHint?: 'pose-transfer' | 'main-angle-lock';
   } = {}
 ) => {
   const retryLimit = 3;
@@ -447,8 +463,64 @@ export const generateImageToImage = async (
       });
 
       // 2. Construct Prompt — structured with golden formula principles
+      const negativePromptLine = options.negativePrompt
+        ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}`
+        : '';
+
       const systemPrompt = images.length > 0 
-        ? `
+        ? options.workflowHint === 'pose-transfer'
+          ? `
+      **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
+      **TASK**: Re-stage the person and outfit from Image 1 into the pose, angle, and framing blueprint of Image 2.
+      **INPUT**:
+      - Image 1 = IDENTITY / OUTFIT / PRODUCT SOURCE
+      - Image 2 = POSE / ANGLE / FRAMING BLUEPRINT
+
+      **NON-NEGOTIABLE RULES**:
+      - Treat Image 1 as the master for identity, body proportions, clothing, accessories, product details, tattoos, and skin texture.
+      - Treat Image 2 as the master for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and framing.
+      - NEVER copy Image 2's outfit design, fabric details, accessories, bag, background, lighting, or skin tone into the result.
+      - The final result MUST visibly resemble Image 2's pose and framing, not Image 1's original staging. If the result still looks like Image 1's original pose or crop, the task failed.
+      - It is allowed to zoom, recrop, reposition, or rescale the subject when needed to match Image 2 composition.
+      - Ignore props or garments that appear only in Image 2 unless the user explicitly asks to recreate them.
+
+      **POSE EXECUTION PRIORITY**:
+      - Rebuild shoulders, torso twist, body direction, arms, elbows, wrists, hand placement, and subject placement so they clearly follow Image 2.
+      - Prefer a stronger pose and framing match over preserving Image 1 camera angle or crop.
+      - Do not output only a tiny pose adjustment.
+
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Preserve fine details from Image 1: fabric texture, seams, drape, jewelry, tattoos, and skin texture.
+      - Output one photorealistic corrected image with minimal drift.
+      ${negativePromptLine}
+      `
+          : options.workflowHint === 'main-angle-lock'
+            ? `
+      **ROLE**: Senior fashion e-commerce photographer and composition-lock retoucher.
+      **TASK**: Generate a single catalog main image that follows an exact shot blueprint.
+      **INPUT**:
+      - Reference images contain the product, model identity, and optional accessories.
+      - The user's prompt contains the required camera angle, crop, pose, and framing blueprint.
+
+      **NON-NEGOTIABLE RULES**:
+      - Treat the user's described shot blueprint as absolute. Do not improvise a new angle, pose, crop, or camera height.
+      - Use the reference images to lock identity, clothing details, fit, accessories, and body proportions only.
+      - Output exactly one standalone image. No grids, no collages, no multi-panel layouts.
+      - Preserve studio e-commerce clarity: clean white background, centered composition, realistic human anatomy, and precise garment fidelity.
+      - If the garment or body does not fit the requested pose perfectly, adapt within the same framing blueprint instead of changing the composition.
+
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
+      - Keep the final image crisp, literal, and commercially usable.
+      ${negativePromptLine}
+      `
+          : `
       **ROLE**: Professional Image Generation Artist.
       **TASK**: Image-to-Image Generation (Scene Fusion).
       **INPUT**: ${images.length} Reference Image(s).
@@ -462,7 +534,7 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
       - Preserve fine details: textures, material quality, lighting accuracy.
-      ${options.negativePrompt ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}` : ''}
+      ${negativePromptLine}
       `
         : `
       **ROLE**: Professional Image Generation Artist.
@@ -476,7 +548,7 @@ export const generateImageToImage = async (
       - Follow the prompt's aesthetic style precisely.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Ensure realistic textures, accurate lighting, and professional composition.
-      ${options.negativePrompt ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}` : ''}
+      ${negativePromptLine}
       `;
 
       parts.push({ text: systemPrompt });
