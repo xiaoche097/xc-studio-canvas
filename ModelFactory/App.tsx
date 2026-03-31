@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import PoseFissionTab from './PoseFissionTab.tsx';
+import ModelAdjustTab from './ModelAdjustTab.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Settings } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Settings } from 'lucide-react';
 
-type ModelFactoryMode = 'pose-fission' | 'settings';
+type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('pose-fission');
@@ -31,7 +32,14 @@ const ModelFactoryApp: React.FC = () => {
             icon={<UserCircle2 className="w-5 h-5" />}
             label="姿势裂变 (Pose Fission)"
           />
-          
+
+          <NavButton
+            active={activeTab === 'model-adjust'}
+            onClick={() => setActiveTab('model-adjust')}
+            icon={<Wand2 className="w-5 h-5" />}
+            label="模特调整 (Pose Transfer)"
+          />
+
           <NavButton
             active={activeTab === 'settings'}
             onClick={() => setActiveTab('settings')}
@@ -46,6 +54,7 @@ const ModelFactoryApp: React.FC = () => {
         <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === 'pose-fission' && "姿势裂变 (Pose Fission)"}
+            {activeTab === 'model-adjust' && "模特调整 (Pose Transfer)"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
@@ -54,6 +63,9 @@ const ModelFactoryApp: React.FC = () => {
           <div className="h-full w-full">
             <div style={{ display: activeTab === 'pose-fission' ? 'block' : 'none', height: '100%' }}>
               <PoseFissionTab />
+            </div>
+            <div style={{ display: activeTab === 'model-adjust' ? 'block' : 'none', height: '100%' }}>
+              <ModelAdjustTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
               <SettingsTab />

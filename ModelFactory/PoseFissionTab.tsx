@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, X, Zap, Loader2, Bookmark, FolderHeart, Maximize2, Download } from 'lucide-react';
+import { Upload, X, Zap, Loader2, FolderHeart } from 'lucide-react';
 import { generateImageToImage, analyzeFissionContext } from '../Cyzx4/services/geminiService';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import PoseGrid from './PoseGrid';
@@ -22,18 +22,18 @@ const PoseFissionTab: React.FC = () => {
   const [modelImages, setModelImages] = useState<string[]>([]);
   const [productImages, setProductImages] = useState<string[]>([]);
   const [accessoryImages, setAccessoryImages] = useState<string[]>([]);
-  
+
   const [bodyInfo, setBodyInfo] = useState('');
   const [specificFeatures, setSpecificFeatures] = useState('');
   const [modelType, setModelType] = useState('gemini-3.1-flash-image-preview');
   const [resolution, setResolution] = useState('2K');
   const [aspectRatio, setAspectRatio] = useState('9:16');
-  
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [generatedGridImage, setGeneratedGridImage] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
-  
+
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isAmazonEnabled, setIsAmazonEnabled] = useState(false);
   const [selectedAmazonAngles, setSelectedAmazonAngles] = useState<string[]>(AMAZON_ANGLES.map(a => a.id));
@@ -138,7 +138,7 @@ const PoseFissionTab: React.FC = () => {
     setStatusMessage("正在由 AI 视觉大脑分析产品细节与规划姿势...");
     
     try {
-      const apiImages = [...modelImages, ...productImages, ...accessoryImages].map(imgUrl => {
+      const apiImages = [...productImages, ...modelImages, ...accessoryImages].map(imgUrl => {
          const match = imgUrl.match(/^data:(image\/[a-zA-Z]*);base64,(.*)$/);
          if (match) {
            return { mimeType: match[1], base64: match[2] };
@@ -191,55 +191,76 @@ const PoseFissionTab: React.FC = () => {
       const gridRules = isHorizontal
         ? `[GRID CONFIG]: Strictly 4x2 matrix (4 columns, 2 rows). Total 8 UNIQUE images.
 [PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
-[SEAMLESS]: NO black lines, NO borders, NO gaps. 
-[SHOT ASSIGNMENT]: Result(0,0)=Ref Image 1, Result(0,1)=Ref Image 2. All 8 cells MUST show the MODEL wearing the product. NO standalone accessory shots (even if a Ref Image is just an accessory).
+[SEAMLESS]: NO black lines, NO borders, NO gaps.
+[REFERENCE USAGE]: Reference images are for guidance ONLY. Do NOT paste/copy any reference image into any grid cell. Every cell must be newly generated.
+[PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
 [POSES]: Plan 8 dynamic fashion poses based on: ${finalPosesList}`
         : `[GRID CONFIG]: Strictly 3x4 matrix (3 columns, 4 rows). Total 12 UNIQUE images.
 [PROPORTION LOCK]: CRITICAL! EVERY single cell in the grid MUST have EXACTLY the matching aspect ratio. Draw mathematically straight, perfectly even dividing lines. NO organic, asymmetrical or squashed cell sizes.
 [SEAMLESS]: NO black lines, NO borders, NO gaps.
-[SHOT ASSIGNMENT]: Result(0,0)=Ref Image 1, Result(0,1)=Ref Image 2. All 12 cells MUST show the MODEL wearing the product. NO standalone accessory shots (even if a Ref Image is just an accessory).
+[REFERENCE USAGE]: Reference images are for guidance ONLY. Do NOT paste/copy any reference image into any grid cell. Every cell must be newly generated.
+[PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
 [POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
 
-      // --- 动态图像索引计算 (用于精确引导 AI) ---
       const modelCount = modelImages.length;
       const productCount = productImages.length;
       const accessoryCount = accessoryImages.length;
-      
-      const productIdxRange = productCount > 0 
-        ? `Image ${modelCount + 1}${productCount > 1 ? ` to Image ${modelCount + productCount}` : ""}`
-        : "None";
-      
-      const accessoryIdxRange = accessoryCount > 0
-        ? `Image ${modelCount + productCount + 1}${accessoryCount > 1 ? ` to Image ${modelCount + productCount + accessoryCount}` : ""}`
+
+      // Image ordering for I2I:
+      // - Product images first (highest priority)
+      // - Then model identity references
+      // - Then optional accessories
+      const productStartIdx = 1;
+      const modelStartIdx = productCount + 1;
+      const accessoryStartIdx = productCount + modelCount + 1;
+
+      const productIdxRange = productCount > 0
+        ? `Image ${productStartIdx}${productCount > 1 ? ` to Image ${productCount}` : ""}`
         : "None";
 
-      const prompt = `${promptPrefix}[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the model reference images (Image 1 to Image ${modelCount}). Zero identity drift. 
+      const modelIdxRange = modelCount > 0
+        ? `Image ${modelStartIdx}${modelCount > 1 ? ` to Image ${modelStartIdx + modelCount - 1}` : ""}`
+        : "None";
+
+      const accessoryIdxRange = accessoryCount > 0
+        ? `Image ${accessoryStartIdx}${accessoryCount > 1 ? ` to Image ${accessoryStartIdx + accessoryCount - 1}` : ""}`
+        : "None";
+
+      const negativePrompt = [
+        "original outfit",
+        "keep original clothes",
+        "different clothing",
+        "wrong garment",
+        "copy/paste reference",
+        "duplicate reference image",
+      ].join(", ");
+
+      const prompt = `${promptPrefix}[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the model identity reference images (${modelIdxRange}). Zero identity drift.
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
 - Model Traits (User Input): ${specificFeatures}
-[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the model reference.
+[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the model identity reference.
 - Build/Measurements (User Input): ${bodyInfo}
-[OUTFIT REPLACEMENT - MANDATORY]:
-- **STRIP AND IGNORE**: CRITICAL: Completely STRIP and IGNORE the original clothing/garment pixels worn by the model in Image 1 to Image ${modelCount}. 
-- **BASE BODY ONLY**: Treat the model in reference images as a blank 'base body' or nude mannequin. 
-- **REPLACE FROM SCRATCH**: Dress the model from scratch using ONLY the items in ${productIdxRange} AND ${accessoryIdxRange}.
-[PRODUCT CLONE - STRUCTURAL IDENTITY]:
-- **MATCH PRODUCT 1:1**: The model MUST wear the EXACT SAME product shown in ${productIdxRange}.
-- **STRUCTURAL CONSISTENCY**: 1:1 exact replication of garment structure, seams, buttons, texture, and fit. NO alterations, NO deformations.
-[ENSEMBLE PIECES & ACCESSORIES - MANDATORY]:
-- **COMPLETE LOOK**: EVERY SINGLE GRID CELL MUST show the model wearing the **COMPLETE LOOK** of ALL items provided.
-- **MANDATORY LOWER GARMENT**: If a lower garment (e.g., JEANS, SKIRT, PANTS) is present in ${accessoryIdxRange}, the model MUST wear it. DO NOT generate alternative or matching-color leggings.
-- **MATERIAL INDEPENDENCE**: Maintain the specific material of each piece. If ${accessoryIdxRange} shows BLUE DENIM JEANS, they MUST be rendered as BLUE DENIM, not pink leggings matching the top.
-- **ACCESSORY SYNC**: All other items in ${accessoryIdxRange} (bags, shoes, jewelry) MUST be worn/carried in every cell.
-- Accessory Detail: ${analysis.accessory_description}.
+
+[PRIMARY PRODUCT (NON-NEGOTIABLE)]:
+- The PRIMARY PRODUCT is shown in ${productIdxRange}. It MUST be applied in EVERY grid cell.
+- 1:1 match of garment structure, seams, buttons, texture, print/pattern, and fit. NO substitutions.
+
+[OUTFIT RULE]:
+- If the model identity reference already wears the primary product, preserve it exactly.
+- Otherwise, replace any original outfit using ONLY the primary product reference images in ${productIdxRange}.
+
+[ACCESSORIES]:
+- Optional: Accessories shown in ${accessoryIdxRange} should be used when possible, but the PRIMARY PRODUCT takes absolute priority.
+- Accessory Detail (Auto-Analysis): ${analysis.accessory_description}.
+
 [VISUAL ANALYSIS]:
 - Product Detail: ${analysis.product_description}
 - Accessories: ${analysis.accessory_description}
 ${gridRules}
-[ANGLE SYNC]: EVERY grid cell MUST follow the angles (Front/Side/Back) identified in the dynamic poses above. 
-[COMPOSITION]: 
-- EVERY grid cell MUST show the MODEL wearing the product. 
+[ANGLE SYNC]: EVERY grid cell MUST follow the angles (Front/Side/Back) identified in the dynamic poses above.
+[COMPOSITION]:
+- EVERY grid cell MUST show the MODEL wearing the PRIMARY PRODUCT.
 - ABSOLUTELY NO standalone product shots (NO shoes/bags/accessories only).
-- TREAT ACCESSORIES AS WEARABLES. Even if a reference image shows just shoes/bags, ALWAYS show them ON THE MODEL in the final grid.
 - DO NOT ZOOM IN ON FACE. Focus on showing the WHOLE garment and fit.
 - Full-body or 3/4 shots are preferred to showcase the product.
 - Background: PURE WHITE (#FFFFFF). NO shadows.
@@ -250,7 +271,8 @@ ${gridRules}
       const result = await generateImageToImage(apiImages, prompt, {
         aspectRatio: isHorizontal ? "3:2" as any : "9:16" as any,
         resolution: resolution as any,
-        modelId: modelType
+        modelId: modelType,
+        negativePrompt,
       });
       
       if (result && result.length > 0) {

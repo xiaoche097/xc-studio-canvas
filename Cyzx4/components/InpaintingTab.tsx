@@ -79,33 +79,19 @@ const InpaintingTab: React.FC = () => {
       if (!file.type.startsWith('image/')) return;
       setSourceFile(file);
       const url = URL.createObjectURL(file);
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
       setSourceUrl(url);
       setGeneratedImages([]);
       setHasMask(false);
-      setRefFiles([]);
-      setRefUrls([]);
-      setFabricRefFiles([]);
-      setFabricRefUrls([]);
-      setColorRefFiles([]);
-      setColorRefUrls([]);
     }
   };
 
   const removeSource = () => {
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    refUrls.forEach((url) => URL.revokeObjectURL(url));
-    fabricRefUrls.forEach((url) => URL.revokeObjectURL(url));
-    colorRefUrls.forEach((url) => URL.revokeObjectURL(url));
     setSourceFile(null);
     setSourceUrl(null);
     setHasMask(false);
     setGeneratedImages([]);
-    setRefFiles([]);
-    setRefUrls([]);
-    setFabricRefFiles([]);
-    setFabricRefUrls([]);
-    setColorRefFiles([]);
-    setColorRefUrls([]);
   };
 
   // 参考图操作
