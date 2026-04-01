@@ -214,21 +214,26 @@ Respond in pure **JSON** format. Do not use Markdown code blocks.
 export const analyzeFissionContext = async (
   images: { base64: string; mimeType: string }[],
   aspectRatio: string,
-  imageGroups?: { productCount: number; modelCount: number; accessoryCount: number }
+  imageGroups?: { productCount: number; outfitCount: number; modelCount: number; accessoryCount: number }
 ) => {
   const ai = getAiClient();
   const isHorizontal = aspectRatio === "16:9";
   const poseCount = isHorizontal ? 8 : 12;
   const productCount = imageGroups?.productCount || 0;
+  const outfitCount = imageGroups?.outfitCount || 0;
   const modelCount = imageGroups?.modelCount || 0;
   const accessoryCount = imageGroups?.accessoryCount || 0;
 
   const productRange = productCount > 0 ? `Images 1-${productCount}` : "None";
-  const modelStart = productCount + 1;
+  const outfitStart = productCount + 1;
+  const outfitRange = outfitCount > 0
+    ? `Images ${outfitStart}-${outfitStart + outfitCount - 1}`
+    : "None";
+  const modelStart = productCount + outfitCount + 1;
   const modelRange = modelCount > 0
     ? `Images ${modelStart}-${modelStart + modelCount - 1}`
     : "None";
-  const accessoryStart = productCount + modelCount + 1;
+  const accessoryStart = productCount + outfitCount + modelCount + 1;
   const accessoryRange = accessoryCount > 0
     ? `Images ${accessoryStart}-${accessoryStart + accessoryCount - 1}`
     : "None";
@@ -240,16 +245,18 @@ export const analyzeFissionContext = async (
 
 **INPUT IMAGES GUIDE**:
 - ${productRange}: PRIMARY PRODUCT reference images.
+- ${outfitRange}: MODEL OUTFIT EFFECT references showing the desired wearing result / styling outcome.
 - ${modelRange}: MODEL identity / body / face reference images.
 - ${accessoryRange}: ACCESSORY reference images that must be worn or carried by the model when present.
 
 **YOUR ANALYSIS GOALS**:
 1. **PRODUCT FOCUS (CRITICAL)**: Describe the PRIMARY PRODUCT (color, material, specific patterns, fit) with extreme precision. The goal is to show the garment's design, fabric, and how it fits the body.
-2. **MODEL IDENTITY & DIMENSIONS**: Describe the person in the model reference images with hyper-precision.
+2. **OUTFIT EFFECT REFERENCE (HIGH PRIORITY WHEN PROVIDED)**: Extract the desired wearing effect from ${outfitRange}, including layering result, garment silhouette, styling logic, tuck/untuck behavior, hem behavior, sleeve behavior, and how the product should sit on the model.
+3. **MODEL IDENTITY & DIMENSIONS**: Describe the person in the model reference images with hyper-precision.
    - **FACE**: Ethnicity, hair color/texture, facial structure, eye shape.
    - **BODY (CRITICAL)**: Describe the model's physical dimensions (height, build, shoulder width, waist/hip ratio). The generated model MUST have the EXACT SAME body proportions as the reference images.
-3. **ACCESSORY DETAIL (NON-OPTIONAL WHEN PROVIDED)**: Describe every accessory from ${accessoryRange} with enough detail for 1:1 cloning, and state clearly how each accessory should be worn or carried on the model.
-4. **INTELLIGENT POSE & ANGLE DIVERSITY (STRICT CONFORMITY)**: Design ${poseCount} UNIQUE fashion poses based on the provided reference angles.
+4. **ACCESSORY DETAIL (NON-OPTIONAL WHEN PROVIDED)**: Describe every accessory from ${accessoryRange} with enough detail for 1:1 cloning, and state clearly how each accessory should be worn or carried on the model.
+5. **INTELLIGENT POSE & ANGLE DIVERSITY (STRICT CONFORMITY)**: Design ${poseCount} UNIQUE fashion poses based on the provided reference angles.
    - **CRITICAL: MATCH REFERENCE ANGLES**. Prioritize the exact user-provided angles/crops and preserve them precisely.
    - **MODEL MUST BE PRESENT IN EVERY IMAGE**. NO EXCEPTIONS.
    - **STRICT PROHIBITION**: Even if one of the reference images is a standalone product (e.g., a pair of shoes, a bag), DO NOT generate a pose that shows just the product.
@@ -263,6 +270,7 @@ Return a JSON object with these keys:
 {
   "model_identity": "Specific physical description for identity locking including facial features AND body dimensions/build...",
   "product_description": "Detailed text description of the main garment...",
+  "outfit_effect": "Detailed text description of the desired wearing effect / styling result from the outfit-effect references...",
   "accessory_description": "Detailed text description of accessories, and state clearly how they should be worn/carried...",
   "poses_list": "A numbered list of EXACTLY ${poseCount} SHARP, DISTINCT fashion poses. Specifically include mapping for FRONT, SIDE, and BACK views to match input angles/crops. NO standalone product shots."
 }
@@ -288,6 +296,7 @@ Respond ONLY with valid JSON.
     console.error("Fission analysis failed", error);
     return {
       product_description: "Professional garment",
+      outfit_effect: "Desired wearing effect based on product and user notes",
       accessory_description: "Matching accessories",
       poses_list: "Variety of professional fashion poses"
     };

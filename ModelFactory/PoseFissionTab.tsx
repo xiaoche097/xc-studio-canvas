@@ -286,9 +286,11 @@ const PoseFissionTab: React.FC = () => {
   const [modelImages, setModelImages] = useState<string[]>([]);
   const [productImages, setProductImages] = useState<string[]>([]);
   const [accessoryImages, setAccessoryImages] = useState<string[]>([]);
+  const [modelOutfitImages, setModelOutfitImages] = useState<string[]>([]);
 
   const [bodyInfo, setBodyInfo] = useState('');
   const [specificFeatures, setSpecificFeatures] = useState('');
+  const [detailPrompt, setDetailPrompt] = useState('');
   const [modelType, setModelType] = useState('gemini-3.1-flash-image-preview');
   const [resolution, setResolution] = useState('2K');
   const [aspectRatio, setAspectRatio] = useState('9:16');
@@ -331,10 +333,11 @@ const PoseFissionTab: React.FC = () => {
   };
 
   // --- Drag and Drop States ---
-  const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory', idx: number} | null>(null);
+  const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory'|'outfit', idx: number} | null>(null);
   const [isDragOverModel, setIsDragOverModel] = useState(false);
   const [isDragOverProduct, setIsDragOverProduct] = useState(false);
   const [isDragOverAccessory, setIsDragOverAccessory] = useState(false);
+  const [isDragOverOutfit, setIsDragOverOutfit] = useState(false);
 
   const processFiles = (files: File[], setter: React.Dispatch<React.SetStateAction<string[]>>, maxLimit: number, currentList: string[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));
@@ -354,18 +357,20 @@ const PoseFissionTab: React.FC = () => {
   };
 
   // --- Upload Drop Area Handlers ---
-  const handleDragOverArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory') => {
+  const handleDragOverArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory' | 'outfit') => {
     e.preventDefault();
     if (type === 'model') setIsDragOverModel(true);
     if (type === 'product') setIsDragOverProduct(true);
     if (type === 'accessory') setIsDragOverAccessory(true);
+    if (type === 'outfit') setIsDragOverOutfit(true);
   };
-  const handleDragLeaveArea = (type: 'model' | 'product' | 'accessory') => {
+  const handleDragLeaveArea = (type: 'model' | 'product' | 'accessory' | 'outfit') => {
     if (type === 'model') setIsDragOverModel(false);
     if (type === 'product') setIsDragOverProduct(false);
     if (type === 'accessory') setIsDragOverAccessory(false);
+    if (type === 'outfit') setIsDragOverOutfit(false);
   };
-  const handleDropArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory', setter: React.Dispatch<React.SetStateAction<string[]>>, maxLimit: number, currentList: string[]) => {
+  const handleDropArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory' | 'outfit', setter: React.Dispatch<React.SetStateAction<string[]>>, maxLimit: number, currentList: string[]) => {
     e.preventDefault();
     handleDragLeaveArea(type);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -374,13 +379,13 @@ const PoseFissionTab: React.FC = () => {
   };
 
   // --- Reorder Sorting Handlers ---
-  const handleDragStartItem = (e: React.DragEvent, type: 'model'|'product'|'accessory', idx: number) => {
+  const handleDragStartItem = (e: React.DragEvent, type: 'model'|'product'|'accessory'|'outfit', idx: number) => {
     setDraggedIdx({ type, idx });
     e.dataTransfer.effectAllowed = 'move';
     setTimeout(() => { (e.target as HTMLElement).classList.add('opacity-30'); }, 0);
   };
 
-  const handleDragEnterItem = (e: React.DragEvent, type: 'model'|'product'|'accessory', targetIdx: number) => {
+  const handleDragEnterItem = (e: React.DragEvent, type: 'model'|'product'|'accessory'|'outfit', targetIdx: number) => {
     e.preventDefault();
     if (!draggedIdx || draggedIdx.type !== type || draggedIdx.idx === targetIdx) return;
     
@@ -398,7 +403,14 @@ const PoseFissionTab: React.FC = () => {
          newList.splice(targetIdx, 0, draggedImg);
          return newList;
        });
-    } else {
+    } else if (type === 'outfit') {
+       setModelOutfitImages(prev => {
+         const newList = [...prev];
+         const [draggedImg] = newList.splice(draggedIdx.idx, 1);
+         newList.splice(targetIdx, 0, draggedImg);
+         return newList;
+       });
+     } else {
        setAccessoryImages(prev => {
          const newList = [...prev];
          const [draggedImg] = newList.splice(draggedIdx.idx, 1);
@@ -436,7 +448,7 @@ const PoseFissionTab: React.FC = () => {
     setStatusMessage(isMainPreset ? "正在分析参考图并锁定主图角度..." : "正在由 AI 视觉大脑分析产品细节与规划姿势...");
     
     try {
-      const apiImages = [...productImages, ...modelImages, ...accessoryImages].map(imgUrl => {
+      const apiImages = [...productImages, ...modelOutfitImages, ...modelImages, ...accessoryImages].map(imgUrl => {
          const match = imgUrl.match(/^data:(image\/[a-zA-Z]*);base64,(.*)$/);
          if (match) {
            return { mimeType: match[1], base64: match[2] };
@@ -446,6 +458,7 @@ const PoseFissionTab: React.FC = () => {
 
       const analysis = await analyzeFissionContext(apiImages, isMainPreset ? '9:16' : aspectRatio, {
         productCount: productImages.length,
+        outfitCount: modelOutfitImages.length,
         modelCount: modelImages.length,
         accessoryCount: accessoryImages.length,
       });
@@ -453,14 +466,20 @@ const PoseFissionTab: React.FC = () => {
 
       const modelCount = modelImages.length;
       const productCount = productImages.length;
+      const outfitCount = modelOutfitImages.length;
       const accessoryCount = accessoryImages.length;
 
       const productStartIdx = 1;
-      const modelStartIdx = productCount + 1;
-      const accessoryStartIdx = productCount + modelCount + 1;
+      const outfitStartIdx = productCount + 1;
+      const modelStartIdx = productCount + outfitCount + 1;
+      const accessoryStartIdx = productCount + outfitCount + modelCount + 1;
 
       const productIdxRange = productCount > 0
         ? `Image ${productStartIdx}${productCount > 1 ? ` to Image ${productCount}` : ""}`
+        : "None";
+
+      const outfitIdxRange = outfitCount > 0
+        ? `Image ${outfitStartIdx}${outfitCount > 1 ? ` to Image ${outfitStartIdx + outfitCount - 1}` : ""}`
         : "None";
 
       const modelIdxRange = modelCount > 0
@@ -474,6 +493,7 @@ const PoseFissionTab: React.FC = () => {
       const wardrobeLock = `[WARDROBE WHITELIST / SOURCE OUTFIT REMOVAL]:
 - Clothing from the model identity reference images (${modelIdxRange}) is NEVER allowed to remain in the result.
 - Treat model reference images as identity/body/proportion references only. Their original clothes, inner layers, sleeves, pants, skirts, bras, slips, and styling must be ignored and removed.
+- Outfit effect references (${outfitIdxRange}) define the DESIRED WEARING RESULT only: use them to match how the product should be worn, layered, tucked, draped, cropped, fitted, and styled on the body, but do not copy the person, background, or unrelated garments from those images.
 - The ONLY allowed visible wardrobe items are:
   1. the PRIMARY PRODUCT from ${productIdxRange}
   2. optional accessories / extra wearable items from ${accessoryIdxRange}
@@ -488,6 +508,13 @@ const PoseFissionTab: React.FC = () => {
         : `[MODEL CREATION]: No dedicated model identity references were provided.
 - Build one consistent adult female model based on garment fit, user notes, and any visible person in the reference set.
 - Model Traits (User Input): ${specificFeatures || "None"}`;
+
+      const outfitEffectLock = outfitCount > 0
+        ? `[OUTFIT EFFECT LOCK]: Match the desired wearing result from ${outfitIdxRange} as closely as possible.
+- Follow the clothing presentation shown there for silhouette, styling, layering outcome, tuck/untuck behavior, garment tension, exposed areas, hem behavior, sleeve behavior, and how the product sits on the body.
+- Keep the exact product design from ${productIdxRange}; use ${outfitIdxRange} only as a wear-result blueprint, not as a replacement product source.
+- Do not copy the outfit-effect model's identity, background, lighting, or unrelated garments.`
+        : `[OUTFIT EFFECT LOCK]: No dedicated outfit-effect reference was provided. Infer the final wearing result from the product images and user notes.`;
 
       const baseNegativePrompt = [
         "original outfit",
@@ -505,6 +532,10 @@ const PoseFissionTab: React.FC = () => {
         "unreferenced clothing",
         "copy/paste reference",
         "duplicate reference image",
+        "wrong styling result",
+        "wrong layering",
+        "wrong tuck",
+        "wrong drape",
       ].join(", ");
 
       if (isMainPreset) {
@@ -531,8 +562,10 @@ const PoseFissionTab: React.FC = () => {
 - Do not improvise a new pose, camera height, lens feel, or composition.
 
 ${identityLock}
+${outfitEffectLock}
 [BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the reference images.
 - Build/Measurements (User Input): ${bodyInfo || "Use the reference images."}
+- Detail Prompt (User Input): ${detailPrompt || "None"}
 
 [PRIMARY PRODUCT (NON-NEGOTIABLE)]:
 - The PRIMARY PRODUCT is shown in ${productIdxRange}. It MUST appear on the model exactly.
@@ -656,8 +689,10 @@ ${wardrobeLock}
 [POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
 
       const prompt = `${promptPrefix}${poseFramingLock}${identityLock}
+${outfitEffectLock}
 [BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the reference images.
 - Build/Measurements (User Input): ${bodyInfo || "Use the reference images."}
+- Detail Prompt (User Input): ${detailPrompt || "None"}
 
 [PRIMARY PRODUCT (NON-NEGOTIABLE)]:
 - The PRIMARY PRODUCT is shown in ${productIdxRange}. It MUST be applied in EVERY grid cell.
@@ -851,6 +886,49 @@ ${gridRules}
             </div>
           </div>
 
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
+              <span>模特服装效果</span>
+              <span className="text-[10px] font-normal text-pastel-muted">最多3张 ({modelOutfitImages.length}/3)</span>
+            </h3>
+            <p className="text-[10px] leading-5 text-pastel-muted">
+              这里上传模特实际上身后的效果参考图，用来告诉模型你想要的穿戴状态、层次、松紧、露肤范围和整体呈现效果。
+            </p>
+            <div
+              className={`flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 transition-all ${isDragOverOutfit ? 'border-dashed border-pastel-highlight bg-pastel-highlight/5' : 'border-transparent'}`}
+              onDragOver={(e) => handleDragOverArea(e, 'outfit')}
+              onDragLeave={() => handleDragLeaveArea('outfit')}
+              onDrop={(e) => handleDropArea(e, 'outfit', setModelOutfitImages, 3, modelOutfitImages)}
+            >
+              {modelOutfitImages.map((img, idx) => (
+                <div
+                  key={idx}
+                  draggable
+                  onDragStart={(e) => handleDragStartItem(e, 'outfit', idx)}
+                  onDragEnter={(e) => handleDragEnterItem(e, 'outfit', idx)}
+                  onDragEnd={handleDragEndItem}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="relative w-20 h-20 rounded-lg overflow-hidden border border-pastel-border shadow-sm group cursor-move hover:ring-2 hover:ring-pastel-highlight/50 transition-all"
+                >
+                  <img src={img} alt="preview" className="w-full h-full object-cover pointer-events-none" />
+                  <button
+                    onClick={() => removeImage(idx, setModelOutfitImages)}
+                    className="absolute z-10 top-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {modelOutfitImages.length < 3 && (
+                <label className="relative w-20 h-20 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
+                  <input type="file" multiple className="hidden" onChange={(e) => { if(e.target.files) processFiles(Array.from(e.target.files), setModelOutfitImages, 3, modelOutfitImages); e.target.value = ''; }} accept="image/*" />
+                  <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
+                  <span className="text-[10px] mt-1 group-hover:text-pastel-highlight">拖拽或点击</span>
+                </label>
+              )}
+            </div>
+          </div>
+
           {/* 配饰搭配 */}
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
@@ -905,11 +983,22 @@ ${gridRules}
 
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted mb-2">具体特征/发型描述</h3>
-            <textarea 
+            <textarea
               rows={3}
-              placeholder="例如：亚裔、卷发、阳光气质、皮肤白皙..." 
+              placeholder="例如：亚裔、卷发、阳光气质、皮肤白皙..."
               value={specificFeatures}
               onChange={(e) => setSpecificFeatures(e.target.value)}
+              className="w-full bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted mb-2">细节补充提示词</h3>
+            <textarea
+              rows={4}
+              placeholder="例如：衣摆自然贴合腰部，胸口不要空鼓，袖口不要卷边，裤腰完整露出，包包自然垂落在左肩..."
+              value={detailPrompt}
+              onChange={(e) => setDetailPrompt(e.target.value)}
               className="w-full bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
             />
           </div>
