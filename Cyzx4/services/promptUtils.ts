@@ -311,6 +311,12 @@ const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
     general: "preserve exact product identity, exact color, structure, proportions, material finish, key details, and overall commercial accuracy",
 };
 
+const PRODUCT_TYPE_SCENE_DETAIL: Record<SceneGenerationProductType, string> = {
+    plush: "Show the plush toy in natural interaction with people or environment, maintaining soft lighting that highlights the fuzzy texture and huggable appeal",
+    apparel: "Show the apparel worn naturally on the body with realistic fit and drape, capturing fabric movement and texture in everyday use",
+    general: "Show the product in realistic use context with clear visibility of key features and details",
+};
+
 const PRODUCT_LOCK_RULES: Record<SceneGenerationProductType, string> = {
     plush: "Treat the reference image as the only source of truth for the plush toy identity. Do not recolor, restyle, reshape, simplify, or substitute the fur, embroidery, facial features, seams, stuffing volume, pile length, sheen, or silhouette. Preserve the exact hue family, saturation balance, plush density, stitched details, and surface finish. Any lifestyle styling must adapt around the plush product instead of changing it.",
     apparel: "Treat the reference image as the only source of truth for the apparel product identity. Do not recolor, restyle, repaint, redesign, or substitute the fabric type, garment structure, print placement, embroidery placement, trims, fit, drape, or silhouette. Preserve the exact main color and secondary color relationship, fabric texture, seam construction, and finishing details. Any lifestyle styling must adapt around the garment instead of changing it.",
