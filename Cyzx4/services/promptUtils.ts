@@ -265,3 +265,186 @@ export const TEXTURE_KEYWORDS = {
         "frosted glass", "wet asphalt reflections", "dusty shelves",
     ],
 } as const;
+
+export type SceneGenerationProductType = "plush" | "apparel" | "general";
+export type SceneGenerationBoardType = "main" | "aplus" | "social";
+
+export interface SceneGenerationPromptInput {
+    boardType: SceneGenerationBoardType;
+    productType: SceneGenerationProductType;
+    productName?: string;
+    productCategory?: string;
+    productSize?: string;
+    sellingPoints?: string;
+    sceneDirection?: string;
+    targetAudience?: string;
+    material?: string;
+    colorStyle?: string;
+    usageScenario?: string;
+    brandTone?: string;
+    avoidElements?: string;
+    copyIntent?: string;
+    extraNotes?: string;
+    modelPersonaPreset?: string;
+    modelEthnicity?: string;
+    modelAgeGroup?: string;
+    modelFamilyStructure?: string;
+    modelLifestyle?: string;
+    modelPersonaNotes?: string;
+}
+
+const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
+    main: "shot on 50mm standard lens, commercial ecommerce hero shot, crisp centered composition, clean depth separation",
+    aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
+    social: "shot on 85mm portrait lens, candid handheld lifestyle framing, natural indoor light, authentic buyer-show perspective",
+};
+
+const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
+    main: "Amazon secondary image style, clear subject hierarchy, product-first composition, clean but realistic background, strong click-through appeal",
+    aplus: "premium A+ storytelling visual, wider environment context, richer spatial layering, elevated brand atmosphere",
+    social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
+};
+
+const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
+    plush: "preserve exact plush toy identity, exact silhouette, stitching placement, facial embroidery, plush pile direction, soft cotton-filled volume, tactile fuzzy texture, huggable realism",
+    apparel: "preserve exact apparel identity, exact garment structure, collar, cuff, hem, seam lines, fit silhouette, fabric drape, wrinkle logic, true-to-reference material behavior",
+    general: "preserve exact product identity, exact color, structure, proportions, material finish, key details, and overall commercial accuracy",
+};
+
+const PRODUCT_LOCK_RULES: Record<SceneGenerationProductType, string> = {
+    plush: "Treat the reference image as the only source of truth for the plush toy identity. Do not recolor, restyle, reshape, simplify, or substitute the fur, embroidery, facial features, seams, stuffing volume, pile length, sheen, or silhouette. Preserve the exact hue family, saturation balance, plush density, stitched details, and surface finish. Any lifestyle styling must adapt around the plush product instead of changing it.",
+    apparel: "Treat the reference image as the only source of truth for the apparel product identity. Do not recolor, restyle, repaint, redesign, or substitute the fabric type, garment structure, print placement, embroidery placement, trims, fit, drape, or silhouette. Preserve the exact main color and secondary color relationship, fabric texture, seam construction, and finishing details. Any lifestyle styling must adapt around the garment instead of changing it.",
+    general: "Treat the reference image as the only source of truth for the product identity. Do not recolor, repaint, redesign, simplify, or substitute the material, hardware, trim, edge construction, surface finish, or silhouette. Preserve the exact hue family, saturation balance, texture depth, structural proportions, and visible product details. Any scene styling must adapt around the product instead of changing it.",
+};
+
+function buildProductLockPrompt(productType: SceneGenerationProductType) {
+    return PRODUCT_LOCK_RULES[productType];
+}
+
+function buildMaterialLockPrompt(input: SceneGenerationPromptInput) {
+    if (input.material) {
+        return `Material fidelity is mandatory: ${input.material}. Preserve the exact surface finish, tactile feel, texture depth, seam definition, embroidery or print sharpness, and physically believable folds or compression from the reference product.`;
+    }
+
+    return "Material fidelity is mandatory. Preserve the exact surface finish, tactile feel, texture depth, seam definition, embroidery or print sharpness, and physically believable folds or compression from the reference product.";
+}
+
+function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
+    const personaParts = [
+        input.modelPersonaPreset,
+        input.modelEthnicity && input.modelEthnicity !== "自动匹配" ? input.modelEthnicity : "ethnically believable American",
+        input.modelAgeGroup && input.modelAgeGroup !== "自动匹配" ? input.modelAgeGroup : "age-appropriate",
+        input.modelFamilyStructure && input.modelFamilyStructure !== "自动匹配" ? input.modelFamilyStructure : "realistic household composition",
+        input.modelLifestyle && input.modelLifestyle !== "自动匹配" ? input.modelLifestyle : "real everyday American lifestyle",
+    ].filter(Boolean);
+
+    const lifestyleSceneMap: Record<string, string> = {
+        "都市通勤": "urban U.S. apartment, city sidewalk, coffee-to-go, elevator lobby, commuter realism",
+        "郊区家庭": "suburban American home, family living room, nursery, backyard, natural family routine",
+        "校园": "real U.S. campus walkway, library, dorm, green lawn, student daily life",
+        "健身": "American gym, wellness studio, active lifestyle environment, natural movement",
+        "居家休闲": "cozy U.S. apartment or suburban home, sofa, bedroom, weekend home routine",
+        "节日送礼": "American holiday gifting moment, living room, wrapped gift setting, warm family atmosphere",
+    };
+
+    const sceneCue = input.modelLifestyle && lifestyleSceneMap[input.modelLifestyle]
+        ? lifestyleSceneMap[input.modelLifestyle]
+        : "realistically American interior or neighborhood context";
+
+    return [
+        `Use ${personaParts.join(", ")} people only if humans appear in the image.`,
+        `Human styling, family composition, behavior, body language, interiors, and props must be credible for the United States market.`,
+        `Anchor the human context in ${sceneCue}.`,
+        input.modelPersonaNotes ? `Additional persona notes: ${input.modelPersonaNotes}.` : "",
+    ].filter(Boolean).join(" ");
+}
+
+export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): string {
+    const subject = [input.productName, input.productCategory, input.productSize].filter(Boolean).join(", ") || "commercial product";
+    const environment = [input.sceneDirection, input.usageScenario, input.targetAudience].filter(Boolean).join(", ") || "real American lifestyle setting";
+    const style = [input.brandTone, input.colorStyle, SCENE_BOARD_GUIDE[input.boardType]].filter(Boolean).join(", ");
+    const personaPrompt = buildAmericanPersonaPrompt(input);
+
+    const basePrompt = buildGoldenFormula({
+        subject,
+        action: input.copyIntent || "show the product naturally in use while preserving exact identity",
+        environment,
+        style,
+        lighting: input.boardType === "social"
+            ? "natural window light, believable shadows, candid lifestyle realism, subtle filmic depth"
+            : input.boardType === "aplus"
+                ? "premium editorial lighting, layered highlights, realistic depth, refined brand atmosphere"
+                : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
+        composition: SCENE_LENS_MAP[input.boardType],
+        qualityBooster: input.boardType === "social" ? "FILM" : "EDITORIAL",
+    });
+
+    return [
+        "Create an ultra realistic commercial lifestyle photograph grounded in real everyday American life.",
+        "All people, styling, interiors, props, neighborhoods, and visual cues must feel authentic to the United States market.",
+        "Use ethnically believable real American people and natural candid behavior, never generic mannequin-like subjects.",
+        personaPrompt,
+        PRODUCT_TYPE_GUIDE[input.productType],
+        PRODUCT_TYPE_SCENE_DETAIL[input.productType],
+        "The reference image is the single source of truth for the product identity.",
+        buildProductLockPrompt(input.productType),
+        "Never recolor, repaint, redesign, simplify, swap materials, alter proportions, or drift from the original product identity. If the scene concept conflicts with the product, adjust the environment and styling around the product instead.",
+        input.sellingPoints ? `Prioritize these selling points visually: ${input.sellingPoints}.` : "",
+        buildMaterialLockPrompt(input),
+        input.avoidElements ? `Strictly avoid these elements: ${input.avoidElements}.` : "",
+        input.extraNotes ? `Additional execution notes: ${input.extraNotes}.` : "",
+        basePrompt,
+        "Make the image look like a premium real photo shot by an experienced Amazon ecommerce art director, not CGI or AI art.",
+    ].filter(Boolean).join(" ");
+}
+
+export function buildSceneGenerationNegativePrompt(input: {
+    boardType: SceneGenerationBoardType;
+    productType: SceneGenerationProductType;
+    avoidElements?: string;
+}) {
+    const scene = input.boardType === "social" ? "portrait" : "product";
+    const style = input.boardType === "social" ? "film" : "cinematic";
+    const extra = [
+        "CGI",
+        "3D render",
+        "cartoon",
+        "anime",
+        "plastic texture",
+        "waxy skin",
+        "mannequin pose",
+        "unnatural hands",
+        "extra fingers",
+        "bad anatomy",
+        "deformed face",
+        "wrong product color",
+        "wrong proportions",
+        "duplicate product",
+        "floating props",
+        "fake luxury set",
+        "overdesigned background",
+        "non-American setting cues",
+        "inaccurate ethnicity styling",
+        "mismatched cultural setting",
+        "incorrect family composition",
+        "unrealistic American lifestyle cues",
+        "mannequin family pose",
+        "staged stock-photo behavior",
+        "recolored product",
+        "material substitution",
+        "altered fabric type",
+        "changed surface finish",
+        "texture drift",
+        "incorrect embroidery details",
+        "print drift",
+        "changed trim details",
+        "altered silhouette",
+        "inaccurate product identity",
+        input.productType === "plush" ? "toy-like hard fabric, synthetic fake fur, stiff plush body, incorrect embroidery, wrong plush pile length, flattened stuffing volume, changed facial embroidery" : "",
+        input.productType === "apparel" ? "wrong garment structure, melted fabric, impossible folds, broken seams, incorrect fit, changed fabric weight, altered print placement, altered embroidery placement, recolored garment panels" : "",
+        input.productType === "general" ? "changed hardware finish, altered edge construction, replaced accessories, changed material gloss" : "",
+        input.avoidElements || "",
+    ].filter(Boolean).join(", ");
+
+    return buildNegativePrompt(scene as any, style as any, extra);
+}

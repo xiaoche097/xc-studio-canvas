@@ -4,13 +4,14 @@ import DirectorTab from './components/DirectorTab';
 import HDUpscaleTab from './components/HDUpscaleTab';
 import TrendTab from './components/TrendTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
+import SceneGenerationTab from './components/SceneGenerationTab';
 import ImageCleanTab from './components/ImageCleanTab';
 import FusionTab from './components/FusionTab';
 import InpaintingTab from './components/InpaintingTab';
 import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
 import SettingsTab from './components/SettingsTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles, Paintbrush } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.PLANNING);
@@ -84,6 +85,12 @@ const App: React.FC = () => {
             label="风格复刻"
           />
           <NavButton
+            active={activeTab === AppMode.SCENE_GENERATION}
+            onClick={() => setActiveTab(AppMode.SCENE_GENERATION)}
+            icon={<Store className="w-5 h-5" />}
+            label="场景图生成"
+          />
+          <NavButton
             active={activeTab === AppMode.IMAGE_CLEAN}
             onClick={() => setActiveTab(AppMode.IMAGE_CLEAN)}
             icon={<Sparkles className="w-5 h-5" />}
@@ -117,6 +124,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.INPAINTING && "局部替换 (Inpainting)"}
             {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
+            {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
             {activeTab === AppMode.IMAGE_CLEAN && "AI 洗图 (Image Clean)"}
             {activeTab === AppMode.TRENDS && "趋势洞察 (Trend Insights)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
@@ -155,6 +163,11 @@ const App: React.FC = () => {
             {/* Persist StyleReplicateTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.COPYWRITING ? 'block' : 'none', height: '100%' }}>
               <StyleReplicateTab />
+            </div>
+
+            {/* Persist SceneGenerationTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.SCENE_GENERATION ? 'block' : 'none', height: '100%' }}>
+              <SceneGenerationTab />
             </div>
 
             {/* Persist ImageCleanTab state by hiding instead of unmounting */}

@@ -438,7 +438,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock';
   } = {}
 ) => {
   const retryLimit = 3;
@@ -527,6 +527,31 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
       - Keep the final image crisp, literal, and commercially usable.
+      ${negativePromptLine}
+      `
+            : options.workflowHint === 'scene-product-lock'
+              ? `
+      **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
+      **TASK**: Place the reference product into a realistic lifestyle scene without changing the product itself.
+      **INPUT**:
+      - Reference images are the single source of truth for product identity.
+      - The user's prompt describes the desired American-market scene, people, composition, and selling context.
+
+      **NON-NEGOTIABLE RULES**:
+      - Lock the product first, then build the scene around it.
+      - NEVER recolor, repaint, redesign, simplify, restyle, or substitute the product's material, fabric, fur, print, embroidery, trim, hardware, structure, proportions, silhouette, or surface finish.
+      - Preserve exact hue family, saturation balance, texture depth, seams, embroidery placement, print placement, edge construction, and tactile realism from the reference image.
+      - You may change the background, props, human presence, lighting mood, and environment only insofar as the product itself remains visually identical.
+      - If any scene idea conflicts with product fidelity, change the scene idea instead of changing the product.
+      - If multiple reference images are provided, use them only to reinforce the same product identity. Do not blend mismatched colors, materials, or details into a new variant.
+      - Output exactly one polished commercial image. No collage, no split layout, no before-after composition.
+
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Prioritize exact product fidelity over creative scene variation.
+      - Keep the final result photorealistic, premium, and commercially usable for Amazon-style ecommerce.
       ${negativePromptLine}
       `
           : `

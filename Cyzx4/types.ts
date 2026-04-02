@@ -10,6 +10,7 @@ export enum AppMode {
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)
   STORYBOARD = 'STORYBOARD', // 分镜创作 (Storyboard)
+  SCENE_GENERATION = 'SCENE_GENERATION', // 场景图生成
   SETTINGS = 'SETTINGS'      // Settings (New)
 }
 
