@@ -58,6 +58,7 @@ interface SceneFormState {
   avoidElements: string;
   copyIntent: string;
   extraNotes: string;
+  batchCount: number;
 }
 
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -97,6 +98,7 @@ const initialForm: SceneFormState = {
   avoidElements: '',
   copyIntent: '',
   extraNotes: '',
+  batchCount: 1,
 };
 
 const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspectRatio: AspectRatio }> = {
@@ -129,6 +131,7 @@ const PERSONA_PRESETS: Record<string, {
   '美国校园学生': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '单人', modelLifestyle: '校园' },
   '美国年轻妈妈与儿童': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '亲子', modelLifestyle: '郊区家庭' },
   '美国居家休闲男性': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '单人', modelLifestyle: '居家休闲' },
+  '美国小孩': { modelEthnicity: '自动匹配', modelAgeGroup: '5-12岁', modelFamilyStructure: '单人', modelLifestyle: '校园' },
 };
 
 const SceneGenerationTab: React.FC = () => {
@@ -158,7 +161,7 @@ const SceneGenerationTab: React.FC = () => {
     return '生成接近真实买家秀/社媒传播风格的生活化场景图，增强代入感与分享感';
   }, [boardType]);
 
-  const updateForm = (key: keyof SceneFormState, value: string) => {
+  const updateForm = (key: keyof SceneFormState, value: string | number) => {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
@@ -299,24 +302,30 @@ const SceneGenerationTab: React.FC = () => {
         }))
       );
 
-      const results = await generateImageToImage(images, finalPrompt, {
-        aspectRatio,
-        resolution,
-        modelId: selectedModel,
-        negativePrompt,
-        workflowHint: 'scene-product-lock',
-      });
+      // 并行生成多张图片
+      const batchPromises = Array.from({ length: form.batchCount }, () =>
+        generateImageToImage(images, finalPrompt, {
+          aspectRatio,
+          resolution,
+          modelId: selectedModel,
+          negativePrompt,
+          workflowHint: 'scene-product-lock',
+        })
+      );
 
-      setGeneratedImages(results);
+      const batchResults = await Promise.all(batchPromises);
+      const allResults = batchResults.flat();
+
+      setGeneratedImages(allResults);
 
       await storageService.saveProject({
         id: crypto.randomUUID(),
         type: 'MARKETING',
         createdAt: Date.now(),
-        thumbnail: results[0],
+        thumbnail: allResults[0],
         assets: {
           original: uploadedImages.map(item => item.preview),
-          generated: results,
+          generated: allResults,
         },
         metadata: {
           subType: 'scene_generation',
@@ -328,6 +337,7 @@ const SceneGenerationTab: React.FC = () => {
           prompt: finalPrompt,
           negativePrompt,
           form,
+          batchCount: form.batchCount,
         },
       });
     } catch (err) {
@@ -645,6 +655,20 @@ const SceneGenerationTab: React.FC = () => {
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs text-pastel-muted mb-1 block">批量生成数量</label>
+                <select
+                  value={form.batchCount}
+                  onChange={(e) => updateForm('batchCount', e.target.value)}
+                  className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                >
+                  <option value={1}>1 张</option>
+                  <option value={2}>2 张（并行）</option>
+                  <option value={3}>3 张（并行）</option>
+                  <option value={4}>4 张（并行）</option>
+                </select>
+              </div>
+
               <div className="flex items-center justify-between rounded-xl border border-pastel-border bg-pastel-bg px-4 py-3">
                 <div>
                   <div className="text-sm font-semibold text-pastel-text flex items-center gap-2">
@@ -674,7 +698,7 @@ const SceneGenerationTab: React.FC = () => {
                 className="w-full py-4 rounded-xl bg-pastel-text text-white font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pastel-highlight transition-colors flex items-center justify-center gap-2"
               >
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {isGenerating ? `生成 ${currentBoard.label} 场景图中...` : `生成 ${currentBoard.label} 场景图`}
+                {isGenerating ? `生成 ${currentBoard.label} 场景图中...` : `生成 ${form.batchCount} 张 ${currentBoard.label} 场景图`}
               </button>
             </div>
           </div>
