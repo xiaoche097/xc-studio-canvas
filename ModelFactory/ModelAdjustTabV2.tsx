@@ -309,34 +309,48 @@ Output one photorealistic corrected image. The final result should look like Ima
               <span>图1 原图（锁定身份与服装）</span>
               <span className="text-[10px] font-normal text-pastel-muted">必须上传</span>
             </h3>
-            <div className="flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 border-transparent">
+            <div className="flex flex-col gap-2">
               {poseSourceUrl ? (
-                <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-pastel-border shadow-sm group cursor-move">
+                <div 
+                  className="relative group w-full aspect-[4/3] rounded-2xl border border-pastel-border shadow-sm overflow-hidden"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handlePoseSourceDrop}
+                >
                   <img src={poseSourceUrl} alt="source" className="w-full h-full object-cover" />
-                  <button
-                    onClick={removePoseSource}
-                    className="absolute z-10 top-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => openPreview(poseSourceUrl, '图1 原图')}
-                    className="absolute z-10 bottom-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                  </button>
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                    <label className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                      <input type="file" className="hidden" onChange={handlePoseSourceChange} accept="image/*" />
+                      <Upload className="w-4 h-4" />
+                    </label>
+                    <button
+                      onClick={() => openPreview(poseSourceUrl, '图1 原图')}
+                      className="bg-white p-2 text-pastel-text hover:text-blue-500 rounded-full shadow-lg transition-transform hover:scale-110"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={removePoseSource}
+                      className="bg-white p-2 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <label className="relative w-20 h-20 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
+                <label 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handlePoseSourceDrop}
+                  className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                >
                   <input type="file" className="hidden" onChange={handlePoseSourceChange} accept="image/*" />
-                  <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
-                  <span className="text-[10px] mt-1 group-hover:text-pastel-highlight text-center px-1">原图上传</span>
+                  <div className="w-12 h-12 mb-3 bg-white shadow-sm rounded-xl flex items-center justify-center text-pastel-muted group-hover:text-pastel-highlight transition-colors">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold text-pastel-text">点击或拖拽原图到此处</span>
+                  <span className="text-xs text-pastel-muted mt-1 px-4 text-center">人物长相、服装结构保持不变</span>
                 </label>
               )}
             </div>
-            <p className="text-[10px] text-pastel-muted">
-              提供人物长相、服装结构、背景和光线信息。
-            </p>
           </div>
 
           {/* 图2 上传 */}
@@ -345,34 +359,48 @@ Output one photorealistic corrected image. The final result should look like Ima
               <span>图2 姿势参考（读取骨架）</span>
               <span className="text-[10px] font-normal text-pastel-muted">必须上传</span>
             </h3>
-            <div className="flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 border-transparent">
+            <div className="flex flex-col gap-2">
               {poseRefUrl ? (
-                <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-pastel-border shadow-sm group cursor-move">
+                <div 
+                  className="relative group w-full aspect-[4/3] rounded-2xl border border-pastel-border shadow-sm overflow-hidden"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handlePoseRefDrop}
+                >
                   <img src={poseRefUrl} alt="reference" className="w-full h-full object-cover" />
-                  <button
-                    onClick={removePoseRef}
-                    className="absolute z-10 top-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => openPreview(poseRefUrl, '图2 姿势参考')}
-                    className="absolute z-10 bottom-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
-                  >
-                    <Maximize2 className="w-3 h-3" />
-                  </button>
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                    <label className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                      <input type="file" className="hidden" onChange={handlePoseRefChange} accept="image/*" />
+                      <Upload className="w-4 h-4" />
+                    </label>
+                    <button
+                      onClick={() => openPreview(poseRefUrl, '图2 姿势参考')}
+                      className="bg-white p-2 text-pastel-text hover:text-blue-500 rounded-full shadow-lg transition-transform hover:scale-110"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={removePoseRef}
+                      className="bg-white p-2 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <label className="relative w-20 h-20 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
+                <label 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handlePoseRefDrop}
+                  className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                >
                   <input type="file" className="hidden" onChange={handlePoseRefChange} accept="image/*" />
-                  <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
-                  <span className="text-[10px] mt-1 group-hover:text-pastel-highlight text-center px-1">姿势上传</span>
+                  <div className="w-12 h-12 mb-3 bg-white shadow-sm rounded-xl flex items-center justify-center text-pastel-muted group-hover:text-pastel-highlight transition-colors">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold text-pastel-text">点击或拖拽参考图到此处</span>
+                  <span className="text-xs text-pastel-muted mt-1 px-4 text-center">仅读取躯干朝向、动作与构图</span>
                 </label>
               )}
             </div>
-            <p className="text-[10px] text-pastel-muted">
-              仅读取躯干朝向、肢体动作与构图，不保留原衣服。
-            </p>
           </div>
 
           {/* 迁移范围 */}
@@ -409,7 +437,7 @@ Output one photorealistic corrected image. The final result should look like Ima
                 <button
                   key={item.value}
                   type="button"
-                  onClick={() => setOutputAspectRatio(item.value)}
+                  onClick={() => setOutputAspectRatio(item.value as PoseTransferAspectRatio)}
                   className={`rounded-xl border py-2.5 text-xs font-bold transition-all ${outputAspectRatio === item.value ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
                 >
                   {item.label}
