@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Loader2, Lock, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
+import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
 import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -16,93 +16,6 @@ type PreviewState = {
   title: string;
   subtitle?: string;
 } | null;
-
-type UploadBlockProps = {
-  title: string;
-  badge: string;
-  subtitle: string;
-  tip: string;
-  imageUrl: string | null;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onDrop: (e: React.DragEvent) => void;
-  onRemove: () => void;
-  onPreview: () => void;
-  emptyLabel: string;
-};
-
-const UploadBlock: React.FC<UploadBlockProps> = ({
-  title,
-  badge,
-  subtitle,
-  tip,
-  imageUrl,
-  onChange,
-  onDrop,
-  onRemove,
-  onPreview,
-  emptyLabel,
-}) => (
-  <div className="rounded-2xl border border-pastel-border bg-white p-3 shadow-sm">
-    <div className="mb-3 flex items-start justify-between gap-3">
-      <div>
-        <div className="text-sm font-bold text-pastel-text">{title}</div>
-        <div className="mt-1 text-xs leading-5 text-pastel-muted">{subtitle}</div>
-      </div>
-      <span className="rounded-full border border-pastel-highlight/20 bg-pastel-highlight/10 px-2.5 py-1 text-[10px] font-bold text-pastel-highlight">
-        {badge}
-      </span>
-    </div>
-
-    {imageUrl ? (
-      <>
-        <button
-          type="button"
-          onClick={onPreview}
-          className="group relative block aspect-square w-full overflow-hidden rounded-2xl border border-pastel-border bg-pastel-bg sm:aspect-[5/4]"
-        >
-          <img src={imageUrl} alt={title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-          <div className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-white/15 p-2 text-white opacity-0 backdrop-blur-md transition-opacity group-hover:opacity-100">
-            <Maximize2 className="h-4 w-4" />
-          </div>
-        </button>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-pastel-border bg-pastel-bg px-3 py-2.5 text-xs font-bold text-pastel-text transition-colors hover:border-pastel-highlight/40 hover:bg-pastel-highlight/5">
-            <input type="file" className="hidden" onChange={onChange} accept="image/*" />
-            <Upload className="h-4 w-4" />
-            更换
-          </label>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-bold text-red-500 transition-colors hover:bg-red-100"
-          >
-            <X className="h-4 w-4" />
-            移除
-          </button>
-        </div>
-      </>
-    ) : (
-      <label
-        className="group flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg/60 px-4 text-center transition-all hover:border-pastel-highlight hover:bg-pastel-highlight/5 sm:aspect-[5/4]"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={onDrop}
-      >
-        <input type="file" className="hidden" onChange={onChange} accept="image/*" />
-        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-pastel-muted shadow-sm transition-colors group-hover:text-pastel-highlight">
-          <Upload className="h-5 w-5" />
-        </div>
-        <div className="text-sm font-bold text-pastel-text">{emptyLabel}</div>
-        <div className="mt-2 text-xs leading-5 text-pastel-muted">拖拽图片到这里，或点击选择</div>
-      </label>
-    )}
-
-    <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-      {tip}
-    </div>
-  </div>
-);
 
 const ModelAdjustTabV2: React.FC = () => {
   const [poseSourceFile, setPoseSourceFile] = useState<File | null>(null);
@@ -375,302 +288,273 @@ Output one photorealistic corrected image. The final result should look like Ima
   };
 
   return (
-    <div className="flex h-full w-full flex-col bg-pastel-bg text-pastel-text xl:flex-row">
-      <div className="flex w-full flex-col border-r border-pastel-border bg-pastel-card shadow-sm xl:w-[500px] xl:flex-shrink-0">
-        <div className="flex-1 space-y-4 overflow-y-auto p-5 custom-scrollbar">
+    <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text">
+      {/* Sidebar - Inputs */}
+      <div className="w-full md:w-1/3 lg:w-[400px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
+        <div className="p-5 flex-1 space-y-6">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">
               <Sparkles className="h-4 w-4" />
               <span className="text-xs font-black uppercase tracking-[0.22em]">Pose Transfer</span>
             </div>
-            <h3 className="text-xl font-black tracking-tight text-pastel-text">模特调整</h3>
-            <p className="text-sm leading-6 text-pastel-muted">
-              图1锁定人物与服装，图2同时提供姿势、身体朝向和画幅参考。现在结果会优先贴近图2的站姿与构图，而不是死守图1原画幅。
+            <h3 className="text-xl font-black tracking-tight text-pastel-text">模特调整/姿势迁移</h3>
+            <p className="text-[10px] leading-5 text-pastel-muted italic">
+              图1锁定人物身份与服装，图2仅读取姿势蓝图。结果会按图2站位重建。
             </p>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <UploadBlock
-              title="图1 原图"
-              badge="主锁定图"
-              subtitle="人物身份、服装、背景、光线和画幅都从这里继承。"
-              tip="建议放你最满意的成片，这张图会锁住大部分视觉信息。"
-              imageUrl={poseSourceUrl}
-              onChange={handlePoseSourceChange}
-              onDrop={handlePoseSourceDrop}
-              onRemove={removePoseSource}
-              onPreview={() => openPreview(poseSourceUrl, '图1 原图', '锁定身份、服装、背景与画幅')}
-              emptyLabel="上传原图"
-            />
-            <UploadBlock
-              title="图2 姿势参考"
-              badge="姿势骨架"
-              subtitle="只读取肩线、手臂、手势和躯干转向，不复制服装、背景与配饰。"
-              tip="图2如果带包、项链或特殊裁切，默认不会跟着复制。现在它更像动作草图，而不是整张风格参考。"
-              imageUrl={poseRefUrl}
-              onChange={handlePoseRefChange}
-              onDrop={handlePoseRefDrop}
-              onRemove={removePoseRef}
-              onPreview={() => openPreview(poseRefUrl, '图2 姿势参考', '只读取姿势，不读取风格与配饰')}
-              emptyLabel="上传姿势参考图"
-            />
+          {/* 图1 上传 */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
+              <span>图1 原图（锁定身份与服装）</span>
+              <span className="text-[10px] font-normal text-pastel-muted">必须上传</span>
+            </h3>
+            <div className="flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 border-transparent">
+              {poseSourceUrl ? (
+                <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-pastel-border shadow-sm group cursor-move">
+                  <img src={poseSourceUrl} alt="source" className="w-full h-full object-cover" />
+                  <button
+                    onClick={removePoseSource}
+                    className="absolute z-10 top-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => openPreview(poseSourceUrl, '图1 原图')}
+                    className="absolute z-10 bottom-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
+                  >
+                    <Maximize2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <label className="relative w-20 h-20 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
+                  <input type="file" className="hidden" onChange={handlePoseSourceChange} accept="image/*" />
+                  <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
+                  <span className="text-[10px] mt-1 group-hover:text-pastel-highlight text-center px-1">原图上传</span>
+                </label>
+              )}
+            </div>
+            <p className="text-[10px] text-pastel-muted">
+              提供人物长相、服装结构、背景和光线信息。
+            </p>
           </div>
 
-          <div className="space-y-4 rounded-[28px] border border-pastel-border bg-white p-4 shadow-sm">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <div className="space-y-3 rounded-2xl border border-pastel-border bg-pastel-bg/60 p-3 lg:col-span-2">
-                <div className="text-xs font-bold text-pastel-muted">迁移范围</div>
-                <div className="grid grid-cols-2 gap-2">
+          {/* 图2 上传 */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
+              <span>图2 姿势参考（读取骨架）</span>
+              <span className="text-[10px] font-normal text-pastel-muted">必须上传</span>
+            </h3>
+            <div className="flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 border-transparent">
+              {poseRefUrl ? (
+                <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-pastel-border shadow-sm group cursor-move">
+                  <img src={poseRefUrl} alt="reference" className="w-full h-full object-cover" />
                   <button
-                    type="button"
-                    onClick={() => setTransferScope('upper-body')}
-                    className={`rounded-xl border px-3 py-3 text-sm font-bold transition-all ${transferScope === 'upper-body' ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight shadow-sm' : 'border-pastel-border bg-white text-pastel-muted hover:border-pastel-highlight/40'}`}
+                    onClick={removePoseRef}
+                    className="absolute z-10 top-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
                   >
-                    仅上半身
+                    <X className="w-3 h-3" />
                   </button>
                   <button
-                    type="button"
-                    onClick={() => setTransferScope('full-body')}
-                    className={`rounded-xl border px-3 py-3 text-sm font-bold transition-all ${transferScope === 'full-body' ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight shadow-sm' : 'border-pastel-border bg-white text-pastel-muted hover:border-pastel-highlight/40'}`}
+                    onClick={() => openPreview(poseRefUrl, '图2 姿势参考')}
+                    className="absolute z-10 bottom-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
                   >
-                    全身姿势
+                    <Maximize2 className="w-3 h-3" />
                   </button>
                 </div>
-                <div className="rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-slate-500">
-                  {transferScope === 'upper-body'
-                    ? '优先匹配图2的肩颈、上半身朝向、手臂和上半身构图；必要时允许轻微调整下半身来支撑最终姿势。'
-                    : '适合需要明显站姿、身体角度和画幅变化的场景，结果会尽量贴近图2的人物朝向、站位和裁切。'}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-6 text-emerald-700">
-                当前会优先锁定图1的人物与服装细节，同时把图2当作姿势、朝向和构图蓝图来执行。输出画幅按你上面选择的比例生成，但人物站位和裁切会尽量向图2靠拢。
-              </div>
+              ) : (
+                <label className="relative w-20 h-20 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
+                  <input type="file" className="hidden" onChange={handlePoseRefChange} accept="image/*" />
+                  <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
+                  <span className="text-[10px] mt-1 group-hover:text-pastel-highlight text-center px-1">姿势上传</span>
+                </label>
+              )}
             </div>
+            <p className="text-[10px] text-pastel-muted">
+              仅读取躯干朝向、肢体动作与构图，不保留原衣服。
+            </p>
+          </div>
 
-            <div className="grid gap-3 lg:grid-cols-3">
-              <div className="rounded-2xl border border-pastel-border bg-pastel-bg/60 p-3">
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-pastel-muted">生成画质</div>
-                <select
-                  value={resolution}
-                  onChange={(e) => setResolution(e.target.value as '2K' | '4K')}
-                  className="w-full rounded-xl border border-pastel-border bg-white px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-pastel-highlight/20"
+          {/* 迁移范围 */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2">迁移范围 (Transfer Scope)</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setTransferScope('upper-body')}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl border transition-all ${transferScope === 'upper-body' ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
+              >
+                仅上半身
+              </button>
+              <button
+                type="button"
+                onClick={() => setTransferScope('full-body')}
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl border transition-all ${transferScope === 'full-body' ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
+              >
+                全身姿势
+              </button>
+            </div>
+          </div>
+
+          {/* 输出画幅 */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2">输出画幅 (Aspect Ratio)</h3>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { value: AspectRatio.PORTRAIT_2_3, label: '2:3' },
+                { value: AspectRatio.PORTRAIT_9_16, label: '9:16' },
+                { value: AspectRatio.PORTRAIT_3_4, label: '3:4' },
+                { value: AspectRatio.SQUARE, label: '1:1' },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setOutputAspectRatio(item.value)}
+                  className={`rounded-xl border py-2.5 text-xs font-bold transition-all ${outputAspectRatio === item.value ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
                 >
-                  <option value="2K">2K 默认</option>
-                  <option value="4K">4K 更细节</option>
-                </select>
-              </div>
-
-              <div className="rounded-2xl border border-pastel-border bg-pastel-bg/60 p-3 lg:col-span-2">
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-pastel-muted">输出画幅</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { value: AspectRatio.PORTRAIT_2_3, label: '2:3' },
-                    { value: AspectRatio.PORTRAIT_9_16, label: '9:16' },
-                    { value: AspectRatio.PORTRAIT_3_4, label: '3:4' },
-                    { value: AspectRatio.SQUARE, label: '1:1' },
-                  ].map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      onClick={() => setOutputAspectRatio(item.value)}
-                      className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition-all ${
-                        outputAspectRatio === item.value
-                          ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight shadow-sm'
-                          : 'border-pastel-border bg-white text-pastel-muted hover:border-pastel-highlight/40'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  {item.label}
+                </button>
+              ))}
             </div>
+          </div>
 
+          {/* 细节设置 */}
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
-              <div className="text-xs font-bold text-pastel-muted">补充约束</div>
+              <h3 className="text-xs font-bold text-pastel-muted mb-2">生成画质</h3>
+              <select
+                value={resolution}
+                onChange={(e) => setResolution(e.target.value as '2K' | '4K')}
+                className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-3 text-xs font-bold focus:ring-2 focus:ring-pastel-highlight/20 outline-none transition-all"
+              >
+                <option value="2K">2K (默认高清)</option>
+                <option value="4K">4K (细节丰富)</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-pastel-muted mb-2">补充提示词</h3>
               <textarea
                 rows={3}
                 value={poseGuidance}
                 onChange={(e) => setPoseGuidance(e.target.value)}
-                placeholder="例如：保持图1的人和衣服不变，但人物朝向、手臂位置、站位和裁切尽量跟图2一致。"
-                className="w-full resize-none rounded-2xl border border-pastel-border bg-pastel-bg px-4 py-3 text-sm leading-6 outline-none transition-all placeholder:text-gray-400 focus:ring-2 focus:ring-pastel-highlight/20"
+                placeholder="例如：保持笑容，或者特别说明手势细节..."
+                className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
               />
             </div>
-
-            <button
-              onClick={handleGeneratePoseTransfer}
-              disabled={isPoseGenerating}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-orange-500 to-pink-500 px-4 py-3.5 text-white shadow-lg shadow-orange-500/25 transition-all hover:brightness-105 hover:shadow-orange-500/40 active:scale-[0.99] disabled:opacity-50"
-            >
-              {isPoseGenerating ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  正在生成模特调整
-                </>
-              ) : (
-                <>
-                  <Zap className="h-5 w-5" />
-                  生成模特调整
-                </>
-              )}
-            </button>
-
-            {poseStatusMessage && (
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500">
-                {poseStatusMessage}
-              </div>
-            )}
           </div>
+        </div>
+
+        {/* Sticky Footer Button */}
+        <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.05)]">
+          <button
+            onClick={handleGeneratePoseTransfer}
+            disabled={isPoseGenerating}
+            className="w-full py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all active:scale-[0.98] hover:shadow-orange-500/40 hover:brightness-105"
+          >
+            {isPoseGenerating ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                正在匹配姿势...
+              </>
+            ) : (
+              <>
+                <Zap className="h-5 w-5" />
+                生成模特调整
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(237,109,70,0.12),_transparent_26%),linear-gradient(180deg,_#f5f9ff_0%,_#edf4fb_100%)] p-5">
-        <div className="flex h-full flex-col gap-4">
-          <div className="grid gap-4 xl:grid-cols-[220px,220px,minmax(260px,1fr)]">
-            <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm">
-              <div className="mb-3 text-sm font-bold text-slate-800">图1 锁定内容</div>
-              {poseSourceUrl ? (
-                <button type="button" onClick={() => openPreview(poseSourceUrl, '图1 原图', '锁定身份、服装、背景与画幅')} className="block w-full overflow-hidden rounded-2xl border border-slate-200">
-                  <img src={poseSourceUrl} alt="图1 原图" className="aspect-square w-full object-cover sm:aspect-[5/4]" />
-                </button>
-              ) : (
-                <div className="flex aspect-square items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-xs text-slate-400 sm:aspect-[5/4]">
-                  暂未上传
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-white/60 bg-white/80 p-4 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm">
-              <div className="mb-3 text-sm font-bold text-slate-800">图2 读取内容</div>
-              {poseRefUrl ? (
-                <button type="button" onClick={() => openPreview(poseRefUrl, '图2 姿势参考', '只读取姿势，不读取风格与配饰')} className="block w-full overflow-hidden rounded-2xl border border-slate-200">
-                  <img src={poseRefUrl} alt="图2 姿势参考" className="aspect-square w-full object-cover sm:aspect-[5/4]" />
-                </button>
-              ) : (
-                <div className="flex aspect-square items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-xs text-slate-400 sm:aspect-[5/4]">
-                  暂未上传
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm">
-              <div className="mb-3 flex items-center gap-2 text-slate-800">
-                <Lock className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-black">姿势读取规则</span>
+      {/* Main Panel - Result Workspace */}
+      <div className="flex-1 flex flex-col p-6 overflow-hidden relative items-center justify-center bg-transparent">
+        {isPoseGenerating ? (
+          <div className="flex flex-col items-center justify-center w-full h-full">
+            <div className="flex flex-col items-center gap-6 p-12 bg-white/50 backdrop-blur-md rounded-3xl border border-white shadow-xl max-w-md w-full">
+              <div className="relative">
+                <Loader2 className="w-16 h-16 text-pastel-highlight animate-spin" />
+                <Zap className="w-6 h-6 text-yellow-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
               </div>
-              <div className="grid gap-3 text-sm leading-7 text-slate-500 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-                <div>图1优先锁定人物身份、服装细节和产品信息，不跟着图2换人换衣服。</div>
-                <div>图2同时提供肩线、躯干朝向、手臂位置、手势，以及人物在画面里的站位和裁切参考。</div>
-                <div>如果图2的动作或取景和图1不同，允许通过重新站位、重新裁切或调整人物占比去贴近图2，而不是强行维持图1原构图。</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col rounded-[32px] border border-white/70 bg-white/75 p-5 shadow-[0_30px_80px_-40px_rgba(15,23,42,0.4)] backdrop-blur-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-pastel-highlight">
-                  <Sparkles className="h-4 w-4" />
-                  Result Workspace
-                </div>
-                <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900">
-                  {poseResultImage ? '姿势迁移结果' : '结果预览区'}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  {poseResultImage ? '先对照图1和图2检查肩线、手臂、手势是否贴近参考，再放大看衣服和配饰是否稳定。' : '上传两张图后，结果会直接出现在这里，不再留一大片空白。'}
+              <div className="text-center space-y-3">
+                <h3 className="text-xl font-black text-pastel-highlight tracking-tight">重建姿势中...</h3>
+                <p className="text-pastel-text/80 text-sm font-medium animate-pulse transition-all duration-500">
+                  {poseStatusMessage || '锁定衣服细节，正在按参考图重塑肢体结构...'}
                 </p>
               </div>
-
-              {poseResultImage && (
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => openPreview(poseResultImage, '生成结果', '点击查看大图细节')} className="flex items-center justify-center gap-2 rounded-2xl border border-pastel-border bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50">
-                    <Maximize2 className="h-4 w-4" />
-                    放大查看
-                  </button>
-                  <button type="button" onClick={() => downloadImage(poseResultImage, `model-adjust-${Date.now()}.png`)} className="flex items-center justify-center gap-2 rounded-2xl border border-pastel-highlight/20 bg-pastel-highlight/10 px-4 py-2.5 text-sm font-bold text-pastel-highlight transition-colors hover:bg-pastel-highlight/15">
-                    <Download className="h-4 w-4" />
-                    下载结果
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex-1 min-h-0 overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50/60">
-              {isPoseGenerating ? (
-                <div className="flex h-full w-full items-center justify-center p-6">
-                  <div className="flex max-w-md flex-col items-center gap-5 rounded-[28px] border border-white bg-white/90 px-10 py-12 text-center shadow-[0_30px_80px_-40px_rgba(15,23,42,0.5)]">
-                    <div className="relative">
-                      <Loader2 className="h-16 w-16 animate-spin text-pastel-highlight" />
-                      <Zap className="absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 text-amber-400" />
-                    </div>
-                    <div className="space-y-2">
-                      <h4 className="text-xl font-black text-slate-900">正在生成姿势迁移</h4>
-                      <p className="text-sm leading-7 text-slate-500">{poseStatusMessage || '正在锁定图1内容，并把图2动作压进当前构图。'}</p>
-                    </div>
-                  </div>
-                </div>
-              ) : poseResultImage ? (
-                <div className="flex h-full w-full flex-col overflow-hidden p-4">
-                  <button type="button" onClick={() => openPreview(poseResultImage, '生成结果', '点击查看大图细节')} className="group relative flex-1 overflow-hidden rounded-[24px] border border-white bg-white shadow-sm">
-                    <img src={poseResultImage} alt="pose-result" className="h-full w-full object-contain bg-[linear-gradient(180deg,_#f8fbff_0%,_#eff4fb_100%)]" />
-                    <div className="pointer-events-none absolute right-4 top-4 rounded-full bg-slate-950/50 p-2 text-white opacity-0 backdrop-blur-md transition-opacity group-hover:opacity-100">
-                      <Maximize2 className="h-4 w-4" />
-                    </div>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid h-full w-full gap-4 p-4 xl:grid-cols-[minmax(280px,340px),minmax(0,1fr)]">
-                  <div className="rounded-[24px] border border-dashed border-slate-200 bg-white/80 p-5">
-                    <div className="mb-4 flex items-center gap-2 text-sm font-black text-slate-800">
-                      <Lock className="h-4 w-4 text-emerald-500" />
-                      生成前检查
-                    </div>
-                    <div className="space-y-3 text-sm leading-7 text-slate-500">
-                      <div>图1建议选择你最满意的成片，因为这张图会锁住身份、服装和构图。</div>
-                      <div>图2尽量选动作清晰、手臂和肩线明确的参考，越少风格干扰越稳。</div>
-                      <div>如果你只想动上半身，保持“仅上半身”即可，成功率会更高。</div>
-                    </div>
-                  </div>
-                  <div className="rounded-[24px] border border-dashed border-slate-200 bg-[linear-gradient(180deg,_rgba(237,109,70,0.06)_0%,_rgba(255,255,255,0.92)_100%)] p-5">
-                    <div className="mb-4 flex items-center gap-2 text-sm font-black text-slate-800">
-                      <Sparkles className="h-4 w-4 text-pastel-highlight" />
-                      结果将出现在这里
-                    </div>
-                    <div className="flex h-[calc(100%-2rem)] min-h-[240px] flex-col items-center justify-center rounded-[20px] border border-white bg-white/75 px-6 text-center shadow-inner">
-                      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-pastel-highlight/10 text-pastel-highlight">
-                        <Zap className="h-8 w-8" />
-                      </div>
-                      <div className="text-lg font-black text-slate-900">等待生成</div>
-                      <div className="mt-2 max-w-sm text-sm leading-7 text-slate-500">上传图1和图2后点击“生成模特调整”，结果会按图1画幅直接落在这里，方便你马上对照检查。</div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
-        </div>
+        ) : !poseResultImage ? (
+          <div className="flex flex-col items-center justify-center text-pastel-muted w-full h-full">
+            <div className="w-24 h-24 rounded-3xl bg-white border-2 border-dashed border-pastel-border flex items-center justify-center mb-6 transition-all hover:scale-105 hover:border-pastel-highlight hover:shadow-lg hover:shadow-pastel-highlight/20 shadow-sm">
+              <Zap className="w-10 h-10 text-pastel-border" />
+            </div>
+            <div className="text-center space-y-2">
+              <p className="text-lg font-black text-pastel-text">等待上传并生成</p>
+              <p className="text-xs tracking-wide opacity-70 text-center">
+                请先在左侧上传原图与姿势参考<br />
+                结果将直接显示在工作区，方便对照检查
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-4">
+            <div className="flex items-center justify-between w-full max-w-[720px] mb-2 px-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-pastel-highlight" />
+                <span className="text-sm font-black text-slate-800 tracking-tight">生成结果 (Transfer Result)</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => openPreview(poseResultImage, '生成结果')}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-pastel-border bg-white px-4 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 shadow-sm"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  放大
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadImage(poseResultImage, `model-adjust-${Date.now()}.png`)}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-pastel-highlight/20 bg-pastel-highlight/10 px-4 py-2 text-xs font-bold text-pastel-highlight transition-colors hover:bg-pastel-highlight/15 shadow-sm"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  下载
+                </button>
+              </div>
+            </div>
+
+            <div className="relative group max-h-[80%] overflow-hidden rounded-[40px] border border-white bg-white/80 shadow-[0_40px_100px_-30px_rgba(15,23,42,0.3)] backdrop-blur-md transition-all hover:shadow-2xl">
+              <img
+                src={poseResultImage}
+                alt="result"
+                className="max-h-full w-auto object-contain bg-slate-50 cursor-zoom-in"
+                onClick={() => openPreview(poseResultImage, '生成结果')}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Preview Modal */}
       {preview && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/75 p-6 backdrop-blur-xl" onClick={() => setPreview(null)}>
-          <button type="button" onClick={() => setPreview(null)} className="absolute right-6 top-6 rounded-full border border-white/15 bg-white/10 p-3 text-white transition-colors hover:bg-white/20">
-            <X className="h-6 w-6" />
+          <button type="button" onClick={() => setPreview(null)} className="absolute right-6 top-6 rounded-full border border-white/15 bg-white/10 p-4 text-white transition-colors hover:bg-white/20 shadow-2xl">
+            <X className="h-8 w-8" />
           </button>
 
-          <div className="relative flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px] border border-white/10 bg-[#0d1117] shadow-[0_60px_140px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5 text-white">
+          <div className="relative flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[40px] border border-white/10 bg-[#0d1117] shadow-[0_60px_150px_rgba(0,0,0,0.6)] animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 px-8 py-6 text-white bg-white/5">
               <div>
-                <div className="text-lg font-black">{preview.title}</div>
-                {preview.subtitle && <div className="mt-1 text-sm text-white/60">{preview.subtitle}</div>}
+                <div className="text-xl font-black tracking-tight">{preview.title}</div>
+                {preview.subtitle && <div className="mt-1 text-xs text-white/50">{preview.subtitle}</div>}
               </div>
-              <button type="button" onClick={() => downloadImage(preview.src, `${preview.title}-${Date.now()}.png`)} className="flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-white/15">
+              <button type="button" onClick={() => downloadImage(preview.src, `${preview.title}-${Date.now()}.png`)} className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-orange-500 to-pink-500 px-6 py-3 text-sm font-black text-white transition-all hover:brightness-110 shadow-lg shadow-orange-500/20 active:scale-95">
                 <Download className="h-4 w-4" />
-                下载
+                下载图片
               </button>
             </div>
 
-            <div className="flex-1 overflow-auto p-5">
+            <div className="flex-1 overflow-auto p-10 flex items-center justify-center bg-[#080b10]">
               <img src={preview.src} className="h-full w-full object-contain" alt={preview.title} />
             </div>
           </div>

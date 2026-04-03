@@ -127,6 +127,7 @@ type AngleDef = {
   label: string;
   prompt: string;
   thumb?: AngleThumbSpec;
+  refImageUrl?: string;
 };
 
 type AnglePreset = {
@@ -235,6 +236,7 @@ const MAIN_IMAGE_ANGLES: AngleDef[] = [
     prompt:
       "back view, torso-focused main image framing, crop from just above the top of the head to upper thighs, shoulders level, arms relaxed down, natural stance, head turned slightly to camera-left (subtle over-shoulder feel), keep the same camera height and framing",
     thumb: { view: 'back', hands: 'down', crop: 'mid' },
+    refImageUrl: '/main-angle-refs/HM9A1177.jpg',
   },
   {
     id: 'M2',
@@ -242,6 +244,7 @@ const MAIN_IMAGE_ANGLES: AngleDef[] = [
     prompt:
       "front view, straight-on, main image framing, crop from just above the top of the head to upper thighs, both hands placed inside front jean pockets, elbows angled outward slightly, chest open, neutral confident stance, camera at chest level, centered composition",
     thumb: { view: 'front', hands: 'pockets', crop: 'mid' },
+    refImageUrl: '/main-angle-refs/HM9A1197.jpg',
   },
   {
     id: 'M3',
@@ -249,6 +252,7 @@ const MAIN_IMAGE_ANGLES: AngleDef[] = [
     prompt:
       "front view, straight-on, closer main image crop (from upper chest to upper thighs), both hands inside front pockets, shoulders relaxed, minimal body twist, centered composition, keep proportions natural",
     thumb: { view: 'front', hands: 'pockets', crop: 'tight' },
+    refImageUrl: '/main-angle-refs/HM9A1202.jpg',
   },
   {
     id: 'M4',
@@ -256,6 +260,7 @@ const MAIN_IMAGE_ANGLES: AngleDef[] = [
     prompt:
       "front view, straight-on, main image framing, crop from just above the top of the head to upper thighs, arms relaxed down, hands near outer thighs, neutral stance, centered composition, camera eye-level",
     thumb: { view: 'front', hands: 'down', crop: 'mid' },
+    refImageUrl: '/main-angle-refs/HM9A1282.jpg',
   },
   {
     id: 'M5',
@@ -263,6 +268,7 @@ const MAIN_IMAGE_ANGLES: AngleDef[] = [
     prompt:
       "three-quarter front view, body rotated about 30–40 degrees to camera-left, main image framing crop from just above the top of the head to upper thighs, both hands inside front pockets, weight shifted slightly to one leg, shoulders relaxed, centered composition",
     thumb: { view: 'threeQuarter', hands: 'pockets', crop: 'mid' },
+    refImageUrl: '/main-angle-refs/HM9A1290.jpg',
   },
   {
     id: 'M6',
@@ -270,6 +276,7 @@ const MAIN_IMAGE_ANGLES: AngleDef[] = [
     prompt:
       "three-quarter front view, body rotated about 30–40 degrees to camera-right, main image framing crop from just above the top of the head to upper thighs, arms relaxed down, head turned to look off-camera, neutral stance, centered composition",
     thumb: { view: 'threeQuarter', hands: 'down', crop: 'mid' },
+    refImageUrl: '/main-angle-refs/HM9A1307.jpg',
   },
 ];
 
@@ -548,6 +555,33 @@ const PoseFissionTab: React.FC = () => {
 
         for (const [index, angle] of mainAngles.entries()) {
           setStatusMessage(`正在生成 ${angle.id} ${angle.label} (${index + 1}/${mainAngles.length})...`);
+          
+          let angleApiImages = [...apiImages];
+          let explicitReferencePrompt = "";
+
+          // Fetch the rigid reference image if available
+          if (angle.refImageUrl) {
+            try {
+              const res = await fetch(angle.refImageUrl);
+              const blob = await res.blob();
+              const base64String = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+              
+              angleApiImages.push({
+                mimeType: blob.type,
+                base64: base64String.split(',')[1],
+              });
+              
+              const totalImages = angleApiImages.length;
+              explicitReferencePrompt = `\n[EXACT POSE & FRAMING REFERENCE]: Image ${totalImages} is the STRICT layout blueprint.\n- The output MUST exactly match Image ${totalImages}'s body pose, arm angles, leg placement, camera angle, subject scaling, body tilt, and crop boundaries.\n- The output MUST maintain a 1:1 identical visual framing to Image ${totalImages}.\n- DO NOT inherit any clothing style, identity, or background from Image ${totalImages}. Use it ONLY to enforce the exact geometric proportions and pose placement.\n`;
+            } catch (err) {
+              console.warn(`Failed to fetch angle reference image for ${angle.id}:`, err);
+            }
+          }
 
           const mainPrompt = `${currentPreset.motherPrompt || MAIN_IMAGE_MOTHER_PROMPT}
 [SHOT TYPE]: Single fashion catalog main image only. No collage, no grid, no multi-angle sheet.
@@ -559,7 +593,7 @@ const PoseFissionTab: React.FC = () => {
 - Preserve the exact view direction, crop distance, head visibility, body rotation, shoulder line, hand placement, and white-space balance.
 - Keep the model centered on a portrait 4:5 canvas.
 - Maintain the same half-body / close crop level described above. Do NOT zoom wider or tighter.
-- Do not improvise a new pose, camera height, lens feel, or composition.
+- Do not improvise a new pose, camera height, lens feel, or composition.${explicitReferencePrompt}
 
 ${identityLock}
 ${outfitEffectLock}
@@ -605,9 +639,10 @@ ${wardrobeLock}
             "landscape framing",
             "beauty close-up",
             "changed hand pose",
+            "pose drift",
           ].join(", ");
 
-          const result = await generateImageToImage(apiImages, mainPrompt, {
+          const result = await generateImageToImage(angleApiImages, mainPrompt, {
             aspectRatio: AspectRatio.PORTRAIT_4_5,
             resolution: resolution as any,
             modelId: modelType,
