@@ -131,32 +131,32 @@ const ModelAdjustTabV2: React.FC = () => {
   const buildPoseTransferPrompt = (userGuidance: string, scope: TransferScope) => {
     const guidance = userGuidance.trim();
     const scopeRule = scope === 'upper-body'
-      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate Image 1\'s upper-body framing, arm angles, and crop distance.'
-      : 'Focus on the FULL BODY. The output must perfectly duplicate Image 1\'s full-body stance, leg position, and subject distance.';
+      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate the pose reference\'s upper-body framing, arm angles, and crop distance.'
+      : 'Focus on the FULL BODY. The output must perfectly duplicate the pose reference\'s full-body stance, leg position, and subject distance.';
 
     return `[STRICT POSE TRANSFER TASK]
-Take the person, clothes, and identity from Image 2 and FORCE them into the exact skeleton and camera crop of Image 1.
+Take the person, clothes, and identity from the Clothing Source image and FORCE them into the exact skeleton and camera crop of the Pose Reference image.
 
-CRITICAL FAILURE CONDITIONS (DO NOT DO THESE):
-- Do NOT output the same arm/hand pose as Image 2.
-- Do NOT output the same zoom/crop as Image 2.
-- If Image 2 has hands in pockets, but Image 1 has arms down, you MUST draw arms down.
+CRITICAL FAILURE CONDITIONS:
+- Do NOT output the same arm/hand pose as the Clothing Source image.
+- Do NOT output the same zoom/crop as the Clothing Source image.
+- If the Clothing Source has hands in pockets, but the Pose Reference does not, you MUST NOT draw hands in pockets.
 
 MANDATORY SUCCESS CONDITIONS:
-- You MUST abandon Image 2's posture and framing completely.
-- You MUST replicate Image 1's shoulder slope, arm angles, body rotation, and crop distance 1:1.
+- You MUST abandon the Clothing Source image's posture and framing completely.
+- You MUST replicate the Pose Reference image's shoulder slope, arm angles, body rotation, and crop distance 1:1.
 - ${scopeRule}
 
 USER INSTRUCTION:
-${guidance || 'Preserve Image 2 clothing exactly. Force the pose and framing to match Image 1 exactly.'}`;
+${guidance || 'Preserve clothing exactly. Force the pose and framing to match the pose reference exactly.'}`;
   };
 
   const buildPoseTransferNegativePrompt = (scope: TransferScope) => [
-    'copying Image 1 clothing',
-    'copying Image 1 accessories',
-    'copying Image 1 bag',
-    'copying Image 1 background',
-    'copying Image 1 lighting',
+    'copying Pose Reference clothing',
+    'copying Pose Reference accessories',
+    'copying Pose Reference bag',
+    'copying Pose Reference background',
+    'copying Pose Reference lighting',
     'different identity',
     'different hairstyle',
     'different skin tone',
@@ -165,16 +165,16 @@ ${guidance || 'Preserve Image 2 clothing exactly. Force the pose and framing to 
     'extra fingers',
     'extra hands',
     'missing accessories',
-    'same pose as Image 2',
+    'same pose as Clothing Source',
     'unchanged shoulders',
     'unchanged arms',
     'unchanged hand placement',
-    'unchanged framing from Image 2',
+    'unchanged framing from Clothing Source',
     'tiny pose difference',
     'subtle pose adjustment only',
     scope === 'upper-body'
       ? 'unnecessary lower-body change, unnecessary garment hem change'
-      : 'same crop as Image 2 when Image 1 framing is different, unchanged subject placement',
+      : 'same crop as Clothing Source when Pose Reference framing is different, unchanged subject placement',
   ].join(', ');
 
   const handleGeneratePoseTransfer = async () => {
