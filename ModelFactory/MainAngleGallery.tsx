@@ -19,6 +19,7 @@ interface MainAngleGalleryProps {
   items: MainAngleGalleryItem[];
   isGenerating?: boolean;
   statusMessage?: string;
+  aspectRatio?: string;
 }
 
 const THUMB_META = {
@@ -147,9 +148,12 @@ const MainAngleGallery: React.FC<MainAngleGalleryProps> = ({
   items,
   isGenerating = false,
   statusMessage = '',
+  aspectRatio = '2:3',
 }) => {
   const [previewItem, setPreviewItem] = useState<MainAngleGalleryItem | null>(null);
   const completedCount = items.filter((item) => !!item.imageUrl).length;
+  
+  const aspectClass = aspectRatio === '4:5' ? 'aspect-[4/5]' : aspectRatio === '3:4' ? 'aspect-[3/4]' : 'aspect-[2/3]';
 
   return (
     <div className="h-full w-full overflow-auto custom-scrollbar px-2 py-4">
@@ -164,7 +168,7 @@ const MainAngleGallery: React.FC<MainAngleGalleryProps> = ({
               <div>
                 <h2 className="text-2xl font-black tracking-tight text-slate-900">主图角度缩略图工作区</h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                  主图角度模式固定输出单张 4:5。每张卡片左侧是参考角度缩略图和姿势说明，右侧是该角度的生成结果，方便快速核对哪个角度对应哪张图。
+                  主图模式按所选的 {aspectRatio} 画幅输出单张生成结果。左侧是角度参考缩略图，右侧是生成结果对齐区。
                 </p>
               </div>
             </div>
@@ -174,7 +178,7 @@ const MainAngleGallery: React.FC<MainAngleGalleryProps> = ({
                 已完成 {completedCount}/{items.length || 0}
               </div>
               <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
-                固定画幅 4:5
+                主图画幅 {aspectRatio}
               </div>
             </div>
           </div>
@@ -247,14 +251,14 @@ const MainAngleGallery: React.FC<MainAngleGalleryProps> = ({
                     </div>
 
                     <div className="p-5">
-                      <div className="relative aspect-[4/5] overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100">
+                      <div className={`relative ${aspectClass} overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100`}>
                         {item.imageUrl ? (
                           <img src={item.imageUrl} alt={`${item.id} result`} className="h-full w-full object-cover" />
                         ) : (
                           <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-400">
                             <Camera className="mb-3 h-9 w-9" />
                             <div className="text-sm font-semibold">等待该角度生成</div>
-                            <div className="mt-2 text-xs leading-5">生成后会固定按 4:5 显示在这里，便于逐张核对角度和构图。</div>
+                            <div className="mt-2 text-xs leading-5">生成后会固定按 {aspectRatio} 显示在这里，便于逐张核对角度和构图。</div>
                           </div>
                         )}
                       </div>

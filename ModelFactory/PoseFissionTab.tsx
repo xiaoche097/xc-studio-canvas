@@ -301,6 +301,7 @@ const PoseFissionTab: React.FC = () => {
   const [modelType, setModelType] = useState('gemini-3.1-flash-image-preview');
   const [resolution, setResolution] = useState('2K');
   const [aspectRatio, setAspectRatio] = useState('9:16');
+  const [mainAspectRatio, setMainAspectRatio] = useState<'2:3' | '3:4' | '4:5'>('2:3');
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -548,14 +549,11 @@ const PoseFissionTab: React.FC = () => {
       if (isMainPreset) {
         const mainAngles = currentPreset.angles.filter(angle => selectedAngleIds.includes(angle.id));
         setGeneratedGridImage(null);
-        setGeneratedMainAngles([]);
-        setStatusMessage("分析完成，正在逐张生成主图角度...");
+        
+        setStatusMessage(`正在并行生成 ${mainAngles.length} 个主图角度 (预计 15-30 秒)...`);
+        setGeneratedMainAngles(mainAngles.map(a => ({ ...a, imageUrl: '' } as GeneratedMainAngle)));
 
-        const mainResults: GeneratedMainAngle[] = [];
-
-        for (const [index, angle] of mainAngles.entries()) {
-          setStatusMessage(`正在生成 ${angle.id} ${angle.label} (${index + 1}/${mainAngles.length})...`);
-          
+        await Promise.all(mainAngles.map(async (angle) => {
           let angleApiImages = [...apiImages];
           let explicitReferencePrompt = "";
 
@@ -591,7 +589,7 @@ const PoseFissionTab: React.FC = () => {
 [NON-NEGOTIABLE ANGLE LOCK]:
 - Match the selected angle blueprint as literally as possible.
 - Preserve the exact view direction, crop distance, head visibility, body rotation, shoulder line, hand placement, and white-space balance.
-- Keep the model centered on a portrait 4:5 canvas.
+- Keep the model centered on a portrait ${mainAspectRatio} canvas.
 - Maintain the same half-body / close crop level described above. Do NOT zoom wider or tighter.
 - Do not improvise a new pose, camera height, lens feel, or composition.${explicitReferencePrompt}
 
@@ -627,7 +625,7 @@ ${wardrobeLock}
 - NO pose invention, NO hand changes, NO crop drift, NO landscape framing.
 - The result must read as one clean e-commerce main image for angle ${angle.id}.
 
-[OUTPUT]: Generate one standalone 4:5 portrait main image that follows the selected blueprint exactly.`;
+[OUTPUT]: Generate one standalone ${mainAspectRatio} portrait main image that follows the selected blueprint exactly.`;
 
           const mainNegativePrompt = [
             baseNegativePrompt,
@@ -642,8 +640,14 @@ ${wardrobeLock}
             "pose drift",
           ].join(", ");
 
+          const targetAspect = mainAspectRatio === '2:3' 
+            ? AspectRatio.PORTRAIT_2_3 
+            : mainAspectRatio === '3:4' 
+              ? AspectRatio.PORTRAIT_3_4 
+              : AspectRatio.PORTRAIT_4_5;
+
           const result = await generateImageToImage(angleApiImages, mainPrompt, {
-            aspectRatio: AspectRatio.PORTRAIT_4_5,
+            aspectRatio: targetAspect,
             resolution: resolution as any,
             modelId: modelType,
             negativePrompt: mainNegativePrompt,
@@ -654,14 +658,10 @@ ${wardrobeLock}
             throw new Error(`${angle.id} 未返回图片，请稍后重试`);
           }
 
-          const nextResult: GeneratedMainAngle = {
-            ...angle,
-            imageUrl: result[0],
-          };
-
-          mainResults.push(nextResult);
-          setGeneratedMainAngles([...mainResults]);
-        }
+          setGeneratedMainAngles(prev => 
+            prev.map(item => item.id === angle.id ? { ...angle, imageUrl: result[0] } : item)
+          );
+        }));
 
         return;
       }
@@ -1164,10 +1164,21 @@ ${gridRules}
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted mb-2">生成画幅比例</h3>
             {isMainPreset ? (
-              <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-orange-700">
-                <div className="text-sm font-bold">主图角度固定为 4:5 单张输出</div>
-                <p className="mt-1 text-xs leading-5 text-orange-600">
-                  为了尽量贴近参考图的比例、构图和留白，主图模式不会再走 3x4 / 4x2 宫格，而是逐张生成独立主图。
+               <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-orange-700">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-orange-700">主图生成画幅</span>
+                  <select 
+                    value={mainAspectRatio}
+                    onChange={(e) => setMainAspectRatio(e.target.value as any)}
+                    className="bg-white border text-orange-700 border-orange-300 rounded-lg px-2 py-1 outline-none font-bold text-xs focus:ring-2 focus:ring-orange-500/20"
+                  >
+                    <option value="2:3">2:3 (标准竖版 - 推荐)</option>
+                    <option value="3:4">3:4 (较宽竖版)</option>
+                    <option value="4:5">4:5 (原固定画幅)</option>
+                  </select>
+                </div>
+                <p className="mt-2 text-[10px] leading-4 text-orange-600/80 italic">
+                  主图模式不采用平头宫格缝合，而是为您单独生成多张独立图片。
                 </p>
               </div>
             ) : (
@@ -1235,15 +1246,15 @@ ${gridRules}
                 disabled={isGenerating}
                 className="flex-1 py-3.5 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all active:scale-[0.98] hover:shadow-orange-500/40 hover:brightness-105"
              >
-                {isGenerating ? (
+                 {isGenerating ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    {isMainPreset ? '逐张生成主图中...' : '生成排版中...'}
+                    {isMainPreset ? '并行生成主图中...' : '生成排版中...'}
                   </>
                 ) : (
                   <>
                     <Zap className="w-5 h-5" />
-                    {isMainPreset ? `生成主图角度 (${selectedAngleIds.length} 张)` : `生成裂变矩阵 (${aspectRatio})`}
+                    {isMainPreset ? `生成主图角度 (${selectedAngleIds.length} 张并跑)` : `生成裂变矩阵 (${aspectRatio})`}
                   </>
                 )}
              </button>
@@ -1254,10 +1265,11 @@ ${gridRules}
       {/* Right Panel - Grid View */}
       <div className="flex-1 flex p-6 overflow-hidden relative items-center justify-center bg-transparent">
         {isMainPreset ? (
-          <MainAngleGallery
+           <MainAngleGallery
             items={displayedMainAngles}
             isGenerating={isGenerating}
             statusMessage={statusMessage}
+            aspectRatio={mainAspectRatio}
           />
         ) : isGenerating ? (
           <div className="flex flex-col items-center justify-center w-full h-full">
