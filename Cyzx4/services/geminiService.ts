@@ -480,30 +480,29 @@ export const generateImageToImage = async (
         ? options.workflowHint === 'pose-transfer'
           ? `
       **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
-      **TASK**: Re-stage the person and outfit from Image 1 into the pose, angle, and framing blueprint of Image 2.
+      **TASK**: Re-stage the person and outfit from Image 1 into the EXACT pose, angle, and framing blueprint of Image 2.
       **INPUT**:
       - Image 1 = IDENTITY / OUTFIT / PRODUCT SOURCE
-      - Image 2 = POSE / ANGLE / FRAMING BLUEPRINT
+      - Image 2 = STRICT POSE / ANGLE / FRAMING BLUEPRINT
 
       **NON-NEGOTIABLE RULES**:
       - Treat Image 1 as the master for identity, body proportions, clothing, accessories, product details, tattoos, and skin texture.
-      - Treat Image 2 as the master for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and framing.
+      - Treat Image 2 as the absolute master for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and visual framing.
       - NEVER copy Image 2's outfit design, fabric details, accessories, bag, background, lighting, or skin tone into the result.
-      - The final result MUST visibly resemble Image 2's pose and framing, not Image 1's original staging. If the result still looks like Image 1's original pose or crop, the task failed.
-      - It is allowed to zoom, recrop, reposition, or rescale the subject when needed to match Image 2 composition.
-      - Ignore props or garments that appear only in Image 2 unless the user explicitly asks to recreate them.
+      - **CRITICAL**: Do NOT use the pose or the camera crop of Image 1. You MUST force the body from Image 1 to align with the skeleton and cropping of Image 2.
+      - If Image 2 is a close-up crop, the output MUST be a close-up crop. If Image 2 has arms out of frame, the output MUST have arms out of frame.
+      - Abandon Image 1's composition entirely. Only take its clothing and face.
 
       **POSE EXECUTION PRIORITY**:
-      - Rebuild shoulders, torso twist, body direction, arms, elbows, wrists, hand placement, and subject placement so they clearly follow Image 2.
-      - Prefer a stronger pose and framing match over preserving Image 1 camera angle or crop.
-      - Do not output only a tiny pose adjustment.
+      - The output MUST exactly match Image 2's body pose, arm angles, camera angle, subject scaling, body tilt, and crop boundaries.
+      - The output MUST maintain a 1:1 identical visual framing to Image 2.
+      - Do not output only a tiny pose adjustment. Make the dramatic change necessary to match Image 2.
 
       **USER PROMPT**: ${prompt}
 
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Preserve fine details from Image 1: fabric texture, seams, drape, jewelry, tattoos, and skin texture.
-      - Output one photorealistic corrected image with minimal drift.
+      - Output one photorealistic corrected image with minimal drift in face and clothing texture.
       ${negativePromptLine}
       `
           : options.workflowHint === 'main-angle-lock'

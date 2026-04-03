@@ -140,58 +140,24 @@ const ModelAdjustTabV2: React.FC = () => {
   const buildPoseTransferPrompt = (userGuidance: string, scope: TransferScope) => {
     const guidance = userGuidance.trim();
     const scopeRule = scope === 'upper-body'
-      ? 'Match Image 2 upper-body pose and upper-body framing as closely as possible: shoulder slope, neck direction, torso twist, arm placement, elbow bend, wrist angle, visible hand gesture, and how the upper body sits inside the frame. Lower body and garment hem should stay as stable as possible unless a small adjustment is required to support the upper-body pose.'
-      : 'Match Image 2 full-body pose, body angle, subject placement, and framing as closely as possible while preserving Image 1 identity, outfit, and product fidelity. If Image 2 uses a different crop distance or subject scale, follow Image 2 rather than forcing Image 1 framing.';
+      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate Image 2\'s upper-body framing, arm angles, and crop distance.'
+      : 'Focus on the FULL BODY. The output must perfectly duplicate Image 2\'s full-body stance, leg position, and subject distance.';
 
-    return `Task: pose transfer for a real-person e-commerce photo.
+    return `[STRICT POSE TRANSFER TASK]
+Take the person, clothes, and identity from Image 1 and FORCE them into the exact skeleton and camera crop of Image 2.
 
-You have TWO input images:
-- Image 1 = identity / outfit / product source
-- Image 2 = pose and framing blueprint
+CRITICAL FAILURE CONDITIONS (DO NOT DO THESE):
+- Do NOT output the same arm/hand pose as Image 1.
+- Do NOT output the same zoom/crop as Image 1.
+- If Image 1 has hands in pockets, but Image 2 has arms down, you MUST draw arms down.
 
-PRIORITY ORDER:
-1. Preserve Image 1 identity, face, hairstyle, skin texture, body proportions, clothing, accessories, tattoos, bag, and product details.
-2. Match Image 2 body pose, body angle, arm position, hand placement, and subject framing as literally as possible.
-3. Do not import Image 2 clothing design, fabric details, accessories, bag, background, or lighting into the output.
+MANDATORY SUCCESS CONDITIONS:
+- You MUST abandon Image 1's posture and framing completely.
+- You MUST replicate Image 2's shoulder slope, arm angles, body rotation, and crop distance 1:1.
+- ${scopeRule}
 
-SUCCESS CRITERIA:
-- The result must look like the person and outfit from Image 1 restaged into the pose and framing of Image 2.
-- A viewer should clearly see that the shoulder line, torso direction, arm position, hand placement, and crop/subject placement now follow Image 2.
-- If the output still looks like Image 1's original pose or Image 1's original framing, that is a failure.
-
-READ FROM IMAGE 2:
-- shoulder line
-- torso rotation
-- body angle and stance
-- arm placement
-- elbow bend
-- wrist direction
-- hand gesture or hand placement if visible
-- crop distance
-- subject placement inside the frame
-- camera/framing relationship
-
-SCOPE:
-${scopeRule}
-
-POSE EXECUTION RULES:
-- Match Image 2 literally, not approximately.
-- Prioritize pose match and framing match over preserving Image 1 camera angle or crop.
-- If needed, rebuild shoulders, arms, neck angle, torso twist, and overall body placement so they clearly follow Image 2.
-- It is allowed to reframe, recrop, or rescale the subject to match Image 2 composition.
-- Do not settle for a tiny variation of Image 1.
-
-IGNORE FROM IMAGE 2:
-- clothing and fabric details
-- accessories and props
-- background and lighting
-- identity details
-- body reshaping
-
-USER LOCK INSTRUCTION:
-${guidance || 'Keep the person, outfit, and product details from Image 1. Follow the pose, angle, and framing of Image 2 as closely as possible.'}
-
-Output one photorealistic corrected image. The final result should look like Image 1 restaged into the pose and framing blueprint of Image 2.`;
+USER INSTRUCTION:
+${guidance || 'Preserve Image 1 clothing exactly. Force the pose and framing to match Image 2 exactly.'}`;
   };
 
   const buildPoseTransferNegativePrompt = (scope: TransferScope) => [
