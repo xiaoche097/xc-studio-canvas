@@ -438,7 +438,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock';
   } = {}
 ) => {
   const retryLimit = 3;
@@ -461,8 +461,18 @@ export const generateImageToImage = async (
     try {
       const parts: any[] = [];
 
+      let processedImages = images;
+      // MAGIC TRICK: If strict-geometry-lock or pose-transfer is requested, duplicating the anchor image forces 
+      // Gemini's attention mechanism to heavily weight the structure over the texture.
+      if (options.workflowHint === 'strict-geometry-lock' && images.length === 1) {
+        processedImages = [images[0], images[0]];
+      } else if (options.workflowHint === 'pose-transfer' && images.length === 2) {
+        // For pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower the Identity's pose.
+        processedImages = [images[0], images[0], images[1]];
+      }
+
       // 1. Add All Input Images
-      images.forEach((img) => {
+      processedImages.forEach((img) => {
         parts.push({
           inlineData: {
             mimeType: img.mimeType,
@@ -471,32 +481,32 @@ export const generateImageToImage = async (
         });
       });
 
-      // 2. Construct Prompt — structured with golden formula principles
+      // 2. Construct Prompt
       const negativePromptLine = options.negativePrompt
         ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}`
         : '';
 
-      const systemPrompt = images.length > 0 
+      const systemPrompt = processedImages.length > 0 
         ? options.workflowHint === 'pose-transfer'
           ? `
       **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
-      **TASK**: Re-stage the person and outfit from Image 1 into the EXACT pose, angle, and framing blueprint of Image 2.
+      **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
       **INPUT**:
-      - Image 1 = IDENTITY / OUTFIT / PRODUCT SOURCE
-      - Image 2 = STRICT POSE / ANGLE / FRAMING BLUEPRINT
+      - Image 1 & 2 = STRICT POSE / ANGLE / FRAMING BLUEPRINT (Duplicated to anchor composition)
+      - Image 3 = IDENTITY / OUTFIT / PRODUCT SOURCE
 
       **NON-NEGOTIABLE RULES**:
-      - Treat Image 1 as the master for identity, body proportions, clothing, accessories, product details, tattoos, and skin texture.
-      - Treat Image 2 as the absolute master for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and visual framing.
-      - NEVER copy Image 2's outfit design, fabric details, accessories, bag, background, lighting, or skin tone into the result.
-      - **CRITICAL**: Do NOT use the pose or the camera crop of Image 1. You MUST force the body from Image 1 to align with the skeleton and cropping of Image 2.
-      - If Image 2 is a close-up crop, the output MUST be a close-up crop. If Image 2 has arms out of frame, the output MUST have arms out of frame.
-      - Abandon Image 1's composition entirely. Only take its clothing and face.
+      - Treat Image 1 and 2 as the absolute masters for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and visual framing.
+      - Treat Image 3 as the master for identity, body proportions, clothing, accessories, product details, tattoos, and skin texture.
+      - NEVER copy Image 1 & 2's outfit design, fabric details, accessories, bag, background, lighting, or skin tone into the result.
+      - **CRITICAL**: Do NOT use the pose or the camera crop of Image 3! Image 3's pose MUST be ignored. You MUST force the body from Image 3 to align with the skeleton and cropping of Image 1 & 2.
+      - If Image 1 & 2 is a close-up crop without hands, the output MUST be a close-up crop without hands.
+      - Abandon Image 3's composition entirely. Only extract its clothing and face.
 
       **POSE EXECUTION PRIORITY**:
-      - The output MUST exactly match Image 2's body pose, arm angles, camera angle, subject scaling, body tilt, and crop boundaries.
-      - The output MUST maintain a 1:1 identical visual framing to Image 2.
-      - Do not output only a tiny pose adjustment. Make the dramatic change necessary to match Image 2.
+      - The output MUST exactly match Image 1 & 2's body pose, arm angles, camera angle, subject scaling, body tilt, and crop boundaries.
+      - The output MUST maintain a 1:1 identical visual framing to Image 1.
+      - Do not output only a tiny pose adjustment. Make the dramatic change necessary to match Image 1.
 
       **USER PROMPT**: ${prompt}
 
@@ -526,6 +536,29 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
       - Keep the final image crisp, literal, and commercially usable.
+      ${negativePromptLine}
+      `
+            : options.workflowHint === 'strict-geometry-lock'
+              ? `
+      **ROLE**: Senior E-commerce Retoucher and Geometry-Lock Specialist.
+      **TASK**: High-fidelity product retouching on a pure white background without ANY structural changes.
+      **INPUT**:
+      - Image 1 is the STRICT GEOMETRY REFERENCE (Anchors the composition)
+      - Image 2 is the IDENTITY / PRODUCT SOURCE (Anchors the texture)
+
+      **NON-NEGOTIABLE RULES**:
+      - **CRITICAL: DO NOT CHANGE THE CAMERA ANGLE, POSING, PERSPECTIVE, OR FRAMING OF IMAGE 1.**
+      - Treat Image 1 as the absolute master for silhouette, proportions, orientation, camera tilt, part placement, and bounding box.
+      - Treat Image 2 as the absolute master for colors, fluffiness, material, and details.
+      - You must output a purely retouched, material-enhanced version of the reference exactly as it stands.
+      - Abandon any natural inclination to re-orient the product to a "better" angle. Force the exact original angle.
+      - Pure white background #FFFFFF.
+      - NEVER mirror, rotate, or re-pose the subject.
+
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - Maintain commercial product photography standards.
       ${negativePromptLine}
       `
             : options.workflowHint === 'scene-product-lock'

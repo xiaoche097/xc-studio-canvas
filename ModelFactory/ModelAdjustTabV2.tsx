@@ -31,16 +31,7 @@ const ModelAdjustTabV2: React.FC = () => {
   const [poseResultImage, setPoseResultImage] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>(null);
 
-  useEffect(() => {
-    return () => {
-      if (poseSourceUrl) {
-        URL.revokeObjectURL(poseSourceUrl);
-      }
-      if (poseRefUrl) {
-        URL.revokeObjectURL(poseRefUrl);
-      }
-    };
-  }, [poseRefUrl, poseSourceUrl]);
+
 
   const resetResult = () => {
     setPoseResultImage(null);
@@ -140,32 +131,32 @@ const ModelAdjustTabV2: React.FC = () => {
   const buildPoseTransferPrompt = (userGuidance: string, scope: TransferScope) => {
     const guidance = userGuidance.trim();
     const scopeRule = scope === 'upper-body'
-      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate Image 2\'s upper-body framing, arm angles, and crop distance.'
-      : 'Focus on the FULL BODY. The output must perfectly duplicate Image 2\'s full-body stance, leg position, and subject distance.';
+      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate Image 1\'s upper-body framing, arm angles, and crop distance.'
+      : 'Focus on the FULL BODY. The output must perfectly duplicate Image 1\'s full-body stance, leg position, and subject distance.';
 
     return `[STRICT POSE TRANSFER TASK]
-Take the person, clothes, and identity from Image 1 and FORCE them into the exact skeleton and camera crop of Image 2.
+Take the person, clothes, and identity from Image 2 and FORCE them into the exact skeleton and camera crop of Image 1.
 
 CRITICAL FAILURE CONDITIONS (DO NOT DO THESE):
-- Do NOT output the same arm/hand pose as Image 1.
-- Do NOT output the same zoom/crop as Image 1.
-- If Image 1 has hands in pockets, but Image 2 has arms down, you MUST draw arms down.
+- Do NOT output the same arm/hand pose as Image 2.
+- Do NOT output the same zoom/crop as Image 2.
+- If Image 2 has hands in pockets, but Image 1 has arms down, you MUST draw arms down.
 
 MANDATORY SUCCESS CONDITIONS:
-- You MUST abandon Image 1's posture and framing completely.
-- You MUST replicate Image 2's shoulder slope, arm angles, body rotation, and crop distance 1:1.
+- You MUST abandon Image 2's posture and framing completely.
+- You MUST replicate Image 1's shoulder slope, arm angles, body rotation, and crop distance 1:1.
 - ${scopeRule}
 
 USER INSTRUCTION:
-${guidance || 'Preserve Image 1 clothing exactly. Force the pose and framing to match Image 2 exactly.'}`;
+${guidance || 'Preserve Image 2 clothing exactly. Force the pose and framing to match Image 1 exactly.'}`;
   };
 
   const buildPoseTransferNegativePrompt = (scope: TransferScope) => [
-    'copying Image 2 clothing',
-    'copying Image 2 accessories',
-    'copying Image 2 bag',
-    'copying Image 2 background',
-    'copying Image 2 lighting',
+    'copying Image 1 clothing',
+    'copying Image 1 accessories',
+    'copying Image 1 bag',
+    'copying Image 1 background',
+    'copying Image 1 lighting',
     'different identity',
     'different hairstyle',
     'different skin tone',
@@ -174,16 +165,16 @@ ${guidance || 'Preserve Image 1 clothing exactly. Force the pose and framing to 
     'extra fingers',
     'extra hands',
     'missing accessories',
-    'same pose as Image 1',
+    'same pose as Image 2',
     'unchanged shoulders',
     'unchanged arms',
     'unchanged hand placement',
-    'unchanged framing from Image 1',
+    'unchanged framing from Image 2',
     'tiny pose difference',
     'subtle pose adjustment only',
     scope === 'upper-body'
       ? 'unnecessary lower-body change, unnecessary garment hem change'
-      : 'same crop as Image 1 when Image 2 framing is different, unchanged subject placement',
+      : 'same crop as Image 2 when Image 1 framing is different, unchanged subject placement',
   ].join(', ');
 
   const handleGeneratePoseTransfer = async () => {
@@ -204,8 +195,8 @@ ${guidance || 'Preserve Image 1 clothing exactly. Force the pose and framing to 
       const prompt = buildPoseTransferPrompt(poseGuidance, transferScope);
       const negativePrompt = buildPoseTransferNegativePrompt(transferScope);
       const inputImages = [
-        { base64: sourceImage.base64, mimeType: sourceImage.mime },
-        { base64: refImage.base64, mimeType: refImage.mime },
+        { base64: refImage.base64, mimeType: refImage.mime },    // Ref (Pose) forms Image 1 in Gemini prompt
+        { base64: sourceImage.base64, mimeType: sourceImage.mime }, // Source (Identity) forms Image 2
       ];
       const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
 
@@ -284,18 +275,23 @@ ${guidance || 'Preserve Image 1 clothing exactly. Force the pose and framing to 
                 >
                   <img src={poseSourceUrl} alt="source" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                    <label className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                    <label 
+                      className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input type="file" className="hidden" onChange={handlePoseSourceChange} accept="image/*" />
                       <Upload className="w-4 h-4" />
                     </label>
                     <button
-                      onClick={() => openPreview(poseSourceUrl, '图1 原图')}
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); openPreview(poseSourceUrl, '图1 原图'); }}
                       className="bg-white p-2 text-pastel-text hover:text-blue-500 rounded-full shadow-lg transition-transform hover:scale-110"
                     >
                       <Maximize2 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={removePoseSource}
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); removePoseSource(); }}
                       className="bg-white p-2 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110"
                     >
                       <X className="w-4 h-4" />
@@ -334,18 +330,23 @@ ${guidance || 'Preserve Image 1 clothing exactly. Force the pose and framing to 
                 >
                   <img src={poseRefUrl} alt="reference" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                    <label className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                    <label 
+                      className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input type="file" className="hidden" onChange={handlePoseRefChange} accept="image/*" />
                       <Upload className="w-4 h-4" />
                     </label>
                     <button
-                      onClick={() => openPreview(poseRefUrl, '图2 姿势参考')}
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); openPreview(poseRefUrl, '图2 姿势参考'); }}
                       className="bg-white p-2 text-pastel-text hover:text-blue-500 rounded-full shadow-lg transition-transform hover:scale-110"
                     >
                       <Maximize2 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={removePoseRef}
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); removePoseRef(); }}
                       className="bg-white p-2 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110"
                     >
                       <X className="w-4 h-4" />

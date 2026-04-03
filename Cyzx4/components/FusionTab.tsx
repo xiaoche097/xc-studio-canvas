@@ -255,7 +255,8 @@ const FusionTab: React.FC = () => {
         aspectRatio, 
         resolution,
         modelId: selectedModel,
-        negativePrompt
+        negativePrompt,
+        workflowHint: selectedStyle?.id?.includes('strict-angle') ? 'strict-geometry-lock' : undefined
       });
 
       setProgress('生成完成！');

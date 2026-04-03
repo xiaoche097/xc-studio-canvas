@@ -31,6 +31,16 @@ export const STYLE_PRESETS: StylePreset[] = [
         negativePrompt: 'change design, redesign, altered structure, mismatch, inaccurate details, different product, wrong proportions, wrong color, color shift, hue shift, changed texture, plastic look, glossy, over-smooth, over-sharpen, extra accessories, missing accessories, added patterns, added text, logo, watermark, label, tag, sticker, background props, hands, people, multiple products, duplicated product, cropped, cut off, out of frame, floating, harsh shadow, strong shadow, gray background, gradient background, messy edges, white outline, halo, jagged edges, blur, low resolution, noise, jpeg artifacts, cartoon, illustration, anime, 3D render, CGI'
     },
     {
+        id: 'doll-retouch-strict-angle',
+        name: '玩偶原图精修',
+        category: '电商',
+        previewUrl: '/styles/doll_preview.png',
+        description: '严格锁定原图视角、姿势与画幅，专注进行白底电商高级短毛绒质感精修，极大幅度压制“角度乱跑”。',
+        prompt: '以参考图为唯一依据进行产品精修：**严格保持相机角度、镜头高度、焦距透视、主体朝向、姿势、构图与裁切范围完全一致**（same camera angle, same perspective, same focal length, same framing, no rotation, no viewpoint change），不要改变玩偶外形设计与比例，不要移动任何部件位置。\n**camera/view locked, do not change viewpoint, do not change pose, do not change framing**\n输出为**电商白底主图 packshot**：纯白无缝背景（seamless pure white background），背景干净无纹理无渐变。\n对玩偶做商业级精修与质感升级：面料为高级短毛绒（short-pile velboa / crystal velboa / minky short pile / microfiber microfleece），绒毛短而致密、柔软饱满、表面细腻均匀，轻微毛向与少量逆毛带来自然明暗层次（subtle nap marks, gentle brushed pile, soft tonal variation），边缘微微蓬松但整洁不炸毛。车缝线/拼接更平整干净，轮廓清晰但不过度锐化；刺绣/贴布/五官细节更清楚、边缘干净。清理瑕疵：灰尘、毛屑、线头、脏点、折痕压痕。\n棚拍柔光：soft even studio lighting, high-key, clean highlights, soft natural shadow directly under the toy, sharp focus, high resolution, professional e-commerce retouching, vibrant but realistic colors, rich contrast.',
+        promptWithRef: '以参考图为唯一依据进行产品精修：**严格保持相机角度、镜头高度、焦距透视、主体朝向、姿势、构图与裁切范围完全一致**（same camera angle, same perspective, same focal length, same framing, no rotation, no viewpoint change），不要改变玩偶外形设计与比例，不要移动任何部件位置。\n**camera/view locked, do not change viewpoint, do not change pose, do not change framing**\n输出为**电商白底主图 packshot**：纯白无缝背景（seamless pure white background），背景干净无纹理无渐变。\n对玩偶做商业级精修与质感升级：面料为高级短毛绒（short-pile velboa / crystal velboa / minky short pile / microfiber microfleece），绒毛短而致密、柔软饱满、表面细腻均匀，轻微毛向与少量逆毛带来自然明暗层次（subtle nap marks, gentle brushed pile, soft tonal variation），边缘微微蓬松但整洁不炸毛。车缝线/拼接更平整干净，轮廓清晰但不过度锐化；刺绣/贴布/五官细节更清楚、边缘干净。清理瑕疵：灰尘、毛屑、线头、脏点、折痕压痕。\n棚拍柔光：soft even studio lighting, high-key, clean highlights, soft natural shadow directly under the toy, sharp focus, high resolution, professional e-commerce retouching, vibrant but realistic colors, rich contrast.',
+        negativePrompt: 'change of angle, different viewpoint, rotation, tilted camera, zoomed out, zoomed in, crop change, top-down, bird’s-eye view, worm’s-eye view, perspective distortion, fisheye, wide-angle distortion, rearranged parts, redesign, deformed, wrong proportions, extra objects, background texture, gradient background, shadow too strong, harsh light, overexposed, underexposed, haze, dull colors, desaturated, washed out, grayish, muddy colors, noisy, grainy, blurry, low resolution, oversharpen, watermark, text, logo.'
+    },
+    {
         id: 'fabric-texture-extract-seamless',
         name: '面料提取(无缝贴图)',
         category: '通用',
