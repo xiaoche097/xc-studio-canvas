@@ -438,7 +438,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect';
   } = {}
 ) => {
   const retryLimit = 3;
@@ -469,6 +469,12 @@ export const generateImageToImage = async (
       } else if (options.workflowHint === 'pose-transfer' && images.length === 2) {
         // For pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower the Identity's pose.
         processedImages = [images[0], images[0], images[1]];
+      } else if (options.workflowHint === 'clothing-effect' && images.length === 2) {
+        // FACE-SWAP APPROACH: The reference image IS the target output.
+        // We TRIPLE the reference (images[1]) to make the model reproduce it almost verbatim.
+        // Source (images[0]) is placed LAST and is ONLY used for face/identity extraction.
+        // Final order: [EffectRef, EffectRef, EffectRef, Source]
+        processedImages = [images[1], images[1], images[1], images[0]];
       }
 
       // 1. Add All Input Images
@@ -487,7 +493,34 @@ export const generateImageToImage = async (
         : '';
 
       const systemPrompt = processedImages.length > 0 
-        ? options.workflowHint === 'pose-transfer'
+        ? options.workflowHint === 'clothing-effect'
+          ? `
+      **ROLE**: Fashion photo face-swap and identity replacement specialist.
+
+      **TASK**: REPRODUCE Image 1, 2, and 3 EXACTLY — same clothing, same garment texture, same fit, same styling, same drape, same wrinkles, same hem position, same everything about the outfit. The ONLY thing you change is: replace the person with the person from Image 4.
+
+      **INPUT**:
+      - **Image 1, 2, 3** = THE TARGET PHOTO (tripled for maximum fidelity). This is what the output should look like. Reproduce this image with pixel-level accuracy for the clothing.
+      - **Image 4** = FACE/IDENTITY DONOR. Extract ONLY the face, hairstyle, and skin tone from this image. Everything else from Image 4 is IGNORED.
+
+      **WHAT THE OUTPUT MUST LOOK LIKE**:
+      - The clothing must be IDENTICAL to Image 1/2/3: same knit texture, same stitch pattern, same center seam, same ribbing, same fit, same hem position relative to pants, same sleeve shape, same neckline height. ZERO changes to the garment.
+      - The person's face and hair must match Image 4.
+      - The pose should follow Image 1/2/3's body positioning.
+      - The background should be a clean e-commerce style background (white or light gray).
+
+      **CRITICAL — READ THIS**:
+      - You are essentially CLONING Image 1/2/3 and only swapping the face. The clothing is NOT to be regenerated or reinterpreted. It must be a visual copy.
+      - If Image 1/2/3 shows the shirt tucked in, the output MUST show it tucked in.
+      - If Image 1/2/3 shows specific wrinkle patterns, they must appear in the output.
+      - Do NOT generate a "similar looking" garment. Generate THE SAME garment.
+
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY**: E-commerce product photography. Pixel-perfect garment reproduction.
+      ${negativePromptLine}
+      `
+        : options.workflowHint === 'pose-transfer'
           ? `
       **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
       **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
