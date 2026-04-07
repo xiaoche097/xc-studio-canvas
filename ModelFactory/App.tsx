@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import PoseFissionTab from './PoseFissionTab.tsx';
 import ModelAdjustTab from './ModelAdjustTabV2.tsx';
-import ClothingEffectTab from './ClothingEffectTab.tsx';
+import ActionReferenceTab from './ActionReferenceTab.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Wand2, Shirt, Settings } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Move, Settings } from 'lucide-react';
 
-type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'clothing-effect' | 'settings';
+type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('pose-fission');
@@ -42,10 +42,10 @@ const ModelFactoryApp: React.FC = () => {
           />
 
           <NavButton
-            active={activeTab === 'clothing-effect'}
-            onClick={() => setActiveTab('clothing-effect')}
-            icon={<Shirt className="w-5 h-5" />}
-            label="衣服效果调整 (Clothing Effect)"
+            active={activeTab === 'action-reference'}
+            onClick={() => setActiveTab('action-reference')}
+            icon={<Move className="w-5 h-5" />}
+            label="动作参考 (Action Reference)"
           />
 
           <NavButton
@@ -63,7 +63,7 @@ const ModelFactoryApp: React.FC = () => {
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === 'pose-fission' && "姿势裂变 (Pose Fission)"}
             {activeTab === 'model-adjust' && "模特调整 (Pose Transfer)"}
-            {activeTab === 'clothing-effect' && "衣服效果调整 (Clothing Effect)"}
+            {activeTab === 'action-reference' && "动作参考 (Action Reference)"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
@@ -76,8 +76,8 @@ const ModelFactoryApp: React.FC = () => {
             <div style={{ display: activeTab === 'model-adjust' ? 'block' : 'none', height: '100%' }}>
               <ModelAdjustTab />
             </div>
-            <div style={{ display: activeTab === 'clothing-effect' ? 'block' : 'none', height: '100%' }}>
-              <ClothingEffectTab />
+            <div style={{ display: activeTab === 'action-reference' ? 'block' : 'none', height: '100%' }}>
+              <ActionReferenceTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
               <SettingsTab />
