@@ -516,8 +516,18 @@ export const generateImageToImage = async (
       - Completely ignore the original clothing worn by the person in Image 1. Overwrite it entirely with the provided targets.
       - Ignore any mannequins, hangers, or backgrounds present in Image 2 or 3. Extract ONLY the garments.
       
+      **GARMENT ORIENTATION AWARENESS (CRITICAL)**:
+      - You MUST determine the body orientation of the person in Image 1 (front-facing, back-facing, side-facing, or 3/4 angle).
+      - You MUST analyze the garment reference (Image 2) to identify which SIDE of the garment is shown (front or back).
+      - **FRONT vs BACK RULE**: If Image 2 shows only the FRONT of the garment (e.g., a front print, logo, or graphic), then:
+        * When the person in Image 1 faces the camera → Show the print/graphic on the chest/front.
+        * When the person in Image 1 has their BACK to the camera → The back of the garment MUST be PLAIN (no print, no graphic, no pattern). Only show the base fabric color on the back. Do NOT copy the front design onto the back.
+        * When the person is at a side/3/4 angle → Only show the portion of the print that would be naturally visible from that angle.
+      - **PRINCIPLE**: Garments are 3D objects. A print on the front does NOT exist on the back. Treat Image 2 as showing ONE SIDE only. Infer the other side as plain/blank unless explicitly shown otherwise.
+      - If both front and back of the garment are provided as separate reference images, respect each side independently.
+
       **GARMENT INTEGRITY CHECK**:
-      - Preserve the exact color, pattern, branding, and fabric texture of the target garments.
+      - Preserve the exact color, pattern, branding, and fabric texture of the target garments ON THE CORRECT SIDE.
       - If the core garment is a top, and no bottoms are provided, keep Image 1's original bottoms if possible, or generate a neutral matching bottom.
       
       **QUALITY GUIDELINES**:

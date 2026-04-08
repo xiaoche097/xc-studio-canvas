@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt } from 'lucide-react';
+import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -35,6 +35,10 @@ const GarmentReplacementTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
+
+  // Output settings
+  const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
 
   // Preview modal
   const [preview, setPreview] = useState<PreviewState>(null);
@@ -165,7 +169,7 @@ const GarmentReplacementTab: React.FC = () => {
           }
 
           let lastError: any = null;
-          const fallbackModels = ['gemini-2.5-pro-vision', 'gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
+          const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
           let result: string[] = [];
 
           for (const modelId of fallbackModels) {
@@ -175,21 +179,21 @@ const GarmentReplacementTab: React.FC = () => {
                 '', // Let system prompt do the work
                 {
                   modelId,
-                  aspectRatio: AspectRatio.PORTRAIT_3_4, // Retain crop from target
-                  resolution: ImageResolution.RES_2K,
+                  aspectRatio: outputAspectRatio,
+                  resolution: resolution,
                   workflowHint: 'garment-replacement'
                 }
               );
-              break;
+              if (result && result.length > 0) break;
             } catch (e: any) {
               lastError = e;
               console.warn(`[GarmentSwap] Model ${modelId} failed:`, e);
             }
           }
 
-          if (result.length > 0) {
+          if (result && result.length > 0) {
             setResults(prev => prev.map((r, i) =>
-              i === index ? { ...r, status: 'done', resultUrl: `data:image/jpeg;base64,${result[0]}` } : r
+              i === index ? { ...r, status: 'done', resultUrl: result[0] } : r
             ));
           } else {
             throw new Error(`生成失败: ${getErrorMessage(lastError)}`);
@@ -249,7 +253,11 @@ const GarmentReplacementTab: React.FC = () => {
               <div className="space-y-1">
                 <span className="text-[10px] text-pastel-muted font-bold ml-1">核心服装 (必填)</span>
                 {coreGarmentUrl ? (
-                  <div className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg">
+                  <div
+                    className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setCoreFromFile(f); }}
+                  >
                     <img src={coreGarmentUrl} alt="core-garment" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
@@ -262,7 +270,11 @@ const GarmentReplacementTab: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <label className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group">
+                  <label
+                    className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setCoreFromFile(f); }}
+                  >
                     <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" />
                     <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
                     <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">核心服装</span>
@@ -274,7 +286,11 @@ const GarmentReplacementTab: React.FC = () => {
               <div className="space-y-1">
                 <span className="text-[10px] text-pastel-muted font-bold ml-1">其他搭配 (选填)</span>
                 {pairingUrl ? (
-                  <div className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg">
+                  <div
+                    className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setPairingFromFile(f); }}
+                  >
                     <img src={pairingUrl} alt="pairing" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
@@ -287,7 +303,11 @@ const GarmentReplacementTab: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <label className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group">
+                  <label
+                    className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setPairingFromFile(f); }}
+                  >
                     <input type="file" className="hidden" onChange={handlePairingChange} accept="image/*" />
                     <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
                     <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">裤子/配件</span>
@@ -332,12 +352,74 @@ const GarmentReplacementTab: React.FC = () => {
                 </div>
               ))}
               {targetFiles.length < MAX_TARGETS && (
-                <label className="relative flex flex-col items-center justify-center aspect-[3/4] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group">
+                <label
+                  className="relative flex flex-col items-center justify-center aspect-[3/4] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) addTargetFiles(Array.from(e.dataTransfer.files)); }}
+                >
                   <input type="file" className="hidden" onChange={handleTargetChange} accept="image/*" multiple />
                   <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight transition-colors mb-1" />
-                  <span className="text-[9px] text-pastel-muted font-bold">加模特</span>
+                  <span className="text-[9px] text-pastel-muted font-bold">拖拽或点击上传</span>
                 </label>
               )}
+            </div>
+          </div>
+
+          {/* 输出比例 */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
+              <Ratio className="w-3 h-3" />
+              输出比例 (Aspect Ratio)
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { value: AspectRatio.PORTRAIT_3_4, label: '3:4', desc: '标准' },
+                { value: AspectRatio.PORTRAIT_2_3, label: '2:3', desc: '修长' },
+                { value: AspectRatio.PORTRAIT_4_5, label: '4:5', desc: 'INS' },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setOutputAspectRatio(item.value)}
+                  className={`relative rounded-xl border py-2 text-center transition-all ${
+                    outputAspectRatio === item.value
+                      ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm'
+                      : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'
+                  }`}
+                >
+                  <span className="text-xs font-bold block">{item.label}</span>
+                  <span className="text-[9px] opacity-60">{item.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 分辨率 */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
+              <MonitorSmartphone className="w-3 h-3" />
+              清晰度 (Resolution)
+            </h3>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { value: ImageResolution.RES_1K, label: '1K', desc: '快速' },
+                { value: ImageResolution.RES_2K, label: '2K', desc: '高清' },
+                { value: ImageResolution.RES_4K, label: '4K', desc: '超清' },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setResolution(item.value)}
+                  className={`relative rounded-xl border py-2 text-center transition-all ${
+                    resolution === item.value
+                      ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm'
+                      : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'
+                  }`}
+                >
+                  <span className="text-xs font-bold block">{item.label}</span>
+                  <span className="text-[9px] opacity-60">{item.desc}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
