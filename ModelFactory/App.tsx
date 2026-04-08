@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import PoseFissionTab from './PoseFissionTab.tsx';
 import ModelAdjustTab from './ModelAdjustTabV2.tsx';
 import ActionReferenceTab from './ActionReferenceTab.tsx';
+import GarmentReplacementTab from './GarmentReplacementTab.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Wand2, Move, Settings } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt } from 'lucide-react';
 
-type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'settings';
+type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('pose-fission');
@@ -49,6 +50,13 @@ const ModelFactoryApp: React.FC = () => {
           />
 
           <NavButton
+            active={activeTab === 'garment-replacement'}
+            onClick={() => setActiveTab('garment-replacement')}
+            icon={<Shirt className="w-5 h-5" />}
+            label="批量替换 (Garment Replace)"
+          />
+
+          <NavButton
             active={activeTab === 'settings'}
             onClick={() => setActiveTab('settings')}
             icon={<Settings className="w-5 h-5" />}
@@ -64,6 +72,7 @@ const ModelFactoryApp: React.FC = () => {
             {activeTab === 'pose-fission' && "姿势裂变 (Pose Fission)"}
             {activeTab === 'model-adjust' && "模特调整 (Pose Transfer)"}
             {activeTab === 'action-reference' && "动作参考 (Action Reference)"}
+            {activeTab === 'garment-replacement' && "批量替换 (Garment Replace)"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
@@ -78,6 +87,9 @@ const ModelFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'action-reference' ? 'block' : 'none', height: '100%' }}>
               <ActionReferenceTab />
+            </div>
+            <div style={{ display: activeTab === 'garment-replacement' ? 'block' : 'none', height: '100%' }}>
+              <GarmentReplacementTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
               <SettingsTab />
@@ -105,7 +117,7 @@ const NavButton: React.FC<{
     <div className={`${active ? 'text-pastel-text' : 'group-hover:text-pastel-highlight'} transition-colors`}>
       {icon}
     </div>
-    <span className="hidden md:block font-medium text-sm">{label}</span>
+    <span className="hidden md:block font-medium text-sm text-left leading-tight">{label}</span>
   </button>
 );
 

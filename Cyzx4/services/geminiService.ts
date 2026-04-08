@@ -438,7 +438,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement';
   } = {}
 ) => {
   const retryLimit = 3;
@@ -466,9 +466,18 @@ export const generateImageToImage = async (
       // Gemini's attention mechanism to heavily weight the structure over the texture.
       if (options.workflowHint === 'strict-geometry-lock' && images.length === 1) {
         processedImages = [images[0], images[0]];
-      } else if (options.workflowHint === 'pose-transfer' && images.length === 2) {
-        // For pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower the Identity's pose.
-        processedImages = [images[0], images[0], images[1]];
+      } else if (options.workflowHint === 'pose-transfer') {
+        if (images.length === 2) {
+          // For traditional pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower.
+          processedImages = [images[0], images[0], images[1]];
+        } else if (images.length === 3) {
+          // Input is [Skeleton, Pose, Identity]. We don't duplicate, but will use a specialized prompt.
+          processedImages = images;
+        }
+      } else if (options.workflowHint === 'garment-replacement') {
+        // Input: [Target Model, Core Garment, (Optional) Pairings]
+        // We pass it directly, without duplicating.
+        processedImages = images;
       }
 
       // 1. Add All Input Images
@@ -486,9 +495,67 @@ export const generateImageToImage = async (
         ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}`
         : '';
 
-      const systemPrompt = processedImages.length > 0 
-        ? options.workflowHint === 'pose-transfer'
+      const isSkeletonWorkflow = options.workflowHint === 'pose-transfer' && images.length === 3;
+      const isGarmentReplacement = options.workflowHint === 'garment-replacement';
+
+      const systemPrompt = processedImages.length > 0
+        ? isGarmentReplacement
           ? `
+      **ROLE**: Senior AI Virtual Try-On (VTON) Specialist and Fashion Retoucher.
+      **TASK**: Replace the clothing on the person in Image 1 with the garments shown in the subsequent images, while keeping EVERYTHING else in Image 1 exactly the same.
+      **INPUT**:
+      - Image 1 = TARGET MODEL SCENE (Absolute master for identity, face, body pose, lighting, and background)
+      - Image 2 = CORE GARMENT TARGET (Master for the main clothing item to be worn)
+      ${processedImages.length === 3 ? '- Image 3 = SECONDARY GARMENT / PAIRING TARGET (Master for pants, skirts, shoes, or accessories to be worn)' : ''}
+
+      **NON-NEGOTIABLE RULES**:
+      - **CRITICAL IDENTITY & SCENE LOCK**: You MUST preserve the EXACT face, hairstyle, skin tone, body pose, limb placement, and background from Image 1.
+      - Never change the camera angle, crop, or aspect ratio of Image 1.
+      - **CRITICAL VIRTUAL TRY-ON**: Wrap the clothing from Image 2 (and Image 3 if present) onto the body in Image 1.
+      - The clothing MUST naturally conform to the pose, posture, and lighting of Image 1. Add realistic folds and shadows. 
+      - Completely ignore the original clothing worn by the person in Image 1. Overwrite it entirely with the provided targets.
+      - Ignore any mannequins, hangers, or backgrounds present in Image 2 or 3. Extract ONLY the garments.
+      
+      **GARMENT INTEGRITY CHECK**:
+      - Preserve the exact color, pattern, branding, and fabric texture of the target garments.
+      - If the core garment is a top, and no bottoms are provided, keep Image 1's original bottoms if possible, or generate a neutral matching bottom.
+      
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Output a seamless photorealistic image where the new clothes look like they were originally shot on the person.
+      ${negativePromptLine}
+      `
+        : isSkeletonWorkflow
+          ? `
+      **ROLE**: Senior fashion retoucher and AI processing expert specializing in strict pose transfer using OpenPose skeleton topologies.
+      **TASK**: Re-stage the person and outfit from Image 3 into the EXACT geometric posture mapped by Image 1, matching the real-world framing of Image 2.
+      **INPUT**:
+      - Image 1 = OPENPOSE SKELETON MAP (Absolute master for 2D body joints, limb trajectory, and skeletal alignment)
+      - Image 2 = REFERENCE PHOTOGRAPH (Master for camera distance, crop boundaries, object depth, and subject scale)
+      - Image 3 = IDENTITY / OUTFIT TARGET (Master for face, hair, body proportions, and clothing texture ONLY)
+
+      **NON-NEGOTIABLE RULES**:
+      - **CRITICAL POSTURE LOCK**: You MUST force the body from Image 3 to bend, orient, and align flawlessly with every coloured joint line shown in Image 1's skeleton.
+      - **CRITICAL FRAME LOCK**: Maintain a 1:1 identical visual crop to Image 2. If Image 2 cuts off at the waist, output MUST cut off at the waist.
+      - Treat Image 3 exclusively as a texture palette. **IGNORE Image 3's pose completely.** Never output the posture seen in Image 3.
+      - Never copy Image 2's outfit design, fabric details, accessories, bag, background, or lighting into the result.
+      - Do not output a coloured stick figure. Output a photorealistic final image of the person from Image 3, mapped onto the skeleton.
+
+      **CLOTHING INTEGRITY (CRITICAL)**:
+      - Preserve the EXACT clothing from Image 3: same garment color, fabric, texture, pattern, print, and structure.
+      - Preserve HOW the clothing is worn in Image 3 (tucked/untucked, sleeve state, exact hem position relative to waistband).
+      - Maintain all original accessories (necklaces, belts, bags) exactly as they appear in Image 3.
+      - Do NOT inherit ANY clothing or accessories from Image 2.
+
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Output a single, standalone photorealistic commercial image.
+      ${negativePromptLine}
+      `
+          : options.workflowHint === 'pose-transfer'
+            ? `
       **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
       **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
       **INPUT**:

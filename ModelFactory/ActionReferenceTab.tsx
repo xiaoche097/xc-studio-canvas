@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Move, CheckCircle2, AlertCircle, Images } from 'lucide-react';
+import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Move, CheckCircle2, AlertCircle, Images } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -30,6 +30,11 @@ const ActionReferenceTab: React.FC = () => {
   // Settings
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_2_3);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
+
+  // Skeletons
+  const [skeletonFiles, setSkeletonFiles] = useState<(File | null)[]>([]);
+  const [skeletonUrls, setSkeletonUrls] = useState<(string | null)[]>([]);
+  const [isExtractingSkeleton, setIsExtractingSkeleton] = useState(false);
 
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -84,6 +89,8 @@ const ActionReferenceTab: React.FC = () => {
     });
     setRefFiles(newFiles);
     setRefUrls(newUrls);
+    setSkeletonFiles(prev => [...prev, ...validFiles.map(() => null)]);
+    setSkeletonUrls(prev => [...prev, ...validFiles.map(() => null)]);
     setResults([]);
   };
 
@@ -103,15 +110,21 @@ const ActionReferenceTab: React.FC = () => {
 
   const removeRef = (index: number) => {
     URL.revokeObjectURL(refUrls[index]);
+    if (skeletonUrls[index]) URL.revokeObjectURL(skeletonUrls[index]!);
     setRefFiles(prev => prev.filter((_, i) => i !== index));
     setRefUrls(prev => prev.filter((_, i) => i !== index));
+    setSkeletonFiles(prev => prev.filter((_, i) => i !== index));
+    setSkeletonUrls(prev => prev.filter((_, i) => i !== index));
     setResults([]);
   };
 
   const removeAllRefs = () => {
     refUrls.forEach(url => URL.revokeObjectURL(url));
+    skeletonUrls.forEach(url => { if (url) URL.revokeObjectURL(url); });
     setRefFiles([]);
     setRefUrls([]);
+    setSkeletonFiles([]);
+    setSkeletonUrls([]);
     setResults([]);
   };
 
@@ -198,6 +211,162 @@ VERIFICATION CHECKLIST:
     'deformed hands',
   ].join(', ');
 
+  const handleExtractAllSkeletons = async () => {
+    if (refFiles.length === 0) return;
+    setIsExtractingSkeleton(true);
+    setStatusMessage('准备加载 MediaPipe 模型...');
+
+    try {
+      if (!(window as any).Pose) {
+        setStatusMessage('正在加载 MediaPipe 引擎...');
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';
+          script.crossOrigin = 'anonymous';
+          script.onload = () => resolve();
+          script.onerror = () => reject();
+          document.head.appendChild(script);
+        });
+      }
+
+      const pose = new (window as any).Pose({
+        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+      });
+      pose.setOptions({
+        modelComplexity: 2,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      const newSkeletons = [...skeletonFiles];
+      const newSkeletonUrls = [...skeletonUrls];
+
+      for (let i = 0; i < refUrls.length; i++) {
+        if (newSkeletons[i]) continue; // Already extracted
+        setStatusMessage(`正在提取骨架 ${i + 1}/${refUrls.length}...`);
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = refUrls[i];
+        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        await new Promise<void>((resolve) => {
+          pose.onResults((results: any) => {
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return resolve();
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (results.poseLandmarks && results.poseLandmarks.length > 0) {
+              const lm = results.poseLandmarks;
+              const { width, height } = canvas;
+              const getPt = (idx: number) => {
+                const p = lm[idx];
+                if (p.visibility < 0.3) return null;
+                return { x: p.x * width, y: p.y * height };
+              };
+              const midpoint = (p1: any, p2: any) => {
+                if (!p1 || !p2) return null;
+                return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+              };
+              
+              const points = {
+                nose: getPt(0), lEye: getPt(2), rEye: getPt(5), lEar: getPt(7), rEar: getPt(8),
+                lShoulder: getPt(11), rShoulder: getPt(12), lElbow: getPt(13), rElbow: getPt(14),
+                lWrist: getPt(15), rWrist: getPt(16), lHip: getPt(23), rHip: getPt(24),
+                lKnee: getPt(25), rKnee: getPt(26), lAnkle: getPt(27), rAnkle: getPt(28),
+              };
+      
+              const neck = midpoint(points.lShoulder, points.rShoulder);
+              const midHip = midpoint(points.lHip, points.rHip);
+      
+              const bones = [
+                { start: neck, end: points.rShoulder, color: '#ff0000' },
+                { start: neck, end: points.lShoulder, color: '#ff5500' },
+                { start: points.rShoulder, end: points.rElbow, color: '#ffaa00' },
+                { start: points.rElbow, end: points.rWrist, color: '#ffff00' },
+                { start: points.lShoulder, end: points.lElbow, color: '#aaff00' },
+                { start: points.lElbow, end: points.lWrist, color: '#55ff00' },
+                { start: neck, end: midHip, color: '#00ff00' },
+                { start: midHip, end: points.rHip, color: '#00ffaa' },
+                { start: points.rHip, end: points.rKnee, color: '#00ffff' },
+                { start: points.rKnee, end: points.rAnkle, color: '#00aaff' },
+                { start: midHip, end: points.lHip, color: '#0055ff' },
+                { start: points.lHip, end: points.lKnee, color: '#0000ff' },
+                { start: points.lKnee, end: points.lAnkle, color: '#5500ff' },
+                { start: neck, end: points.nose, color: '#aa00ff' },
+                { start: points.nose, end: points.rEye, color: '#ff00ff' },
+                { start: points.rEye, end: points.rEar, color: '#ff00aa' },
+                { start: points.nose, end: points.lEye, color: '#ff0055' },
+                { start: points.lEye, end: points.lEar, color: '#ff0000' },
+              ];
+      
+              ctx.lineWidth = Math.max(5, Math.floor(width / 100));
+              ctx.lineCap = 'round';
+              for (const bone of bones) {
+                if (bone.start && bone.end) {
+                  ctx.strokeStyle = bone.color;
+                  ctx.beginPath();
+                  ctx.moveTo(bone.start.x, bone.start.y);
+                  ctx.lineTo(bone.end.x, bone.end.y);
+                  ctx.stroke();
+                }
+              }
+      
+              const jointPoints = [
+                points.nose, neck, points.rShoulder, points.rElbow, points.rWrist,
+                points.lShoulder, points.lElbow, points.lWrist, midHip,
+                points.rHip, points.rKnee, points.rAnkle,
+                points.lHip, points.lKnee, points.lAnkle,
+                points.rEye, points.lEye, points.rEar, points.lEar
+              ];
+              const jointColors = [
+                '#aa00ff', '#ff0000', '#ff0000', '#ffaa00', '#ffff00',
+                '#ff5500', '#aaff00', '#55ff00', '#00ff00', '#00ffaa',
+                '#00ffff', '#00aaff', '#0055ff', '#0000ff', '#5500ff',
+                '#ff00ff', '#ff0055', '#ff00aa', '#ff0000'
+              ];
+              jointPoints.forEach((pt, i) => {
+                if (pt) {
+                  ctx.fillStyle = jointColors[i];
+                  ctx.beginPath();
+                  ctx.arc(pt.x, pt.y, Math.max(4, Math.floor(width / 100)), 0, 2 * Math.PI);
+                  ctx.fill();
+                }
+              });
+            }
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+            fetch(dataUrl).then(res => res.blob()).then(blob => {
+              newSkeletons[i] = new File([blob], `skeleton_${i}.jpg`, { type: "image/jpeg" });
+              newSkeletonUrls[i] = dataUrl;
+              resolve();
+            });
+          });
+          pose.send({ image: img }).catch(() => resolve());
+        });
+      }
+
+      setSkeletonFiles(newSkeletons);
+      setSkeletonUrls(newSkeletonUrls);
+      setStatusMessage('提取全部骨架成功！');
+      setTimeout(() => setStatusMessage(''), 3000);
+
+    } catch (err) {
+      console.error(err);
+      alert('骨架自动提取失败，请检查网络');
+      setStatusMessage('');
+    } finally {
+      setIsExtractingSkeleton(false);
+    }
+  };
+
   // ---- Batch parallel generation ----
   const handleGenerate = async () => {
     if (!modelFile) {
@@ -237,11 +406,13 @@ VERIFICATION CHECKLIST:
         try {
           const refImage = await compressImage(refFile, 2048, 0.96);
 
-          // Image order: [Pose ref, Identity source] — pose-transfer workflow reorders to [ref, ref, source]
-          const inputImages = [
-            { base64: refImage.base64, mimeType: refImage.mime },
-            { base64: modelImage.base64, mimeType: modelImage.mime },
-          ];
+          const inputImages = [];
+          if (skeletonFiles[index]) {
+            const skeletonImage = await compressImage(skeletonFiles[index]!, 2048, 0.96);
+            inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
+          }
+          inputImages.push({ base64: refImage.base64, mimeType: refImage.mime });
+          inputImages.push({ base64: modelImage.base64, mimeType: modelImage.mime });
 
           let result: string[] = [];
           let lastError: any = null;
@@ -386,16 +557,21 @@ VERIFICATION CHECKLIST:
             <div className="grid grid-cols-3 gap-2">
               {refUrls.map((url, i) => (
                 <div key={i} className="relative group aspect-[3/4] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white">
-                  <img src={url} alt={`ref-${i + 1}`} className="w-full h-full object-cover" />
+                  <img src={skeletonUrls[i] || url} alt={`ref-${i + 1}`} className="w-full h-full object-cover" />
                   {/* Index badge */}
                   <div className="absolute top-1.5 left-1.5 bg-black/60 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md">
                     #{i + 1}
                   </div>
+                  {skeletonUrls[i] && (
+                    <div className="absolute bottom-1.5 left-1.5 bg-indigo-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                      <Activity className="w-2.5 h-2.5" /> 已提取骨架
+                    </div>
+                  )}
                   {/* Hover actions */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                       type="button"
-                      onClick={() => openPreview(url, `动作参考 #${i + 1}`)}
+                      onClick={() => openPreview(skeletonUrls[i] || url, `动作参考 #${i + 1}`)}
                       className="bg-white p-1.5 text-pastel-text hover:text-blue-500 rounded-full shadow-lg transition-transform hover:scale-110"
                     >
                       <Maximize2 className="w-3 h-3" />
@@ -424,6 +600,23 @@ VERIFICATION CHECKLIST:
                 </label>
               )}
             </div>
+
+            {/* Skeleton Extraction Button */}
+            {refFiles.length > 0 && refFiles.some((_, i) => !skeletonFiles[i]) && (
+              <button
+                type="button"
+                onClick={handleExtractAllSkeletons}
+                disabled={isExtractingSkeleton}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-colors disabled:opacity-50 border border-indigo-100"
+              >
+                {isExtractingSkeleton ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Activity className="w-4 h-4" />
+                )}
+                {isExtractingSkeleton ? '正在提取全套骨架...' : '一键为所有参考图转化 OpenPose 骨架 (推荐)'}
+              </button>
+            )}
           </div>
 
           {/* 输出画幅 */}

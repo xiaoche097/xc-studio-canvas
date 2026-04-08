@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
+import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
 import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -30,8 +30,9 @@ const ModelAdjustTabV2: React.FC = () => {
   const [poseStatusMessage, setPoseStatusMessage] = useState('');
   const [poseResultImage, setPoseResultImage] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>(null);
-
-
+  const [isExtractingSkeleton, setIsExtractingSkeleton] = useState(false);
+  const [poseSkeletonFile, setPoseSkeletonFile] = useState<File | null>(null);
+  const [poseSkeletonUrl, setPoseSkeletonUrl] = useState<string | null>(null);
 
   const resetResult = () => {
     setPoseResultImage(null);
@@ -57,8 +58,13 @@ const ModelAdjustTabV2: React.FC = () => {
     if (poseRefUrl) {
       URL.revokeObjectURL(poseRefUrl);
     }
+    if (poseSkeletonUrl) {
+      URL.revokeObjectURL(poseSkeletonUrl);
+    }
     setPoseRefFile(file);
     setPoseRefUrl(URL.createObjectURL(file));
+    setPoseSkeletonFile(null);
+    setPoseSkeletonUrl(null);
     resetResult();
   };
 
@@ -107,8 +113,13 @@ const ModelAdjustTabV2: React.FC = () => {
     if (poseRefUrl) {
       URL.revokeObjectURL(poseRefUrl);
     }
+    if (poseSkeletonUrl) {
+      URL.revokeObjectURL(poseSkeletonUrl);
+    }
     setPoseRefFile(null);
     setPoseRefUrl(null);
+    setPoseSkeletonFile(null);
+    setPoseSkeletonUrl(null);
     resetResult();
   };
 
@@ -177,6 +188,156 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
       : 'same crop as Clothing Source when Pose Reference framing is different, unchanged subject placement',
   ].join(', ');
 
+  const handleExtractSkeleton = async () => {
+    if (!poseRefUrl) return;
+    setIsExtractingSkeleton(true);
+    setPoseStatusMessage('正在加载 MediaPipe 骨架提取模型...');
+
+    try {
+      // Load script dynamically
+      if (!(window as any).Pose) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';
+          script.crossOrigin = 'anonymous';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load MediaPipe Pose'));
+          document.head.appendChild(script);
+        });
+      }
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = poseRefUrl;
+      await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+
+      setPoseStatusMessage('正在分析人物姿势...');
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      const pose = new (window as any).Pose({
+        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+      });
+
+      pose.setOptions({
+        modelComplexity: 2,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      pose.onResults((results: any) => {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const { width, height } = canvas;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, width, height);
+
+        if (!results.poseLandmarks || results.poseLandmarks.length === 0) {
+          return;
+        }
+
+        const lm = results.poseLandmarks;
+        const getPt = (idx: number) => {
+          const p = lm[idx];
+          if (p.visibility < 0.3) return null;
+          return { x: p.x * width, y: p.y * height };
+        };
+        const midpoint = (p1: any, p2: any) => {
+          if (!p1 || !p2) return null;
+          return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        };
+
+        const points = {
+          nose: getPt(0), lEye: getPt(2), rEye: getPt(5), lEar: getPt(7), rEar: getPt(8),
+          lShoulder: getPt(11), rShoulder: getPt(12), lElbow: getPt(13), rElbow: getPt(14),
+          lWrist: getPt(15), rWrist: getPt(16), lHip: getPt(23), rHip: getPt(24),
+          lKnee: getPt(25), rKnee: getPt(26), lAnkle: getPt(27), rAnkle: getPt(28),
+        };
+
+        const neck = midpoint(points.lShoulder, points.rShoulder);
+        const midHip = midpoint(points.lHip, points.rHip);
+
+        const bones = [
+          { start: neck, end: points.rShoulder, color: '#ff0000' },
+          { start: neck, end: points.lShoulder, color: '#ff5500' },
+          { start: points.rShoulder, end: points.rElbow, color: '#ffaa00' },
+          { start: points.rElbow, end: points.rWrist, color: '#ffff00' },
+          { start: points.lShoulder, end: points.lElbow, color: '#aaff00' },
+          { start: points.lElbow, end: points.lWrist, color: '#55ff00' },
+          { start: neck, end: midHip, color: '#00ff00' },
+          { start: midHip, end: points.rHip, color: '#00ffaa' },
+          { start: points.rHip, end: points.rKnee, color: '#00ffff' },
+          { start: points.rKnee, end: points.rAnkle, color: '#00aaff' },
+          { start: midHip, end: points.lHip, color: '#0055ff' },
+          { start: points.lHip, end: points.lKnee, color: '#0000ff' },
+          { start: points.lKnee, end: points.lAnkle, color: '#5500ff' },
+          { start: neck, end: points.nose, color: '#aa00ff' },
+          { start: points.nose, end: points.rEye, color: '#ff00ff' },
+          { start: points.rEye, end: points.rEar, color: '#ff00aa' },
+          { start: points.nose, end: points.lEye, color: '#ff0055' },
+          { start: points.lEye, end: points.lEar, color: '#ff0000' },
+        ];
+
+        ctx.lineWidth = Math.max(5, Math.floor(width / 100));
+        ctx.lineCap = 'round';
+        for (const bone of bones) {
+          if (bone.start && bone.end) {
+            ctx.strokeStyle = bone.color;
+            ctx.beginPath();
+            ctx.moveTo(bone.start.x, bone.start.y);
+            ctx.lineTo(bone.end.x, bone.end.y);
+            ctx.stroke();
+          }
+        }
+
+        const jointPoints = [
+          points.nose, neck, points.rShoulder, points.rElbow, points.rWrist,
+          points.lShoulder, points.lElbow, points.lWrist, midHip,
+          points.rHip, points.rKnee, points.rAnkle,
+          points.lHip, points.lKnee, points.lAnkle,
+          points.rEye, points.lEye, points.rEar, points.lEar
+        ];
+        const jointColors = [
+          '#aa00ff', '#ff0000', '#ff0000', '#ffaa00', '#ffff00',
+          '#ff5500', '#aaff00', '#55ff00', '#00ff00', '#00ffaa',
+          '#00ffff', '#00aaff', '#0055ff', '#0000ff', '#5500ff',
+          '#ff00ff', '#ff0055', '#ff00aa', '#ff0000'
+        ];
+        jointPoints.forEach((pt, i) => {
+          if (pt) {
+            ctx.fillStyle = jointColors[i];
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, Math.max(4, Math.floor(width / 100)), 0, 2 * Math.PI);
+            ctx.fill();
+          }
+        });
+      });
+
+      await pose.send({ image: img });
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      fetch(dataUrl)
+        .then(res => res.blob())
+        .then(blob => {
+          const file = new File([blob], "openpose_skeleton.jpg", { type: "image/jpeg" });
+          setPoseSkeletonFile(file);
+          setPoseSkeletonUrl(dataUrl);
+          openPreview(dataUrl, '检测到的骨架覆盖层', '已成功读取姿势，作为最终参考图');
+        });
+
+    } catch (err) {
+      console.error(err);
+      alert('骨架提取失败，由于当前网络限制或照片识别不到人选，建议您自行使用其他OpenPose提取工具处理原图后再上传');
+    } finally {
+      setIsExtractingSkeleton(false);
+      setPoseStatusMessage('');
+    }
+  };
+
   const handleGeneratePoseTransfer = async () => {
     if (!poseSourceFile || !poseRefFile) {
       alert('请上传图1（原图）和图2（姿势参考）');
@@ -187,17 +348,23 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
     setPoseStatusMessage('正在锁定图1人物与服装，并按图2重建姿势、朝向与构图...');
 
     try {
-      const [sourceImage, refImage] = await Promise.all([
-        compressImage(poseSourceFile, 2048, 0.96),
-        compressImage(poseRefFile, 2048, 0.96),
-      ]);
+      const sourceImage = await compressImage(poseSourceFile, 2048, 0.96);
+      const refImage = await compressImage(poseRefFile, 2048, 0.96);
 
       const prompt = buildPoseTransferPrompt(poseGuidance, transferScope);
       const negativePrompt = buildPoseTransferNegativePrompt(transferScope);
-      const inputImages = [
-        { base64: refImage.base64, mimeType: refImage.mime },    // Ref (Pose) forms Image 1 in Gemini prompt
-        { base64: sourceImage.base64, mimeType: sourceImage.mime }, // Source (Identity) forms Image 2
-      ];
+
+      const inputImages = [];
+      if (poseSkeletonFile) {
+        // We have a skeleton extracted! Pass BOTH: Skeleton and Original
+        const skeletonImage = await compressImage(poseSkeletonFile, 2048, 0.96);
+        inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
+      }
+      // Just the original reference image
+      inputImages.push({ base64: refImage.base64, mimeType: refImage.mime });
+      
+      // Source is always appended last
+      inputImages.push({ base64: sourceImage.base64, mimeType: sourceImage.mime });
       const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
 
       let result: string[] = [];
@@ -329,6 +496,11 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
                   onDrop={handlePoseRefDrop}
                 >
                   <img src={poseRefUrl} alt="reference" className="w-full h-full object-cover" />
+                  {poseSkeletonUrl && (
+                    <div className="absolute top-2 left-2 bg-indigo-500 text-white text-[10px] font-black px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                      <Activity className="w-3 h-3" /> 已提取骨架
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
                     <label 
                       className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110"
@@ -339,7 +511,7 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
                     </label>
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); openPreview(poseRefUrl, '图2 姿势参考'); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); openPreview(poseSkeletonUrl || poseRefUrl, '图2 姿势参考'); }}
                       className="bg-white p-2 text-pastel-text hover:text-blue-500 rounded-full shadow-lg transition-transform hover:scale-110"
                     >
                       <Maximize2 className="w-4 h-4" />
@@ -366,6 +538,22 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
                   <span className="text-sm font-bold text-pastel-text">点击或拖拽参考图到此处</span>
                   <span className="text-xs text-pastel-muted mt-1 px-4 text-center">仅读取躯干朝向、动作与构图</span>
                 </label>
+              )}
+              {/* Optional: Extraction button */}
+              {poseRefUrl && !poseSkeletonUrl && (
+                <button
+                  type="button"
+                  onClick={handleExtractSkeleton}
+                  disabled={isExtractingSkeleton}
+                  className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-colors disabled:opacity-50 border border-indigo-100"
+                >
+                  {isExtractingSkeleton ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Activity className="w-4 h-4" />
+                  )}
+                  {isExtractingSkeleton ? '正在提取骨架...' : '一键转为 OpenPose 骨架图 (推荐)'}
+                </button>
               )}
             </div>
           </div>
@@ -463,7 +651,7 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
 
       {/* Main Panel - Result Workspace */}
       <div className="flex-1 flex flex-col p-6 overflow-hidden relative items-center justify-center bg-transparent">
-        {isPoseGenerating ? (
+        {(isPoseGenerating || isExtractingSkeleton) ? (
           <div className="flex flex-col items-center justify-center w-full h-full">
             <div className="flex flex-col items-center gap-6 p-12 bg-white/50 backdrop-blur-md rounded-3xl border border-white shadow-xl max-w-md w-full">
               <div className="relative">
@@ -471,9 +659,11 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
                 <Zap className="w-6 h-6 text-yellow-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
               </div>
               <div className="text-center space-y-3">
-                <h3 className="text-xl font-black text-pastel-highlight tracking-tight">重建姿势中...</h3>
+                <h3 className="text-xl font-black text-pastel-highlight tracking-tight">
+                  {isExtractingSkeleton ? '读取骨架中...' : '重建姿势中...'}
+                </h3>
                 <p className="text-pastel-text/80 text-sm font-medium animate-pulse transition-all duration-500">
-                  {poseStatusMessage || '锁定衣服细节，正在按参考图重塑肢体结构...'}
+                  {poseStatusMessage || (isExtractingSkeleton ? '正在检测身体特征以生成 OpenPose 骨架图...' : '锁定衣服细节，正在按参考图重塑肢体结构...')}
                 </p>
               </div>
             </div>
