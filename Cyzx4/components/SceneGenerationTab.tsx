@@ -125,13 +125,42 @@ const PERSONA_PRESETS: Record<string, {
   modelFamilyStructure: string;
   modelLifestyle: string;
 }> = {
+  // 女性
   '美国都市女性': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '单人', modelLifestyle: '都市通勤' },
-  '美国年轻情侣': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '情侣', modelLifestyle: '居家休闲' },
-  '美国郊区家庭': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '三口之家', modelLifestyle: '郊区家庭' },
-  '美国校园学生': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '单人', modelLifestyle: '校园' },
-  '美国年轻妈妈与儿童': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '亲子', modelLifestyle: '郊区家庭' },
+  '美国职场女性': { modelEthnicity: '自动匹配', modelAgeGroup: '25-35岁', modelFamilyStructure: '单人', modelLifestyle: '职场商务' },
+  '美国瑜伽/健身女性': { modelEthnicity: '自动匹配', modelAgeGroup: '20-35岁', modelFamilyStructure: '单人', modelLifestyle: '健身运动' },
+  '美国居家主妇': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '三口之家', modelLifestyle: '居家休闲' },
+  '美国文艺女青年': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '单人', modelLifestyle: '文艺生活' },
+  // 男性
+  '美国都市男性': { modelEthnicity: '自动匹配', modelAgeGroup: '25-35岁', modelFamilyStructure: '单人', modelLifestyle: '都市通勤' },
   '美国居家休闲男性': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '单人', modelLifestyle: '居家休闲' },
+  '美国运动型男性': { modelEthnicity: '自动匹配', modelAgeGroup: '20-35岁', modelFamilyStructure: '单人', modelLifestyle: '健身运动' },
+  '美国职场商务男性': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '单人', modelLifestyle: '职场商务' },
+  '美国户外冒险男性': { modelEthnicity: '自动匹配', modelAgeGroup: '25-40岁', modelFamilyStructure: '单人', modelLifestyle: '户外露营' },
+  // 情侣 / 组合
+  '美国年轻情侣': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '情侣', modelLifestyle: '居家休闲' },
+  '美国新婚夫妇': { modelEthnicity: '自动匹配', modelAgeGroup: '25-35岁', modelFamilyStructure: '情侣', modelLifestyle: '新居生活' },
+  '美国闺蜜/好友': { modelEthnicity: '自动匹配', modelAgeGroup: '20-30岁', modelFamilyStructure: '好友组合', modelLifestyle: '社交聚会' },
+  '美国跨族裔情侣': { modelEthnicity: '混合族裔美国人', modelAgeGroup: '20-35岁', modelFamilyStructure: '情侣', modelLifestyle: '都市通勤' },
+  // 家庭
+  '美国郊区家庭': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '三口之家', modelLifestyle: '郊区家庭' },
+  '美国年轻妈妈与儿童': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '亲子', modelLifestyle: '郊区家庭' },
+  '美国年轻爸爸与儿童': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '亲子', modelLifestyle: '户外露营' },
+  '美国多孩家庭': { modelEthnicity: '自动匹配', modelAgeGroup: '35-50岁', modelFamilyStructure: '多孩家庭', modelLifestyle: '郊区家庭' },
+  '美国三代同堂': { modelEthnicity: '自动匹配', modelAgeGroup: '多年龄段', modelFamilyStructure: '祖孙三代', modelLifestyle: '节日聚会' },
+  // 学生 / 青少年 / 儿童
+  '美国校园学生': { modelEthnicity: '自动匹配', modelAgeGroup: '18-25岁', modelFamilyStructure: '单人', modelLifestyle: '校园' },
+  '美国青少年': { modelEthnicity: '自动匹配', modelAgeGroup: '13-18岁', modelFamilyStructure: '单人', modelLifestyle: '校园' },
   '美国小孩': { modelEthnicity: '自动匹配', modelAgeGroup: '5-12岁', modelFamilyStructure: '单人', modelLifestyle: '校园' },
+  '美国婴幼儿与妈妈': { modelEthnicity: '自动匹配', modelAgeGroup: '0-3岁', modelFamilyStructure: '亲子', modelLifestyle: '居家休闲' },
+  // 中老年
+  '美国中年专业人士': { modelEthnicity: '自动匹配', modelAgeGroup: '40-55岁', modelFamilyStructure: '单人', modelLifestyle: '职场商务' },
+  '美国银发族': { modelEthnicity: '自动匹配', modelAgeGroup: '60岁以上', modelFamilyStructure: '老年伴侣', modelLifestyle: '退休生活' },
+  // 特殊场景
+  '美国宠物主人': { modelEthnicity: '自动匹配', modelAgeGroup: '20-40岁', modelFamilyStructure: '人与宠物', modelLifestyle: '宠物生活' },
+  '美国户外露营家庭': { modelEthnicity: '自动匹配', modelAgeGroup: '30-45岁', modelFamilyStructure: '三口之家', modelLifestyle: '户外露营' },
+  '美国派对/聚会人群': { modelEthnicity: '混合族裔美国人', modelAgeGroup: '20-35岁', modelFamilyStructure: '多人社交', modelLifestyle: '社交聚会' },
+  '无模特（纯产品）': { modelEthnicity: '无', modelAgeGroup: '无', modelFamilyStructure: '无', modelLifestyle: '无' },
 };
 
 const SceneGenerationTab: React.FC = () => {
@@ -226,9 +255,20 @@ const SceneGenerationTab: React.FC = () => {
       qualityBooster: 'PRODUCT',
     });
 
+    const productTitleContext = [form.productName, form.productCategory, form.sellingPoints].filter(Boolean).join(' — ') || '电商产品';
+
+    const boardSpecificNote = boardType === 'social'
+      ? `买家秀策略：生成真实买家手机拍摄感的图片，场景必须贴近「${productTitleContext}」的实际使用场景，画面必须有真实生活痕迹（个人物品、不完美构图、自然光线），避免棚拍/专业摄影感。每张图的室内家具、墙面装饰、颜色风格必须不同，模拟不同买家的不同家庭环境。`
+      : boardType === 'aplus'
+        ? `A+策略：内容必须紧扣产品标题「${productTitleContext}」，讲述产品的使用故事。每张图的场景布局、家具选择和装饰风格必须有明显差异，避免重复。`
+        : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。每张图的背景场景元素（沙发、装饰、地毯等）必须有差异，避免批量生成看起来雷同。`;
+
     const strategy = [
       `运营目标：面向${currentBoard.label}板块，输出符合美国真实生活场景与美国市场人物气质的高转化营销图。`,
+      `标题关联：所有图片内容必须与产品「${productTitleContext}」紧密相关。`,
+      boardSpecificNote,
       `场景策略：${form.sceneDirection || '围绕产品卖点构建真实生活方式场景'}，突出${form.sellingPoints || '产品主体和使用价值'}。`,
+      `场景多样性：每张生成图的家具款式/颜色、墙面装饰、地毯/织物、灯具、植物、小道具必须随机变化，杜绝雷同。`,
       `产品锁定：本次生成以参考产品为唯一标准，先锁定颜色、材质、结构与细节，再扩展美国生活方式场景和人物互动。`,
       `模特画像：${[form.modelPersonaPreset, form.modelEthnicity, form.modelAgeGroup, form.modelFamilyStructure, form.modelLifestyle].filter(Boolean).join(' / ')}。`,
       `执行重点：保持产品颜色、结构、材质一致；强化${form.productType === 'plush' ? '毛绒绒感、绣线与抱持互动' : form.productType === 'apparel' ? '版型、褶皱和上身真实感' : '真实材质和生活化互动'}；人物与环境必须符合美国真实生活场景。`,
@@ -507,7 +547,7 @@ const SceneGenerationTab: React.FC = () => {
                     onChange={(e) => updateForm('modelEthnicity', e.target.value)}
                     className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                   >
-                    {['自动匹配', '白人美国人', '黑人美国人', '拉丁裔美国人', '亚裔美国人', '混合族裔美国人'].map((item) => (
+                    {['自动匹配', '白人美国人', '黑人美国人', '拉丁裔美国人', '亚裔美国人', '中东裔美国人', '南亚裔美国人', '太平洋岛民', '混合族裔美国人', '无（纯产品图）'].map((item) => (
                       <option key={item} value={item}>{item}</option>
                     ))}
                   </select>
@@ -519,7 +559,7 @@ const SceneGenerationTab: React.FC = () => {
                     onChange={(e) => updateForm('modelAgeGroup', e.target.value)}
                     className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                   >
-                    {['自动匹配', '婴童', '青少年', '20-30岁', '30-45岁', '45+'].map((item) => (
+                    {['自动匹配', '0-3岁', '3-6岁', '5-12岁', '13-18岁', '18-25岁', '20-30岁', '25-35岁', '30-45岁', '40-55岁', '55-70岁', '60岁以上', '多年龄段'].map((item) => (
                       <option key={item} value={item}>{item}</option>
                     ))}
                   </select>
@@ -531,7 +571,7 @@ const SceneGenerationTab: React.FC = () => {
                     onChange={(e) => updateForm('modelFamilyStructure', e.target.value)}
                     className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                   >
-                    {['自动匹配', '单人', '情侣', '亲子', '三口之家', '多孩家庭'].map((item) => (
+                    {['自动匹配', '单人', '情侣', '亲子', '三口之家', '多孩家庭', '好友组合', '多人社交', '祖孙三代', '老年伴侣', '人与宠物', '无（纯产品图）'].map((item) => (
                       <option key={item} value={item}>{item}</option>
                     ))}
                   </select>
@@ -543,7 +583,7 @@ const SceneGenerationTab: React.FC = () => {
                     onChange={(e) => updateForm('modelLifestyle', e.target.value)}
                     className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                   >
-                    {['自动匹配', '都市通勤', '郊区家庭', '校园', '健身', '居家休闲', '节日送礼'].map((item) => (
+                    {['自动匹配', '都市通勤', '职场商务', '郊区家庭', '校园', '健身运动', '居家休闲', '户外露营', '旅行度假', '宠物生活', '文艺生活', '新居生活', '退休生活', '社交聚会', '节日聚会', '节日送礼', '派对庆祝', '下午茶/咖啡', '车内场景', '无（纯产品图）'].map((item) => (
                       <option key={item} value={item}>{item}</option>
                     ))}
                   </select>

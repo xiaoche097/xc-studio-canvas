@@ -293,6 +293,82 @@ export interface SceneGenerationPromptInput {
     modelPersonaNotes?: string;
 }
 
+// ==================== Scene Variation Randomizer ====================
+
+/**
+ * Diverse environment detail pools to inject randomness into scene generation.
+ * When a user specifies a general scene (e.g., "living room"), the system picks
+ * random furniture, decoration, lighting, and color palette variations so each
+ * batch image looks distinct instead of near-identical.
+ */
+const SCENE_VARIATION_POOL: Record<string, string[]> = {
+    livingroom: [
+        "mid-century modern sofa with tapered legs, abstract wall art, terrazzo side table",
+        "deep sectional sofa in charcoal linen, floor-to-ceiling bookshelf, brass arc lamp",
+        "Scandinavian loveseat in oatmeal boucle, woven jute rug, ceramic vase with dried pampas",
+        "velvet emerald armchair, marble coffee table, gallery wall with eclectic frames",
+        "leather chesterfield sofa, industrial pipe shelving, Edison bulb pendant light",
+        "modular cloud sofa in cream, minimalist floating shelves, potted monstera",
+        "boho rattan furniture, macrame wall hanging, layered textile throw pillows",
+        "coastal blue linen sofa, whitewashed wood accents, seashell decorations",
+    ],
+    bedroom: [
+        "platform bed with linen headboard, ambient bedside sconces, knitted throw blanket",
+        "canopy bed frame in matte black, sheer curtains, eucalyptus on nightstand",
+        "upholstered bed in dusty rose, mirrorred dresser, fairy string lights",
+        "minimalist Japanese futon style bed, sliding paper screen, single ikebana arrangement",
+        "farmhouse wooden bed frame, patchwork quilt, vintage alarm clock on weathered nightstand",
+        "modern walnut bed with floating nightstands, geometric pendant lights, abstract print",
+    ],
+    kitchen: [
+        "white subway tile backsplash, open shelving with ceramic dishes, copper pendant light",
+        "dark granite countertop, industrial stainless steel appliances, herb garden on windowsill",
+        "butcher block island, farmhouse sink, hanging cast-iron pan rack",
+        "modern matte-black cabinetry, marble waterfall island, brass hardware",
+        "retro mint-green refrigerator, checkerboard floor, vintage diner stools",
+    ],
+    outdoor: [
+        "sunny backyard patio with string lights, wooden deck furniture, potted succulents",
+        "front porch with rocking chairs, climbing roses, welcome mat",
+        "urban rooftop terrace, modern planters, city skyline backdrop",
+        "suburban garden with hammock, bird feeder, freshly mowed lawn",
+        "lakeside picnic setup, plaid blanket, wicker basket, golden afternoon light",
+        "camping site with canvas tent, campfire glow, pine forest background",
+    ],
+    office: [
+        "home office with standing desk, ergonomic chair, wall-mounted monitor, succulent plant",
+        "cozy reading nook converted office, built-in bookshelves, warm desk lamp",
+        "modern co-working space, communal table, exposed brick, latte on desk",
+        "corporate corner office, floor-to-ceiling glass, minimalist desk setup",
+    ],
+    generic: [
+        "bright airy interior, large windows, natural daylight flooding in",
+        "warm cozy space with layered textures, soft ambient lighting",
+        "clean modern minimalist interior, neutral palette, architectural interest",
+        "eclectic lived-in space with personality, mixed vintage and modern elements",
+        "sun-drenched casual space, plants, natural materials, relaxed atmosphere",
+    ],
+};
+
+/**
+ * Pick a random environment variation to inject diversity.
+ * Analyzes sceneDirection for known room types and picks a random detail set.
+ */
+function getRandomSceneVariation(sceneDirection: string): string {
+    const lower = (sceneDirection || '').toLowerCase();
+    let pool: string[] = SCENE_VARIATION_POOL.generic;
+
+    if (/客厅|living.*room|client.*room/.test(lower)) pool = SCENE_VARIATION_POOL.livingroom;
+    else if (/卧室|卧房|bedroom/.test(lower)) pool = SCENE_VARIATION_POOL.bedroom;
+    else if (/厨房|kitchen/.test(lower)) pool = SCENE_VARIATION_POOL.kitchen;
+    else if (/户外|露营|庞物|庭院|花园|outdoor|backyard|patio|garden|camping/.test(lower)) pool = SCENE_VARIATION_POOL.outdoor;
+    else if (/办公|书房|office|study/.test(lower)) pool = SCENE_VARIATION_POOL.office;
+
+    // Pick random index
+    const idx = Math.floor(Math.random() * pool.length);
+    return pool[idx];
+}
+
 const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
     main: "shot on 50mm standard lens, commercial ecommerce hero shot, crisp centered composition, clean depth separation",
     aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
@@ -346,11 +422,23 @@ function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
 
     const lifestyleSceneMap: Record<string, string> = {
         "都市通勤": "urban U.S. apartment, city sidewalk, coffee-to-go, elevator lobby, commuter realism",
+        "职场商务": "modern U.S. office, conference room, professional workspace, business attire, polished corporate setting",
         "郊区家庭": "suburban American home, family living room, nursery, backyard, natural family routine",
         "校园": "real U.S. campus walkway, library, dorm, green lawn, student daily life",
-        "健身": "American gym, wellness studio, active lifestyle environment, natural movement",
+        "健身运动": "American gym, wellness studio, yoga mat, active lifestyle environment, natural athletic movement",
         "居家休闲": "cozy U.S. apartment or suburban home, sofa, bedroom, weekend home routine",
+        "户外露营": "campsite with tent, forest trail, national park, outdoor adventure gear, campfire atmosphere",
+        "旅行度假": "American road trip, hotel room, resort pool, scenic overlook, vacation vibes",
+        "宠物生活": "at home with a pet dog or cat, pet bed, pet toys, loving pet-owner interaction",
+        "文艺生活": "indie coffee shop, art gallery, vinyl record store, creative studio, bohemian atmosphere",
+        "新居生活": "newly furnished American apartment, unpacking boxes, fresh home setup, cozy first-home feeling",
+        "退休生活": "peaceful suburban home, garden, morning newspaper, relaxed golden-age lifestyle",
+        "社交聚会": "casual American get-together, backyard BBQ, friends gathering, relaxed social atmosphere",
+        "节日聚会": "family holiday dinner table, Thanksgiving or Christmas atmosphere, warm family gathering",
         "节日送礼": "American holiday gifting moment, living room, wrapped gift setting, warm family atmosphere",
+        "派对庆祝": "birthday party, celebration decorations, balloons, cake, excited group energy",
+        "下午茶/咖啡": "cozy American cafe, latte art, pastry, window seat, warm afternoon light",
+        "车内场景": "inside a car, road trip vibes, drive-through, parking lot, casual automotive setting",
     };
 
     const sceneCue = input.modelLifestyle && lifestyleSceneMap[input.modelLifestyle]
@@ -367,9 +455,21 @@ function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
 
 export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): string {
     const subject = [input.productName, input.productCategory, input.productSize].filter(Boolean).join(", ") || "commercial product";
-    const environment = [input.sceneDirection, input.usageScenario, input.targetAudience].filter(Boolean).join(", ") || "real American lifestyle setting";
+
+    // Add randomized scene variation for diversity
+    const sceneVariation = getRandomSceneVariation(input.sceneDirection || input.usageScenario || '');
+    const environment = [
+        input.sceneDirection,
+        input.usageScenario,
+        input.targetAudience,
+        `Use this specific furniture/decor variation for uniqueness: ${sceneVariation}`,
+    ].filter(Boolean).join(", ") || "real American lifestyle setting";
+
     const style = [input.brandTone, input.colorStyle, SCENE_BOARD_GUIDE[input.boardType]].filter(Boolean).join(", ");
     const personaPrompt = buildAmericanPersonaPrompt(input);
+
+    // Product title context — used to anchor all image content to the listing
+    const productTitleContext = [input.productName, input.productCategory, input.sellingPoints].filter(Boolean).join(' — ');
 
     const basePrompt = buildGoldenFormula({
         subject,
@@ -377,7 +477,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         environment,
         style,
         lighting: input.boardType === "social"
-            ? "natural window light, believable shadows, candid lifestyle realism, subtle filmic depth"
+            ? "natural window light, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo"
             : input.boardType === "aplus"
                 ? "premium editorial lighting, layered highlights, realistic depth, refined brand atmosphere"
                 : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
@@ -385,8 +485,43 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         qualityBooster: input.boardType === "social" ? "FILM" : "EDITORIAL",
     });
 
+    // Board-type specific instructions
+    const boardInstructions: Record<SceneGenerationBoardType, string> = {
+        main: [
+            `This is an Amazon secondary listing image for the product: "${productTitleContext}".`,
+            "The image must visually communicate the product's primary selling points to drive click-through.",
+            "Use a clean, uncluttered scene that keeps the product as the visual hero.",
+            "Scene furniture, decorations, and props should vary between generations — do NOT repeat the same sofa, same rug, or same wall art. Randomize the interior styling while keeping the overall feel premium and cohesive.",
+        ].join(' '),
+        aplus: [
+            `This is an Amazon A+ detail page banner for the product: "${productTitleContext}".`,
+            "The image must tell a lifestyle story that connects the product to the buyer's aspirational life.",
+            "Create a cinematic, editorial atmosphere that elevates the brand perception.",
+            "Vary the scene composition, furniture choices, color accent pieces, and ambient decorations between each generated image. No two A+ banners should look like the same room.",
+        ].join(' '),
+        social: [
+            `This is a real buyer-show / social media UGC content image for the product: "${productTitleContext}".`,
+            "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone — NOT a professional studio shot.",
+            "Characteristics of authentic buyer photos: slightly imperfect composition, natural phone-camera perspective (slightly tilted or off-center), real home environment with visible personal belongings, natural ambient lighting (not studio-lit), casual and spontaneous feel.",
+            "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
+            "Include realistic everyday details: a half-drunk coffee cup, phone charger on the table, slightly messy but lived-in space, personal items in the background.",
+            "The scene interior must vary dramatically between images — different apartment styles, different furniture, different wall colors, different decorations. Each buyer photo should feel like it's from a completely different person's home.",
+            "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
+        ].join(' '),
+    };
+
+    // Randomization directive to ensure diversity
+    const randomizationDirective = [
+        "IMPORTANT DIVERSITY DIRECTIVE: Each generated image MUST feature distinctly different scene elements.",
+        "Vary these across generations: furniture style and color, wall decoration, rug/carpet pattern, lighting fixtures, plant types, cushion/throw patterns, small props and accessories, window treatment, floor material.",
+        "If the scene is a living room, do NOT always use the same grey sofa — alternate between different sofa styles (sectional, loveseat, mid-century, modular), different colors (cream, navy, sage, terracotta, charcoal), and different surrounding furniture.",
+        "Maintain scene believability while maximizing visual variety.",
+    ].join(' ');
+
     return [
         "Create an ultra realistic commercial lifestyle photograph grounded in real everyday American life.",
+        boardInstructions[input.boardType],
+        randomizationDirective,
         "All people, styling, interiors, props, neighborhoods, and visual cues must feel authentic to the United States market.",
         "Use ethnically believable real American people and natural candid behavior, never generic mannequin-like subjects.",
         personaPrompt,
@@ -400,7 +535,9 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         input.avoidElements ? `Strictly avoid these elements: ${input.avoidElements}.` : "",
         input.extraNotes ? `Additional execution notes: ${input.extraNotes}.` : "",
         basePrompt,
-        "Make the image look like a premium real photo shot by an experienced Amazon ecommerce art director, not CGI or AI art.",
+        input.boardType === 'social'
+            ? "Make this look like a real buyer's phone photo shared on social media — authentic, casual, unpolished but appealing. NOT a professional photo."
+            : "Make the image look like a premium real photo shot by an experienced Amazon ecommerce art director, not CGI or AI art.",
     ].filter(Boolean).join(" ");
 }
 
