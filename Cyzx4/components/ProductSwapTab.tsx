@@ -34,6 +34,7 @@ const BananaIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 import { AspectRatio, ImageResolution } from '../types';
+import { compressImageFiles } from '../utils/imageCompressor';
 
 // ==================== CoT Steps ====================
 const SWAP_COT_STEPS = [
@@ -140,20 +141,20 @@ const ProductSwapTab: React.FC = () => {
     };
 
     // ==================== Drag & Drop ====================
-    const handleDrop = (e: React.DragEvent, type: 'scene' | 'product') => {
+    const handleDrop = async (e: React.DragEvent, type: 'scene' | 'product') => {
         e.preventDefault();
         type === 'scene' ? setIsDraggingScene(false) : setIsDraggingProduct(false);
-        const files = e.dataTransfer.files;
+        const files = await compressImageFiles(Array.from(e.dataTransfer.files));
         if (type === 'scene') handleSceneUpload(files);
         else handleProductUpload(files);
     };
 
-    const handleDragOver = (e: React.DragEvent, type: 'scene' | 'product') => {
+    const handleDragOver = async (e: React.DragEvent, type: 'scene' | 'product') => {
         e.preventDefault();
         type === 'scene' ? setIsDraggingScene(true) : setIsDraggingProduct(true);
     };
 
-    const handleDragLeave = (e: React.DragEvent, type: 'scene' | 'product') => {
+    const handleDragLeave = async (e: React.DragEvent, type: 'scene' | 'product') => {
         e.preventDefault();
         type === 'scene' ? setIsDraggingScene(false) : setIsDraggingProduct(false);
     };
@@ -256,7 +257,7 @@ const ProductSwapTab: React.FC = () => {
     };
 
     // ==================== Actions ====================
-    const handleDownload = (imageUrl: string, index: number) => {
+    const handleDownload = async (imageUrl: string, index: number) => {
         const link = document.createElement('a');
         link.href = imageUrl;
         link.download = `product-swap-${Date.now()}-${index + 1}.png`;

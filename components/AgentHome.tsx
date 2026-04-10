@@ -19,6 +19,7 @@ import { ProjectDetailModal } from './ProjectDetailModal';
 import { storageService, Project } from '../services/storageService';
 
 import { WorkflowStep } from '../types';
+import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
 interface AgentHomeProps {
   onStart: (text: string, image: string | string[] | null, model: string, step?: number) => void;
@@ -122,9 +123,9 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   // ... (handleImageUpload and removeImage are unchanged)
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files);
+      const files = await compressImageFiles(Array.from(e.target.files));
       if (images.length + files.length > 5) {
         alert("最多支持 5 张图片");
         return;
@@ -154,14 +155,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleStart();
     }
   };
 
-  const handleCardClick = (prompt: string, title?: string) => {
+  const handleCardClick = async (prompt: string, title?: string) => {
     if (title === "模特工厂") {
       onStart("/model-factory", [], selectedModel, WorkflowStep.MODEL_FACTORY);
     } else if (title === "AI创意视频") {
@@ -181,7 +182,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     }
   };
 
-  const handleModalConfirm = (modelImg: string, garmentImg: string, aspectRatio: string, resolution: string) => {
+  const handleModalConfirm = async (modelImg: string, garmentImg: string, aspectRatio: string, resolution: string) => {
     setShowTryOnModal(false);
     onStart(
       `/model 模特上身生成 (比例: ${aspectRatio}, 清晰度: ${resolution})`,
@@ -191,7 +192,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     );
   };
 
-  const handleMarketingConfirm = (productImages: string[], aspectRatio: string, description: string, resolution: string) => {
+  const handleMarketingConfirm = async (productImages: string[], aspectRatio: string, description: string, resolution: string) => {
     setShowMarketingModal(false);
     const promptDescription = description.trim() ? ` 详细要求: ${description}` : '';
     onStart(

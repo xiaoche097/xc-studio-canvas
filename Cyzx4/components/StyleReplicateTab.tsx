@@ -37,6 +37,7 @@ const BananaIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 import { AspectRatio, ImageResolution } from '../types';
+import { compressImageFiles } from '../utils/imageCompressor';
 
 type TabMode = 'single' | 'batch';
 
@@ -161,7 +162,7 @@ const StyleReplicateTab: React.FC = () => {
         e.stopPropagation();
         setIsDraggingStyle(false);
 
-        const files = Array.from(e.dataTransfer.files);
+        const files = await compressImageFiles(Array.from(e.dataTransfer.files));
         if (files.length === 0) return;
 
         // Calculate how many we can add
@@ -201,7 +202,7 @@ const StyleReplicateTab: React.FC = () => {
         e.stopPropagation();
         setIsDraggingProduct(false);
 
-        const files = Array.from(e.dataTransfer.files);
+        const files = await compressImageFiles(Array.from(e.dataTransfer.files));
         if (files.length === 0) return;
 
         const newImages: UploadedImage[] = [];
@@ -354,7 +355,7 @@ const StyleReplicateTab: React.FC = () => {
     };
 
     // Download handler
-    const handleDownload = (imageUrl: string, index: number) => {
+    const handleDownload = async (imageUrl: string, index: number) => {
         const link = document.createElement('a');
         link.href = imageUrl;
         link.download = `style-replicate-${Date.now()}-${index + 1}.png`;

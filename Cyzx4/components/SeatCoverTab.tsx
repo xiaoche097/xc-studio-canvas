@@ -4,6 +4,7 @@ import { getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X, Box, Wand2 } from 'lucide-react';
 import { storageService } from '../../services/storageService';
+import { compressImageFiles } from '../utils/imageCompressor';
 
 const anglePresets = [
   {
@@ -117,9 +118,9 @@ const SeatCoverTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
 
-  const handleSeatFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSeatFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
+      const newFiles = await compressImageFiles(Array.from(e.target.files));
       const combinedFiles = [...seatFiles, ...newFiles].slice(0, 5); // Max 5
       setSeatFiles(combinedFiles);
 
@@ -134,9 +135,9 @@ const SeatCoverTab: React.FC = () => {
     setSeatPreviews(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleAngleRefFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAngleRefFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
+      const newFiles = await compressImageFiles(Array.from(e.target.files));
       const combinedFiles = [...angleRefFiles, ...newFiles].slice(0, 5); // Max 5 total
 
       setAngleRefFiles(combinedFiles);
@@ -201,7 +202,7 @@ const SeatCoverTab: React.FC = () => {
     }
   };
 
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>, index: number) => {
+  const handleImageClick = async (e: React.MouseEvent<HTMLDivElement>, index: number) => {
     if (e.ctrlKey) {
       e.preventDefault();
       const rect = e.currentTarget.getBoundingClientRect();
@@ -230,9 +231,9 @@ const SeatCoverTab: React.FC = () => {
     }));
   };
 
-  const handleEditFileChange = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+  const handleEditFileChange = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
+      const newFiles = await compressImageFiles(Array.from(e.target.files));
       setEditRefFiles(prev => ({
         ...prev,
         [index]: [...(prev[index] || []), ...newFiles].slice(0, 5)

@@ -7,6 +7,7 @@ import {
     MonitorPlay, Loader2
 } from 'lucide-react';
 import { SmartSequenceItem } from '../types';
+import { compressImageFiles } from '../../Cyzx4/utils/imageCompressor';
 
 interface SmartSequenceDockProps {
     isOpen: boolean;
@@ -47,7 +48,7 @@ export const SmartSequenceDock: React.FC<SmartSequenceDockProps> = ({ isOpen, on
 
     // Global Click Listener for Closing Popups
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
+        const handleClickOutside = async (event: MouseEvent) => {
             if (editingTransitionId && transitionModalRef.current && !transitionModalRef.current.contains(event.target as Node)) {
                 // Clicked outside transition modal
                 // Check if clicked on the link button (to prevent immediate reopen toggling issues if handled there)
@@ -95,7 +96,7 @@ export const SmartSequenceDock: React.FC<SmartSequenceDockProps> = ({ isOpen, on
     };
 
     // --- Drag & Drop (Spring Feel) ---
-    const handleDragStart = (e: React.DragEvent, index: number) => {
+    const handleDragStart = async (e: React.DragEvent, index: number) => {
         setDraggingIndex(index);
         e.dataTransfer.effectAllowed = 'move';
         // Create invisible drag image to rely on our UI updates
@@ -104,7 +105,7 @@ export const SmartSequenceDock: React.FC<SmartSequenceDockProps> = ({ isOpen, on
         e.dataTransfer.setDragImage(img, 0, 0);
     };
 
-    const handleDragOver = (e: React.DragEvent, index: number) => {
+    const handleDragOver = async (e: React.DragEvent, index: number) => {
         e.preventDefault(); // Necessary for drop
         if (draggingIndex === null) return;
         if (draggingIndex !== index) {
@@ -120,7 +121,7 @@ export const SmartSequenceDock: React.FC<SmartSequenceDockProps> = ({ isOpen, on
         }
     };
 
-    const handleDrop = (e: React.DragEvent) => {
+    const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
         setDraggingIndex(null);
         setDragOverIndex(null);
@@ -146,9 +147,9 @@ export const SmartSequenceDock: React.FC<SmartSequenceDockProps> = ({ isOpen, on
         }
     };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
-            const files = Array.from(e.target.files);
+            const files = await compressImageFiles(Array.from(e.target.files));
             const readers = files.map((file: any) => new Promise<SmartSequenceItem>((resolve) => {
                 const reader = new FileReader();
                 reader.onload = (ev) => resolve({

@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { ChevronDown, ChevronUp, Image as ImageIcon, Link as LinkIcon, Upload, X } from 'lucide-react';
 import { SITE_OPTIONS } from '../constants';
 import { useAnalysisStore } from '../stores/analysisStore';
+import { compressImageFiles } from '../../Cyzx4/utils/imageCompressor';
 
 interface RequirementsFormProps {
    featureId: string;
@@ -19,10 +20,10 @@ export const RequirementsForm: React.FC<RequirementsFormProps> = ({ featureId, f
    const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
    const fileInputRef = useRef<HTMLInputElement>(null);
 
-   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files) {
          const newImages: string[] = [];
-         const files = Array.from(e.target.files);
+         const files = await compressImageFiles(Array.from(e.target.files));
 
          let processedCount = 0;
          files.forEach(file => {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { gemini } from '../lib/gemini';
 import { RefreshIcon, UploadIcon, DownloadIcon, ZoomIcon } from './Icons';
 import { motion, AnimatePresence } from 'framer-motion';
+import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
 interface VisualizerProps {
   prompt: string;
@@ -26,8 +27,8 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'fit' | 'original'>('fit'); // New state for zoom modal
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = await compressImageFiles(Array.from(e.target.files));
     if (files && files.length > 0) {
       const remainingSlots = 6 - referenceImages.length;
       if (remainingSlots <= 0) {

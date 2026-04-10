@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UploadIcon, SendIcon } from './Icons';
+import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
 interface ChatInputProps {
     onSend: (text: string, images: string[]) => void;
@@ -20,7 +21,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isTyping }) => {
         }
     };
 
-    const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const handleInput = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInputValue(e.target.value);
     };
 
@@ -28,7 +29,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isTyping }) => {
         adjustHeight();
     }, [inputValue]);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
+    const handleKeyDown = async (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSendClick();
@@ -43,9 +44,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, isTyping }) => {
         // Height will reset via useEffect
     };
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
-            const files = Array.from(e.target.files);
+            const files = await compressImageFiles(Array.from(e.target.files));
             if (files.length + selectedImages.length > 5) {
                 alert("Maximum 5 images allowed");
                 return;

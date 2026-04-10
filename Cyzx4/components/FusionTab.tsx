@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
 import { StyleModelModal } from './StyleModelModal';
 import { STYLE_PRESETS, StylePreset } from '../constants/stylePresets';
@@ -6,6 +6,7 @@ import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
+import { compressImageFiles } from '../utils/imageCompressor';
 
 interface EditPoint {
   id: number;
@@ -39,10 +40,161 @@ const FusionTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const contentEditableRef = useRef<HTMLDivElement>(null);
+  const lastRenderedTextRef = useRef('');
+  const lastSelectionRangeRef = useRef<Range | null>(null);
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const [hoveredMentionIdx, setHoveredMentionIdx] = useState<number | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<{ top: number; left: number } | null>(null);
+
+  const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && contentEditableRef.current?.contains(selection.anchorNode)) {
+          lastSelectionRangeRef.current = selection.getRangeAt(0).cloneRange();
+      }
+  };
+
+  const handleEditorMouseMove = async (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const chip = target.closest('[data-mention-idx]');
+      if (chip) {
+          const idxStr = chip.getAttribute('data-mention-idx');
+          if (idxStr) {
+              const idx = parseInt(idxStr, 10) - 1;
+              if (idx >= 0 && previewUrls[idx]) {
+                  const rect = chip.getBoundingClientRect();
+                  setHoverPosition({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+                  setHoveredMentionIdx(idx);
+                  return;
+              }
+          }
+      }
+      setHoveredMentionIdx(null);
+  };
+
+  const handleEditorMouseLeave = () => {
+      setHoveredMentionIdx(null);
+  };
+
+  const traverse = (node: Node): string => {
+     if (node.nodeType === Node.TEXT_NODE) {
+         return (node.textContent || "").replace(/\u00A0/g, " ").replace(/\u200b/g, "");
+     }
+     if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement;
+        if (el.getAttribute("data-mention-idx")) {
+           return `@图片${el.getAttribute("data-mention-idx")}`;
+        }
+        if (el.tagName === "BR") return "\n";
+        if (el.tagName === "DIV" || el.tagName === "P") {
+            const inner = Array.from(node.childNodes).map(traverse).join("");
+            return inner ? "\n" + inner : "\n";
+        }
+        return Array.from(node.childNodes).map(traverse).join("");
+     }
+     return "";
+  };
+
+  const generateHtmlFromDescription = (text: string) => {
+      let el = document.createElement("div");
+      el.innerText = text;
+      let html = el.innerHTML;
+      
+      html = html.replace(/@图片(\d+)/g, (match, p1) => {
+          const idx = parseInt(p1) - 1;
+          const url = previewUrls[idx];
+          if (url) {
+              return `\u200b<span contenteditable="false" data-mention-idx="${p1}" class="inline-flex items-center gap-1 bg-orange-50 text-orange-600 px-2 py-0.5 rounded-lg border border-orange-200 mx-0.5 align-middle select-none font-bold shadow-sm" style="margin-bottom:2px"><img src="${url}" class="w-4 h-4 rounded-sm object-cover pointer-events-none" />@图片${p1}</span>\u200b`;
+          }
+          return match;
+      });
+      return html;
+  };
+
+  useEffect(() => {
+      if (contentEditableRef.current && description !== lastRenderedTextRef.current) {
+          lastRenderedTextRef.current = description;
+          contentEditableRef.current.innerHTML = generateHtmlFromDescription(description);
+      }
+  }, [description, previewUrls]);
+
+  const checkMentionTrigger = () => {
+      handleSelectionChange();
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const node = range.startContainer;
+        if (node.nodeType === Node.TEXT_NODE) {
+          const textContext = node.textContent?.slice(0, range.startOffset) || "";
+          if (textContext.endsWith("@") && previewUrls.length > 0) {
+            setShowMentionMenu(true);
+          } else {
+            setShowMentionMenu(false);
+          }
+        } else {
+           setShowMentionMenu(false);
+        }
+      }
+  };
+
+  const insertMention = (idx: number, url: string) => {
+      if (contentEditableRef.current) {
+          if (lastSelectionRangeRef.current) {
+              const selection = window.getSelection();
+              selection?.removeAllRanges();
+              selection?.addRange(lastSelectionRangeRef.current);
+          } else {
+              contentEditableRef.current.focus();
+          }
+          
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0) {
+              const range = selection.getRangeAt(0);
+              const node = range.startContainer;
+              
+              if (node.nodeType === Node.TEXT_NODE) {
+                  const textContent = node.textContent || "";
+                  const startOffset = range.startOffset;
+                  const atIndex = textContent.lastIndexOf("@", startOffset - 1);
+                  if (atIndex !== -1) {
+                      range.setStart(node, atIndex);
+                      range.setEnd(node, startOffset);
+                      range.deleteContents();
+                  }
+              }
+              
+              const chipHtml = `<span contenteditable="false" data-mention-idx="${idx + 1}" class="inline-flex items-center gap-1 bg-orange-50 text-orange-600 px-2 py-0.5 rounded-lg border border-orange-200 mx-0.5 align-middle select-none font-bold shadow-sm" style="margin-bottom:2px"><img src="${url}" class="w-4 h-4 rounded-sm object-cover pointer-events-none" />@图片${idx + 1}</span>`;
+              
+              const fragment = range.createContextualFragment(chipHtml);
+              const lastChild = fragment.lastChild;
+              range.insertNode(fragment);
+              
+                            const spaceNode = document.createTextNode("\u200b");
+              if (lastChild && lastChild.parentNode) {
+                  lastChild.parentNode.insertBefore(spaceNode, lastChild.nextSibling);
+                  range.setStart(spaceNode, 1);
+                  range.collapse(true);
+              }
+              
+              selection.removeAllRanges();
+              selection.addRange(range);
+              
+              setShowMentionMenu(false);
+              
+              const text = traverse(contentEditableRef.current);
+              let cleanText = text;
+              if (cleanText.startsWith('\n') && contentEditableRef.current.childNodes[0]?.nodeName === 'DIV') {
+                  cleanText = cleanText.substring(1);
+              }
+              lastRenderedTextRef.current = cleanText;
+              setDescription(cleanText);
+          }
+      }
+  };
 
   // Refinement State
   const [hasPolished, setHasPolished] = useState(false);
@@ -61,7 +213,7 @@ const FusionTab: React.FC = () => {
   const [isComparing, setIsComparing] = useState<Record<number, boolean>>({});
 
   // Model Selection State
-  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
   // Style Model State
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
@@ -70,9 +222,9 @@ const FusionTab: React.FC = () => {
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files);
+      const files = await compressImageFiles(Array.from(e.target.files));
       addFiles(files);
     }
   };
@@ -104,9 +256,9 @@ const FusionTab: React.FC = () => {
 
   // ... (removeFile remains same, see context) ...
 
-  const handleEditRefUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+  const handleEditRefUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files);
+      const files = await compressImageFiles(Array.from(e.target.files));
       const validFiles = files.filter(f => f.type.startsWith('image/'));
 
       setEditRefImages(prev => {
@@ -139,23 +291,45 @@ const FusionTab: React.FC = () => {
     URL.revokeObjectURL(newUrls[index]); // Clean up memory
     newUrls.splice(index, 1);
     setPreviewUrls(newUrls);
+    
+    let updatedDesc = description;
+    updatedDesc = updatedDesc.replace(new RegExp(` *@图片${index + 1} *`, 'g'), ' ');
+    updatedDesc = updatedDesc.replace(/@图片(\d+)/g, (match, p1) => {
+        const chipIdx = parseInt(p1) - 1;
+        if (chipIdx > index) {
+            return `@图片${chipIdx}`;
+        }
+        return match;
+    });
+    
+    setDescription(updatedDesc.trim());
   };
 
   // Drag and Drop Handlers
-  const handleDragStart = (e: React.DragEvent, index: number) => {
+  const handleDragStart = async (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = 'move';
     // Optimization: Add a ghost image or styling if needed
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = async (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+  const handleDrop = async (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault();
     if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+    const perm = new Array(selectedFiles.length).fill(0).map((_, i) => i);
+    const draggedVal = perm[draggedIndex];
+    perm.splice(draggedIndex, 1);
+    perm.splice(targetIndex, 0, draggedVal);
+    
+    const oldToNew = new Array(selectedFiles.length);
+    for (let i = 0; i < perm.length; i++) {
+        oldToNew[perm[i]] = i;
+    }
 
     const newFiles = [...selectedFiles];
     const newUrls = [...previewUrls];
@@ -173,10 +347,27 @@ const FusionTab: React.FC = () => {
     setSelectedFiles(newFiles);
     setPreviewUrls(newUrls);
     setDraggedIndex(null);
+    
+    let updatedDesc = description.replace(/@图片(\d+)/g, (match, p1) => {
+        const oldIdx = parseInt(p1) - 1;
+        if (oldIdx >= 0 && oldIdx < oldToNew.length) {
+            return `@图片TMP${oldToNew[oldIdx] + 1}_ID`;
+        }
+        return match;
+    });
+    updatedDesc = updatedDesc.replace(/@图片TMP(\d+)_ID/g, "@图片$1");
+    setDescription(updatedDesc);
   };
 
   // Auto-Optimize State
   const [isAutoOptimize, setIsAutoOptimize] = useState(true);
+
+  // Auto-disable optimization if user mentions an image
+  useEffect(() => {
+    if (description.includes('@图片')) {
+      setIsAutoOptimize(false);
+    }
+  }, [description]);
 
   const handleGenerate = async () => {
     if (!description && !selectedStyle) return; // Allow empty description if style is selected
@@ -326,7 +517,7 @@ const FusionTab: React.FC = () => {
     }
   };
 
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>, index: number) => {
+  const handleImageClick = async (e: React.MouseEvent<HTMLDivElement>, index: number) => {
     if (e.ctrlKey) {
       e.preventDefault();
       const rect = e.currentTarget.getBoundingClientRect();
@@ -448,11 +639,11 @@ const FusionTab: React.FC = () => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              onDrop={(e) => {
+              onDrop={async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                  const files = Array.from(e.dataTransfer.files);
+                  const files = await compressImageFiles(Array.from(e.dataTransfer.files));
                   addFiles(files);
                 }
               }}
@@ -761,16 +952,78 @@ const FusionTab: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 relative group">
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="在此输入您的创意描述...
-例如：
-- 赛博朋克风格的城市夜景， neon lights
-- 极简主义风格的产品摄影，柔光"
-                    className="w-full h-full min-h-[140px] bg-white border border-pastel-border rounded-xl p-4 text-sm focus:ring-2 focus:ring-pastel-highlight/50 outline-none resize-none shadow-sm text-pastel-text placeholder:text-gray-300 transition-all hover:border-pastel-highlight/30"
+                <div 
+                  className="flex-1 relative group w-full h-full bg-white border border-pastel-border rounded-xl focus-within:ring-2 focus-within:ring-pastel-highlight/50 shadow-sm transition-all hover:border-pastel-highlight/30 cursor-text select-text flex flex-col" 
+                  onClick={() => contentEditableRef.current?.focus()}
+                >
+                  {!description && (
+                    <div className="absolute top-4 left-4 text-gray-300 pointer-events-none select-none whitespace-pre-wrap text-sm z-0">在此输入您的创意描述...<br/>例如：<br/>- 赛博朋克风格的城市夜景， neon lights<br/>- 极简主义风格的产品摄影，柔光</div>
+                  )}
+                  <div
+                    ref={contentEditableRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const text = e.clipboardData.getData("text/plain");
+                      document.execCommand("insertText", false, text);
+                    }}
+                    onKeyUp={handleSelectionChange}
+                    onMouseUp={handleSelectionChange}
+                    onMouseMove={handleEditorMouseMove}
+                    onMouseLeave={handleEditorMouseLeave}
+                    onInput={(e) => {
+                      const text = traverse(e.currentTarget);
+                      let cleanText = text;
+                      if (cleanText.startsWith('\n') && e.currentTarget.childNodes[0]?.nodeName === 'DIV') {
+                          cleanText = cleanText.substring(1);
+                      }
+                      lastRenderedTextRef.current = cleanText;
+                      setDescription(cleanText);
+                      checkMentionTrigger();
+                    }}
+                    className="w-full flex-1 min-h-[140px] text-sm text-pastel-text outline-none whitespace-pre-wrap p-4 overflow-y-auto custom-scrollbar z-10"
                   />
+                  {hoveredMentionIdx !== null && hoverPosition !== null && previewUrls[hoveredMentionIdx] && (
+                      <div 
+                          className="fixed z-[9999] pointer-events-none transform -translate-x-1/2 -translate-y-full"
+                          style={{ top: hoverPosition.top, left: hoverPosition.left }}
+                      >
+                          <div className="bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.3)] p-1.5 border border-gray-200 animate-in fade-in zoom-in-95 duration-200 slide-in-from-bottom-2">
+                              <img 
+                                  src={previewUrls[hoveredMentionIdx]} 
+                                  alt="Preview" 
+                                  className="w-auto h-auto object-cover rounded-lg max-h-[300px] max-w-[300px]" 
+                              />
+                          </div>
+                      </div>
+                  )}
+                  {showMentionMenu && previewUrls.length > 0 && (
+                    <div className="absolute z-[100] bg-white border border-pastel-border rounded-2xl shadow-xl p-2 w-56 bottom-full left-4 mb-2 animate-in fade-in zoom-in-95">
+                       <div className="text-xs font-bold text-pastel-muted mb-2 px-2 pt-1">可能@的内容</div>
+                       <div className="max-h-48 overflow-y-auto custom-scrollbar">
+                         {previewUrls.map((url, idx) => (
+                           <div 
+                             key={idx}
+                             className="flex items-center gap-3 p-2 hover:bg-pastel-bg rounded-xl cursor-pointer transition-colors"
+                             onMouseDown={(e) => {
+                               // Prevent onblur issues if any
+                               e.preventDefault();
+                             }}
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               insertMention(idx, url);
+                             }}
+                           >
+                             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-pastel-border bg-gray-50">
+                               <img src={url} alt={`图片${idx + 1}`} className="w-full h-full object-cover" />
+                             </div>
+                             <span className="text-sm font-medium text-pastel-text">图片{idx + 1}</span>
+                           </div>
+                         ))}
+                       </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

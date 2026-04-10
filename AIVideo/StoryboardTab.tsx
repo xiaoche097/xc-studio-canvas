@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { generateImageToImage, blobToBase64 } from '../Cyzx4/services/geminiService';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 import {
   Clapperboard, Upload, Loader2, AlertCircle, X, Sparkles, Key,
   Image as ImageIcon, Download, Cpu, Grid3X3, LayoutGrid, Maximize2,
@@ -65,9 +66,10 @@ const StoryboardTab: React.FC = () => {
   const gridCols = gridMode === '3x3' ? 3 : 4;
 
   // 产品图操作
-  const handleProductUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProductUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      let files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      files = await compressImageFiles(files);
       if (productFiles.length + files.length > 6) {
         setError('产品图最多6张');
         setTimeout(() => setError(null), 3000);
@@ -96,12 +98,13 @@ const StoryboardTab: React.FC = () => {
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
 
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    let files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    files = await compressImageFiles(files);
     if (files.length > 0) {
       if (productFiles.length + files.length > 6) {
         setError('产品图最多6张');

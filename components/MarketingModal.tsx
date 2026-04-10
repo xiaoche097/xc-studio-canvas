@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { UploadIcon } from './Icons';
 import { motion, AnimatePresence } from 'framer-motion';
+import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
 interface MarketingModalProps {
     isOpen: boolean;
@@ -29,10 +30,10 @@ export const MarketingModal: React.FC<MarketingModalProps> = ({ isOpen, onClose,
         { label: "4k (Vip)", value: "4k" },
     ];
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             const newImages: string[] = [];
-            const files = Array.from(e.target.files);
+            const files = await compressImageFiles(Array.from(e.target.files));
 
             let processedCount = 0;
             files.forEach(file => {

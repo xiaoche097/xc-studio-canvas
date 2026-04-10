@@ -4,6 +4,7 @@ import { LANDING_FEATURES, SITE_OPTIONS } from '../constants';
 import { ChevronDown, ArrowUp, Zap, Sparkles, TrendingUp, ArrowLeftRight, Globe, LucideIcon, Image as ImageIcon, X, Link as LinkIcon, Check, ChevronLeft } from 'lucide-react';
 import { RequirementsForm } from './RequirementsForm';
 import { AnalysisType } from '../types';
+import { compressImageFiles } from '../../Cyzx4/utils/imageCompressor';
 
 const iconMap: Record<string, LucideIcon> = {
   Sparkles,
@@ -25,10 +26,10 @@ export const LandingPage: React.FC = () => {
   const [showModelMenu, setShowModelMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const newImages: string[] = [];
-      const files = Array.from(e.target.files);
+      const files = await compressImageFiles(Array.from(e.target.files));
 
       let processedCount = 0;
       files.forEach(file => {
@@ -52,7 +53,7 @@ export const LandingPage: React.FC = () => {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim() || images.length > 0) {
       startSearch(inputValue, images, isInternetSearch);
