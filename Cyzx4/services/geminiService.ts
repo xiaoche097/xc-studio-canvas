@@ -495,10 +495,10 @@ export const generateImageToImage = async (
       }
 
       // 1. Add All Input Images
-      processedImages.forEach((img) => {
+      processedImages.forEach((img: any) => {
         parts.push({
           inlineData: {
-            mimeType: img.mimeType,
+            mimeType: img.mimeType || img.mime || 'image/jpeg', // 增加容错：兼容 mime 字段并提供默认值
             data: img.base64,
           },
         });
@@ -516,63 +516,113 @@ export const generateImageToImage = async (
         ? isGarmentReplacement
           ? hasModelRef
             ? `
-      **ROLE**: Biological Identity Cloning Expert & Fashion Artist.
-      **TASK**: Execute a strict photorealistic clone. You MUST transplant the identity from the Model Reference (Image 1 & 2) onto the pose/scene of Image 3.
-      
-      **ANALYTICAL CONTEXT (CRITICAL)**:
+      **ROLE**: Pixel-Perfect Virtual Try-On Director & Identity Cloning Surgeon.
+      **MISSION**: Generate ONE photorealistic image that combines three elements with ZERO deviation:
+        1. The IDENTITY (face, hair, skin) from the Model Reference images.
+        2. The POSE, FRAMING, CROP, and COMPOSITION from the Target Scene image — pixel-for-pixel.
+        3. The EXACT GARMENT from the Garment Reference image — pixel-for-pixel.
+
+      **ANALYTICAL CONTEXT**:
       ${vtonReport || 'No pre-analysis available.'}
 
-      **INPUT**:
-      - Image 1 & 2 = IDENTITY ANCHORS (Identity Source: Replicate exactly as analyzed)
-      - Image 3 = POSE & SCENE TEMPLATE (Pose Donor: Extract pose and analyze lighting carefully)
-      - Image 4 = CORE GARMENT (Drape this item realistically as per analyzed fabric)
-      ${processedImages.length === 5 ? '- Image 5 = SECONDARY GARMENT (Pairing item)' : ''}
+      **INPUT MAPPING (MEMORIZE THIS)**:
+      - Image 1 & 2 = **IDENTITY SOURCE** (the person's face, hair, skin tone, ethnicity — clone these EXACTLY)
+      - Image 3 = **POSE & COMPOSITION BLUEPRINT** (the body pose, camera angle, crop boundaries, aspect ratio, limb placement, background — replicate these EXACTLY)
+      - Image 4 = **CORE GARMENT** (the clothing item to dress the person in — replicate color, pattern, print, logo, fabric texture EXACTLY)
+      ${processedImages.length >= 6 ? '- Image 5 = CORE GARMENT DUPLICATE (same garment, doubled for emphasis)' : ''}
+      ${processedImages.length >= 6 ? '- Image 6 = SECONDARY GARMENT (pants, skirt, or accessory to pair)' : processedImages.length >= 5 ? '- Image 5 = SECONDARY GARMENT (pants, skirt, or accessory to pair)' : ''}
 
-      **NON-NEGOTIABLE EXECUTION RULES**:
-      - **IDENTITY CLONE**: Use the face and hair from Image 1 & 2. MATCH the analyzed ethnicity and skin undertone exactly.
-      - **LIGHTING SYNTHESIS**: The lighting ON THE NEW MODEL must perfectly match the analyzed lighting from Image 3. Adjust shadows and highlights accordingly.
-      - **SINGLE PHOTOGRAPH**: No grids or layouts.
-      
-      **QUALITY GUIDELINES**:
+      ═══════════════════════════════════════════
+      ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
+      ═══════════════════════════════════════════
+      - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 4.
+      - **COLOR**: Match the EXACT hue, saturation, and brightness. If Image 4 shows a beige/sand T-shirt, the output MUST be beige/sand — NOT blue, NOT white, NOT any other color. ZERO color drift allowed.
+      - **PRINT/LOGO/GRAPHIC**: Reproduce every graphic element from Image 4 at the exact same scale, position, and detail level. If there is a sun/mandala print, it must appear identical.
+      - **FABRIC TEXTURE**: Match the exact material appearance — cotton weave, knit ribbing, denim grain, silk sheen, etc.
+      - **GARMENT STRUCTURE**: Match neckline shape, sleeve length, hem length, and overall silhouette from Image 4.
+      - **ABSOLUTE PROHIBITION**: Do NOT inherit ANY color, pattern, or fabric from Image 3's original clothing. Image 3's clothes are INVISIBLE — treat them as if the person is wearing nothing. Only Image 4 (and Image 5/6 if present) define what the person wears.
+
+      ═══════════════════════════════════════════
+      ██  PRIORITY #2: COMPOSITION LOCK (HIGH)     ██
+      ═══════════════════════════════════════════
+      - The output image MUST have the **IDENTICAL composition** as Image 3:
+        * Same camera angle (front, side, 3/4, back)
+        * Same crop boundaries (if Image 3 cuts at mid-thigh, output cuts at mid-thigh)
+        * Same body pose, weight distribution, arm position, leg stance
+        * Same subject scale relative to frame
+        * Same background environment
+      - Do NOT reframe, zoom in/out, or change the aspect ratio vs Image 3.
+      - The output should look like you ONLY swapped the clothes and face — everything else is frozen.
+
+      ═══════════════════════════════════════════
+      ██  PRIORITY #3: IDENTITY CLONE (HIGH)       ██
+      ═══════════════════════════════════════════
+      - The face in the output MUST be the face from Image 1 & 2 — same facial structure, eye shape, nose, lips, jawline, skin tone, hair color, hairstyle.
+      - Do NOT blend features from Image 3's original person. The original person's face must be completely replaced.
+      - Ethnicity and skin undertone must match Image 1 & 2 exactly.
+
+      **GARMENT ORIENTATION AWARENESS**:
+      - Determine the body orientation from Image 3 (front/back/side/3/4).
+      - If Image 4 shows the FRONT of the garment and the person faces away → the back must be PLAIN (base fabric color only, no print).
+      - Garments are 3D objects. Never copy a front print onto the back.
+
+      **OUTPUT RULES**:
+      - ONE single photorealistic photograph. No grids, no layouts, no collages.
+      - Lighting must match Image 3's environment.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
             `
             : `
-      **ROLE**: Senior AI Virtual Try-On (VTON) Specialist and Fashion Retoucher.
-      **ANALYTICAL CONTEXT (CRITICAL)**:
+      **ROLE**: Pixel-Perfect Virtual Try-On Specialist.
+      **MISSION**: Replace the clothing on the person in Image 1 with the EXACT garment from Image 2, while preserving EVERYTHING else from Image 1 with zero deviation.
+
+      **ANALYTICAL CONTEXT**:
       ${vtonReport || 'No pre-analysis available.'}
 
-      **TASK**: Replace the clothing on the person in Image 1 with the garments shown in the subsequent images, while keeping EVERYTHING else in Image 1 exactly the same.
-      **INPUT**:
-      - Image 1 = TARGET MODEL SCENE (Absolute master for identity, face, body pose, lighting, and background)
-      - Image 2 = CORE GARMENT TARGET (Master for the main clothing item to be worn)
-      ${processedImages.length === 3 ? '- Image 3 = SECONDARY GARMENT / PAIRING TARGET (Master for pants, skirts, shoes, or accessories to be worn)' : ''}
+      **INPUT MAPPING (MEMORIZE THIS)**:
+      - Image 1 = **SCENE MASTER** (the person's face, hairstyle, body pose, limb placement, camera angle, crop, background, lighting — ALL of this is FROZEN and UNTOUCHABLE)
+      - Image 2 = **CORE GARMENT** (the clothing item — replicate its color, pattern, print, logo, fabric texture EXACTLY)
+      ${processedImages.length >= 4 ? '- Image 3 = CORE GARMENT DUPLICATE (same garment, doubled for emphasis)' : ''}
+      ${processedImages.length >= 4 ? '- Image 4 = SECONDARY GARMENT (pants, skirt, shoes, or accessories)' : processedImages.length === 3 ? '- Image 3 = SECONDARY GARMENT (pants, skirt, shoes, or accessories)' : ''}
 
-      **NON-NEGOTIABLE RULES**:
-      - **CRITICAL IDENTITY & SCENE LOCK**: You MUST preserve the EXACT face, hairstyle, skin tone, body pose, limb placement, and background from Image 1.
-      - Never change the camera angle, crop, or aspect ratio of Image 1.
-      - **CRITICAL VIRTUAL TRY-ON**: Wrap the clothing from Image 2 (and Image 3 if present) onto the body in Image 1.
-      - The clothing MUST naturally conform to the pose, posture, and lighting of Image 1. Add realistic folds and shadows. 
-      - Completely ignore the original clothing worn by the person in Image 1. Overwrite it entirely with the provided targets.
-      - Ignore any mannequins, hangers, or backgrounds present in Image 2 or 3. Extract ONLY the garments.
-      
-      **GARMENT ORIENTATION AWARENESS (CRITICAL)**:
-      - You MUST determine the body orientation of the person in Image 1 (front-facing, back-facing, side-facing, or 3/4 angle).
-      - You MUST analyze the garment reference (Image 2) to identify which SIDE of the garment is shown (front or back).
-      - **FRONT vs BACK RULE**: If Image 2 shows only the FRONT of the garment (e.g., a front print, logo, or graphic), then:
-        * When the person in Image 1 faces the camera → Show the print/graphic on the chest/front.
-        * When the person in Image 1 has their BACK to the camera → The back of the garment MUST be PLAIN (no print, no graphic, no pattern). Only show the base fabric color on the back. Do NOT copy the front design onto the back.
-        * When the person is at a side/3/4 angle → Only show the portion of the print that would be naturally visible from that angle.
-      - **PRINCIPLE**: Garments are 3D objects. A print on the front does NOT exist on the back. Treat Image 2 as showing ONE SIDE only. Infer the other side as plain/blank unless explicitly shown otherwise.
-      - If both front and back of the garment are provided as separate reference images, respect each side independently.
+      ═══════════════════════════════════════════
+      ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
+      ═══════════════════════════════════════════
+      - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 2.
+      - **COLOR**: Match the EXACT hue, saturation, and brightness of Image 2. If the garment is beige, output beige. If it is blue, output blue. ZERO color drift — do not shift, tint, or alter the color under any circumstances.
+      - **PRINT/LOGO/GRAPHIC**: Every graphic element, text, logo, or pattern on Image 2 must appear on the output garment at the correct scale, position, and orientation.
+      - **FABRIC TEXTURE**: Replicate the exact material surface — cotton, linen, silk, denim, knit, etc.
+      - **GARMENT STRUCTURE**: Match neckline, sleeve length, hem length, collar shape, and overall silhouette.
+      - **ABSOLUTE PROHIBITION**: Do NOT use ANY color, pattern, or texture from Image 1's original clothing. Image 1's original clothes are INVISIBLE. Only Image 2 defines the garment.
 
-      **GARMENT INTEGRITY CHECK**:
-      - Preserve the exact color, pattern, branding, and fabric texture of the target garments ON THE CORRECT SIDE.
-      - If the core garment is a top, and no bottoms are provided, keep Image 1's original bottoms if possible, or generate a neutral matching bottom.
-      
-      **QUALITY GUIDELINES**:
+      ═══════════════════════════════════════════
+      ██  PRIORITY #2: COMPOSITION LOCK (HIGH)     ██
+      ═══════════════════════════════════════════
+      - The output MUST preserve the **IDENTICAL composition** from Image 1:
+        * Same camera angle, crop boundaries, and aspect ratio
+        * Same body pose — every limb, joint, hand position, weight shift
+        * Same subject scale and placement within the frame
+        * Same background, lighting direction, and shadow pattern
+      - The output should look like ONLY a garment swap happened. Nothing else changed.
+
+      ═══════════════════════════════════════════
+      ██  PRIORITY #3: IDENTITY PRESERVATION       ██
+      ═══════════════════════════════════════════
+      - The person's face, hairstyle, skin tone, body proportions, and all non-clothing features MUST remain unchanged from Image 1.
+      - Preserve any accessories, jewelry, or items the person holds unless overridden by provided garment images.
+
+      **GARMENT ORIENTATION AWARENESS**:
+      - Determine the body orientation of the person in Image 1 (front/back/side/3/4).
+      - If Image 2 shows only the FRONT of the garment:
+        * Person facing camera → Show the design on the chest.
+        * Person's back to camera → Back must be PLAIN (base color only, NO print/logo).
+        * Side/3/4 angle → Show only the naturally visible portion of the print.
+      - Garments are 3D objects. A front print does NOT exist on the back.
+
+      **OUTPUT RULES**:
+      - ONE single photorealistic photograph. No grids, no layouts.
+      - If Image 2 is a top and no bottoms are provided, keep the original bottoms from Image 1.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Output a seamless photorealistic image where the new clothes look like they were originally shot on the person.
       ${negativePromptLine}
       `
         : isSkeletonWorkflow

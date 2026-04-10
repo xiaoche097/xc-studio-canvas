@@ -78,7 +78,12 @@
     "XcAI",
     "XcAIAGENT",
     "oversharpening",
-    "tileable"
+    "tileable",
+    "VTON",
+    "vton",
+    "Vton",
+    "OPENPOSE",
+    "ecommerce"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

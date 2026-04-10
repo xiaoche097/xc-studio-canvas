@@ -167,7 +167,7 @@ const GarmentReplacementTab: React.FC = () => {
    * Smart Crop: Detects if an image is a multi-view (e.g. 3-view strip) 
    * and clips it to the leftmost 1/3 (usually the front view).
    */
-  const smartCrop = async (file: File): Promise<{ base64: string; mime: string; displayUrl: string }> => {
+  const smartCrop = async (file: File): Promise<{ base64: string; mimeType: string; displayUrl: string }> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -178,7 +178,11 @@ const GarmentReplacementTab: React.FC = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            compressImage(file).then(res => resolve({ ...res, displayUrl: URL.createObjectURL(file) }));
+            compressImage(file).then(res => resolve({ 
+              base64: res.base64, 
+              mimeType: res.mime, 
+              displayUrl: URL.createObjectURL(file) 
+            }));
             return;
           }
 
@@ -200,7 +204,7 @@ const GarmentReplacementTab: React.FC = () => {
           const base64Url = canvas.toDataURL('image/jpeg', 0.95);
           resolve({ 
             base64: base64Url.split(',')[1], 
-            mime: 'image/jpeg',
+            mimeType: 'image/jpeg', // 更改：从 mime 改为 mimeType 以保持一致
             displayUrl: base64Url
           });
         };
@@ -235,10 +239,10 @@ const GarmentReplacementTab: React.FC = () => {
       setStatusMessage('正在深度分析素材特征 (1/2)...');
       
       const coreImg = await smartCrop(coreGarmentFile);
-      let pairingImg: { base64: string; mime: string } | null = null;
+      let pairingImg: { base64: string; mimeType: string } | null = null;
       if (pairingFile) pairingImg = await smartCrop(pairingFile);
       
-      let processedModelRef: { base64: string; mime: string } | null = null;
+      let processedModelRef: { base64: string; mimeType: string; displayUrl: string } | null = null;
       if (modelRefFile) processedModelRef = await smartCrop(modelRefFile);
 
       // Analyze Global Reference (Identity + Garment) - Cache it
@@ -249,14 +253,11 @@ const GarmentReplacementTab: React.FC = () => {
       
       const globalReport = await analyzeVtonMaterials(globalRefs, { type: 'global' });
 
-      // PHASE 2: Individual Target Generation
-      let currentIndex = 0;
-      for (const targetFile of targetFiles) {
-        const index = currentIndex++;
-        setStatusMessage(`正在精细生成第 ${index + 1} / ${targetFiles.length} 张...`);
-        setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating' } : r));
-
+      // PHASE 2: Individual Target Generation (Parallel)
+      const generationTasks = targetFiles.map(async (targetFile, index) => {
         try {
+          setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating' } : r));
+
           const targetImg = await compressImage(targetFile, 2048, 0.96);
           
           // Per-target Scene Analysis
@@ -266,20 +267,32 @@ const GarmentReplacementTab: React.FC = () => {
           const inputImages: { base64: string; mimeType: string }[] = [];
           
           if (processedModelRef) {
-            // ORDER INVERSION: Identity First (Double Anchored)
-            inputImages.push(processedModelRef);
-            inputImages.push(processedModelRef);
-            // Image 3: Target Scene (Pose Donor)
+            // 有模特参考的流程：Identity(x2) → Target Scene → Core Garment(x2) → [Pairing]
+            // Image 1 & 2 = 模特身份锚定
+            inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
+            inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
+            // Image 3 = 目标场景（姿态和构图蓝图）
             inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
+            // Image 4 = 核心服装
+            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
+            // Image 5 = 核心服装双重锚定（增强颜色/图案权重）
+            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
+            // Image 6 = 可选的配套服装
+            if (pairingImg) {
+              inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
+            }
           } else {
-            // No model ref: Traditional order
+            // 无模特参考的流程：Target Scene → Core Garment(x2) → [Pairing]
+            // Image 1 = 目标场景（身份+姿态+构图的唯一来源）
             inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
-          }
-
-          // Next: Garments
-          inputImages.push(coreImg);
-          if (pairingImg) {
-            inputImages.push(pairingImg);
+            // Image 2 = 核心服装
+            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
+            // Image 3 = 核心服装双重锚定（增强颜色/图案权重）
+            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
+            // Image 4 = 可选的配套服装
+            if (pairingImg) {
+              inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
+            }
           }
 
           let lastError: any = null;
@@ -297,7 +310,7 @@ const GarmentReplacementTab: React.FC = () => {
                   resolution: resolution,
                   workflowHint: 'garment-replacement',
                   hasModelRef: !!modelRefFile,
-                  negativePrompt: 'grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark',
+                  negativePrompt: 'wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition',
                   vtonReport: combinedReport
                 }
               );
@@ -320,7 +333,10 @@ const GarmentReplacementTab: React.FC = () => {
             i === index ? { ...r, status: 'error', error: getErrorMessage(error) } : r
           ));
         }
-      }
+      });
+
+      // Wait for all tasks to complete or fail
+      await Promise.all(generationTasks);
     } catch (err) {
       console.error(err);
       alert(getErrorMessage(err));
