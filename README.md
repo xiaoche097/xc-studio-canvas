@@ -1,4 +1,4 @@
-# 🎯 SKYSPER AI Studio
+# 🎯 XcAI AI Studio
 
 > **Venture Lightly** —— 为 SKYSPER 品牌打造的一站式电商视觉与数据分析智能工作台。
 
