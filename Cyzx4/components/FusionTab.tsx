@@ -41,6 +41,7 @@ const FusionTab: React.FC = () => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [imageCount, setImageCount] = useState<number>(1); // 新增：并行生成张数
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -425,7 +426,7 @@ const FusionTab: React.FC = () => {
       const images = await Promise.all(imagePromises);
 
       // Step 2: 发送到AI服务器
-      setProgress(`正在生成图片 (预计30-90秒)...`);
+      setProgress(`正在请求并发生成 ${imageCount} 张图片...`);
 
       // Inject Style Prompt if selected
       let generationPrompt = finalPrompt;
@@ -442,19 +443,25 @@ const FusionTab: React.FC = () => {
           negativePrompt = selectedStyle.negativePrompt;
       }
 
-      const results = await generateImageToImage(images, generationPrompt, { 
-        aspectRatio, 
-        resolution,
-        modelId: selectedModel,
-        negativePrompt,
-        workflowHint: selectedStyle?.id?.includes('strict-angle') ? 'strict-geometry-lock' : undefined
+      // 并发执行多个生成任务
+      const generationTasks = Array.from({ length: imageCount }).map((_, index) => {
+        return generateImageToImage(images, generationPrompt, { 
+          aspectRatio, 
+          resolution,
+          modelId: selectedModel,
+          negativePrompt,
+          workflowHint: selectedStyle?.id?.includes('strict-angle') ? 'strict-geometry-lock' : undefined
+        });
       });
 
+      const resultsArrays = await Promise.all(generationTasks);
+      const allResults = resultsArrays.flat();
+
       setProgress('生成完成！');
-      setGeneratedImages(results);
+      setGeneratedImages(allResults);
 
       // Save to Project History
-      results.forEach((url, i) => {
+      allResults.forEach((url, i) => {
         storageService.saveProject({
           id: Date.now().toString() + i, // Ensure unique ID
           type: 'FUSION',
@@ -468,7 +475,9 @@ const FusionTab: React.FC = () => {
             prompt: finalPrompt, // Save the optimized prompt
             params: { aspectRatio, resolution },
             refImageCount: selectedFiles.length,
-            autoOptimized: isAutoOptimize
+            autoOptimized: isAutoOptimize,
+            batchIndex: i,
+            batchTotal: allResults.length
           }
         }).catch(err => console.error("Failed to save to history", err));
       });
@@ -1049,7 +1058,23 @@ const FusionTab: React.FC = () => {
               )}
 
               <div className="flex items-center justify-between gap-3">
-                {/* Auto-Optimize Toggle */}
+                <div className="flex items-center gap-1.5 p-1 bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
+                  {[1, 2, 4].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setImageCount(num)}
+                      className={`w-8 h-8 rounded-md text-xs font-bold transition-all ${
+                        imageCount === num
+                          ? 'bg-white text-orange-600 shadow-sm border border-orange-100'
+                          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <span className="text-[10px] text-gray-400 font-medium px-1">张</span>
+                </div>
+
                 <button
                   onClick={() => setIsAutoOptimize(!isAutoOptimize)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${isAutoOptimize
