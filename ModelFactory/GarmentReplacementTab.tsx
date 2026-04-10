@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
-import { generateImageToImage } from '../Cyzx4/services/geminiService';
+import { generateImageToImage, analyzeVtonMaterials } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 
 type ResultItem = {
@@ -26,6 +26,10 @@ const GarmentReplacementTab: React.FC = () => {
   // Pairing Garment
   const [pairingFile, setPairingFile] = useState<File | null>(null);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
+
+  // Model Identity Reference (NEW)
+  const [modelRefFile, setModelRefFile] = useState<File | null>(null);
+  const [modelRefUrl, setModelRefUrl] = useState<string | null>(null);
 
   // Target photos (up to 10)
   const [targetFiles, setTargetFiles] = useState<File[]>([]);
@@ -88,6 +92,40 @@ const GarmentReplacementTab: React.FC = () => {
     setResults([]);
   };
 
+  const setModelRefFromFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    if (modelRefUrl) URL.revokeObjectURL(modelRefUrl);
+    
+    // Initial preview (native)
+    setModelRefFile(file);
+    const initialUrl = URL.createObjectURL(file);
+    setModelRefUrl(initialUrl);
+    
+    // Smart Crop immediately for UI feedback and processing
+    try {
+      const cropped = await smartCrop(file);
+      if (initialUrl) URL.revokeObjectURL(initialUrl);
+      setModelRefUrl(cropped.displayUrl); // Update preview to show what AI sees
+    } catch (e) {
+      console.error("Smart crop preview failed", e);
+    }
+    
+    setResults([]);
+  };
+
+  const handleModelRefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setModelRefFromFile(file);
+    e.target.value = '';
+  };
+
+  const removeModelRef = () => {
+    if (modelRefUrl) URL.revokeObjectURL(modelRefUrl);
+    setModelRefFile(null);
+    setModelRefUrl(null);
+    setResults([]);
+  };
+
   // ---- Target Handlers ----
   const addTargetFiles = (files: File[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));
@@ -125,6 +163,51 @@ const GarmentReplacementTab: React.FC = () => {
     setResults([]);
   };
 
+  /**
+   * Smart Crop: Detects if an image is a multi-view (e.g. 3-view strip) 
+   * and clips it to the leftmost 1/3 (usually the front view).
+   */
+  const smartCrop = async (file: File): Promise<{ base64: string; mime: string; displayUrl: string }> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            compressImage(file).then(res => resolve({ ...res, displayUrl: URL.createObjectURL(file) }));
+            return;
+          }
+
+          const ratio = img.width / img.height;
+          let sourceX = 0;
+          let sourceWidth = img.width;
+
+          if (ratio > 1.3) {
+            sourceWidth = img.width / 3;
+          }
+
+          canvas.width = Math.min(sourceWidth, 1024);
+          canvas.height = Math.round((img.height * canvas.width) / sourceWidth);
+
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, sourceX, 0, sourceWidth, img.height, 0, 0, canvas.width, canvas.height);
+
+          const base64Url = canvas.toDataURL('image/jpeg', 0.95);
+          resolve({ 
+            base64: base64Url.split(',')[1], 
+            mime: 'image/jpeg',
+            displayUrl: base64Url
+          });
+        };
+      };
+    });
+  };
+
   // ---- Generators ----
   const handleGenerate = async () => {
     if (!coreGarmentFile) {
@@ -137,7 +220,7 @@ const GarmentReplacementTab: React.FC = () => {
     }
 
     setIsGenerating(true);
-    setStatusMessage(`正在并行替换 ${targetFiles.length} 张图片...`);
+    setStatusMessage(`正在预处理并生成...`);
 
     const initialResults: ResultItem[] = targetUrls.map((url, i) => ({
       refIndex: i,
@@ -148,24 +231,55 @@ const GarmentReplacementTab: React.FC = () => {
     setResults(initialResults);
 
     try {
-      const coreImg = await compressImage(coreGarmentFile, 2048, 0.96);
+      // PHASE 1: Material Analysis (Dual-Agent VTON)
+      setStatusMessage('正在深度分析素材特征 (1/2)...');
+      
+      const coreImg = await smartCrop(coreGarmentFile);
       let pairingImg: { base64: string; mime: string } | null = null;
-      if (pairingFile) {
-        pairingImg = await compressImage(pairingFile, 2048, 0.96);
-      }
+      if (pairingFile) pairingImg = await smartCrop(pairingFile);
+      
+      let processedModelRef: { base64: string; mime: string } | null = null;
+      if (modelRefFile) processedModelRef = await smartCrop(modelRefFile);
 
-      await Promise.all(targetFiles.map(async (targetFile, index) => {
+      // Analyze Global Reference (Identity + Garment) - Cache it
+      const globalRefs = [];
+      if (processedModelRef) globalRefs.push(processedModelRef);
+      globalRefs.push(coreImg);
+      if (pairingImg) globalRefs.push(pairingImg);
+      
+      const globalReport = await analyzeVtonMaterials(globalRefs, { type: 'global' });
+
+      // PHASE 2: Individual Target Generation
+      let currentIndex = 0;
+      for (const targetFile of targetFiles) {
+        const index = currentIndex++;
+        setStatusMessage(`正在精细生成第 ${index + 1} / ${targetFiles.length} 张...`);
         setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating' } : r));
 
         try {
           const targetImg = await compressImage(targetFile, 2048, 0.96);
+          
+          // Per-target Scene Analysis
+          const targetReport = await analyzeVtonMaterials([{ base64: targetImg.base64, mimeType: targetImg.mime }], { type: 'target' });
+          const combinedReport = `REF_REPORT:\n${globalReport}\n\nSCENE_REPORT:\n${targetReport}`;
 
-          const inputImages = [
-            { base64: targetImg.base64, mimeType: targetImg.mime },
-            { base64: coreImg.base64, mimeType: coreImg.mime },
-          ];
+          const inputImages: { base64: string; mimeType: string }[] = [];
+          
+          if (processedModelRef) {
+            // ORDER INVERSION: Identity First (Double Anchored)
+            inputImages.push(processedModelRef);
+            inputImages.push(processedModelRef);
+            // Image 3: Target Scene (Pose Donor)
+            inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
+          } else {
+            // No model ref: Traditional order
+            inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
+          }
+
+          // Next: Garments
+          inputImages.push(coreImg);
           if (pairingImg) {
-            inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mime });
+            inputImages.push(pairingImg);
           }
 
           let lastError: any = null;
@@ -176,12 +290,15 @@ const GarmentReplacementTab: React.FC = () => {
             try {
               result = await generateImageToImage(
                 inputImages,
-                '', // Let system prompt do the work
+                '', 
                 {
                   modelId,
                   aspectRatio: outputAspectRatio,
                   resolution: resolution,
-                  workflowHint: 'garment-replacement'
+                  workflowHint: 'garment-replacement',
+                  hasModelRef: !!modelRefFile,
+                  negativePrompt: 'grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark',
+                  vtonReport: combinedReport
                 }
               );
               if (result && result.length > 0) break;
@@ -203,7 +320,7 @@ const GarmentReplacementTab: React.FC = () => {
             i === index ? { ...r, status: 'error', error: getErrorMessage(error) } : r
           ));
         }
-      }));
+      }
     } catch (err) {
       console.error(err);
       alert(getErrorMessage(err));
@@ -246,12 +363,12 @@ const GarmentReplacementTab: React.FC = () => {
 
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2 flex justify-between">
-              被替换的服装产品
+              参考物上传
             </h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {/* Core Garment */}
               <div className="space-y-1">
-                <span className="text-[10px] text-pastel-muted font-bold ml-1">核心服装 (必填)</span>
+                <span className="text-[10px] text-pastel-muted font-bold ml-1">核心服装 (必)</span>
                 {coreGarmentUrl ? (
                   <div
                     className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
@@ -284,7 +401,7 @@ const GarmentReplacementTab: React.FC = () => {
 
               {/* Pairing */}
               <div className="space-y-1">
-                <span className="text-[10px] text-pastel-muted font-bold ml-1">其他搭配 (选填)</span>
+                <span className="text-[10px] text-pastel-muted font-bold ml-1">搭配 (选)</span>
                 {pairingUrl ? (
                   <div
                     className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
@@ -311,6 +428,39 @@ const GarmentReplacementTab: React.FC = () => {
                     <input type="file" className="hidden" onChange={handlePairingChange} accept="image/*" />
                     <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
                     <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">裤子/配件</span>
+                  </label>
+                )}
+              </div>
+
+              {/* Model Ref (NEW) */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-pastel-muted font-bold ml-1">模特 (选)</span>
+                {modelRefUrl ? (
+                  <div
+                    className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setModelRefFromFile(f); }}
+                  >
+                    <img src={modelRefUrl} alt="model-ref" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                        <input type="file" className="hidden" onChange={handleModelRefChange} accept="image/*" />
+                        <Upload className="w-3 h-3" />
+                      </label>
+                      <button type="button" onClick={removeModelRef} className="bg-white p-1.5 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label
+                    className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setModelRefFromFile(f); }}
+                  >
+                    <input type="file" className="hidden" onChange={handleModelRefChange} accept="image/*" />
+                    <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
+                    <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">模特信息图</span>
                   </label>
                 )}
               </div>

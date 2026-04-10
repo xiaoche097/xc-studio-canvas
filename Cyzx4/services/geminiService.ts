@@ -30,6 +30,9 @@ import type {
 // 导出从 ../utils/apiHelpers.ts 导入的工具
 export { getActiveApiInfo, blobToBase64, compressImage, decodeAudioData };
 
+// Export the VTON Analyst service
+export { analyzeVtonMaterials } from "./vtonAnalyst";
+
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
  * Uses gemini-2.5-flash-image
@@ -439,8 +442,19 @@ export const generateImageToImage = async (
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
     workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement';
+    hasModelRef?: boolean;
+    vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
   } = {}
 ) => {
+  const { 
+    hasModelRef, 
+    vtonReport, 
+    negativePrompt, 
+    workflowHint, 
+    modelId, 
+    aspectRatio = '1:1', 
+    resolution = '2K' 
+  } = options;
   const retryLimit = 3;
   let lastError: any = null;
   
@@ -464,9 +478,9 @@ export const generateImageToImage = async (
       let processedImages = images;
       // MAGIC TRICK: If strict-geometry-lock or pose-transfer is requested, duplicating the anchor image forces 
       // Gemini's attention mechanism to heavily weight the structure over the texture.
-      if (options.workflowHint === 'strict-geometry-lock' && images.length === 1) {
+      if (workflowHint === 'strict-geometry-lock' && images.length === 1) {
         processedImages = [images[0], images[0]];
-      } else if (options.workflowHint === 'pose-transfer') {
+      } else if (workflowHint === 'pose-transfer') {
         if (images.length === 2) {
           // For traditional pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower.
           processedImages = [images[0], images[0], images[1]];
@@ -474,7 +488,7 @@ export const generateImageToImage = async (
           // Input is [Skeleton, Pose, Identity]. We don't duplicate, but will use a specialized prompt.
           processedImages = images;
         }
-      } else if (options.workflowHint === 'garment-replacement') {
+      } else if (workflowHint === 'garment-replacement') {
         // Input: [Target Model, Core Garment, (Optional) Pairings]
         // We pass it directly, without duplicating.
         processedImages = images;
@@ -491,17 +505,43 @@ export const generateImageToImage = async (
       });
 
       // 2. Construct Prompt
-      const negativePromptLine = options.negativePrompt
-        ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${options.negativePrompt}`
+      const negativePromptLine = negativePrompt
+        ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${negativePrompt}`
         : '';
 
-      const isSkeletonWorkflow = options.workflowHint === 'pose-transfer' && images.length === 3;
-      const isGarmentReplacement = options.workflowHint === 'garment-replacement';
+      const isSkeletonWorkflow = workflowHint === 'pose-transfer' && images.length === 3;
+      const isGarmentReplacement = workflowHint === 'garment-replacement';
 
       const systemPrompt = processedImages.length > 0
         ? isGarmentReplacement
-          ? `
+          ? hasModelRef
+            ? `
+      **ROLE**: Biological Identity Cloning Expert & Fashion Artist.
+      **TASK**: Execute a strict photorealistic clone. You MUST transplant the identity from the Model Reference (Image 1 & 2) onto the pose/scene of Image 3.
+      
+      **ANALYTICAL CONTEXT (CRITICAL)**:
+      ${vtonReport || 'No pre-analysis available.'}
+
+      **INPUT**:
+      - Image 1 & 2 = IDENTITY ANCHORS (Identity Source: Replicate exactly as analyzed)
+      - Image 3 = POSE & SCENE TEMPLATE (Pose Donor: Extract pose and analyze lighting carefully)
+      - Image 4 = CORE GARMENT (Drape this item realistically as per analyzed fabric)
+      ${processedImages.length === 5 ? '- Image 5 = SECONDARY GARMENT (Pairing item)' : ''}
+
+      **NON-NEGOTIABLE EXECUTION RULES**:
+      - **IDENTITY CLONE**: Use the face and hair from Image 1 & 2. MATCH the analyzed ethnicity and skin undertone exactly.
+      - **LIGHTING SYNTHESIS**: The lighting ON THE NEW MODEL must perfectly match the analyzed lighting from Image 3. Adjust shadows and highlights accordingly.
+      - **SINGLE PHOTOGRAPH**: No grids or layouts.
+      
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      ${negativePromptLine}
+            `
+            : `
       **ROLE**: Senior AI Virtual Try-On (VTON) Specialist and Fashion Retoucher.
+      **ANALYTICAL CONTEXT (CRITICAL)**:
+      ${vtonReport || 'No pre-analysis available.'}
+
       **TASK**: Replace the clothing on the person in Image 1 with the garments shown in the subsequent images, while keeping EVERYTHING else in Image 1 exactly the same.
       **INPUT**:
       - Image 1 = TARGET MODEL SCENE (Absolute master for identity, face, body pose, lighting, and background)
@@ -564,7 +604,7 @@ export const generateImageToImage = async (
       - Output a single, standalone photorealistic commercial image.
       ${negativePromptLine}
       `
-          : options.workflowHint === 'pose-transfer'
+          : workflowHint === 'pose-transfer'
             ? `
       **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
       **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
