@@ -450,7 +450,11 @@ const FusionTab: React.FC = () => {
           resolution,
           modelId: selectedModel,
           negativePrompt,
-          workflowHint: selectedStyle?.id?.includes('strict-angle') ? 'strict-geometry-lock' : undefined
+          workflowHint: selectedStyle?.id === 'magic-mannequin-pose-transfer' 
+            ? 'magic-mannequin' 
+            : selectedStyle?.id?.includes('strict-angle') 
+              ? 'strict-geometry-lock' 
+              : undefined
         });
       });
 

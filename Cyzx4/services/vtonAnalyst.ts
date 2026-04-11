@@ -19,7 +19,7 @@ export const analyzeVtonMaterials = async (
   });
 
   const prompt = options.type === 'global' 
-    ? "Analyze these reference images. Provide a concise VTON REPORT (max 100 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's fabric texture and fit style."
+    ? "Analyze these reference images. Provide a concise VTON REPORT (max 100 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's precise COLOR, PRINTS, PATTERNS, LOGOS, and graphic designs (describe any shapes or artwork on the clothes in detail). 3. Fabric texture and fit style."
     : "Analyze this scene. Provide a concise SCENE REPORT (max 50 words) describing: 1. Lighting direction and shadow hardness. 2. Camera angle and pose.";
 
   const parts: any[] = images.map(img => ({
@@ -29,7 +29,7 @@ export const analyzeVtonMaterials = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3.1-flash-lite-preview",
       contents: { parts }
     });
     return response.text || "Analysis unavailable.";

@@ -83,7 +83,13 @@
     "vton",
     "Vton",
     "OPENPOSE",
-    "ecommerce"
+    "ecommerce",
+    "packshot",
+    "velboa",
+    "minky",
+    "microfleece",
+    "desaturated",
+    "oversharpen"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

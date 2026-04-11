@@ -154,61 +154,32 @@ const ActionReferenceTab: React.FC = () => {
   };
 
   // ---- Prompt engineering ----
-  const buildPrompt = () => {
-    return `[STRICT POSE TRANSFER — CLOTHING INTEGRITY LOCK]
+  const buildPrompt = (hasSkeleton: boolean) => {
+    const blueprintIndices = hasSkeleton ? "Image 1 & 2" : "Image 1";
+    const identityIndex = hasSkeleton ? "Image 3" : "Image 2";
 
-TASK: Place the EXACT person and EXACT outfit from the Identity Source (Image 3) into the pose/angle/framing shown in the Pose Reference (Image 1 & 2).
+    return `[STRICT POSE SWAP PROTOCOL]
 
-=== CLOTHING PRESERVATION (NON-NEGOTIABLE) ===
-The output must show the EXACT SAME clothing as Image 3, including:
-- SAME garment type, color, fabric, texture, pattern, and structure
-- SAME tuck/untuck: if the shirt is TUCKED INTO pants in Image 3, it MUST be tucked in the output
-- SAME hem position: if the hem sits above/at/below the waistband in Image 3, keep it IDENTICAL
-- SAME sleeve state: rolled up, folded, or down — match Image 3 exactly
-- SAME neckline shape and collar position
-- SAME accessories (necklace, belt, bracelet, bag) — keep or remove to match Image 3
-- SAME pants/bottoms style and fit
+TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in ${blueprintIndices}.
 
-=== POSE TRANSFER (NON-NEGOTIABLE) ===
-- Copy Image 1 & 2's EXACT: body angle, arm positions, hand placement, leg stance, head tilt, shoulder slope
-- Copy Image 1 & 2's EXACT: camera distance, crop boundaries, subject placement, framing composition
-- ABANDON Image 3's pose entirely. Only keep its identity and clothing.
+=== MASTER GEOMETRY (${blueprintIndices}) ===
+- Use ONLY the pose, body angle, and framing of ${blueprintIndices}.
+- REPLICATE arm positions, hand placement, and leg stance 1:1 from ${blueprintIndices}.
 
-=== ABSOLUTE PROHIBITIONS ===
-- NEVER copy clothing from Image 1 & 2. Their clothes are IRRELEVANT.
-- NEVER change the tuck/untuck of the shirt. If tucked in Image 3, it stays tucked.
-- NEVER change the hem length or position relative to the waistband.
-- NEVER add or remove accessories that differ from Image 3.
-- NEVER change the garment color, pattern, or fabric texture.
+=== TEXTURE SOURCE (${identityIndex}) ===
+- Use ONLY the face and clothing textures from ${identityIndex}.
+- IGNORE ALL GEOMETRY from ${identityIndex}. 
 
-VERIFICATION CHECKLIST:
-1. Is the person's face from Image 3? ✓
-2. Is the clothing IDENTICAL to Image 3 (color, style, tuck, hem, sleeves)? ✓
-3. Is the pose matching Image 1 & 2 (arms, legs, angle)? ✓
-4. Is the framing matching Image 1 & 2 (crop, distance, composition)? ✓
-5. Is there ZERO clothing from Image 1 & 2 in the output? ✓`;
+=== FAILURE CONDITION ===
+- If the output person is standing in the same pose as ${identityIndex} (e.g. hand on hip), the task has FAILED.
+- If the output person is NOT in the exact orientation of ${blueprintIndices}, the task has FAILED.`;
   };
 
   const buildNegativePrompt = () => [
-    'copying Pose Reference clothing',
-    'copying Pose Reference garment color',
-    'copying Pose Reference accessories',
-    'copying Pose Reference neckline',
-    'wearing Pose Reference outfit',
-    'changed hem position',
-    'shirt untucked when source is tucked',
-    'shirt tucked when source is untucked',
-    'different clothing from source',
-    'different garment color',
-    'different fabric texture',
-    'added accessories not in source',
-    'removed accessories from source',
-    'different identity',
-    'different hairstyle',
-    'same pose as Identity Source',
-    'unchanged framing from Identity Source',
-    'extra fingers',
-    'deformed hands',
+    'hand on hip', 'hand on waist', 'holding hip', 'same arm position as source',
+    'front-facing pose (unless in blueprint)', 'keeping original pose', 'same legs as source',
+    'identity source pose', 'ignoring blueprint orientation', 'wrong body angle',
+    'standard studio pose', 'extra limbs', 'mannequin head on human body'
   ].join(', ');
 
   const handleExtractAllSkeletons = async () => {
@@ -394,8 +365,6 @@ VERIFICATION CHECKLIST:
       // Compress model image once
       const modelImage = await compressImage(modelFile, 2048, 0.96);
 
-      const prompt = buildPrompt();
-      const negativePrompt = buildNegativePrompt();
       const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
 
       // Generate all in parallel
@@ -403,33 +372,37 @@ VERIFICATION CHECKLIST:
         // Mark as generating
         setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating' } : r));
 
-        try {
-          const refImage = await compressImage(refFile, 2048, 0.96);
+          try {
+            const hasSkeleton = !!skeletonFiles[index];
+            const refImage = await compressImage(refFile, 2048, 0.96);
 
-          const inputImages = [];
-          if (skeletonFiles[index]) {
-            const skeletonImage = await compressImage(skeletonFiles[index]!, 2048, 0.96);
-            inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
-          }
-          inputImages.push({ base64: refImage.base64, mimeType: refImage.mime });
-          inputImages.push({ base64: modelImage.base64, mimeType: modelImage.mime });
+            const inputImages = [];
+            if (hasSkeleton) {
+              const skeletonImage = await compressImage(skeletonFiles[index]!, 2048, 0.96);
+              inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
+            }
+            inputImages.push({ base64: refImage.base64, mimeType: refImage.mime });
+            inputImages.push({ base64: modelImage.base64, mimeType: modelImage.mime });
 
-          let result: string[] = [];
-          let lastError: any = null;
+            const prompt = buildPrompt(hasSkeleton);
+            const negativePrompt = buildNegativePrompt();
 
-          for (const [modelIdx, modelId] of fallbackModels.entries()) {
-            try {
-              result = await generateImageToImage(
-                inputImages,
-                prompt,
-                {
-                  aspectRatio: outputAspectRatio,
-                  resolution: resolution as any,
-                  modelId,
-                  negativePrompt,
-                  workflowHint: 'pose-transfer',
-                }
-              );
+            let result: string[] = [];
+            let lastError: any = null;
+
+            for (const [modelIdx, modelId] of fallbackModels.entries()) {
+              try {
+                result = await generateImageToImage(
+                  inputImages,
+                  prompt,
+                  {
+                    aspectRatio: outputAspectRatio,
+                    resolution: resolution as any,
+                    modelId,
+                    negativePrompt,
+                    workflowHint: 'pose-transfer',
+                  }
+                );
               if (result && result.length > 0) break;
             } catch (error) {
               lastError = error;

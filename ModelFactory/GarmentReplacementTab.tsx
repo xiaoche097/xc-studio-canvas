@@ -164,8 +164,7 @@ const GarmentReplacementTab: React.FC = () => {
   };
 
   /**
-   * Smart Crop: Detects if an image is a multi-view (e.g. 3-view strip) 
-   * and clips it to the leftmost 1/3 (usually the front view).
+   * Prepares an image for API parsing (compresses it to a max of 2048px width without destroying multi-view formats).
    */
   const smartCrop = async (file: File): Promise<{ base64: string; mimeType: string; displayUrl: string }> => {
     return new Promise((resolve) => {
@@ -186,20 +185,14 @@ const GarmentReplacementTab: React.FC = () => {
             return;
           }
 
-          const ratio = img.width / img.height;
-          let sourceX = 0;
           let sourceWidth = img.width;
 
-          if (ratio > 1.3) {
-            sourceWidth = img.width / 3;
-          }
-
-          canvas.width = Math.min(sourceWidth, 1024);
+          canvas.width = Math.min(sourceWidth, 2048);
           canvas.height = Math.round((img.height * canvas.width) / sourceWidth);
 
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, sourceX, 0, sourceWidth, img.height, 0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, sourceWidth, img.height, 0, 0, canvas.width, canvas.height);
 
           const base64Url = canvas.toDataURL('image/jpeg', 0.95);
           resolve({ 
@@ -267,29 +260,22 @@ const GarmentReplacementTab: React.FC = () => {
           const inputImages: { base64: string; mimeType: string }[] = [];
           
           if (processedModelRef) {
-            // 有模特参考的流程：Identity(x2) → Target Scene → Core Garment(x2) → [Pairing]
-            // Image 1 & 2 = 模特身份锚定
-            inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
-            inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
-            // Image 3 = 目标场景（姿态和构图蓝图）
+            // Image 1 = Target Scene (Pose/Angle/Background Anchor)
             inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
-            // Image 4 = 核心服装
+            // Image 2 = Model Identity
+            inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
+            // Image 3 = Core Garment
             inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-            // Image 5 = 核心服装双重锚定（增强颜色/图案权重）
-            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-            // Image 6 = 可选的配套服装
+            // Image 4 = Pairing
             if (pairingImg) {
               inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
             }
           } else {
-            // 无模特参考的流程：Target Scene → Core Garment(x2) → [Pairing]
-            // Image 1 = 目标场景（身份+姿态+构图的唯一来源）
+            // Image 1 = Target Scene (Pose/Angle/Identity Anchor)
             inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
-            // Image 2 = 核心服装
+            // Image 2 = Core Garment
             inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-            // Image 3 = 核心服装双重锚定（增强颜色/图案权重）
-            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-            // Image 4 = 可选的配套服装
+            // Image 3 = Pairing
             if (pairingImg) {
               inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
             }
@@ -377,108 +363,118 @@ const GarmentReplacementTab: React.FC = () => {
             </p>
           </div>
 
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2 flex justify-between">
-              参考物上传
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex justify-between">
+              参考物上传 (Reference)
             </h3>
-            <div className="grid grid-cols-3 gap-2">
-              {/* Core Garment */}
-              <div className="space-y-1">
-                <span className="text-[10px] text-pastel-muted font-bold ml-1">核心服装 (必)</span>
+            
+            <div className="space-y-3">
+              {/* LARGE: Core Garment (The Star) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between ml-1">
+                  <span className="text-[11px] text-pastel-text font-black" title="建议上传包含正/背/侧面的拼图">1. 服装三视图 (必)</span>
+                  <span className="text-[10px] text-pastel-highlight bg-pastel-highlight/10 px-2 py-0.5 rounded-full font-bold">三视图/参考图</span>
+                </div>
                 {coreGarmentUrl ? (
                   <div
-                    className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
+                    className="relative group w-full aspect-[16/9] rounded-2xl border-2 border-pastel-highlight shadow-sm overflow-hidden bg-pastel-bg"
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setCoreFromFile(f); }}
                   >
-                    <img src={coreGarmentUrl} alt="core-garment" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                    <img src={coreGarmentUrl} alt="core-garment" className="w-full h-full object-contain" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                      <label className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
                         <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" />
-                        <Upload className="w-3 h-3" />
+                        <Upload className="w-4 h-4" />
                       </label>
-                      <button type="button" onClick={removeCoreGarment} className="bg-white p-1.5 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
-                        <X className="w-3 h-3" />
+                      <button type="button" onClick={removeCoreGarment} className="bg-white p-2 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                 ) : (
                   <label
-                    className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                    className="relative flex flex-col items-center justify-center w-full aspect-[16/9] rounded-2xl border-2 border-dashed border-pastel-highlight/40 bg-pastel-highlight/5 hover:bg-pastel-highlight/10 hover:border-pastel-highlight transition-all cursor-pointer group"
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setCoreFromFile(f); }}
                   >
                     <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" />
-                    <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
-                    <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">核心服装</span>
+                    <div className="w-12 h-12 rounded-full bg-pastel-highlight/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                      <Shirt className="w-6 h-6 text-pastel-highlight" />
+                    </div>
+                    <span className="text-xs text-pastel-text font-bold mb-1">点击上传服装三视图</span>
+                    <span className="text-[10px] text-pastel-muted">支持正、背、侧视角拼图</span>
                   </label>
                 )}
               </div>
 
-              {/* Pairing */}
-              <div className="space-y-1">
-                <span className="text-[10px] text-pastel-muted font-bold ml-1">搭配 (选)</span>
-                {pairingUrl ? (
-                  <div
-                    className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setPairingFromFile(f); }}
-                  >
-                    <img src={pairingUrl} alt="pairing" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
-                        <input type="file" className="hidden" onChange={handlePairingChange} accept="image/*" />
-                        <Upload className="w-3 h-3" />
-                      </label>
-                      <button type="button" onClick={removePairing} className="bg-white p-1.5 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
-                        <X className="w-3 h-3" />
-                      </button>
+              {/* SMALL: Optional Secondary Refs */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Model Ref */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-pastel-muted font-bold ml-1">人脸/肤色 (可选)</span>
+                  {modelRefUrl ? (
+                    <div
+                      className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setModelRefFromFile(f); }}
+                    >
+                      <img src={modelRefUrl} alt="model-ref" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                          <input type="file" className="hidden" onChange={handleModelRefChange} accept="image/*" />
+                          <Upload className="w-3 h-3" />
+                        </label>
+                        <button type="button" onClick={removeModelRef} className="bg-white p-1.5 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <label
-                    className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setPairingFromFile(f); }}
-                  >
-                    <input type="file" className="hidden" onChange={handlePairingChange} accept="image/*" />
-                    <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
-                    <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">裤子/配件</span>
-                  </label>
-                )}
-              </div>
+                  ) : (
+                    <label
+                      className="relative flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setModelRefFromFile(f); }}
+                    >
+                      <input type="file" className="hidden" onChange={handleModelRefChange} accept="image/*" />
+                      <Upload className="w-4 h-4 text-pastel-muted group-hover:text-pastel-highlight mb-1" />
+                      <span className="text-[9px] text-pastel-muted font-bold">固定模特</span>
+                    </label>
+                  )}
+                </div>
 
-              {/* Model Ref (NEW) */}
-              <div className="space-y-1">
-                <span className="text-[10px] text-pastel-muted font-bold ml-1">模特 (选)</span>
-                {modelRefUrl ? (
-                  <div
-                    className="relative group w-full aspect-[4/3] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setModelRefFromFile(f); }}
-                  >
-                    <img src={modelRefUrl} alt="model-ref" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
-                        <input type="file" className="hidden" onChange={handleModelRefChange} accept="image/*" />
-                        <Upload className="w-3 h-3" />
-                      </label>
-                      <button type="button" onClick={removeModelRef} className="bg-white p-1.5 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
-                        <X className="w-3 h-3" />
-                      </button>
+                {/* Pairing */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-pastel-muted font-bold ml-1">搭配/裤子 (可选)</span>
+                  {pairingUrl ? (
+                    <div
+                      className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-pastel-bg"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setPairingFromFile(f); }}
+                    >
+                      <img src={pairingUrl} alt="pairing" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <label className="cursor-pointer bg-white p-1.5 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
+                          <input type="file" className="hidden" onChange={handlePairingChange} accept="image/*" />
+                          <Upload className="w-3 h-3" />
+                        </label>
+                        <button type="button" onClick={removePairing} className="bg-white p-1.5 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <label
-                    className="relative flex flex-col items-center justify-center w-full aspect-[4/3] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setModelRefFromFile(f); }}
-                  >
-                    <input type="file" className="hidden" onChange={handleModelRefChange} accept="image/*" />
-                    <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight mb-1 transition-colors" />
-                    <span className="text-[9px] text-pastel-muted font-bold group-hover:text-pastel-highlight">模特信息图</span>
-                  </label>
-                )}
+                  ) : (
+                    <label
+                      className="relative flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setPairingFromFile(f); }}
+                    >
+                      <input type="file" className="hidden" onChange={handlePairingChange} accept="image/*" />
+                      <Upload className="w-4 h-4 text-pastel-muted group-hover:text-pastel-highlight mb-1" />
+                      <span className="text-[9px] text-pastel-muted font-bold">搭配单品</span>
+                    </label>
+                  )}
+                </div>
               </div>
             </div>
           </div>

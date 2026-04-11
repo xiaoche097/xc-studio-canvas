@@ -441,7 +441,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement' | 'magic-mannequin';
     hasModelRef?: boolean;
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
   } = {}
@@ -517,58 +517,55 @@ export const generateImageToImage = async (
           ? hasModelRef
             ? `
       **ROLE**: Pixel-Perfect Virtual Try-On Director & Identity Cloning Surgeon.
-      **MISSION**: Generate ONE photorealistic image that combines three elements with ZERO deviation:
-        1. The IDENTITY (face, hair, skin) from the Model Reference images.
-        2. The POSE, FRAMING, CROP, and COMPOSITION from the Target Scene image — pixel-for-pixel.
-        3. The EXACT GARMENT from the Garment Reference image — pixel-for-pixel.
+      **MISSION**: Generate ONE photorealistic image that combines these core elements with ZERO deviation:
+        1. MODEL: The user-provided model's face, hair, skin tone, and body shape.
+        2. GARMENT & STYLING: The user-provided core garment and matching outfits.
+        3. POSE & ANGLE: The exact action, pose, and camera angle from the target replacement gallery image.
 
       **ANALYTICAL CONTEXT**:
       ${vtonReport || 'No pre-analysis available.'}
 
       **INPUT MAPPING (MEMORIZE THIS)**:
-      - Image 1 & 2 = **IDENTITY SOURCE** (the person's face, hair, skin tone, ethnicity — clone these EXACTLY)
-      - Image 3 = **POSE & COMPOSITION BLUEPRINT** (the body pose, camera angle, crop boundaries, aspect ratio, limb placement, background — replicate these EXACTLY)
-      - Image 4 = **CORE GARMENT** (the clothing item to dress the person in — replicate color, pattern, print, logo, fabric texture EXACTLY)
-      ${processedImages.length >= 6 ? '- Image 5 = CORE GARMENT DUPLICATE (same garment, doubled for emphasis)' : ''}
-      ${processedImages.length >= 6 ? '- Image 6 = SECONDARY GARMENT (pants, skirt, or accessory to pair)' : processedImages.length >= 5 ? '- Image 5 = SECONDARY GARMENT (pants, skirt, or accessory to pair)' : ''}
+      - Image 1 = **POSE & ANGLE REPLACEMENT SOURCE** (from the replacement image gallery. Replicate the exact body pose, action, camera angle, crop, limb placement, and background. This is the structural anchor!).
+      - Image 2 = **MODEL IDENTITY SOURCE (FACE & SKIN ONLY)** (the person's face, hair, skin tone, body shape/size. **CRITICAL: DO NOT COPY HER CLOTHING. HER GREY/ORIGINAL CLOTHING IS STRICTLY FORBIDDEN.**).
+      - Image 3 = **CORE GARMENT** (the main clothing item to dress the person in. Replicate color, pattern, logo, and fabric texture EXACTLY).
+      ${processedImages.length >= 4 ? '- Image 4 = STYLING & MATCHING / SECONDARY GARMENT (pants, skirt, or accessory to pair and wear together).' : ''}
+
+      ═══════════════════════════════════════════
+      ██  CRITICAL RULE: WHAT TO KEEP & REPLACE  ██
+      ═══════════════════════════════════════════
+      - **THE POSE**: The generated action, pose, and camera angle MUST BE entirely from Image 1.
+      - **THE MODEL**: The generated person MUST BE the model provided in Image 2. Do NOT use the face or body from Image 1.
+      - **THE GARMENT**: The generated person MUST BE WEARING the core garment from Image 3 (plus pairing from Image 4 if present). **NEVER, EVER use the clothing from Image 1 (Target Scene) or Image 2 (Model Identity).**
 
       ═══════════════════════════════════════════
       ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
       ═══════════════════════════════════════════
-      - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 4.
-      - **COLOR**: Match the EXACT hue, saturation, and brightness. If Image 4 shows a beige/sand T-shirt, the output MUST be beige/sand — NOT blue, NOT white, NOT any other color. ZERO color drift allowed.
-      - **PRINT/LOGO/GRAPHIC**: Reproduce every graphic element from Image 4 at the exact same scale, position, and detail level. If there is a sun/mandala print, it must appear identical.
-      - **FABRIC TEXTURE**: Match the exact material appearance — cotton weave, knit ribbing, denim grain, silk sheen, etc.
-      - **GARMENT STRUCTURE**: Match neckline shape, sleeve length, hem length, and overall silhouette from Image 4.
-      - **ABSOLUTE PROHIBITION**: Do NOT inherit ANY color, pattern, or fabric from Image 3's original clothing. Image 3's clothes are INVISIBLE — treat them as if the person is wearing nothing. Only Image 4 (and Image 5/6 if present) define what the person wears.
+      - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 3 (and Image 4 if present).
+      - **COLOR**: Match the EXACT hue, saturation, and brightness. ZERO color drift allowed. If Image 3 is blue, the output MUST be blue.
+      - **PRINT/LOGO/GRAPHIC**: Reproduce every graphic element (such as circles, text, logos) at the exact same scale, position, and detail level. Do not lose the graphic prints!
+      - **FABRIC TEXTURE**: Match the exact material appearance.
+      - **GARMENT STRUCTURE**: Match neckline shape, sleeve length, hem length, and overall silhouette.
+      - **ABSOLUTE PROHIBITION**: Image 1 AND Image 2's original clothes are **INVISIBLE AND BANNED**. For example, if Image 1 has a beige shirt, DO NOT output a beige shirt. If Image 2 has a grey bodysuit, DO NOT output a grey bodysuit. Only Image 3 and 4 define what the person wears.
 
       ═══════════════════════════════════════════
-      ██  PRIORITY #2: COMPOSITION LOCK (HIGH)     ██
+      ██  PRIORITY #2: POSE & COMPOSITION LOCK     ██
       ═══════════════════════════════════════════
-      - The output image MUST have the **IDENTICAL composition** as Image 3:
-        * Same camera angle (front, side, 3/4, back)
-        * Same crop boundaries (if Image 3 cuts at mid-thigh, output cuts at mid-thigh)
-        * Same body pose, weight distribution, arm position, leg stance
-        * Same subject scale relative to frame
-        * Same background environment
-      - Do NOT reframe, zoom in/out, or change the aspect ratio vs Image 3.
-      - The output should look like you ONLY swapped the clothes and face — everything else is frozen.
-
-      ═══════════════════════════════════════════
-      ██  PRIORITY #3: IDENTITY CLONE (HIGH)       ██
-      ═══════════════════════════════════════════
-      - The face in the output MUST be the face from Image 1 & 2 — same facial structure, eye shape, nose, lips, jawline, skin tone, hair color, hairstyle.
-      - Do NOT blend features from Image 3's original person. The original person's face must be completely replaced.
-      - Ethnicity and skin undertone must match Image 1 & 2 exactly.
+      - The output image MUST have the **IDENTICAL composition and action** as Image 1.
+      - **CRITICAL ANTI-COLLAGE RULE**: You MUST generate EXACTLY ONE PERSON in a single scene. Do NOT generate a grid, layout, or collage. **Do NOT copy the multi-view grid layout from Image 3 (or Image 4). The multi-view input is ONLY for garment feature extraction.** 
+      - The single person's camera angle, body pose, limb placement, and background must perfectly match Image 1.
+      - Do NOT reframe, zoom in/out, or change the aspect ratio vs Image 1.
 
       **GARMENT ORIENTATION AWARENESS**:
-      - Determine the body orientation from Image 3 (front/back/side/3/4).
-      - If Image 4 shows the FRONT of the garment and the person faces away → the back must be PLAIN (base fabric color only, no print).
-      - Garments are 3D objects. Never copy a front print onto the back.
+      - Determine the body orientation from Image 1 (front/back/side/3/4).
+      - Image 3 (Core Garment) may be a multi-view collage containing front, back, and side views.
+      - **CRITICAL**: Select the correct view from Image 3 to map onto the person based on Image 1's orientation.
+      - For example, if Image 1 faces away from the camera (back view), you MUST map the back view of the garment from Image 3 onto the person. IF Image 3 has no back view, assume the back is plain.
+      - Never copy a front print onto the back.
 
       **OUTPUT RULES**:
-      - ONE single photorealistic photograph. No grids, no layouts, no collages.
-      - Lighting must match Image 3's environment.
+      - STRICTLY ONE photorealistic photograph of ONE person. No splitting the image into panels.
+      - Lighting must match Image 1's environment.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
             `
@@ -580,30 +577,27 @@ export const generateImageToImage = async (
       ${vtonReport || 'No pre-analysis available.'}
 
       **INPUT MAPPING (MEMORIZE THIS)**:
-      - Image 1 = **SCENE MASTER** (the person's face, hairstyle, body pose, limb placement, camera angle, crop, background, lighting — ALL of this is FROZEN and UNTOUCHABLE)
+      - Image 1 = **SCENE MASTER** (the person's face, hairstyle, body pose, limb placement, camera angle, crop, background, lighting — ALL of this is FROZEN and UNTOUCHABLE. This is the structural anchor!)
       - Image 2 = **CORE GARMENT** (the clothing item — replicate its color, pattern, print, logo, fabric texture EXACTLY)
-      ${processedImages.length >= 4 ? '- Image 3 = CORE GARMENT DUPLICATE (same garment, doubled for emphasis)' : ''}
-      ${processedImages.length >= 4 ? '- Image 4 = SECONDARY GARMENT (pants, skirt, shoes, or accessories)' : processedImages.length === 3 ? '- Image 3 = SECONDARY GARMENT (pants, skirt, shoes, or accessories)' : ''}
+      ${processedImages.length >= 3 ? '- Image 3 = SECONDARY GARMENT (pants, skirt, shoes, or accessories)' : ''}
 
       ═══════════════════════════════════════════
       ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
       ═══════════════════════════════════════════
       - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 2.
-      - **COLOR**: Match the EXACT hue, saturation, and brightness of Image 2. If the garment is beige, output beige. If it is blue, output blue. ZERO color drift — do not shift, tint, or alter the color under any circumstances.
-      - **PRINT/LOGO/GRAPHIC**: Every graphic element, text, logo, or pattern on Image 2 must appear on the output garment at the correct scale, position, and orientation.
-      - **FABRIC TEXTURE**: Replicate the exact material surface — cotton, linen, silk, denim, knit, etc.
+      - **COLOR**: Match the EXACT hue, saturation, and brightness of Image 2. ZERO color drift allowed.
+      - **PRINT/LOGO/GRAPHIC**: Every graphic element, text, logo, or pattern on Image 2 must appear on the output garment at the exact same scale, position, and orientation.
+      - **FABRIC TEXTURE**: Replicate the exact material surface.
       - **GARMENT STRUCTURE**: Match neckline, sleeve length, hem length, collar shape, and overall silhouette.
-      - **ABSOLUTE PROHIBITION**: Do NOT use ANY color, pattern, or texture from Image 1's original clothing. Image 1's original clothes are INVISIBLE. Only Image 2 defines the garment.
+      - **ABSOLUTE PROHIBITION**: Do NOT use ANY color, pattern, or texture from Image 1's original clothing. Only Image 2 defines the garment.
 
       ═══════════════════════════════════════════
       ██  PRIORITY #2: COMPOSITION LOCK (HIGH)     ██
       ═══════════════════════════════════════════
-      - The output MUST preserve the **IDENTICAL composition** from Image 1:
-        * Same camera angle, crop boundaries, and aspect ratio
-        * Same body pose — every limb, joint, hand position, weight shift
-        * Same subject scale and placement within the frame
-        * Same background, lighting direction, and shadow pattern
-      - The output should look like ONLY a garment swap happened. Nothing else changed.
+      - The output MUST preserve the **IDENTICAL composition** from Image 1.
+      - **CRITICAL ANTI-COLLAGE RULE**: You MUST generate EXACTLY ONE PERSON in a single scene. Do NOT generate a grid, layout, or collage. **Do NOT copy the multi-view grid layout from Image 2. The multi-view input is ONLY for garment feature extraction.** 
+      - Same camera angle, crop boundaries, aspect ratio, background, lighting direction.
+      - Same body pose — every limb, joint, hand position, weight shift, subject scale.
 
       ═══════════════════════════════════════════
       ██  PRIORITY #3: IDENTITY PRESERVATION       ██
@@ -613,14 +607,12 @@ export const generateImageToImage = async (
 
       **GARMENT ORIENTATION AWARENESS**:
       - Determine the body orientation of the person in Image 1 (front/back/side/3/4).
-      - If Image 2 shows only the FRONT of the garment:
-        * Person facing camera → Show the design on the chest.
-        * Person's back to camera → Back must be PLAIN (base color only, NO print/logo).
-        * Side/3/4 angle → Show only the naturally visible portion of the print.
-      - Garments are 3D objects. A front print does NOT exist on the back.
+      - Image 2 (Core Garment) may be a multi-view collage containing front, back, and side views.
+      - **CRITICAL**: Select the correct view from Image 2 to map onto the person based on Image 1's orientation.
+      - For example, if Image 1 faces away from the camera (back view), you MUST map the back view of the garment from Image 2 onto the person. IF Image 2 has no back view, assume the back is plain.
 
       **OUTPUT RULES**:
-      - ONE single photorealistic photograph. No grids, no layouts.
+      - STRICTLY ONE photorealistic photograph of ONE person. No splitting the image into panels.
       - If Image 2 is a top and no bottoms are provided, keep the original bottoms from Image 1.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
@@ -695,25 +687,44 @@ export const generateImageToImage = async (
       `
           : options.workflowHint === 'main-angle-lock'
             ? `
-      **ROLE**: Senior fashion e-commerce photographer and composition-lock retoucher.
-      **TASK**: Generate a single catalog main image that follows an exact shot blueprint.
-      **INPUT**:
-      - Reference images contain the product, model identity, and optional accessories.
-      - The user's prompt contains the required camera angle, crop, pose, and framing blueprint.
-
-      **NON-NEGOTIABLE RULES**:
-      - Treat the user's described shot blueprint as absolute. Do not improvise a new angle, pose, crop, or camera height.
-      - Use the reference images to lock identity, clothing details, fit, accessories, and body proportions only.
-      - Output exactly one standalone image. No grids, no collages, no multi-panel layouts.
-      - Preserve studio e-commerce clarity: clean white background, centered composition, realistic human anatomy, and precise garment fidelity.
-      - If the garment or body does not fit the requested pose perfectly, adapt within the same framing blueprint instead of changing the composition.
-
       **USER PROMPT**: ${prompt}
 
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
       - Keep the final image crisp, literal, and commercially usable.
+      ${negativePromptLine}
+      `
+            : options.workflowHint === 'pose-transfer'
+              ? `
+      **USER PROMPT**: ${prompt}
+
+      **QUALITY GUIDELINES**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
+      - Keep the final image crisp, literal, and commercially usable.
+      ${negativePromptLine}
+      `
+            : options.workflowHint === 'pose-transfer'
+              ? `
+      **ROLE**: Strict Image-to-Image Pose Swap Engine.
+      **TASK**: Replace the pose of the person in the Last Image with the pose of the Blueprint Image.
+      
+      **IMAGE MAPPING**:
+      - **BLUEPRINT (Image 1/2)**: The **MANDATORY Blueprints** for the final output's silhouette, arm angles, leg positions, and camera framing.
+      - **SOURCE (Last Image)**: The **ONLY source** for identity (face, skin) and clothing (textures, colors).
+      
+      **EXECUTION MANDATES**:
+      1. **ABANDON ALL PIXELS** of the Source Image's pose (e.g., the hand-on-hip, standing straight). 
+      2. **FORCE ALIGNMENT** to the Blueprint's pose. If the Blueprint is a mannequin or sculpture, you MUST convert it into a human while maintaining the EXACT arm and body angles.
+      3. **0% MERCY**: Do not attempt to make the pose "more natural". Follow the Blueprint's geometry with 100% literalness.
+      4. **FAILURE STATE**: If the final image has the same arm/hand/body position as the Source Image, the generation has FAILED.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **QUALITY GUIDELINES**:
+      - Keep clothing fidelity 1:1.
+      - High-definition realistic human photography.
       ${negativePromptLine}
       `
             : options.workflowHint === 'strict-geometry-lock'
@@ -764,7 +775,35 @@ export const generateImageToImage = async (
       - Keep the final result photorealistic, premium, and commercially usable for Amazon-style ecommerce.
       ${negativePromptLine}
       `
-          : `
+          : options.workflowHint === 'magic-mannequin'
+            ? `
+      **ROLE**: Professional 3D Mannequin & Sculptural Artist.
+      **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin based on the style and pose of Image 2.
+      
+      **INPUT MAPPING**:
+      - Image 1 = **BODY REFERENCE** (Only for body proportions and height. **STRICTLY IGNORE** the face, hair, clothing, and any prints/patterns/logos/graphics).
+      - Image 2 = **POSE & STYLE BLUEPRINT** (Master for the 3D material, lighting, pose, and camera framing).
+      
+      ═══════════════════════════════════════════
+      ██  CRITICAL PROHIBITION: CLEAN MANNEQUIN  ██
+      ═══════════════════════════════════════════
+      - **NO FACE**: The output mannequin MUST have a **blank, faceless head** (like a mannequin or a smooth sculpture). Remove eyes, nose, and mouth.
+      - **0% CLOTHING**: Absolutely no clothing, garments, or fabric.
+      - **NO PRINTS/TATTOOS**: Strictly ignore and remove any prints, logos, sunflower graphics, or patterns found in Image 1. The skin/surface must be 100% clean and uniform.
+      - **MATERIAL**: Smooth 3D render material (matte plastic, clay, or porcelain) from Image 2.
+      
+      ═══════════════════════════════════════════
+      ██  POSE & FRAMING LOCK                       ██
+      ═══════════════════════════════════════════
+      - Replicate the **EXACT** body pose and arm angles from Image 2.
+      - Replicate the **EXACT** camera angle and focal length from Image 2.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **OUTPUT**: A single, clean, faceless 3D mannequin render with no features or clothing.
+      ${negativePromptLine}
+      `
+            : `
       **ROLE**: Professional Image Generation Artist.
       **TASK**: Image-to-Image Generation (Scene Fusion).
       **INPUT**: ${images.length} Reference Image(s).
