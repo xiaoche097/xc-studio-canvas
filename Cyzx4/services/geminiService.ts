@@ -427,10 +427,6 @@ export const generateFusionImage = async (
 
 /**
  * 2.1.1 Image-to-Image Generation (Multi-Image Support)
- * Uses gemini-3-pro-image-preview
- */
-/**
- * 2.1.1 Image-to-Image Generation (Multi-Image Support)
  * Supports dynamic model selection and automatic API key rotation on failure.
  */
 export const generateImageToImage = async (
@@ -441,7 +437,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement' | 'magic-mannequin';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement' | 'magic-mannequin' | 'clothing-modification';
     hasModelRef?: boolean;
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
   } = {}
@@ -668,67 +664,51 @@ export const generateImageToImage = async (
         * If the shirt is TUCKED IN, it MUST stay tucked in the output.
         * If the shirt hangs LOOSE, it MUST hang loose in the output.
         * Preserve the exact hem position relative to the waistband.
-        * Preserve sleeve state (rolled up, folded, or natural length).
-        * Preserve neckline shape and collar position.
-      - Preserve all accessories from Image 3 (necklace, belt, bracelet, bag, earrings).
-      - Do NOT inherit ANY clothing or accessories from Image 1 & 2.
-
-      **POSE EXECUTION PRIORITY**:
-      - The output MUST exactly match Image 1 & 2's body pose, arm angles, camera angle, subject scaling, body tilt, and crop boundaries.
-      - The output MUST maintain a 1:1 identical visual framing to Image 1.
-      - Do not output only a tiny pose adjustment. Make the dramatic change necessary to match Image 1.
-
+        * Preserve sleeve state (rolled up, folded, or natural).
+      ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      ${negativePromptLine}
+      `
+            : options.workflowHint === 'clothing-modification'
+              ? `
+      **ROLE**: Professional Fashion Designer and AI Modification Expert.
+      **TASK**: Execute precise clothing modification based on user instructions and reference images.
+      
+      **MISSION**:
+      - If Pattern modification: Transfer pattern from Image 2 onto the specified garment area of Image 1.
+      - If Style modification: Alter the cut/silhouette of Image 1's garment according to Image 2 or description.
+      - If Color modification: Change the color of specific garment parts while keeping texture and lighting.
+      
+      **CRITICAL RULES**:
+      1. **LOCALITY**: Only modify the requested garment or area. The model's face, hair, body, and background should remain UNTOUCHED.
+      2. **NATURALISM**: Ensure any added patterns or changed shapes follow the laws of physics and clothing wrinkles. Shadows and highlights must be consistent with Image 1.
+      3. **FIDELITY**: If a pattern is provided in Image 2, replicate its scale, orientation, and texture precisely on the target garment.
+      
       **USER PROMPT**: ${prompt}
-
+      
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Output one photorealistic corrected image with minimal drift in face and clothing texture.
+      - Ensure photorealistic fabric textures and seamless integration.
       ${negativePromptLine}
       `
-          : options.workflowHint === 'main-angle-lock'
-            ? `
+            : options.workflowHint === 'clothing-effect'
+              ? `
+      **ROLE**: High-end Fashion Photography Retoucher.
+      **TASK**: Enhance the appearance of clothing and its interaction with the model's body.
+      
+      **MISSION**:
+      - Focus on fabric drape, texture, and the way light interacts with the material.
+      - Ensure the clothing looks premium, crisp, and high-quality.
+      - Maintain the model's identity and the overall scene composition.
+      
       **USER PROMPT**: ${prompt}
-
+      
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
-      - Keep the final image crisp, literal, and commercially usable.
+      - Prioritize fabric realism and lighting accuracy.
       ${negativePromptLine}
       `
-            : options.workflowHint === 'pose-transfer'
-              ? `
-      **USER PROMPT**: ${prompt}
-
-      **QUALITY GUIDELINES**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Prioritize framing accuracy, body proportion accuracy, and garment fidelity over creative variation.
-      - Keep the final image crisp, literal, and commercially usable.
-      ${negativePromptLine}
-      `
-            : options.workflowHint === 'pose-transfer'
-              ? `
-      **ROLE**: Strict Image-to-Image Pose Swap Engine.
-      **TASK**: Replace the pose of the person in the Last Image with the pose of the Blueprint Image.
-      
-      **IMAGE MAPPING**:
-      - **BLUEPRINT (Image 1/2)**: The **MANDATORY Blueprints** for the final output's silhouette, arm angles, leg positions, and camera framing.
-      - **SOURCE (Last Image)**: The **ONLY source** for identity (face, skin) and clothing (textures, colors).
-      
-      **EXECUTION MANDATES**:
-      1. **ABANDON ALL PIXELS** of the Source Image's pose (e.g., the hand-on-hip, standing straight). 
-      2. **FORCE ALIGNMENT** to the Blueprint's pose. If the Blueprint is a mannequin or sculpture, you MUST convert it into a human while maintaining the EXACT arm and body angles.
-      3. **0% MERCY**: Do not attempt to make the pose "more natural". Follow the Blueprint's geometry with 100% literalness.
-      4. **FAILURE STATE**: If the final image has the same arm/hand/body position as the Source Image, the generation has FAILED.
-      
-      **USER PROMPT**: ${prompt}
-      
-      **QUALITY GUIDELINES**:
-      - Keep clothing fidelity 1:1.
-      - High-definition realistic human photography.
-      ${negativePromptLine}
-      `
-            : options.workflowHint === 'strict-geometry-lock'
-              ? `
+              : options.workflowHint === 'strict-geometry-lock'
+                ? `
       **ROLE**: Senior E-commerce Retoucher and Geometry-Lock Specialist.
       **TASK**: High-fidelity product retouching on a pure white background without ANY structural changes.
       **INPUT**:
@@ -750,8 +730,8 @@ export const generateImageToImage = async (
       - Maintain commercial product photography standards.
       ${negativePromptLine}
       `
-            : options.workflowHint === 'scene-product-lock'
-              ? `
+                : options.workflowHint === 'scene-product-lock'
+                  ? `
       **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
       **TASK**: Place the reference product into a realistic lifestyle scene without changing the product itself.
       **INPUT**:
@@ -775,8 +755,8 @@ export const generateImageToImage = async (
       - Keep the final result photorealistic, premium, and commercially usable for Amazon-style ecommerce.
       ${negativePromptLine}
       `
-          : options.workflowHint === 'magic-mannequin'
-            ? `
+                  : options.workflowHint === 'magic-mannequin'
+                    ? `
       **ROLE**: Professional 3D Mannequin & Sculptural Artist.
       **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin based on the style and pose of Image 2.
       
@@ -803,7 +783,7 @@ export const generateImageToImage = async (
       **OUTPUT**: A single, clean, faceless 3D mannequin render with no features or clothing.
       ${negativePromptLine}
       `
-            : `
+                    : `
       **ROLE**: Professional Image Generation Artist.
       **TASK**: Image-to-Image Generation (Scene Fusion).
       **INPUT**: ${images.length} Reference Image(s).
@@ -836,8 +816,15 @@ export const generateImageToImage = async (
 
       parts.push({ text: systemPrompt });
 
-      // Use selected model or fallback
-      targetModel = options.modelId || "gemini-3-pro-image-preview";
+      // Model mapping logic for nanobanana
+      let requestedModel = options.modelId || "gemini-3-pro-image-preview";
+      if (requestedModel === 'nanobanana2' || requestedModel === 'standard') {
+        targetModel = "gemini-3.1-flash-image-preview";
+      } else if (requestedModel === 'nanobananapro' || requestedModel === 'pro') {
+        targetModel = "gemini-3-pro-image-preview";
+      } else {
+        targetModel = requestedModel;
+      }
 
       // 柏拉图模型映射逻辑 (nanobanana2)
       // 注释掉强制追加 -4k/-2k 的逻辑，因为报错显示柏拉图的 v1/v1beta 路径不识别带后缀的模型名。
@@ -3341,4 +3328,111 @@ ${prompt4Section}
     console.error("Clean image generation failed", e);
     throw e;
   }
+};
+
+/**
+ * =========================================================================================
+ *  CLOTHING MODIFICATION EXPERT SYSTEM (服装改款专家系统) - V2.0
+ * =========================================================================================
+ */
+
+/**
+ * Refine user's modification prompt using a thinking model (Gemini-3.1-Flash-Lite).
+ * Inject mode-specific core skills for extreme precision.
+ */
+export const refineModificationPrompt = async (
+  mode: string,
+  userPrompt: string,
+  images: { base64: string; mimeType: string }[]
+): Promise<string> => {
+  const ai = getAiClient();
+  
+  const modeSkills: Record<string, string> = {
+    'pattern-on-body': `
+      **SKILL: DYNAMIC FABRIC MAPPING (核心技能：织物动态映射)**
+      - **CRITICAL**: Replicate the pattern from Image 2 onto the target garment in Image 1.
+      - **GEOMETRIC ADHERENCE**: The pattern must warp, bend, and scale perfectly according to the physical folds, wrinkles, and shadows of the garment in Image 1.
+      - **PERSPECTIVE**: If Image 1 is at an angle, the pattern must follow that 3D perspective.
+      - **TEXTURE FUSION**: Preserve the original fabric's weave (e.g., silk sheen, cotton matte) on top of the new pattern.
+    `,
+    'style-mod': `
+      **SKILL: SILHOUETTE RECONSTRUCTION (核心技能：拓扑轮廓重塑)**
+      - **CRITICAL**: Modify the cut and silhouette of the garment in Image 1 based on the style cues from Image 2 or instructions.
+      - **IDENTITY LOCK**: Keep the person's face, hair, and background 100% frozen. ONLY change the garment's topology.
+      - **MATERIAL CONSISTENCY**: Even if the shape changes, the fabric texture from Image 1 must remain consistent unless explicitly told otherwise.
+      - **LOGIC**: Ensure the new style follows human skeletal constraints.
+    `,
+    'pattern-design': `
+      **SKILL: AESTHETIC SYNTHESIS (核心技能：美学审美合成)**
+      - **CRITICAL**: Extract the artistic theme, color palette, and motifs from Image 2.
+      - **DESIGN ENGINE**: Generate a COMPLETELY NEW pattern that fits the garment's panels in Image 1 based on the extracted aesthetic.
+      - **PLACEMENT**: Place motifs intelligently (e.g., pocket accents, centered chest graphics, or all-over prints).
+    `,
+    'line-filling': `
+      **SKILL: PHOTOREALISTIC RENDERING PROTOCOL (核心技能：线稿写实渲染协议)**
+      - **CRITICAL**: Treat Image 1 as a structural line-art guide (geometry master).
+      - **RENDER TARGET**: Fill the line-art with hyper-realistic materials, lighting, and textures derived from Image 2.
+      - **ZERO DRIFT**: Do not change the shape or pose defined by the line-art.
+    `,
+    'fabric-on-body': `
+      **SKILL: FIBER-LEVEL DISPLACEMENT (核心技能：纤维级材质置换)**
+      - **CRITICAL**: Replace the surface material of Image 1's clothing with the physical material of Image 2.
+      - **DETAIL LOCK**: Keep all seams, buttons, and zippers from Image 1, but swap the pixel-level texture.
+      - **PHYSICALITY**: If Image 2 is "heavy leather," ensure the folds reflect that weight vs "light silk."
+    `,
+    'color-change': `
+      **SKILL: NON-DESTRUCTIVE RECOLORING (核心技能：非破坏性精准调色)**
+      - **CRITICAL**: Remap the color values of the specified garment in Image 1 to match the palette in Image 2.
+      - **LUMINANCE LOCK**: Preserve all original highlights, mid-tones, and shadows. The 3D volume of the clothes must remain identical.
+      - **EDGE PRECISION**: Ensure clean color transitions at the garment edges.
+    `,
+    'free-design': `
+      **SKILL: CREATIVE DESIGN ELEVATION (核心技能：高阶创意发散设计)**
+      - **CRITICAL**: Perform an artistic fusion of Image 1 and Image 2.
+      - **GOAL**: Create a vision-leading fashion piece that preserves the person's identity but radically enhances the aesthetic value.
+    `
+  };
+
+  const activeSkill = modeSkills[mode] || modeSkills['free-design'];
+
+  const refinementPrompt = `
+**ROLE**: Senior AI Fashion Prompt Engineer & Expert Designer.
+
+**TASK**: Analyze the user's intent and reference images to construct a high-precision MASTER PROMPT for the image generation engine.
+
+**MODE-SPECIFIC CORE SKILL**:
+${activeSkill}
+
+**REFINING PROTOCOL (AGENT CONTROL MODE)**:
+1. **Visual Analysis**: Deconstruct the garment in Image 1 (structure, fit, folds).
+2. **Material Analysis**: Deconstruct the texture/pattern in Image 2.
+3. **Synthesis**: Combine them into a single, cohesive, technical prompt.
+4. **Keyword Enrichment**: Use high-fidelity photography keywords (8k, photorealistic, intricate textures, ray-traced shadows).
+
+**USER ORIGINAL INTENT**: "${userPrompt}"
+
+**OUTPUT FORMAT (MANDATORY)**:
+Return ONLY the final enriched English prompt. Do NOT include any preamble or extra text.
+`;
+
+  try {
+    const parts: any[] = images.map(img => ({
+      inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 }
+    }));
+    parts.push({ text: refinementPrompt });
+
+    const response = await executeWithTimeout(
+      ai.models.generateContent({
+        model: "gemini-3.1-flash-lite-preview",
+        contents: { parts }
+      }),
+      { timeoutMs: 30000 }
+    );
+
+    return response.text?.trim() || userPrompt;
+  } catch (error: any) {
+    console.warn("Prompt refinement failed, falling back to original prompt.", error.message);
+    return userPrompt; // Fallback to original
+  }
+
 };
