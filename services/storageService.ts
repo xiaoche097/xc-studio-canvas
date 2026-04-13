@@ -8,7 +8,7 @@ interface ProjectMetadata {
 
 export interface Project {
     id: string;
-    type: 'SEAT_COVER' | 'MARKETING' | 'MODEL' | 'VIDEO' | 'ANALYSIS' | 'LAUNCH_PACKAGE' | 'FUSION' | 'OTHER';
+    type: 'SEAT_COVER' | 'MARKETING' | 'MODEL' | 'VIDEO' | 'ANALYSIS' | 'LAUNCH_PACKAGE' | 'FUSION' | 'RETOUCHING' | 'OTHER';
     createdAt: number;
     thumbnail: string; // Base64 or Blob URL
     assets: {

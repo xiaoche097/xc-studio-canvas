@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateInpainting, blobToBase64 } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
+import { storageService, Project } from '../../services/storageService';
 import { Eraser, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Download, Paintbrush, RotateCcw, Cpu, Minus, Plus } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 
@@ -439,6 +440,32 @@ const InpaintingTab: React.FC = () => {
       setProgress('生成完成！');
       setGeneratedImages(results);
 
+      // 保存到项目历史
+      try {
+        await storageService.saveProject({
+          id: crypto.randomUUID(),
+          type: 'RETOUCHING',
+          createdAt: Date.now(),
+          thumbnail: results[0],
+          assets: {
+            original: [sourceUrl!, maskBase64], // 源图 URL 和 蒙版 Base64
+            generated: results,
+          },
+          metadata: {
+            subType: 'inpainting',
+            prompt: description,
+            aspectRatio,
+            resolution,
+            model: selectedModel,
+            hasRefImages: !!refImagesData,
+            hasFabricRef: !!fabricRefImagesData,
+            hasColorRef: !!colorRefImagesData,
+          },
+        });
+      } catch (saveErr) {
+        console.error('Failed to save inpainting results to history:', saveErr);
+      }
+
     } catch (error: any) {
       setError(getErrorMessage(error));
     } finally {
@@ -500,6 +527,8 @@ const InpaintingTab: React.FC = () => {
 
       const prompt = `${description}\n\nUse the clothing/outfit (top and pants/shorts) from the reference image (Image 3) for the WHITE mask area. Match garment structure, pattern, and fabric appearance as closely as possible.`;
 
+      const currentBatchResults: Array<{ refIdx: number; refUrl: string; image?: string; error?: string }> = [];
+
       for (let i = 0; i < selected.length; i++) {
         const refIdx = selected[i];
         const refFile = refFiles[refIdx];
@@ -526,13 +555,48 @@ const InpaintingTab: React.FC = () => {
           const first = results?.[0];
           if (!first) throw new Error('模型未返回图片');
 
-          setBatchResults((prev) => [...prev, { refIdx, refUrl, image: first }]);
+          const resultItem = { refIdx, refUrl, image: first };
+          currentBatchResults.push(resultItem);
+          setBatchResults((prev) => [...prev, resultItem]);
         } catch (e: any) {
-          setBatchResults((prev) => [...prev, { refIdx, refUrl, error: getErrorMessage(e) }]);
+          const errorItem = { refIdx, refUrl, error: getErrorMessage(e) };
+          currentBatchResults.push(errorItem);
+          setBatchResults((prev) => [...prev, errorItem]);
         }
       }
 
       setProgress('批量生成完成！');
+
+      // 保存到项目历史
+      try {
+        const successfulResults = currentBatchResults
+          .filter(r => r.image)
+          .map(r => r.image!);
+
+        if (successfulResults.length > 0) {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'RETOUCHING',
+            createdAt: Date.now(),
+            thumbnail: successfulResults[0],
+            assets: {
+              original: [sourceUrl!, maskBase64], // 源图 URL 和 蒙版 Base64
+              generated: successfulResults,
+            },
+            metadata: {
+              subType: 'inpainting_batch',
+              prompt: description,
+              aspectRatio,
+              resolution,
+              model: selectedModel,
+              refCount: selected.length,
+              successCount: successfulResults.length,
+            },
+          });
+        }
+      } catch (saveErr) {
+        console.error('Failed to save batch inpainting results to history:', saveErr);
+      }
     } catch (error: any) {
       setError(getErrorMessage(error));
     } finally {
