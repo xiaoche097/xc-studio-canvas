@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
-import { AspectRatio } from '../Cyzx4/types';
+import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 
@@ -24,7 +24,7 @@ const ModelAdjustTabV2: React.FC = () => {
   const [poseRefUrl, setPoseRefUrl] = useState<string | null>(null);
   const [poseGuidance, setPoseGuidance] = useState('');
   const [transferScope, setTransferScope] = useState<TransferScope>('upper-body');
-  const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
   const [outputAspectRatio, setOutputAspectRatio] = useState<PoseTransferAspectRatio>(AspectRatio.PORTRAIT_3_4);
   const [isPoseGenerating, setIsPoseGenerating] = useState(false);
   const [poseStatusMessage, setPoseStatusMessage] = useState('');
@@ -33,6 +33,7 @@ const ModelAdjustTabV2: React.FC = () => {
   const [isExtractingSkeleton, setIsExtractingSkeleton] = useState(false);
   const [poseSkeletonFile, setPoseSkeletonFile] = useState<File | null>(null);
   const [poseSkeletonUrl, setPoseSkeletonUrl] = useState<string | null>(null);
+  const [modelId, setModelId] = useState<string>('gemini-3-pro-image-preview'); // Default to Pro
 
   const resetResult = () => {
     setPoseResultImage(null);
@@ -233,11 +234,6 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
                      : resolution === ImageResolution.RES_05K ? 512 
                      : 1024;
 
-      const [referenceImg, identityImg] = await Promise.all([
-        compressImage(refFile, maxWidth, 0.96),
-        compressImage(sourceFile, maxWidth, 0.96)
-      ]);
-
       pose.onResults((results: any) => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
@@ -396,7 +392,7 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
             {
               aspectRatio: outputAspectRatio,
               resolution: resolution as any,
-              modelId,
+              modelId: modelId, // Use selected model
               negativePrompt,
               workflowHint: 'pose-transfer',
             }
@@ -615,17 +611,47 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
             </div>
           </div>
 
+          {/* 图像模型选择 */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-pastel-highlight"></span>
+              图像模型选择
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', sub: '3.1 Flash (极速)' },
+                { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', sub: '3.0 Pro (推荐)' },
+              ].map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setModelId(m.value)}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all gap-1.5 ${modelId === m.value
+                    ? 'bg-purple-50 border-purple-200 text-purple-700 shadow-sm'
+                    : 'bg-white border-pastel-border text-pastel-text hover:border-pastel-highlight/40'
+                    }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Zap className={`w-3 h-3 ${modelId === m.value ? 'text-purple-500' : 'text-orange-400'}`} />
+                    <span className="text-xs font-black tracking-tight">{m.label}</span>
+                  </div>
+                  <span className="text-[9px] opacity-60 font-medium">{m.sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* 细节设置 */}
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
               <h3 className="text-xs font-bold text-pastel-muted mb-2">生成画质</h3>
               <select
                 value={resolution}
-                onChange={(e) => setResolution(e.target.value as '2K' | '4K')}
+                onChange={(e) => setResolution(e.target.value as ImageResolution)}
                 className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-3 text-xs font-bold focus:ring-2 focus:ring-pastel-highlight/20 outline-none transition-all"
               >
-                <option value="2K">2K (默认高清)</option>
-                <option value="4K">4K (细节丰富)</option>
+                <option value={ImageResolution.RES_2K}>2K (默认高清)</option>
+                <option value={ImageResolution.RES_4K}>4K (细节丰富)</option>
               </select>
             </div>
             <div className="space-y-2">

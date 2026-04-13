@@ -845,10 +845,10 @@ export const generateImageToImage = async (
           config: {
             imageConfig: {
               ...(options.aspectRatio && { aspectRatio: options.aspectRatio }),
-              imageSize: (options.resolution === ImageResolution.RES_4K ? 4096 
-                : options.resolution === ImageResolution.RES_2K ? 2048 
-                : options.resolution === ImageResolution.RES_05K ? 512 
-                : 1024) as any,
+              imageSize: (options.resolution === ImageResolution.RES_4K ? "4096" 
+                : options.resolution === ImageResolution.RES_2K ? "2048" 
+                : options.resolution === ImageResolution.RES_05K ? "512" 
+                : "1024") as any,
             },
           },
         }),
