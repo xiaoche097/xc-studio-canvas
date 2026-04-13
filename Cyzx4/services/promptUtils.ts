@@ -12,25 +12,22 @@
 /** Universal quality keywords that improve output fidelity */
 export const QUALITY_BOOSTERS = {
     /** For photorealistic/photography outputs */
-    PHOTOGRAPHY: "Professional fashion photography, shot on Canon EOS R5, 85mm f/1.4 lens, RAW photo, studio lighting, depth-aware mapping, perspective locking, highly detailed, sharp focus, 8K resolution, masterpiece, editorial quality, ultra-photorealistic",
+    PHOTOGRAPHY: "high resolution, 8K, ultra HD, professional photography, sharp focus, photorealistic, highly detailed, studio quality",
 
     /** For product/commercial photography */
-    PRODUCT: "commercial photography, product shot, e-commerce quality, clean and professional, high resolution, sharp focus, studio lighting, professional retouching",
+    PRODUCT: "commercial photography, product shot, e-commerce quality, clean and professional, high resolution, sharp focus, studio lighting",
 
     /** For illustration/art outputs */
-    ILLUSTRATION: "professional illustration, highly detailed, intricate details, sharp lines, vibrant colors, gallery quality, award-winning artStation style",
+    ILLUSTRATION: "professional illustration, highly detailed, intricate details, sharp lines, vibrant colors, gallery quality",
 
     /** For editorial/fashion photography */
-    EDITORIAL: "editorial fashion photography, magazine cover worthy, professional photography, award-winning, cinematic, highly detailed, perspective alignment, anatomical precision, 85mm lens, f/1.8",
+    EDITORIAL: "editorial quality, magazine cover worthy, professional photography, award-winning, cinematic, highly detailed",
 
     /** For film/analog photography */
-    FILM: "analog film photography, Kodak Portra 400, film grain, natural light, cinematic, highly detailed texture, editorial aesthetic, photorealistic, raw and authentic",
+    FILM: "analog film photography, Kodak Portra 400, film grain, natural light, cinematic, highly detailed texture, editorial aesthetic, photorealistic",
 
     /** Minimal set for editing/retouching (avoid over-constraining) */
-    RETOUCHING: "high resolution, seamless edit, professional retouching quality, sharp details, natural blending, pixel-perfect alignment",
-
-    /** For high-end detail and structural preservation */
-    REFINEMENT: "masterpiece quality, refined edges, intricate textures, hyper-detailed, pixel-perfect rendering, focused clarity, high-end post-processing",
+    RETOUCHING: "high resolution, seamless edit, professional retouching quality, sharp details, natural blending",
 } as const;
 
 // ==================== Negative Prompts ====================

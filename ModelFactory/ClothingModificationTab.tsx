@@ -367,54 +367,13 @@ const ClothingModificationTab: React.FC = () => {
 
   const getTemplate = (mode: ModificationMode) => {
     const templates: Record<ModificationMode, string> = {
-      'pattern-on-body': `[NANO BANANA - PATTERN TRANSFER]
-- SUBJECT: Foreground garment from Image 1.
-- ACTION: Replace the existing pattern with the exact design from Image 2.
-- STYLE: Professional commercial photography, shot on Canon EOS R5.
-- LIGHTING: Studio lighting, realistic fabric folds, sharp detail.
-- QUALITY: Maintain original garment structure, seam placement, and wrinkle logic.`,
-      
-      'style-mod': `[NANO BANANA - STYLE RECONSTRUCTION]
-- SUBJECT: Professional model and garment from Image 1.
-- ACTION: Modify the neckline, sleeves, and hem according to the cut seen in Image 2.
-- STYLE: Fashion editorial, 85mm f/1.4 lens separation.
-- LIGHTING: Premium studio lighting, RAW photo quality.
-- QUALITY: Seamlessly integrate style changes while preserving original fabric texture.`,
-
-      'pattern-design': `[NANO BANANA - AI DESIGN SYNTHESIS]
-- SUBJECT: Commercial garment from Image 1.
-- ACTION: Synthesize a new graphic print based on the aesthetic essence of Image 2.
-- STYLE: High-end apparel design, professional retouching.
-- LIGHTING: Soft studio light, realistic surface finish.
-- QUALITY: Precise print placement, sharp edges, believable integration.`,
-
-      'line-filling': `[NANO BANANA - LINE-ART REALISM]
-- SUBJECT: Realistic apparel rendered from the sketch in Image 1.
-- ACTION: Photo-realistic color and texture filling using material data from Image 2.
-- STYLE: 8K commercial product photography, ultra-photorealistic.
-- LIGHTING: Volumetric lighting, depth of field.
-- QUALITY: Physically believable fabric weight, stitching, and material sheen.`,
-
-      'fabric-on-body': `[NANO BANANA - TEXTURE SWAP]
-- SUBJECT: Foreground person and apparel from Image 1.
-- ACTION: Complete material replacement. Swap current fabric with the material from Image 2.
-- STYLE: Editorial quality, cinematic depth.
-- LIGHTING: Macro-level texture detail, realistic highlights.
-- QUALITY: Accurate drape and fold behavior matching the new material's weight.`,
-
-      'color-change': `[NANO BANANA - COLOR PRECISION]
-- SUBJECT: Main garment from Image 1.
-- ACTION: Recolor the garment using the exact hue and saturation palette from Image 2.
-- STYLE: Commercial e-commerce hero shot.
-- LIGHTING: Accurate color reproduction, neutral studio light.
-- QUALITY: Perfect shadow preservation, natural highlights, zero color bleeding.`,
-
-      'free-design': `[NANO BANANA - CREATIVE EVOLUTION]
-- SUBJECT: The apparel provided.
-- ACTION: Enhance, optimize, and creatively refine the design for a premium commercial look.
-- STYLE: Fashion innovation, shot on Canon EOS R5.
-- LIGHTING: Dramatic studio mood, highly detailed.
-- QUALITY: Masterpiece, ultra-realistic textures, award-winning design logic.`
+      'pattern-on-body': `将 图1 中 描述服装类型 区域上的图案，改成 图2 中的图案，图中其他的元素保持不变，保证衣服的褶皱符合真实世界的褶皱规律。`,
+      'style-mod': `依据 图2 的服装剪裁风格，对 图1 中的 领形/袖子/下摆 进行款式改款，保留原有的布料质感，使版型更加前卫。`,
+      'pattern-design': `参考 图2 的设计美学，在 图1 的 胸前/全身 位置设计并合成全新的印花纹样。`,
+      'line-filling': `将 图1 所示的 连衣裙/外套 线稿进行照片级上色填充，参考 图2 的材质属性。`,
+      'fabric-on-body': `将 图1 中 丝绸/棉麻 的面料质感改为 图2 所示的材质。`,
+      'color-change': `将 图1 中 主色调 的颜色改为 图2 所示的主色调。`,
+      'free-design': '根据提供的服装进行自由创意优化。'
     };
     return templates[mode];
   };
@@ -531,20 +490,13 @@ const ClothingModificationTab: React.FC = () => {
     }
 
     try {
-      // Determine max width based on selected resolution
-      const resLimit = (retryTask ? retryTask.settings.res : selectedRes) as ImageResolution;
-      const maxWidth = resLimit === ImageResolution.RES_4K ? 4096 
-                     : resLimit === ImageResolution.RES_2K ? 2048 
-                     : resLimit === ImageResolution.RES_05K ? 512 
-                     : 1024;
-
-      const img1Compressed = await compressImage(sourceImg1, maxWidth, 0.95); 
+      const img1Compressed = await compressImage(sourceImg1, 1024, 0.9); 
       const inputImages: { base64: string; mimeType: string }[] = [
         { base64: img1Compressed.base64, mimeType: img1Compressed.mime }
       ];
 
       if (sourceImg2) {
-        const img2Compressed = await compressImage(sourceImg2, maxWidth, 0.95);
+        const img2Compressed = await compressImage(sourceImg2, 1024, 0.9);
         inputImages.push({ base64: img2Compressed.base64, mimeType: img2Compressed.mime });
       }
 

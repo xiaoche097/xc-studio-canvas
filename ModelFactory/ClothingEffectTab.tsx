@@ -113,18 +113,15 @@ const ClothingEffectTab: React.FC = () => {
   // ---- Prompt: Face-swap onto reference ----
   const buildClothingEffectPrompt = (userGuidance: string) => {
     const extra = userGuidance.trim();
-    return `[NANO BANANA - IDENTITY INTEGRATION PROTOCOL]
+    return `REPRODUCE Image 1/2/3 exactly. Clone the entire photo — the garment, its texture, fit, drape, wrinkles, hem position, and styling. 
 
-- SUBJECT: Professional person from Image 4.
-- ACTION: Perfectly replicate the posture, fit, and drape of the garment from Image 1, 2, & 3.
-- ENVIRONMENT: Pure studio background and environment from Image 1, 2, & 3.
-- STYLE: Editorial fashion photography, shot on Canon EOS R5, 85mm f/1.4.
-- LIGHTING: Precise studio specular highlights, realistic shadow depth from reference.
-- COMPOSITION: Identical framing to reference images, sharp focus on garment texture.
-- QUALITY: Image 1, 2, & 3 are GEOMETRIC and GARMENT MASTERS. Image 4 is IDENTITY SOURCE.
+The ONLY modification: replace the person's face and hairstyle with the person from Image 4.
 
-CLONING DIRECTIVE: The garment must be a 100% pixel-accurate reproduction of Image 1, 2, & 3. Only the face and hairstyle are derived from Image 4.
-${extra ? `ADDITIONAL GUIDANCE: ${extra}` : ''}`;
+Output = Image 1/2/3's clothing (pixel-perfect) + Image 4's face and hair.
+
+${extra ? `Additional note: ${extra}` : ''}
+
+Do NOT reinterpret the clothing. Do NOT generate a "similar" garment. CLONE Image 1/2/3's garment exactly as-is.`;
   };
 
   const buildNegativePrompt = () => [
@@ -151,13 +148,9 @@ ${extra ? `ADDITIONAL GUIDANCE: ${extra}` : ''}`;
     setStatusMessage('正在克隆参考图衣服效果，替换为原图人物...');
 
     try {
-      const maxWidth = resolution === '4K' ? 4096 
-                     : resolution === '2K' ? 2048 
-                     : 1024;
-
       const [sourceImage, refImage] = await Promise.all([
-        compressImage(sourceFile, maxWidth, 0.96),
-        compressImage(refFile, maxWidth, 0.96),
+        compressImage(sourceFile, 2048, 0.96),
+        compressImage(refFile, 2048, 0.96),
       ]);
 
       setStatusMessage('正在生成：保持参考图衣服 + 原图人物脸部...');

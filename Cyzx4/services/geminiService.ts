@@ -494,7 +494,7 @@ export const generateImageToImage = async (
       processedImages.forEach((img: any) => {
         parts.push({
           inlineData: {
-            mimeType: img.mimeType || img.mime || 'image/jpeg',
+            mimeType: img.mimeType || img.mime || 'image/jpeg', // 增加容错：兼容 mime 字段并提供默认值
             data: img.base64,
           },
         });
@@ -508,9 +508,10 @@ export const generateImageToImage = async (
       const isSkeletonWorkflow = workflowHint === 'pose-transfer' && images.length === 3;
       const isGarmentReplacement = workflowHint === 'garment-replacement';
 
-      const systemPrompt = isGarmentReplacement
-        ? hasModelRef
-          ? `
+      const systemPrompt = processedImages.length > 0
+        ? isGarmentReplacement
+          ? hasModelRef
+            ? `
       **ROLE**: Pixel-Perfect Virtual Try-On Director & Identity Cloning Surgeon.
       **MISSION**: Generate ONE photorealistic image that combines these core elements with ZERO deviation:
         1. MODEL: The user-provided model's face, hair, skin tone, and body shape.
@@ -564,7 +565,7 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
             `
-          : `
+            : `
       **ROLE**: Pixel-Perfect Virtual Try-On Specialist.
       **MISSION**: Replace the clothing on the person in Image 1 with the EXACT garment from Image 2, while preserving EVERYTHING else from Image 1 with zero deviation.
 
@@ -612,56 +613,59 @@ export const generateImageToImage = async (
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
       `
-      : isSkeletonWorkflow
-        ? `
-      **ROLE**: Senior AI Pose Migration Expert (Nano Banana Protocol).
-      **TASK**: Absolute Geometric Pose Lock.
-      
-      **INPUT HIERARCHY**:
-      1. Image 1 = **[ABSOLUTE POSE MASTER]** (OpenPose Skeleton). EVERY JOINT IN THE OUTPUT MUST ALIGN 100% WITH THIS SKELETON.
-      2. Image 2 = **[COMPOSITION & FRAMING MASTER]** (Reference Photo). Replicate the camera distance, crop boundaries, and background atmosphere from this image ONLY.
-      3. Image 3 = **[TEXTURE & IDENTITY PALETTE]** (Source Person). Use ONLY for face, hair, and clothing texture.
-      
-      **STRICT CONSTRAINTS**:
-      - **ERASE SOURCE POSE**: Completely discard the posture seen in Image 3. NEVER let Image 3's original pose influence the result.
-      - **SKELETAL OVERRIDE**: Force the person from Image 3 to bend and orient exactly as mapped by the skeleton in Image 1.
-      - **NO CLOTHING DRIFT**: Replicate the garment from Image 3 with pixel-perfect accuracy (color, pattern, fit).
-      
-      **SKILLS INTEGRATION**:
-      - Style: Fashion Editorial photography.
-      - Lighting: Studio three-point lighting.
-      
+        : isSkeletonWorkflow
+          ? `
+      **ROLE**: Senior fashion retoucher and AI processing expert specializing in strict pose transfer using OpenPose skeleton topologies.
+      **TASK**: Re-stage the person and outfit from Image 3 into the EXACT geometric posture mapped by Image 1, matching the real-world framing of Image 2.
+      **INPUT**:
+      - Image 1 = OPENPOSE SKELETON MAP (Absolute master for 2D body joints, limb trajectory, and skeletal alignment)
+      - Image 2 = REFERENCE PHOTOGRAPH (Master for camera distance, crop boundaries, object depth, and subject scale)
+      - Image 3 = IDENTITY / OUTFIT TARGET (Master for face, hair, body proportions, and clothing texture ONLY)
+
+      **NON-NEGOTIABLE RULES**:
+      - **CRITICAL POSTURE LOCK**: You MUST force the body from Image 3 to bend, orient, and align flawlessly with every coloured joint line shown in Image 1's skeleton.
+      - **CRITICAL FRAME LOCK**: Maintain a 1:1 identical visual crop to Image 2. If Image 2 cuts off at the waist, output MUST cut off at the waist.
+      - Treat Image 3 exclusively as a texture palette. **IGNORE Image 3's pose completely.** Never output the posture seen in Image 3.
+      - Never copy Image 2's outfit design, fabric details, accessories, bag, background, or lighting into the result.
+      - Do not output a coloured stick figure. Output a photorealistic final image of the person from Image 3, mapped onto the skeleton.
+
+      **CLOTHING INTEGRITY (CRITICAL)**:
+      - Preserve the EXACT clothing from Image 3: same garment color, fabric, texture, pattern, print, and structure.
+      - Preserve HOW the clothing is worn in Image 3 (tucked/untucked, sleeve state, exact hem position relative to waistband).
+      - Maintain all original accessories (necklaces, belts, bags) exactly as they appear in Image 3.
+      - Do NOT inherit ANY clothing or accessories from Image 2.
+
       **USER PROMPT**: ${prompt}
-      
-      **QUALITY (IMAGEN 3.0 PRO)**:
+
+      **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - ${QUALITY_BOOSTERS.REFINEMENT}
+      - Output a single, standalone photorealistic commercial image.
       ${negativePromptLine}
       `
           : workflowHint === 'pose-transfer'
             ? `
-      **ROLE**: Professional Pose Migration Artist (Structural Priority Protocol V2).
-      **MISSION**: Forced redirection of the subject from Image 3 into the EXACT 1:1 spatial pose, stance, and camera orientation of Image 1 & 2.
-      
-      **COMMAND CENTER (INPUTS)**:
-      - **Image 1 & 2 [GEOMETRIC BLUEPRINT]**: The absolute structural master. Defines skeletal alignment, body rotation (Z-axis), limb extension, and leg stance width.
-      - **Image 3 [TEXTURE & PRODUCT SOURCE]**: Provides ONLY the person's identity (face, skin, hair) and the specific garment details (color, fabric, logos).
-      
-      **THE "POSE SWAP" PROTOCOL (NON-NEGOTIABLE)**:
-      1. **GEOMETRIC MIRRORING**: You must mirror the EXACT stance and angle from Image 1 & 2. If the mannequin in Image 1 & 2 is turned 45 degrees, the output person MUST be turned 45 degrees.
-      2. **LEG & ARM LOCK**: Replicate the precise distancing between legs and the specific joints of the arms from Image 1 & 2. ANNIHILATE the pose from Image 3.
-      3. **CAM-GLE ALIGNMENT**: Match the camera height, tilt, and perspective relative to the body exactly as seen in Image 1 & 2.
-      4. **IDENTITY CLONING**: Transfer the face and clothing from Image 3 onto the new skeleton with 100% texture fidelity.
-      
-      **SKILLS INTEGRATION**:
-      - Style: High fashion editorial, sharp separation.
-      - Lighting: Professional 3-point studio setup, matched to the scene.
-      
-      **USER PROMPT**: ${prompt}
-      
-      **QUALITY (IMAGEN 3.0 PRO)**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - ${QUALITY_BOOSTERS.REFINEMENT}
+      **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
+      **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
+      **INPUT**:
+      - Image 1 & 2 = STRICT POSE / ANGLE / FRAMING BLUEPRINT (Duplicated to anchor composition)
+      - Image 3 = IDENTITY / OUTFIT / PRODUCT SOURCE
+
+      **NON-NEGOTIABLE RULES**:
+      - Treat Image 1 and 2 as the absolute masters for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and visual framing.
+      - Treat Image 3 as the master for identity, body proportions, clothing, accessories, product details, tattoos, and skin texture.
+      - NEVER copy Image 1 & 2's outfit design, fabric details, accessories, bag, background, lighting, or skin tone into the result.
+      - **CRITICAL**: Do NOT use the pose or the camera crop of Image 3! Image 3's pose MUST be ignored. You MUST force the body from Image 3 to align with the skeleton and cropping of Image 1 & 2.
+      - If Image 1 & 2 is a close-up crop without hands, the output MUST be a close-up crop without hands.
+      - Abandon Image 3's composition entirely. Only extract its clothing and face.
+
+      **CLOTHING INTEGRITY (CRITICAL)**:
+      - Preserve the EXACT clothing from Image 3: same garment color, fabric, texture, pattern, print, and structure.
+      - Preserve HOW the clothing is worn in Image 3:
+        * If the shirt is TUCKED IN, it MUST stay tucked in the output.
+        * If the shirt hangs LOOSE, it MUST hang loose in the output.
+        * Preserve the exact hem position relative to the waistband.
+        * Preserve sleeve state (rolled up, folded, or natural).
+      ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
       `
             : options.workflowHint === 'clothing-modification'
@@ -686,8 +690,8 @@ export const generateImageToImage = async (
       - Ensure photorealistic fabric textures and seamless integration.
       ${negativePromptLine}
       `
-              : options.workflowHint === 'clothing-effect'
-                ? `
+            : options.workflowHint === 'clothing-effect'
+              ? `
       **ROLE**: High-end Fashion Photography Retoucher.
       **TASK**: Enhance the appearance of clothing and its interaction with the model's body.
       
@@ -703,8 +707,8 @@ export const generateImageToImage = async (
       - Prioritize fabric realism and lighting accuracy.
       ${negativePromptLine}
       `
-                : options.workflowHint === 'strict-geometry-lock'
-                  ? `
+              : options.workflowHint === 'strict-geometry-lock'
+                ? `
       **ROLE**: Senior E-commerce Retoucher and Geometry-Lock Specialist.
       **TASK**: High-fidelity product retouching on a pure white background without ANY structural changes.
       **INPUT**:
@@ -726,8 +730,8 @@ export const generateImageToImage = async (
       - Maintain commercial product photography standards.
       ${negativePromptLine}
       `
-                  : options.workflowHint === 'scene-product-lock'
-                    ? `
+                : options.workflowHint === 'scene-product-lock'
+                  ? `
       **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
       **TASK**: Place the reference product into a realistic lifestyle scene without changing the product itself.
       **INPUT**:
@@ -751,8 +755,8 @@ export const generateImageToImage = async (
       - Keep the final result photorealistic, premium, and commercially usable for Amazon-style ecommerce.
       ${negativePromptLine}
       `
-                    : options.workflowHint === 'magic-mannequin'
-                      ? `
+                  : options.workflowHint === 'magic-mannequin'
+                    ? `
       **ROLE**: Professional 3D Mannequin & Sculptural Artist.
       **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin based on the style and pose of Image 2.
       
@@ -779,11 +783,10 @@ export const generateImageToImage = async (
       **OUTPUT**: A single, clean, faceless 3D mannequin render with no features or clothing.
       ${negativePromptLine}
       `
-                      : processedImages.length > 0
-                        ? `
+                    : `
       **ROLE**: Professional Image Generation Artist.
       **TASK**: Image-to-Image Generation (Scene Fusion).
-      **INPUT**: ${processedImages.length} Reference Image(s).
+      **INPUT**: ${images.length} Reference Image(s).
       
       **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
       
@@ -796,7 +799,7 @@ export const generateImageToImage = async (
       - Preserve fine details: textures, material quality, lighting accuracy.
       ${negativePromptLine}
       `
-                        : `
+        : `
       **ROLE**: Professional Image Generation Artist.
       **TASK**: Text-to-Image Generation.
       
@@ -844,11 +847,8 @@ export const generateImageToImage = async (
           contents: { parts: parts },
           config: {
             imageConfig: {
-              ...(options.aspectRatio && { aspectRatio: options.aspectRatio }),
-              imageSize: (options.resolution === ImageResolution.RES_4K ? "4096" 
-                : options.resolution === ImageResolution.RES_2K ? "2048" 
-                : options.resolution === ImageResolution.RES_05K ? "512" 
-                : "1024") as any,
+              aspectRatio: options.aspectRatio || "1:1",
+              imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
             },
           },
         }),
@@ -1036,11 +1036,8 @@ export const generateInpainting = async (
           contents: { parts: parts },
           config: {
             imageConfig: {
-              ...(options.aspectRatio && { aspectRatio: options.aspectRatio }),
-              imageSize: (options.resolution === ImageResolution.RES_4K ? 4096 
-                : options.resolution === ImageResolution.RES_2K ? 2048 
-                : options.resolution === ImageResolution.RES_05K ? 512 
-                : 1024) as any,
+              aspectRatio: options.aspectRatio || "1:1",
+              imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
             },
           },
         }),

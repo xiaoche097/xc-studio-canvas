@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
-import { AspectRatio, ImageResolution } from '../Cyzx4/types';
+import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 
@@ -24,7 +24,7 @@ const ModelAdjustTabV2: React.FC = () => {
   const [poseRefUrl, setPoseRefUrl] = useState<string | null>(null);
   const [poseGuidance, setPoseGuidance] = useState('');
   const [transferScope, setTransferScope] = useState<TransferScope>('upper-body');
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
   const [outputAspectRatio, setOutputAspectRatio] = useState<PoseTransferAspectRatio>(AspectRatio.PORTRAIT_3_4);
   const [isPoseGenerating, setIsPoseGenerating] = useState(false);
   const [poseStatusMessage, setPoseStatusMessage] = useState('');
@@ -33,7 +33,6 @@ const ModelAdjustTabV2: React.FC = () => {
   const [isExtractingSkeleton, setIsExtractingSkeleton] = useState(false);
   const [poseSkeletonFile, setPoseSkeletonFile] = useState<File | null>(null);
   const [poseSkeletonUrl, setPoseSkeletonUrl] = useState<string | null>(null);
-  const [modelId, setModelId] = useState<string>('gemini-3-pro-image-preview'); // Default to Pro
 
   const resetResult = () => {
     setPoseResultImage(null);
@@ -142,24 +141,25 @@ const ModelAdjustTabV2: React.FC = () => {
 
   const buildPoseTransferPrompt = (userGuidance: string, scope: TransferScope) => {
     const guidance = userGuidance.trim();
-    const scopeLevel = scope === 'upper-body' ? 'Upper-body medium shot' : 'Full-body wide shot';
-    const scopeConstraint = scope === 'upper-body'
-      ? 'Focus on upper body geometry. Maintain exact shoulder height, head tilt, and arm articulation from reference.'
-      : 'Focus on full body geometry. Maintain exact stance, leg placement, and foot orientation from reference.';
+    const scopeRule = scope === 'upper-body'
+      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate the pose reference\'s upper-body framing, arm angles, and crop distance.'
+      : 'Focus on the FULL BODY. The output must perfectly duplicate the pose reference\'s full-body stance, leg position, and subject distance.';
 
-    return `[NANO BANANA - GEOMETRIC POSE LOCK]
+    return `[STRICT POSE TRANSFER TASK]
+Take the person, clothes, and identity from the Clothing Source image and FORCE them into the exact skeleton and camera crop of the Pose Reference image.
 
-- SUBJECT: Professional model from Image 3.
-- ACTION: Adopt the EXACT skeletal pose, body rotation, and joint alignment of Image 1 & 2.
-- ENVIRONMENT: Clean studio background matching Image 1 & 2.
-- STYLE: Commercial Fashion Editorial, shot on Canon EOS R5.
-- LIGHTING: Studio 3-point lighting, sharp focus, 85mm f/1.4 lens separation.
-- COMPOSITION: ${scopeLevel}, matching reference framing and crop 1:1.
-- QUALITY: Image 1 & 2 is the GEOMETRIC BLUEPRINT. Image 3 is the TEXTURE SOURCE for identity and clothing.
+CRITICAL FAILURE CONDITIONS:
+- Do NOT output the same arm/hand pose as the Clothing Source image.
+- Do NOT output the same zoom/crop as the Clothing Source image.
+- If the Clothing Source has hands in pockets, but the Pose Reference does not, you MUST NOT draw hands in pockets.
 
-CONSTRAINT: Discard all original pose data from Image 3. Reconstruct everything using Image 1 & 2's structure.
-${scopeConstraint}
-${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
+MANDATORY SUCCESS CONDITIONS:
+- You MUST abandon the Clothing Source image's posture and framing completely.
+- You MUST replicate the Pose Reference image's shoulder slope, arm angles, body rotation, and crop distance 1:1.
+- ${scopeRule}
+
+USER INSTRUCTION:
+${guidance || 'Preserve clothing exactly. Force the pose and framing to match the pose reference exactly.'}`;
   };
 
   const buildPoseTransferNegativePrompt = (scope: TransferScope) => [
@@ -228,11 +228,6 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
-
-      const maxWidth = resolution === ImageResolution.RES_4K ? 4096 
-                     : resolution === ImageResolution.RES_2K ? 2048 
-                     : resolution === ImageResolution.RES_05K ? 512 
-                     : 1024;
 
       pose.onResults((results: any) => {
         const ctx = canvas.getContext('2d');
@@ -353,13 +348,8 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
     setPoseStatusMessage('正在锁定图1人物与服装，并按图2重建姿势、朝向与构图...');
 
     try {
-      const maxWidth = resolution === ImageResolution.RES_4K ? 4096 
-                     : resolution === ImageResolution.RES_2K ? 2048 
-                     : resolution === ImageResolution.RES_05K ? 512 
-                     : 1024;
-
-      const sourceImage = await compressImage(poseSourceFile, maxWidth, 0.96);
-      const refImage = await compressImage(poseRefFile, maxWidth, 0.96);
+      const sourceImage = await compressImage(poseSourceFile, 2048, 0.96);
+      const refImage = await compressImage(poseRefFile, 2048, 0.96);
 
       const prompt = buildPoseTransferPrompt(poseGuidance, transferScope);
       const negativePrompt = buildPoseTransferNegativePrompt(transferScope);
@@ -367,7 +357,7 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
       const inputImages = [];
       if (poseSkeletonFile) {
         // We have a skeleton extracted! Pass BOTH: Skeleton and Original
-        const skeletonImage = await compressImage(poseSkeletonFile, maxWidth, 0.96);
+        const skeletonImage = await compressImage(poseSkeletonFile, 2048, 0.96);
         inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
       }
       // Just the original reference image
@@ -392,7 +382,7 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
             {
               aspectRatio: outputAspectRatio,
               resolution: resolution as any,
-              modelId: modelId, // Use selected model
+              modelId,
               negativePrompt,
               workflowHint: 'pose-transfer',
             }
@@ -611,47 +601,17 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
             </div>
           </div>
 
-          {/* 图像模型选择 */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-pastel-highlight"></span>
-              图像模型选择
-            </h3>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { value: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', sub: '3.1 Flash (极速)' },
-                { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', sub: '3.0 Pro (推荐)' },
-              ].map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => setModelId(m.value)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all gap-1.5 ${modelId === m.value
-                    ? 'bg-purple-50 border-purple-200 text-purple-700 shadow-sm'
-                    : 'bg-white border-pastel-border text-pastel-text hover:border-pastel-highlight/40'
-                    }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Zap className={`w-3 h-3 ${modelId === m.value ? 'text-purple-500' : 'text-orange-400'}`} />
-                    <span className="text-xs font-black tracking-tight">{m.label}</span>
-                  </div>
-                  <span className="text-[9px] opacity-60 font-medium">{m.sub}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* 细节设置 */}
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
               <h3 className="text-xs font-bold text-pastel-muted mb-2">生成画质</h3>
               <select
                 value={resolution}
-                onChange={(e) => setResolution(e.target.value as ImageResolution)}
+                onChange={(e) => setResolution(e.target.value as '2K' | '4K')}
                 className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-3 text-xs font-bold focus:ring-2 focus:ring-pastel-highlight/20 outline-none transition-all"
               >
-                <option value={ImageResolution.RES_2K}>2K (默认高清)</option>
-                <option value={ImageResolution.RES_4K}>4K (细节丰富)</option>
+                <option value="2K">2K (默认高清)</option>
+                <option value="4K">4K (细节丰富)</option>
               </select>
             </div>
             <div className="space-y-2">
