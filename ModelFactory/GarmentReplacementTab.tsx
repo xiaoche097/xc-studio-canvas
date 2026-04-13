@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone } from 'lucide-react';
+import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone, Cpu } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage, analyzeVtonMaterials } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -11,6 +11,23 @@ type ResultItem = {
   status: 'pending' | 'generating' | 'done' | 'error';
   error?: string;
 };
+
+// 自定义香蕉图标组件（复用）
+const BananaIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ color: '#fbbf24' }}
+  >
+    <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+    <path d="M15 3s-1.5 1-2 3" />
+  </svg>
+);
 
 type PreviewState = {
   src: string;
@@ -46,6 +63,7 @@ const GarmentReplacementTab: React.FC = () => {
 
   // Preview modal
   const [preview, setPreview] = useState<PreviewState>(null);
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
   const MAX_TARGETS = 10;
 
@@ -282,7 +300,7 @@ const GarmentReplacementTab: React.FC = () => {
           }
 
           let lastError: any = null;
-          const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
+          const fallbackModels = [selectedModel, selectedModel === 'gemini-3.1-flash-image-preview' ? 'gemini-3-pro-image-preview' : 'gemini-3.1-flash-image-preview'] as const;
           let result: string[] = [];
 
           for (const modelId of fallbackModels) {
@@ -582,6 +600,46 @@ const GarmentReplacementTab: React.FC = () => {
                   <span className="text-[9px] opacity-60">{item.desc}</span>
                 </button>
               ))}
+            </div>
+            {/* 图像模型选择 */}
+            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+              <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                    ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                    : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <BananaIcon className="w-3.5 h-3.5" />
+                    <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Nano Banana 2
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-pastel-muted">3.1 Flash</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                    ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                    : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <BananaIcon className="w-3.5 h-3.5" />
+                    <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Nano Banana Pro
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-pastel-muted">3.0 Pro</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

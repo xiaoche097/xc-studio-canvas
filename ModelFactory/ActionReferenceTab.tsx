@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Move, CheckCircle2, AlertCircle, Images } from 'lucide-react';
+import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Move, CheckCircle2, AlertCircle, Images, Cpu } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -11,6 +11,23 @@ type ResultItem = {
   status: 'pending' | 'generating' | 'done' | 'error';
   error?: string;
 };
+
+// 自定义香蕉图标组件（复用）
+const BananaIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ color: '#fbbf24' }}
+  >
+    <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+    <path d="M15 3s-1.5 1-2 3" />
+  </svg>
+);
 
 type PreviewState = {
   src: string;
@@ -43,6 +60,7 @@ const ActionReferenceTab: React.FC = () => {
 
   // Preview modal
   const [preview, setPreview] = useState<PreviewState>(null);
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
   const MAX_REFS = 10;
 
@@ -364,8 +382,7 @@ TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in $
     try {
       // Compress model image once
       const modelImage = await compressImage(modelFile, 2048, 0.96);
-
-      const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
+      const fallbackModels = [selectedModel, selectedModel === 'gemini-3.1-flash-image-preview' ? 'gemini-3-pro-image-preview' : 'gemini-3.1-flash-image-preview'] as const;
 
       // Generate all in parallel
       await Promise.all(refFiles.map(async (refFile, index) => {

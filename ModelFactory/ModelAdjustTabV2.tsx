@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
+import { Activity, Cpu, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap } from 'lucide-react';
 import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -10,6 +10,23 @@ type PoseTransferAspectRatio =
   | AspectRatio.PORTRAIT_9_16
   | AspectRatio.PORTRAIT_3_4
   | AspectRatio.SQUARE;
+
+// 自定义香蕉图标组件（复用）
+const BananaIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ color: '#fbbf24' }}
+  >
+    <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+    <path d="M15 3s-1.5 1-2 3" />
+  </svg>
+);
 
 type PreviewState = {
   src: string;
@@ -33,6 +50,7 @@ const ModelAdjustTabV2: React.FC = () => {
   const [isExtractingSkeleton, setIsExtractingSkeleton] = useState(false);
   const [poseSkeletonFile, setPoseSkeletonFile] = useState<File | null>(null);
   const [poseSkeletonUrl, setPoseSkeletonUrl] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
   const resetResult = () => {
     setPoseResultImage(null);
@@ -365,7 +383,9 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
       
       // Source is always appended last
       inputImages.push({ base64: sourceImage.base64, mimeType: sourceImage.mime });
-      const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
+      
+      // 使用选择的模型，如果失败则回放
+      const fallbackModels = [selectedModel, selectedModel === 'gemini-3.1-flash-image-preview' ? 'gemini-3-pro-image-preview' : 'gemini-3.1-flash-image-preview'] as const;
 
       let result: string[] = [];
       let lastError: any = null;
@@ -623,6 +643,47 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
                 placeholder="例如：保持笑容，或者特别说明手势细节..."
                 className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
               />
+            </div>
+
+            {/* 图像模型选择 */}
+            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+              <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                    ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                    : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <BananaIcon className="w-3.5 h-3.5" />
+                    <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Nano Banana 2
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                    ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                    : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <BananaIcon className="w-3.5 h-3.5" />
+                    <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Nano Banana Pro
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-pastel-muted">3.0 Pro (推荐)</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
