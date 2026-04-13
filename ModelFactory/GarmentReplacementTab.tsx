@@ -166,7 +166,12 @@ const GarmentReplacementTab: React.FC = () => {
   /**
    * Prepares an image for API parsing (compresses it to a max of 2048px width without destroying multi-view formats).
    */
-  const smartCrop = async (file: File): Promise<{ base64: string; mimeType: string; displayUrl: string }> => {
+  const smartCrop = async (file: File, targetRes: ImageResolution = ImageResolution.RES_2K): Promise<{ base64: string; mimeType: string; displayUrl: string }> => {
+    const maxWidth = targetRes === ImageResolution.RES_4K ? 4096 
+                   : targetRes === ImageResolution.RES_2K ? 2048 
+                   : targetRes === ImageResolution.RES_05K ? 512 
+                   : 1024;
+
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -177,7 +182,7 @@ const GarmentReplacementTab: React.FC = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            compressImage(file).then(res => resolve({ 
+            compressImage(file, maxWidth).then(res => resolve({ 
               base64: res.base64, 
               mimeType: res.mime, 
               displayUrl: URL.createObjectURL(file) 
@@ -187,7 +192,7 @@ const GarmentReplacementTab: React.FC = () => {
 
           let sourceWidth = img.width;
 
-          canvas.width = Math.min(sourceWidth, 2048);
+          canvas.width = Math.min(sourceWidth, maxWidth);
           canvas.height = Math.round((img.height * canvas.width) / sourceWidth);
 
           ctx.fillStyle = '#FFFFFF';
@@ -197,12 +202,26 @@ const GarmentReplacementTab: React.FC = () => {
           const base64Url = canvas.toDataURL('image/jpeg', 0.95);
           resolve({ 
             base64: base64Url.split(',')[1], 
-            mimeType: 'image/jpeg', // 更改：从 mime 改为 mimeType 以保持一致
+            mimeType: 'image/jpeg',
             displayUrl: base64Url
           });
         };
       };
     });
+  };
+
+  const buildGarmentReplacementPrompt = () => {
+    return `[NANO BANANA - PREMIUM VTON CORE]
+
+- SUBJECT: A professionally styled person wearing the core garment from the reference.
+- ACTION: Maintain the pose and interaction from the target scene precisely.
+- ENVIRONMENT: Natural background from the target scene, preserving lighting and shadows.
+- STYLE: American lifestyle photography, commercial e-commerce quality.
+- LIGHTING: Shot on Canon EOS R5, 85mm f/1.4 lens, professional color grading.
+- COMPOSITION: Sharp focus on the garment, realistic fabric drape and folds.
+- QUALITY: High resolution, RAW photo quality, ultra-detailed textures.
+
+CONSTRAINT: Replace ONLY the clothing. Maintain the target person's identity and posture 1:1. Render the new garment with advanced physical fabric logic matching the reference material.`;
   };
 
   // ---- Generators ----
@@ -231,12 +250,17 @@ const GarmentReplacementTab: React.FC = () => {
       // PHASE 1: Material Analysis (Dual-Agent VTON)
       setStatusMessage('正在深度分析素材特征 (1/2)...');
       
-      const coreImg = await smartCrop(coreGarmentFile);
+      const maxWidth = resolution === ImageResolution.RES_4K ? 4096 
+                     : resolution === ImageResolution.RES_2K ? 2048 
+                     : resolution === ImageResolution.RES_05K ? 512 
+                     : 1024;
+
+      const coreImg = await smartCrop(coreGarmentFile, resolution);
       let pairingImg: { base64: string; mimeType: string } | null = null;
-      if (pairingFile) pairingImg = await smartCrop(pairingFile);
+      if (pairingFile) pairingImg = await smartCrop(pairingFile, resolution);
       
       let processedModelRef: { base64: string; mimeType: string; displayUrl: string } | null = null;
-      if (modelRefFile) processedModelRef = await smartCrop(modelRefFile);
+      if (modelRefFile) processedModelRef = await smartCrop(modelRefFile, resolution);
 
       // Analyze Global Reference (Identity + Garment) - Cache it
       const globalRefs = [];
@@ -251,7 +275,7 @@ const GarmentReplacementTab: React.FC = () => {
         try {
           setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating' } : r));
 
-          const targetImg = await compressImage(targetFile, 2048, 0.96);
+          const targetImg = await compressImage(targetFile, maxWidth, 0.96);
           
           // Per-target Scene Analysis
           const targetReport = await analyzeVtonMaterials([{ base64: targetImg.base64, mimeType: targetImg.mime }], { type: 'target' });
@@ -289,7 +313,7 @@ const GarmentReplacementTab: React.FC = () => {
             try {
               result = await generateImageToImage(
                 inputImages,
-                '', 
+                buildGarmentReplacementPrompt(), 
                 {
                   modelId,
                   aspectRatio: outputAspectRatio,

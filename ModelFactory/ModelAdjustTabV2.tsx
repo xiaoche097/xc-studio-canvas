@@ -141,25 +141,24 @@ const ModelAdjustTabV2: React.FC = () => {
 
   const buildPoseTransferPrompt = (userGuidance: string, scope: TransferScope) => {
     const guidance = userGuidance.trim();
-    const scopeRule = scope === 'upper-body'
-      ? 'Focus strictly on the UPPER BODY. The output must perfectly duplicate the pose reference\'s upper-body framing, arm angles, and crop distance.'
-      : 'Focus on the FULL BODY. The output must perfectly duplicate the pose reference\'s full-body stance, leg position, and subject distance.';
+    const scopeLevel = scope === 'upper-body' ? 'Upper-body medium shot' : 'Full-body wide shot';
+    const scopeConstraint = scope === 'upper-body'
+      ? 'Focus on upper body geometry. Maintain exact shoulder height, head tilt, and arm articulation from reference.'
+      : 'Focus on full body geometry. Maintain exact stance, leg placement, and foot orientation from reference.';
 
-    return `[STRICT POSE TRANSFER TASK]
-Take the person, clothes, and identity from the Clothing Source image and FORCE them into the exact skeleton and camera crop of the Pose Reference image.
+    return `[NANO BANANA - GEOMETRIC POSE LOCK]
 
-CRITICAL FAILURE CONDITIONS:
-- Do NOT output the same arm/hand pose as the Clothing Source image.
-- Do NOT output the same zoom/crop as the Clothing Source image.
-- If the Clothing Source has hands in pockets, but the Pose Reference does not, you MUST NOT draw hands in pockets.
+- SUBJECT: Professional model from Image 3.
+- ACTION: Adopt the EXACT skeletal pose, body rotation, and joint alignment of Image 1 & 2.
+- ENVIRONMENT: Clean studio background matching Image 1 & 2.
+- STYLE: Commercial Fashion Editorial, shot on Canon EOS R5.
+- LIGHTING: Studio 3-point lighting, sharp focus, 85mm f/1.4 lens separation.
+- COMPOSITION: ${scopeLevel}, matching reference framing and crop 1:1.
+- QUALITY: Image 1 & 2 is the GEOMETRIC BLUEPRINT. Image 3 is the TEXTURE SOURCE for identity and clothing.
 
-MANDATORY SUCCESS CONDITIONS:
-- You MUST abandon the Clothing Source image's posture and framing completely.
-- You MUST replicate the Pose Reference image's shoulder slope, arm angles, body rotation, and crop distance 1:1.
-- ${scopeRule}
-
-USER INSTRUCTION:
-${guidance || 'Preserve clothing exactly. Force the pose and framing to match the pose reference exactly.'}`;
+CONSTRAINT: Discard all original pose data from Image 3. Reconstruct everything using Image 1 & 2's structure.
+${scopeConstraint}
+${guidance ? `USER GUIDANCE: ${guidance}` : ''}`;
   };
 
   const buildPoseTransferNegativePrompt = (scope: TransferScope) => [
@@ -228,6 +227,16 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
+
+      const maxWidth = resolution === ImageResolution.RES_4K ? 4096 
+                     : resolution === ImageResolution.RES_2K ? 2048 
+                     : resolution === ImageResolution.RES_05K ? 512 
+                     : 1024;
+
+      const [referenceImg, identityImg] = await Promise.all([
+        compressImage(refFile, maxWidth, 0.96),
+        compressImage(sourceFile, maxWidth, 0.96)
+      ]);
 
       pose.onResults((results: any) => {
         const ctx = canvas.getContext('2d');
@@ -348,8 +357,13 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
     setPoseStatusMessage('正在锁定图1人物与服装，并按图2重建姿势、朝向与构图...');
 
     try {
-      const sourceImage = await compressImage(poseSourceFile, 2048, 0.96);
-      const refImage = await compressImage(poseRefFile, 2048, 0.96);
+      const maxWidth = resolution === ImageResolution.RES_4K ? 4096 
+                     : resolution === ImageResolution.RES_2K ? 2048 
+                     : resolution === ImageResolution.RES_05K ? 512 
+                     : 1024;
+
+      const sourceImage = await compressImage(poseSourceFile, maxWidth, 0.96);
+      const refImage = await compressImage(poseRefFile, maxWidth, 0.96);
 
       const prompt = buildPoseTransferPrompt(poseGuidance, transferScope);
       const negativePrompt = buildPoseTransferNegativePrompt(transferScope);
@@ -357,7 +371,7 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
       const inputImages = [];
       if (poseSkeletonFile) {
         // We have a skeleton extracted! Pass BOTH: Skeleton and Original
-        const skeletonImage = await compressImage(poseSkeletonFile, 2048, 0.96);
+        const skeletonImage = await compressImage(poseSkeletonFile, maxWidth, 0.96);
         inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
       }
       // Just the original reference image

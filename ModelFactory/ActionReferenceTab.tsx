@@ -155,31 +155,27 @@ const ActionReferenceTab: React.FC = () => {
 
   // ---- Prompt engineering ----
   const buildPrompt = (hasSkeleton: boolean) => {
-    const blueprintIndices = hasSkeleton ? "Image 1 & 2" : "Image 1";
-    const identityIndex = hasSkeleton ? "Image 3" : "Image 2";
+    // When hasSkeleton is false, service duplicates the first image, shifting identity to Image 3.
+    // When hasSkeleton is true, inputs are [Skeleton, Pose, Identity], Identity is already Image 3.
+    const blueprintIndices = hasSkeleton ? "Image 1 & 2" : "Image 1 & 2";
+    const identityIndex = "Image 3";
 
-    return `[STRICT POSE SWAP PROTOCOL]
-
-TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in ${blueprintIndices}.
-
-=== MASTER GEOMETRY (${blueprintIndices}) ===
-- Use ONLY the pose, body angle, and framing of ${blueprintIndices}.
-- REPLICATE arm positions, hand placement, and leg stance 1:1 from ${blueprintIndices}.
-
-=== TEXTURE SOURCE (${identityIndex}) ===
-- Use ONLY the face and clothing textures from ${identityIndex}.
-- IGNORE ALL GEOMETRY from ${identityIndex}. 
-
-=== FAILURE CONDITION ===
-- If the output person is standing in the same pose as ${identityIndex} (e.g. hand on hip), the task has FAILED.
-- If the output person is NOT in the exact orientation of ${blueprintIndices}, the task has FAILED.`;
+    return `[NANO BANANA - STRUCTURAL PRIORITY PROTOCOL V2]
+ 
+- SUBJECT: Photorealistic commercial model from ${identityIndex}.
+- ACTION: FORCE REPLICATE the exact spatial body rotation, joint angles, and limb extension of ${blueprintIndices}.
+- STANCE: Mirror the precise leg placement, foot orientation, and weight distribution from ${blueprintIndices}.
+- ORIENTATION LOCK: 100% adherence to the subject's angle and perspective in ${blueprintIndices} (Side/3/4/Front).
+- STYLE: Fashion Editorial, shot on Canon EOS R5, 85mm f/1.4.
+- QUALITY: ${blueprintIndices} is the ABSOLUTE GEOMETRIC MASTER. ${identityIndex} provides ONLY face and clothing texture.
+- CONSTRAINT: ANNIHILATE all original posture data from ${identityIndex}. Zero-tolerance for pose drift.`;
   };
 
   const buildNegativePrompt = () => [
-    'hand on hip', 'hand on waist', 'holding hip', 'same arm position as source',
-    'front-facing pose (unless in blueprint)', 'keeping original pose', 'same legs as source',
-    'identity source pose', 'ignoring blueprint orientation', 'wrong body angle',
-    'standard studio pose', 'extra limbs', 'mannequin head on human body'
+    'frontal pose (unless in blueprint)', 'wrong body rotation', 'unaligned camera angle',
+    'pose drift', 'mixed posture', 'identity source pose leakage', 'wrong stance',
+    'different leg placement', 'same arm position as source', 'hand position drift',
+    'standard generic studio pose', 'extra limbs', 'poor anatomy', 'asymmetric eyes'
   ].join(', ');
 
   const handleExtractAllSkeletons = async () => {
@@ -362,8 +358,13 @@ TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in $
     setResults(initialResults);
 
     try {
+      const maxWidth = resolution === ImageResolution.RES_4K ? 4096 
+                     : resolution === ImageResolution.RES_2K ? 2048 
+                     : resolution === ImageResolution.RES_05K ? 512 
+                     : 1024;
+
       // Compress model image once
-      const modelImage = await compressImage(modelFile, 2048, 0.96);
+      const modelImage = await compressImage(modelFile, maxWidth, 0.96);
 
       const fallbackModels = ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] as const;
 
@@ -374,11 +375,11 @@ TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in $
 
           try {
             const hasSkeleton = !!skeletonFiles[index];
-            const refImage = await compressImage(refFile, 2048, 0.96);
+            const refImage = await compressImage(refFile, maxWidth, 0.96);
 
             const inputImages = [];
             if (hasSkeleton) {
-              const skeletonImage = await compressImage(skeletonFiles[index]!, 2048, 0.96);
+              const skeletonImage = await compressImage(skeletonFiles[index]!, maxWidth, 0.96);
               inputImages.push({ base64: skeletonImage.base64, mimeType: skeletonImage.mime });
             }
             inputImages.push({ base64: refImage.base64, mimeType: refImage.mime });
