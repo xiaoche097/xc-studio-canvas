@@ -3,6 +3,7 @@ import { Activity, Cpu, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap }
 import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 
 type TransferScope = 'upper-body' | 'full-body';
 type PoseTransferAspectRatio =
@@ -140,6 +141,25 @@ const ModelAdjustTabV2: React.FC = () => {
     setPoseSkeletonUrl(null);
     resetResult();
   };
+
+  // 绑定剪贴板粘贴事件
+  useImagePaste((files) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    // 如果姿态源图为空，则设为姿态源图
+    if (!poseSourceUrl) {
+      setSourceFromFile(file);
+    }
+    // 否则如果参考图为空，则设为参考图
+    else if (!poseRefUrl) {
+      setReferenceFromFile(file);
+    }
+    // 否则默认替换姿态源图
+    else {
+      setSourceFromFile(file);
+    }
+  });
 
   const openPreview = (src: string | null, title: string, subtitle?: string) => {
     if (!src) {

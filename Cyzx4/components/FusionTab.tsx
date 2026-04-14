@@ -7,6 +7,7 @@ import { storageService } from '../../services/storageService';
 import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 interface EditPoint {
   id: number;
@@ -229,6 +230,12 @@ const FusionTab: React.FC = () => {
       addFiles(files);
     }
   };
+
+  // 绑定剪贴板粘贴事件
+  useImagePaste(async (files) => {
+    const compressed = await compressImageFiles(files);
+    addFiles(compressed);
+  });
 
   const addFiles = (files: File[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));

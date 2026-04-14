@@ -11,6 +11,7 @@ import {
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { AspectRatio, ImageResolution } from '../types';
+import { useImagePaste } from '../hooks/useImagePaste';
 import {
   Sparkles,
   Upload,
@@ -220,6 +221,10 @@ const SceneGenerationTab: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     addFiles(Array.from(e.target.files || []));
   };
+
+  useImagePaste((files) => {
+    addFiles(files);
+  });
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();

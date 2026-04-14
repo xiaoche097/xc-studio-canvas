@@ -38,6 +38,7 @@ const BananaIcon = ({ className }: { className?: string }) => (
 );
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 type TabMode = 'single' | 'batch';
 
@@ -128,6 +129,54 @@ const StyleReplicateTab: React.FC = () => {
         }
         setError(null);
     }, [tabMode, styleReferences]);
+
+    // 辅助函数：处理文件并添加到状态
+    const processFiles = useCallback(async (files: File[]) => {
+        const newImages: UploadedImage[] = [];
+        for (const file of files) {
+            const preview = URL.createObjectURL(file);
+            const compressed = await compressImage(file);
+            newImages.push({
+                file,
+                preview,
+                base64: compressed.base64,
+                mime: compressed.mime,
+            });
+        }
+        return newImages;
+    }, []);
+
+    // 绑定剪贴板粘贴事件
+    useImagePaste(async (files) => {
+        if (files.length === 0) return;
+
+        // 如果风格参考为空，则加入风格参考
+        if (styleReferences.length === 0) {
+            const processed = await processFiles(tabMode === 'single' ? [files[0]] : files.slice(0, 12));
+            setStyleReferences(processed);
+        }
+        // 否则如果产品图为空，则加入产品图
+        else if (productImages.length === 0) {
+            const processed = await processFiles(files);
+            setProductImages(processed);
+        }
+        // 否则默认加入风格参考（追加或替换，根据模式）
+        else {
+            const maxAllowed = tabMode === 'single' ? 1 : 12;
+            const currentCount = tabMode === 'single' ? 0 : styleReferences.length;
+            const remaining = maxAllowed - currentCount;
+            if (remaining <= 0 && tabMode === 'batch') return;
+
+            const filesToProcess = tabMode === 'single' ? [files[0]] : files.slice(0, remaining);
+            const processed = await processFiles(filesToProcess);
+
+            if (tabMode === 'single') {
+                setStyleReferences(processed);
+            } else {
+                setStyleReferences(prev => [...prev, ...processed]);
+            }
+        }
+    });
 
     // Remove style reference
     const removeStyleReference = (index: number) => {

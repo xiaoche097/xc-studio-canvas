@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { generateListingCopy, blobToBase64 } from '../services/geminiService';
 import { FileText, Upload, Copy, Check, Loader2, ShoppingBag, Video, Instagram, AlertCircle, Key } from 'lucide-react';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 type Platform = 'Amazon' | 'TikTok' | 'Instagram';
 
@@ -13,7 +14,6 @@ const ListingTab: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -23,6 +23,17 @@ const ListingTab: React.FC = () => {
       setError(null);
     }
   };
+
+  useImagePaste((files) => {
+    if (files.length > 0) {
+      const file = files[0];
+      if (!file.type.startsWith('image/')) return;
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      setGeneratedCopy('');
+      setError(null);
+    }
+  });
 
   const handleGenerate = async () => {
     if (!selectedFile) return;

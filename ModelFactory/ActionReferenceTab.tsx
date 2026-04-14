@@ -3,6 +3,7 @@ import { Activity, Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Move,
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 
 type ResultItem = {
   refIndex: number;
@@ -91,6 +92,21 @@ const ActionReferenceTab: React.FC = () => {
     setModelUrl(null);
     setResults([]);
   };
+
+  // 绑定剪贴板粘贴事件
+  useImagePaste((files) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    // 如果模特主图为空，则设为模特主图
+    if (!modelUrl) {
+      setModelFromFile(file);
+    }
+    // 否则全部作为动作参考图
+    else {
+      addRefFiles(files);
+    }
+  });
 
   // ---- Reference images handlers ----
   const addRefFiles = (files: File[]) => {

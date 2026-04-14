@@ -35,6 +35,7 @@ const BananaIcon = ({ className }: { className?: string }) => (
 );
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 // ==================== CoT Steps ====================
 const SWAP_COT_STEPS = [
@@ -139,6 +140,21 @@ const ProductSwapTab: React.FC = () => {
     const removeProductImage = (index: number) => {
         setProductImages(prev => prev.filter((_, i) => i !== index));
     };
+
+    // 绑定剪贴板粘贴事件
+    useImagePaste(async (files) => {
+        const file = files[0];
+        if (!file || !file.type.startsWith('image/')) return;
+
+        // 如果场景图为空，则设为场景图
+        if (!sceneImage) {
+            handleSceneUpload([file]);
+        }
+        // 否则全部作为产品图
+        else {
+            handleProductUpload(files);
+        }
+    });
 
     // ==================== Drag & Drop ====================
     const handleDrop = async (e: React.DragEvent, type: 'scene' | 'product') => {

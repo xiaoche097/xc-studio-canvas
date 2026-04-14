@@ -3,6 +3,8 @@ import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage, analyzeVtonMaterials } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+// Removed broken smartCrop import
 
 type ResultItem = {
   refIndex: number;
@@ -119,14 +121,7 @@ const GarmentReplacementTab: React.FC = () => {
     const initialUrl = URL.createObjectURL(file);
     setModelRefUrl(initialUrl);
     
-    // Smart Crop immediately for UI feedback and processing
-    try {
-      const cropped = await smartCrop(file);
-      if (initialUrl) URL.revokeObjectURL(initialUrl);
-      setModelRefUrl(cropped.displayUrl); // Update preview to show what AI sees
-    } catch (e) {
-      console.error("Smart crop preview failed", e);
-    }
+    setModelRefUrl(initialUrl);
     
     setResults([]);
   };
@@ -143,6 +138,29 @@ const GarmentReplacementTab: React.FC = () => {
     setModelRefUrl(null);
     setResults([]);
   };
+
+  // 绑定剪贴板粘贴事件
+  useImagePaste((files) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    // 优先级 1: 主体商品 (Core Garment)
+    if (!coreGarmentUrl) {
+      setCoreFromFile(file);
+    }
+    // 优先级 2: 模特参考 (Identity Ref)
+    else if (!modelRefUrl) {
+      setModelRefFromFile(file);
+    }
+    // 优先级 3: 搭配商品 (Pairing)
+    else if (!pairingUrl) {
+      setPairingFromFile(file);
+    }
+    // 优先级 4: 全部作为待替换图
+    else {
+      addTargetFiles(files);
+    }
+  });
 
   // ---- Target Handlers ----
   const addTargetFiles = (files: File[]) => {

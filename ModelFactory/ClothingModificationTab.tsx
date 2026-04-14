@@ -17,6 +17,7 @@ import {
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage, refineModificationPrompt } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 
 // --- Types & Constants ---
 
@@ -384,29 +385,18 @@ const ClothingModificationTab: React.FC = () => {
   }, [activeMode]);
 
   // Global Paste Listener
-  React.useEffect(() => {
-    const handleGlobalPaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      const imageItem = Array.from(items).find(item => item.type.startsWith('image/'));
-      if (imageItem) {
-        const file = imageItem.getAsFile();
-        if (file) {
-          if (!img1File) {
-            handleUpload(1, file);
-          } else if (!img2File) {
-            handleUpload(2, file);
-          } else {
-            handleUpload(1, file);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('paste', handleGlobalPaste);
-    return () => window.removeEventListener('paste', handleGlobalPaste);
-  }, [img1File, img2File]);
+  useImagePaste((files) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    
+    if (!img1File) {
+      handleUpload(1, file);
+    } else if (!img2File) {
+      handleUpload(2, file);
+    } else {
+      handleUpload(1, file);
+    }
+  });
 
   const handleDownload = (imageUrl: string, index: number) => {
     const link = document.createElement('a');

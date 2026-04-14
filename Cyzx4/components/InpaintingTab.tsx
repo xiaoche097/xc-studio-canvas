@@ -4,6 +4,7 @@ import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
 import { Eraser, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Download, Paintbrush, RotateCcw, Cpu, Minus, Plus } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 // 自定义香蕉图标组件（复用）
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -100,6 +101,32 @@ const InpaintingTab: React.FC = () => {
     setHasMask(false);
     setGeneratedImages([]);
   };
+
+  // 绑定剪贴板粘贴事件
+  useImagePaste((files) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    // 如果当前还没有原图，则设置为原图
+    if (!sourceFile) {
+      setSourceFile(file);
+      const url = URL.createObjectURL(file);
+      setSourceUrl(url);
+      setGeneratedImages([]);
+      setHasMask(false);
+    } 
+    // 否则作为参考图加入
+    else {
+      if (refFiles.length + files.length > 10) {
+        setError('参考图最多10张');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+      const urls = files.map(f => URL.createObjectURL(f));
+      setRefFiles(prev => [...prev, ...files]);
+      setRefUrls(prev => [...prev, ...urls]);
+    }
+  });
 
   // 参考图操作
   const handleRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

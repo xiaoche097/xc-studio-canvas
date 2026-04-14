@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { generateVideoScript, blobToBase64 } from '../services/geminiService';
 import { Film, Video, Upload, Clock, Zap, Loader2, AlertCircle, FileText, Key } from 'lucide-react';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 interface ScriptScene {
   time: string;
@@ -18,7 +19,6 @@ const VideoTab: React.FC = () => {
   const [script, setScript] = useState<ScriptScene[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -28,6 +28,17 @@ const VideoTab: React.FC = () => {
       setError(null);
     }
   };
+
+  useImagePaste((files) => {
+    if (files.length > 0) {
+      const file = files[0];
+      if (!file.type.startsWith('image/')) return;
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      setScript([]);
+      setError(null);
+    }
+  });
 
   const handleGenerate = async () => {
     if (!selectedFile) return;

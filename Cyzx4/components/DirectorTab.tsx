@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { analyzeProductImage, generateMarketingImage, blobToBase64, inpaintImage } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
 import { Camera, Image as ImageIcon, Loader2, Sparkles, Wand2, Check, AlignLeft, AlertCircle, User, ToggleLeft, ToggleRight, X, Clock, Trash2, RotateCcw, Brush, Eraser, Download, MousePointer2, Ruler, Palette, Key } from 'lucide-react';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 interface DirectorTabProps {
   onImageGenerated: (url: string) => void;
@@ -212,14 +213,29 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
     try { localStorage.setItem('vp_history', JSON.stringify(updated)); } catch (e) {}
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
+  // 绑定剪贴板粘贴事件
+  useImagePaste((files) => {
+    const file = files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    // 如果产品底图为空，则设为产品底图
+    if (!previewUrl) {
       setSelectedFile(file);
       setPreviewUrl(URL.createObjectURL(file));
       setAnalysisResult(null); setPrompt(''); setActiveImage(null); setAnalyzeError(null); setGenerateError(null);
     }
-  };
+    // 否则如果模特固定开启且模特图为空，则设为模特图
+    else if (isFixModel && !modelPreviewUrl) {
+      setModelFile(file);
+      setModelPreviewUrl(URL.createObjectURL(file));
+    }
+    // 否则默认替换产品底图
+    else {
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      setAnalysisResult(null); setPrompt(''); setActiveImage(null); setAnalyzeError(null); setGenerateError(null);
+    }
+  });
 
   const clearFile = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -228,6 +244,19 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
     setAnalysisResult(null);
     setPrompt('');
     setActiveImage(null);
+  };
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      // Reset analysis and prompt
+      setAnalysisResult(null);
+      setPrompt('');
+      setActiveImage(null);
+      setAnalyzeError(null);
+      setGenerateError(null);
+    }
   };
 
   const handleModelFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
