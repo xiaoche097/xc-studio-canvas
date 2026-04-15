@@ -291,6 +291,258 @@ export interface SceneGenerationPromptInput {
     modelFamilyStructure?: string;
     modelLifestyle?: string;
     modelPersonaNotes?: string;
+    /** AI-inferred physical interaction description */
+    interactionHint?: string;
+    /** AI-inferred size category for physics rules */
+    sizeCategory?: 'tiny' | 'small' | 'medium' | 'large' | 'wearable';
+}
+
+// ==================== Realism Physics Rules ====================
+
+/**
+ * Physical realism rules to ensure generated scenes have believable
+ * proportions, gravity, contact surfaces, and natural human-product interaction.
+ */
+export const REALISM_PHYSICS_RULES: Record<string, string> = {
+    tiny: [
+        "The product is very small (under 10cm). It should be held between fingertips or resting in the palm of one hand.",
+        "The product must NOT appear oversized relative to the person's hands.",
+        "Show natural finger curl around the small object. The hand should dwarf the product.",
+        "If placed on a surface, show it at realistic tiny scale next to everyday objects for size reference.",
+    ].join(" "),
+    small: [
+        "The product is small (10-25cm). It can be held comfortably in one hand or cradled in both hands.",
+        "Fingers should wrap naturally around the product with visible grip pressure.",
+        "If it's a plush toy at this size, it fits in one arm or is held against the chest with one hand.",
+        "The product should be clearly smaller than the person's forearm length.",
+    ].join(" "),
+    medium: [
+        "The product is medium-sized (25-50cm). It requires both hands or one arm to hold comfortably.",
+        "If it's a plush toy, it can be hugged against the chest or held in the crook of one arm.",
+        "The product should be roughly the size of the person's torso width or smaller.",
+        "Show natural weight distribution — the person's arms should show slight tension from holding it.",
+        "If placed on furniture, the product should take up a realistic portion of the sofa/bed surface.",
+    ].join(" "),
+    large: [
+        "The product is large (over 50cm). It requires both arms to hold or embrace.",
+        "If it's a large plush, the person should be bear-hugging it with both arms, and the plush should cover a significant portion of their torso.",
+        "Show realistic weight and volume — the product should slightly compress where the person grips it.",
+        "If it's a blanket or large textile, show natural drape with gravity-consistent folds.",
+        "The product should be at least half the person's torso height.",
+    ].join(" "),
+    wearable: [
+        "The product is a wearable item (clothing, hat, scarf, etc). It MUST be worn on the body naturally.",
+        "Show realistic fabric drape, wrinkle patterns at joints (elbows, waist, knees), and gravity-consistent hem behavior.",
+        "The garment must follow the body's contours with physically accurate fit — no floating fabric.",
+        "If sleeves exist, they must wrinkle naturally at the elbow and follow arm movement.",
+        "The garment's weight should visually affect how it hangs — heavier fabrics drape more, lighter fabrics flutter.",
+    ].join(" "),
+};
+
+/**
+ * Natural action pools organized by product type and context.
+ * These replace generic "show product in use" with specific, physically
+ * believable interaction descriptions.
+ */
+export const NATURAL_ACTION_POOL: Record<SceneGenerationProductType, string[]> = {
+    plush: [
+        "gently hugging the plush toy against their chest with both arms, chin resting slightly on top",
+        "sitting on the sofa with the plush toy nestled in their lap, one hand resting on it while scrolling phone",
+        "lying on the bed propped up on pillows, with the plush toy tucked under one arm",
+        "holding the plush toy up with both hands at face level, smiling at it",
+        "walking through the room carrying the plush toy casually in one arm at their side",
+        "sitting cross-legged on the floor with the plush toy between their knees, leaning forward with a warm smile",
+        "reaching to pick up the plush toy from a shelf, hand just about to grasp it",
+        "showing the plush toy to a child by holding it out at the child's eye level",
+    ],
+    apparel: [
+        "walking naturally with arms in a relaxed swing, the garment moving with their stride",
+        "adjusting the collar or cuff of the garment in a mirror, candid grooming moment",
+        "standing with one hand in pocket, weight shifted to one leg, relaxed confident pose",
+        "reaching for a coffee cup on a table, the garment stretching naturally at the shoulder",
+        "sitting in a cafe chair with legs crossed, the fabric draping naturally over the thigh",
+        "turning to look over their shoulder, the garment's back detail visible with natural body twist",
+        "leaning against a doorframe with arms loosely crossed, the garment showing natural creases",
+        "bending slightly to pet a dog, the garment following the body's curve naturally",
+    ],
+    general: [
+        "naturally using the product in its intended context with relaxed body language",
+        "holding the product at a natural angle while going about their daily routine",
+        "placing the product on a surface and interacting with it in a casual, everyday manner",
+        "using the product with one hand while the other hand gestures naturally or holds something else",
+        "showing the product to someone (off-camera or a companion) with a genuine expression",
+        "in the middle of unwrapping or unboxing the product with a delighted expression",
+    ],
+};
+
+/**
+ * Parse a product size string into centimeter values.
+ * Handles formats like "40cm", "25x15cm", "M-L", "约35cm", "20inches" etc.
+ * Returns the primary dimension in cm, or null if unparsable.
+ */
+function parseProductSizeCm(sizeStr: string): number | null {
+    if (!sizeStr) return null;
+    const s = sizeStr.toLowerCase().replace(/\s/g, '').replace(/约|大约|roughly|approx/gi, '');
+    
+    // Match cm values: "40cm", "25x15cm", "30-40cm"
+    const cmMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:x|×|\*)\s*(\d+(?:\.\d+)?)\s*cm/i)
+        || s.match(/(\d+(?:\.\d+)?)\s*cm/i);
+    if (cmMatch) {
+        const vals = cmMatch.slice(1).map(Number).filter(Boolean);
+        return Math.max(...vals); // Use largest dimension
+    }
+    
+    // Match inch values: "16inches", "20in", '15"'
+    const inchMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:inch|inches|in|")/i);
+    if (inchMatch) return Number(inchMatch[1]) * 2.54;
+    
+    // Match bare numbers (assume cm)
+    const bareMatch = s.match(/^(\d+(?:\.\d+)?)$/);
+    if (bareMatch) return Number(bareMatch[1]);
+    
+    return null;
+}
+
+/**
+ * Generate body-relative proportion descriptions based on exact product dimensions.
+ * Uses average adult body measurements as reference anchors.
+ * 
+ * Average adult reference points:
+ * - Total height: ~170cm
+ * - Head height: ~23cm
+ * - Palm width: ~8.5cm
+ * - Palm length: ~19cm  
+ * - Forearm length: ~25cm
+ * - Shoulder width: ~45cm
+ * - Torso height (shoulder to hip): ~55cm
+ * - Arm span (one arm): ~70cm
+ */
+function buildDimensionScalingPrompt(productSizeCm: number, productType: SceneGenerationProductType): string {
+    const rules: string[] = [];
+    
+    // Human body reference constants (cm)
+    const HEAD = 23;
+    const PALM_WIDTH = 8.5;
+    const PALM_LENGTH = 19;
+    const FOREARM = 25;
+    const SHOULDER_WIDTH = 45;
+    const TORSO = 55;
+    const FULL_HEIGHT = 170;
+    
+    const ratio = (v: number) => Math.round(v);
+    const pct = (v: number) => Math.round((productSizeCm / v) * 100);
+    
+    rules.push(
+        `CRITICAL DIMENSION LOCK: The product is exactly ${ratio(productSizeCm)}cm in its largest dimension.`
+    );
+    
+    if (productSizeCm <= 10) {
+        // Tiny: keychain, small figurine
+        rules.push(
+            `This is a TINY product (${ratio(productSizeCm)}cm ≈ ${pct(PALM_WIDTH)}% of palm width).`,
+            `It fits entirely inside one palm. When held, it should be dwarfed by the person's hand.`,
+            `If placed on a table, it should be roughly the size of a coffee cup base.`,
+            `NEVER make this product appear larger than the person's fist.`,
+        );
+    } else if (productSizeCm <= 25) {
+        // Small: small plush, mug, water bottle
+        rules.push(
+            `This product (${ratio(productSizeCm)}cm) is ${pct(FOREARM)}% of an adult forearm length.`,
+            `It can be held in one hand. It is ${pct(HEAD)}% of a human head height.`,
+            `When held against the body, it should NOT extend past the shoulder width.`,
+            `A single adult hand should be able to grip around it comfortably.`,
+        );
+    } else if (productSizeCm <= 40) {
+        // Medium: medium plush, pillow
+        rules.push(
+            `This product (${ratio(productSizeCm)}cm) is about ${pct(TORSO)}% of an adult torso height.`,
+            `When held, it spans roughly from chest to belly button area.`,
+            `It requires one arm to cradle or two hands to hold in front.`,
+            `It is about ${pct(SHOULDER_WIDTH)}% of shoulder width — ${productSizeCm < 35 ? 'narrower than' : 'close to'} shoulder span.`,
+        );
+    } else if (productSizeCm <= 60) {
+        // Medium-large: large plush, throw blanket folded
+        rules.push(
+            `This product (${ratio(productSizeCm)}cm) is about ${pct(TORSO)}% of an adult torso height — a substantial item.`,
+            `When hugged, it should cover most of the person's chest area.`,
+            `It is ${pct(SHOULDER_WIDTH)}% of shoulder width — wider than or equal to the shoulder span.`,
+            `The person must use both arms to hold it securely. Show arm muscle engagement.`,
+        );
+    } else {
+        // Large: very large plush, blanket, body pillow
+        rules.push(
+            `This product (${ratio(productSizeCm)}cm) is ${pct(FULL_HEIGHT)}% of full adult height — a VERY LARGE item.`,
+            `When held upright, it reaches from the person's hip to at least their chest or higher.`,
+            `When hugged, the product should obscure a large portion of the person's body.`,
+            `Show the person physically embracing or supporting the weight of this large product.`,
+            `If placed on furniture, it should take up a very significant portion of a sofa or bed.`,
+        );
+    }
+    
+    // Product-type specific dimension adjustments
+    if (productType === 'plush') {
+        rules.push(
+            `For this plush at ${ratio(productSizeCm)}cm: show the stuffing volume realistically — ` +
+            `${productSizeCm < 20 ? 'a compact, palm-sized soft toy' : productSizeCm < 40 ? 'a huggable toy that fills the crook of an arm' : 'a large plush that requires full arm embrace'}. ` +
+            `The plush should compress slightly where squeezed and maintain its round, soft volume elsewhere.`
+        );
+    } else if (productType === 'apparel') {
+        rules.push(
+            `For this garment: the size measurement indicates the ${productSizeCm > 70 ? 'full length garment — it should reach from shoulders to at least mid-thigh or below' : productSizeCm > 50 ? 'torso-covering garment — it should end at or below the hip' : 'shorter garment — upper body or accessory piece'}. ` +
+            `Ensure the garment length matches this proportion on the wearer's body.`
+        );
+    }
+    
+    // Universal dimension anchor
+    rules.push(
+        `ABSOLUTE SIZE RULE: Use everyday objects in the scene as hidden scale anchors — ` +
+        `a standard coffee mug is ~10cm tall, a sofa cushion is ~45cm wide, a doorknob is ~100cm from the floor, ` +
+        `a standard dining chair seat is ~45cm high. The product must be proportionally consistent with ALL objects in the scene.`
+    );
+    
+    return rules.join(' ');
+}
+
+/**
+ * Build a realistic interaction prompt based on AI-inferred size category,
+ * exact product dimensions, and interaction hint. This ensures physically
+ * believable human-product relationships in the generated image.
+ */
+export function buildRealisticInteractionPrompt(input: SceneGenerationPromptInput): string {
+    const parts: string[] = [];
+
+    // 1. Exact dimension-based scaling (highest priority)
+    const parsedCm = parseProductSizeCm(input.productSize || '');
+    if (parsedCm) {
+        parts.push(buildDimensionScalingPrompt(parsedCm, input.productType));
+    } else {
+        // Fallback to category-based rules
+        const sizeCategory = input.sizeCategory || 'medium';
+        parts.push(REALISM_PHYSICS_RULES[sizeCategory]);
+    }
+
+    // 2. Specific interaction hint from AI analysis
+    if (input.interactionHint) {
+        parts.push(`Specific interaction: ${input.interactionHint}.`);
+    }
+
+    // 3. Pick a random natural action for variety
+    const actionPool = NATURAL_ACTION_POOL[input.productType] || NATURAL_ACTION_POOL.general;
+    const randomAction = actionPool[Math.floor(Math.random() * actionPool.length)];
+    parts.push(`Suggested natural action: ${randomAction}.`);
+
+    // 4. Universal realism anchors
+    parts.push(
+        "CRITICAL REALISM RULES: " +
+        "All objects must obey gravity — nothing floats without support. " +
+        "Hands holding items must show anatomically correct finger placement with natural grip pressure. " +
+        "Contact surfaces must show realistic compression (cushions indent where sat upon, fabric creases where gripped). " +
+        "The product's scale relative to the human body must be physically accurate and consistent throughout the image. " +
+        "Perspective and foreshortening must be consistent — no size inconsistencies between foreground and background. " +
+        "Shadows must be cast in a consistent direction and match the lighting source."
+    );
+
+    return parts.join(" ");
 }
 
 // ==================== Scene Variation Randomizer ====================
@@ -303,51 +555,155 @@ export interface SceneGenerationPromptInput {
  */
 const SCENE_VARIATION_POOL: Record<string, string[]> = {
     livingroom: [
-        "mid-century modern sofa with tapered legs, abstract wall art, terrazzo side table",
-        "deep sectional sofa in charcoal linen, floor-to-ceiling bookshelf, brass arc lamp",
-        "Scandinavian loveseat in oatmeal boucle, woven jute rug, ceramic vase with dried pampas",
-        "velvet emerald armchair, marble coffee table, gallery wall with eclectic frames",
-        "leather chesterfield sofa, industrial pipe shelving, Edison bulb pendant light",
-        "modular cloud sofa in cream, minimalist floating shelves, potted monstera",
-        "boho rattan furniture, macrame wall hanging, layered textile throw pillows",
-        "coastal blue linen sofa, whitewashed wood accents, seashell decorations",
+        "mid-century modern sofa with tapered legs, abstract gallery wall, terrazzo coffee table, warm Edison bulb floor lamp — classic American mid-century home feel",
+        "deep charcoal sectional sofa, floating wood media console, large American football throw pillow, area rug with bold geometric pattern — suburban American man-cave vibe",
+        "cream boucle sofa with navy accent pillows, shiplap accent wall, lantern-style pendant lights, woven seagrass basket — American coastal farmhouse",
+        "velvet hunter-green chesterfield sofa, built-in bookcase with novels and trophies, brass table lamp, bourbon-colored leather armchair — East Coast library-style living room",
+        "large sectional in warm camel leather, distressed wood coffee table, cowhide area rug, industrial metal shelving with sports memorabilia — American ranch home den",
+        "modern gray sleeper sofa, floating walnut shelves, oversized USA city skyline canvas print, media console with cable box and game controller — urban American apartment",
+        "comfortable navy blue slipcovered sofa, American flag throw blanket, white wainscoting wall, Pottery Barn-style wood side table, family photo wall — classic suburban living room",
+        "wide L-shaped sofa in oatmeal fabric, thick shag carpet, oversized TV mounted above fireplace, mason jar decor — American family great room",
     ],
     bedroom: [
-        "platform bed with linen headboard, ambient bedside sconces, knitted throw blanket",
-        "canopy bed frame in matte black, sheer curtains, eucalyptus on nightstand",
-        "upholstered bed in dusty rose, mirrorred dresser, fairy string lights",
-        "minimalist Japanese futon style bed, sliding paper screen, single ikebana arrangement",
-        "farmhouse wooden bed frame, patchwork quilt, vintage alarm clock on weathered nightstand",
-        "modern walnut bed with floating nightstands, geometric pendant lights, abstract print",
+        "king bed with upholstered headboard in warm greige, bedside tables with charging stations, bedside books, white plantation shutters — American suburban master bedroom",
+        "queen bed with navy duvet and white piping, shiplap wall, antique wood dresser, framed vintage map art — American coastal cottage bedroom",
+        "California King platform bed, cable-knit throw, side-by-side nightstands with reading lamps, neutral area rug — modern American bedroom",
+        "farmhouse wooden bed frame in distressed white, patchwork quilt with star pattern, vintage alarm clock, braided oval rug — American country farmhouse bedroom",
+        "modern walnut bed with floating nightstands, abstract canvas print, blackout linen curtains, succulent on dresser — urban American apartment bedroom",
+        "upholstered bed in dusty blush, mirrored dresser, string fairy lights, framed inspirational quote — American teenage girl bedroom",
+        "college dorm-style lofted bed over study desk, string lights, sports team poster, mini fridge — American dorm room",
+        "guest bedroom with white quilt, extra throw pillows, small welcome basket on nightstand, neutral curtains — guest-ready American home bedroom",
     ],
     kitchen: [
-        "white subway tile backsplash, open shelving with ceramic dishes, copper pendant light",
-        "dark granite countertop, industrial stainless steel appliances, herb garden on windowsill",
-        "butcher block island, farmhouse sink, hanging cast-iron pan rack",
-        "modern matte-black cabinetry, marble waterfall island, brass hardware",
-        "retro mint-green refrigerator, checkerboard floor, vintage diner stools",
+        "white subway tile backsplash, stainless KitchenAid mixer on counter, open wood shelving with American-made ceramic mugs, pendant lights over island — suburban American kitchen",
+        "dark granite countertop, stainless steel refrigerator with ice maker, herb garden in mason jars on windowsill, coffee station — American home kitchen",
+        "butcher block island, farmhouse apron-front sink, Magnolia-style shiplap panels, cast-iron pan on stove — Southern American farmhouse kitchen",
+        "white shaker cabinetry, marble island with barstools, ring doorbell hub on wall, kids' drawings on fridge — American family kitchen",
+        "retro mint-green Smeg refrigerator, checkerboard floor, diner-style chrome stools, Americana diner signage — retro American kitchen",
+        "open-plan kitchen with breakfast bar, bowl of fresh fruit, coffee maker brewing, American-style large refrigerator with side-by-side doors — everyday real American home kitchen",
     ],
     outdoor: [
-        "sunny backyard patio with string lights, wooden deck furniture, potted succulents",
-        "front porch with rocking chairs, climbing roses, welcome mat",
-        "urban rooftop terrace, modern planters, city skyline backdrop",
-        "suburban garden with hammock, bird feeder, freshly mowed lawn",
-        "lakeside picnic setup, plaid blanket, wicker basket, golden afternoon light",
-        "camping site with canvas tent, campfire glow, pine forest background",
+        "sunny American backyard patio with string-light pergola, Adirondack chairs, gas grill, plastic cups on table — classic American BBQ setup",
+        "wide front porch with white rocking chairs, hanging fern baskets, welcome mat, American suburban house facade",
+        "urban rooftop deck in a US city, string lights, potted herbs, skyline view, patio furniture — American rooftop living",
+        "large suburban lawn with kids' swing set, garden hose reel, white picket fence, American flag on porch",
+        "lakeside picnic in a US national park, plaid flannel blanket, cooler, Yeti cups, pine trees in background",
+        "family camping campsite with REI tent, campfire, s'mores setup, camp chairs, Forest Park USA setting",
     ],
     office: [
-        "home office with standing desk, ergonomic chair, wall-mounted monitor, succulent plant",
-        "cozy reading nook converted office, built-in bookshelves, warm desk lamp",
-        "modern co-working space, communal table, exposed brick, latte on desk",
-        "corporate corner office, floor-to-ceiling glass, minimalist desk setup",
+        "American home office with standing desk, ergonomic chair, dual monitors, motivational poster, small American flag on desk",
+        "cozy home office reading nook, built-in bookshelves with classic American novels, warm Anthropologie-style desk lamp",
+        "WeWork-style co-working space, communal table, exposed brick, cold brew on tap, American city view from window",
+        "corporate American office corner, floor-to-ceiling glass, minimalist desk, badge lanyard, company branded coffee mug",
     ],
     generic: [
-        "bright airy interior, large windows, natural daylight flooding in",
-        "warm cozy space with layered textures, soft ambient lighting",
-        "clean modern minimalist interior, neutral palette, architectural interest",
-        "eclectic lived-in space with personality, mixed vintage and modern elements",
-        "sun-drenched casual space, plants, natural materials, relaxed atmosphere",
+        "bright airy American home interior, large picture windows, natural north light, Restoration Hardware-inspired decor",
+        "warm cozy American living space with layered textures, flannel throw, soft amber overhead lighting, family photos",
+        "clean contemporary American interior with open-concept layout, neutral warm palette, Wayfair-style furniture",
+        "eclectic American lived-in space, gallery wall with family prints, mixed vintage and Target-modern furniture",
+        "sun-drenched casual American morning scene, indoor plants, white walls, rustic wood accents, real home feel",
     ],
+};
+
+// ==================== UI Translation Maps ====================
+
+const ETHNICITY_MAP: Record<string, string> = {
+    '自动匹配': 'ethnically believable American',
+    '白人美国人': 'white American',
+    '黑人美国人': 'African American',
+    '拉丁裔美国人': 'Hispanic American',
+    '亚裔美国人': 'Asian American',
+    '中东裔美国人': 'Middle Eastern American',
+    '南亚裔美国人': 'South Asian American',
+    '太平洋岛民': 'Pacific Islander American',
+    '混合族裔美国人': 'multi-ethnic American',
+    '无（纯产品图）': '',
+};
+
+const AGE_GROUP_MAP: Record<string, string> = {
+    '自动匹配': 'age-appropriate',
+    '0-3岁': 'toddler (0-3 years old)',
+    '3-6岁': 'young child (3-6 years old)',
+    '5-12岁': 'child (5-12 years old)',
+    '13-18岁': 'teenager (13-18 years old)',
+    '18-25岁': 'young adult (18-25 years old)',
+    '20-30岁': 'young adult (20-30 years old)',
+    '25-35岁': 'adult (25-35 years old)',
+    '30-45岁': 'adult (30-45 years old)',
+    '40-55岁': 'middle-aged adult (40-55 years old)',
+    '55-70岁': 'senior (55-70 years old)',
+    '60岁以上': 'elderly (60+ years old)',
+    '多年龄段': 'multi-generational group',
+};
+
+const FAMILY_STRUCTURE_MAP: Record<string, string> = {
+    '自动匹配': 'realistic household composition',
+    '单人': 'single person',
+    '情侣': 'young couple',
+    '亲子': 'parent and child',
+    '三口之家': 'family of three',
+    '多孩家庭': 'family with multiple children',
+    '好友组合': 'group of friends',
+    '多人社交': 'social gathering of people',
+    '祖孙三代': 'three-generation family',
+    '老年伴侣': 'elderly couple',
+    '人与宠物': 'person with their pet',
+    '无（纯产品图）': '',
+};
+
+const LIFESTYLE_MAP: Record<string, string> = {
+    '自动匹配': 'real everyday American lifestyle',
+    '都市通勤': 'urban commuter',
+    '职场商务': 'business professional',
+    '郊区家庭': 'suburban family',
+    '校园': 'college campus',
+    '健身运动': 'fitness and active',
+    '居家休闲': 'home casual',
+    '户外露营': 'outdoor camping',
+    '旅行度假': 'travel and vacation',
+    '宠物生活': 'pet owner lifestyle',
+    '文艺生活': 'creative indie lifestyle',
+    '新居生活': 'new home lifestyle',
+    '退休生活': 'peaceful retirement',
+    '社交聚会': 'social gathering',
+    '节日聚会': 'holiday family gathering',
+    '节日送礼': 'holiday gifting moment',
+    '派对庆祝': 'party celebration',
+    '下午茶/咖啡': 'cafe lifestyle',
+    '车内场景': 'automotive interior lifestyle',
+    '无（纯产品图）': '',
+};
+
+const PERSONA_PRESET_MAP: Record<string, string> = {
+    '美国都市女性': 'contemporary American urban woman',
+    '美国职场女性': 'professional American career woman',
+    '美国瑜伽/健身女性': 'active American fitness woman',
+    '美国居家主妇': 'American suburban housewife',
+    '美国文艺女青年': 'indie American creative woman',
+    '美国都市男性': 'modern American urban man',
+    '美国居家休闲男性': 'relaxed American man at home',
+    '美国运动型男性': 'athletic American man',
+    '美国职场商务男性': 'American business professional man',
+    '美国户外冒险男性': 'American outdoor adventurer man',
+    '美国年轻情侣': 'young American couple',
+    '美国新婚夫妇': 'American newlywed couple',
+    '美国闺蜜/好友': 'American best friends',
+    '美国跨族裔情侣': 'multi-ethnic American couple',
+    '美国郊区家庭': 'American suburban family',
+    '美国年轻妈妈与儿童': 'young American mother with child',
+    '美国年轻爸爸与儿童': 'young American father with child',
+    '美国多孩家庭': 'American family with multiple children',
+    '美国三代同堂': 'multi-generational American family',
+    '美国校园学生': 'American college student',
+    '美国青少年': 'American teenager',
+    '美国小孩': 'American child',
+    '美国婴幼儿与妈妈': 'American infant with mother',
+    '美国中年专业人士': 'middle-aged American professional',
+    '美国银发族': 'American senior couple',
+    '美国宠物主人': 'American pet owner',
+    '美国户外露营家庭': 'American family camping',
+    '美国派对/聚会人群': 'group of diverse Americans at a party',
+    '无模特（纯产品）': 'no people, product only',
 };
 
 /**
@@ -413,11 +769,11 @@ function buildMaterialLockPrompt(input: SceneGenerationPromptInput) {
 
 function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
     const personaParts = [
-        input.modelPersonaPreset,
-        input.modelEthnicity && input.modelEthnicity !== "自动匹配" ? input.modelEthnicity : "ethnically believable American",
-        input.modelAgeGroup && input.modelAgeGroup !== "自动匹配" ? input.modelAgeGroup : "age-appropriate",
-        input.modelFamilyStructure && input.modelFamilyStructure !== "自动匹配" ? input.modelFamilyStructure : "realistic household composition",
-        input.modelLifestyle && input.modelLifestyle !== "自动匹配" ? input.modelLifestyle : "real everyday American lifestyle",
+        input.modelPersonaPreset ? (PERSONA_PRESET_MAP[input.modelPersonaPreset] || input.modelPersonaPreset) : "",
+        input.modelEthnicity ? (ETHNICITY_MAP[input.modelEthnicity] || input.modelEthnicity) : "ethnically believable American",
+        input.modelAgeGroup ? (AGE_GROUP_MAP[input.modelAgeGroup] || input.modelAgeGroup) : "age-appropriate",
+        input.modelFamilyStructure ? (FAMILY_STRUCTURE_MAP[input.modelFamilyStructure] || input.modelFamilyStructure) : "realistic household composition",
+        input.modelLifestyle ? (LIFESTYLE_MAP[input.modelLifestyle] || input.modelLifestyle) : "real everyday American lifestyle",
     ].filter(Boolean);
 
     const lifestyleSceneMap: Record<string, string> = {
@@ -518,6 +874,9 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         "Maintain scene believability while maximizing visual variety.",
     ].join(' ');
 
+    // Build realistic interaction prompt for physical believability
+    const realismPrompt = buildRealisticInteractionPrompt(input);
+
     return [
         "Create an ultra realistic commercial lifestyle photograph grounded in real everyday American life.",
         boardInstructions[input.boardType],
@@ -527,6 +886,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         personaPrompt,
         PRODUCT_TYPE_GUIDE[input.productType],
         PRODUCT_TYPE_SCENE_DETAIL[input.productType],
+        realismPrompt,
         "The reference image is the single source of truth for the product identity.",
         buildProductLockPrompt(input.productType),
         "Never recolor, repaint, redesign, simplify, swap materials, alter proportions, or drift from the original product identity. If the scene concept conflicts with the product, adjust the environment and styling around the product instead.",
@@ -567,6 +927,21 @@ export function buildSceneGenerationNegativePrompt(input: {
         "fake luxury set",
         "overdesigned background",
         "non-American setting cues",
+        "Japanese interior design",
+        "Asian minimalist decor",
+        "Japanese apartment style",
+        "Japanese wabi-sabi aesthetic",
+        "tatami floor",
+        "shoji screen",
+        "Asian furniture style",
+        "Scandinavian minimalism",
+        "MUJI-style decor",
+        "Nordic interior design",
+        "European apartment styling",
+        "ikebana flower arrangement",
+        "zen garden elements",
+        "Asian street scene",
+        "non-US architecture",
         "inaccurate ethnicity styling",
         "mismatched cultural setting",
         "incorrect family composition",

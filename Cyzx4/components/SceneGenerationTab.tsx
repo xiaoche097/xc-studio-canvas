@@ -1,13 +1,15 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { optimizePrompt, generateImageToImage, blobToBase64 } from '../services/geminiService';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { generateImageToImage, blobToBase64 } from '../services/geminiService';
 import {
   buildSceneGenerationPrompt,
   buildSceneGenerationNegativePrompt,
   SceneGenerationProductType,
+  SceneGenerationBoardType,
   buildGoldenFormula,
   enhancePrompt,
   QUALITY_BOOSTERS
 } from '../services/promptUtils';
+import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { AspectRatio, ImageResolution } from '../types';
@@ -29,6 +31,13 @@ import {
   FileText,
   ScanSearch,
   Wand2,
+  Brain,
+  Edit3,
+  Check,
+  RefreshCw,
+  MessageSquare,
+  Zap,
+  Ruler,
 } from 'lucide-react';
 
 type BoardType = 'main' | 'aplus' | 'social';
@@ -38,7 +47,11 @@ interface UploadedImage {
   preview: string;
 }
 
+// Simplified form — only user-override fields + generation settings
 interface SceneFormState {
+  userHint: string;           // One-line scene description
+  batchCount: number;
+  // AI-inferred fields (editable overrides)
   productName: string;
   productCategory: string;
   productType: SceneGenerationProductType;
@@ -59,7 +72,8 @@ interface SceneFormState {
   avoidElements: string;
   copyIntent: string;
   extraNotes: string;
-  batchCount: number;
+  interactionHint: string;
+  sizeCategory: 'tiny' | 'small' | 'medium' | 'large' | 'wearable';
 }
 
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -79,6 +93,8 @@ const BananaIcon = ({ className }: { className?: string }) => (
 );
 
 const initialForm: SceneFormState = {
+  userHint: '',
+  batchCount: 1,
   productName: '',
   productCategory: '',
   productType: 'general',
@@ -99,25 +115,59 @@ const initialForm: SceneFormState = {
   avoidElements: '',
   copyIntent: '',
   extraNotes: '',
-  batchCount: 1,
+  interactionHint: '',
+  sizeCategory: 'medium',
 };
 
-const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspectRatio: AspectRatio }> = {
+const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspectRatio: AspectRatio; icon: string }> = {
   main: {
     label: '副图',
     description: '亚马逊主副图场景，适合卖点强化与点击转化',
     aspectRatio: AspectRatio.SQUARE,
+    icon: '🛒',
   },
   aplus: {
     label: 'A+',
     description: '详情页横幅场景，适合叙事化展示与品牌表达',
     aspectRatio: AspectRatio.LANDSCAPE_16_9,
+    icon: '✨',
   },
   social: {
     label: '社媒买家秀',
     description: '更生活化的人物/使用场景，适合种草与社媒传播',
     aspectRatio: AspectRatio.PORTRAIT_3_4,
+    icon: '📱',
   },
+};
+
+// AI Analysis card field labels
+const ANALYSIS_FIELD_LABELS: Record<string, string> = {
+  productName: '产品名称',
+  productCategory: '产品品类',
+  productType: '产品类型',
+  productSize: '预估尺寸',
+  material: '材质识别',
+  sellingPoints: '核心卖点',
+  sceneDirection: '推荐场景',
+  modelPersonaPreset: '推荐人群',
+  colorStyle: '色调风格',
+  brandTone: '品牌调性',
+  interactionHint: '交互方式',
+  sizeCategory: '尺寸分类',
+};
+
+const PRODUCT_TYPE_LABELS: Record<string, string> = {
+  plush: '毛绒公仔',
+  apparel: '服装',
+  general: '通用产品',
+};
+
+const SIZE_CATEGORY_LABELS: Record<string, string> = {
+  tiny: '微型 (<10cm)',
+  small: '小型 (10-25cm)',
+  medium: '中型 (25-50cm)',
+  large: '大型 (>50cm)',
+  wearable: '穿戴类',
 };
 
 const PERSONA_PRESETS: Record<string, {
@@ -169,21 +219,25 @@ const SceneGenerationTab: React.FC = () => {
 
   const [boardType, setBoardType] = useState<BoardType>('main');
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
-  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
-  const [isThinkingEnabled, setIsThinkingEnabled] = useState(true);
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [form, setForm] = useState<SceneFormState>(initialForm);
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<SceneAnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [showAnalysisDetail, setShowAnalysisDetail] = useState(true);
 
   const currentBoard = BOARD_CONFIG[boardType];
   const aspectRatio = currentBoard.aspectRatio;
 
-  const canGenerate = uploadedImages.length > 0 && (form.productName.trim() || form.productCategory.trim()) && !isGenerating;
+  // Can generate if we have images and some analysis/info
+  const canGenerate = uploadedImages.length > 0 && (analysisResult || form.productName.trim()) && !isGenerating;
 
   const businessGoal = useMemo(() => {
     if (boardType === 'main') return '生成高点击率亚马逊副图场景，突出产品主体、核心卖点与电商可读性';
@@ -195,14 +249,7 @@ const SceneGenerationTab: React.FC = () => {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
-  const applyPersonaPreset = (preset: string) => {
-    const mapped = PERSONA_PRESETS[preset];
-    setForm(prev => ({
-      ...prev,
-      modelPersonaPreset: preset,
-      ...(mapped || {}),
-    }));
-  };
+  // ==================== File Handling ====================
 
   const addFiles = (files: File[]) => {
     const validFiles = files.filter(file => file.type.startsWith('image/'));
@@ -239,7 +286,72 @@ const SceneGenerationTab: React.FC = () => {
       if (removed) URL.revokeObjectURL(removed.preview);
       return next;
     });
+    // If no images left, clear analysis
+    if (uploadedImages.length <= 1) {
+      setAnalysisResult(null);
+    }
   };
+
+  // ==================== AI Auto-Analysis ====================
+
+  const runAnalysis = useCallback(async () => {
+    if (uploadedImages.length === 0) return;
+    
+    setIsAnalyzing(true);
+    setError(null);
+    
+    try {
+      const images = await Promise.all(
+        uploadedImages.map(async item => ({
+          base64: await blobToBase64(item.file),
+          mimeType: item.file.type,
+        }))
+      );
+      
+      const result = await analyzeProductForScene(images, form.userHint, boardType);
+      setAnalysisResult(result);
+      
+      // Apply analysis results to form (user overrides are preserved)
+      setForm(prev => ({
+        ...prev,
+        productName: prev.productName || result.productName,
+        productCategory: prev.productCategory || result.productCategory,
+        productType: result.productType,
+        productSize: prev.productSize || result.productSize,
+        material: prev.material || result.material,
+        sellingPoints: prev.sellingPoints || result.sellingPoints,
+        sceneDirection: prev.sceneDirection || result.sceneDirection,
+        targetAudience: prev.targetAudience || result.targetAudience,
+        modelPersonaPreset: result.modelPersonaPreset,
+        modelEthnicity: result.modelEthnicity,
+        modelAgeGroup: result.modelAgeGroup,
+        modelFamilyStructure: result.modelFamilyStructure,
+        modelLifestyle: result.modelLifestyle,
+        colorStyle: prev.colorStyle || result.colorStyle,
+        usageScenario: prev.usageScenario || result.usageScenario,
+        brandTone: prev.brandTone || result.brandTone,
+        interactionHint: result.interactionHint,
+        sizeCategory: result.sizeCategory,
+      }));
+    } catch (err) {
+      console.error('AI analysis failed:', err);
+      setError('AI 分析失败，请手动填写信息或重试');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [uploadedImages, form.userHint, boardType]);
+
+  // Auto-trigger analysis when images are uploaded
+  useEffect(() => {
+    if (uploadedImages.length > 0 && !analysisResult && !isAnalyzing) {
+      const debounce = setTimeout(() => {
+        runAnalysis();
+      }, 800);
+      return () => clearTimeout(debounce);
+    }
+  }, [uploadedImages.length]);
+
+  // ==================== Prompt Building ====================
 
   const buildThinkingPrompt = () => {
     const goldenPrompt = buildGoldenFormula({
@@ -263,22 +375,19 @@ const SceneGenerationTab: React.FC = () => {
     const productTitleContext = [form.productName, form.productCategory, form.sellingPoints].filter(Boolean).join(' — ') || '电商产品';
 
     const boardSpecificNote = boardType === 'social'
-      ? `买家秀策略：生成真实买家手机拍摄感的图片，场景必须贴近「${productTitleContext}」的实际使用场景，画面必须有真实生活痕迹（个人物品、不完美构图、自然光线），避免棚拍/专业摄影感。每张图的室内家具、墙面装饰、颜色风格必须不同，模拟不同买家的不同家庭环境。`
+      ? `买家秀策略：生成真实买家手机拍摄感的图片，场景必须贴近「${productTitleContext}」的实际使用场景。`
       : boardType === 'aplus'
-        ? `A+策略：内容必须紧扣产品标题「${productTitleContext}」，讲述产品的使用故事。每张图的场景布局、家具选择和装饰风格必须有明显差异，避免重复。`
-        : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。每张图的背景场景元素（沙发、装饰、地毯等）必须有差异，避免批量生成看起来雷同。`;
+        ? `A+策略：内容必须紧扣产品标题「${productTitleContext}」，讲述产品的使用故事。`
+        : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。`;
 
     const strategy = [
-      `运营目标：面向${currentBoard.label}板块，输出符合美国真实生活场景与美国市场人物气质的高转化营销图。`,
+      `运营目标：面向${currentBoard.label}板块，输出符合美国真实生活场景的高转化营销图。`,
       `标题关联：所有图片内容必须与产品「${productTitleContext}」紧密相关。`,
       boardSpecificNote,
-      `场景策略：${form.sceneDirection || '围绕产品卖点构建真实生活方式场景'}，突出${form.sellingPoints || '产品主体和使用价值'}。`,
-      `场景多样性：每张生成图的家具款式/颜色、墙面装饰、地毯/织物、灯具、植物、小道具必须随机变化，杜绝雷同。`,
-      `产品锁定：本次生成以参考产品为唯一标准，先锁定颜色、材质、结构与细节，再扩展美国生活方式场景和人物互动。`,
-      `模特画像：${[form.modelPersonaPreset, form.modelEthnicity, form.modelAgeGroup, form.modelFamilyStructure, form.modelLifestyle].filter(Boolean).join(' / ')}。`,
-      `执行重点：保持产品颜色、结构、材质一致；强化${form.productType === 'plush' ? '毛绒绒感、绣线与抱持互动' : form.productType === 'apparel' ? '版型、褶皱和上身真实感' : '真实材质和生活化互动'}；人物与环境必须符合美国真实生活场景。`,
-      form.avoidElements ? `禁忌：${form.avoidElements}。` : '',
-      form.modelPersonaNotes ? `人群补充：${form.modelPersonaNotes}。` : '',
+      `场景策略：${form.sceneDirection || '围绕产品卖点构建真实生活方式场景'}。`,
+      `产品锁定：先锁定颜色、材质、结构与细节，再扩展场景。`,
+      `人物画像：${form.modelPersonaPreset}。`,
+      `真实感约束：${form.interactionHint || '自然交互'}，尺寸类别=${form.sizeCategory}。`,
       `内部摄影草案：${enhancePrompt(goldenPrompt, 'PRODUCT')}, ${QUALITY_BOOSTERS.EDITORIAL}`,
     ].filter(Boolean);
 
@@ -308,12 +417,16 @@ const SceneGenerationTab: React.FC = () => {
       avoidElements: form.avoidElements,
       copyIntent: form.copyIntent,
       extraNotes: form.extraNotes,
+      interactionHint: form.interactionHint,
+      sizeCategory: form.sizeCategory,
     });
   };
 
+  // ==================== Generation ====================
+
   const handleGenerate = async () => {
     if (!canGenerate) {
-      setError('请至少上传产品图，并填写产品名称或品类');
+      setError('请至少上传产品图');
       return;
     }
 
@@ -333,12 +446,6 @@ const SceneGenerationTab: React.FC = () => {
       setThinkingDraft(thinkingSummary);
 
       let finalPrompt = rawGenerationPrompt;
-
-      if (isThinkingEnabled) {
-        setThinkingDraft(`${thinkingSummary}\n\nAI 正在强化美国生活方式场景与商业摄影执行细节，产品颜色/材质/结构将以参考图为唯一标准锁定...`);
-      }
-
-      setThinkingDraft(thinkingSummary);
 
       const images = await Promise.all(
         uploadedImages.map(async item => ({
@@ -378,7 +485,6 @@ const SceneGenerationTab: React.FC = () => {
           aspectRatio,
           resolution,
           model: selectedModel,
-          thinkingEnabled: isThinkingEnabled,
           prompt: finalPrompt,
           negativePrompt,
           form,
@@ -399,28 +505,47 @@ const SceneGenerationTab: React.FC = () => {
     link.click();
   };
 
+  // ==================== Analysis Card Edit Helpers ====================
+
+  const handleAnalysisFieldEdit = (field: string, value: string) => {
+    // Update form
+    updateForm(field as keyof SceneFormState, value);
+    // Update analysis result to keep in sync
+    if (analysisResult) {
+      setAnalysisResult(prev => prev ? { ...prev, [field]: value } : prev);
+    }
+    setEditingField(null);
+  };
+
+  // ==================== Render ====================
+
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white">
-      <div className="text-center py-8 px-4">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-pastel-border rounded-full text-sm text-pastel-muted mb-4 shadow-sm">
+      {/* Header */}
+      <div className="text-center py-6 px-4">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-pastel-border rounded-full text-sm text-pastel-muted mb-3 shadow-sm">
           <Sparkles className="w-4 h-4 text-pastel-highlight" />
-          AI 场景运营
+          AI 智能场景
         </div>
-        <h1 className="text-2xl md:text-3xl font-bold text-pastel-text mb-3">一键生成高转化场景图</h1>
-        <p className="text-pastel-muted max-w-3xl mx-auto text-sm md:text-base">
-          只需上传产品图并填写基础信息，系统会按亚马逊副图 / A+ / 社媒买家秀的运营逻辑，自动整理场景方案并生成对应画面。
+        <h1 className="text-2xl md:text-3xl font-bold text-pastel-text mb-2">一键生成高转化场景图</h1>
+        <p className="text-pastel-muted max-w-2xl mx-auto text-sm">
+          上传产品图 → AI 自动分析场景方案 → 一键生成。无需手动填写大量表单。
         </p>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 pb-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+          {/* ========== LEFT COLUMN: Input ========== */}
           <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
+
+            {/* Board Type Selection */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
               <div className="flex items-center gap-2 mb-3">
-                <Store className="w-5 h-5 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text">场景板块选择</h3>
+                <Store className="w-4 h-4 text-pastel-highlight" />
+                <h3 className="font-semibold text-pastel-text text-sm">场景板块</h3>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 {(Object.keys(BOARD_CONFIG) as BoardType[]).map((key) => {
                   const item = BOARD_CONFIG[key];
                   const active = boardType === key;
@@ -428,30 +553,31 @@ const SceneGenerationTab: React.FC = () => {
                     <button
                       key={key}
                       onClick={() => setBoardType(key)}
-                      className={`rounded-xl border p-3 text-left transition-all ${active
+                      className={`rounded-xl border p-3 text-center transition-all ${active
                         ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
                         : 'border-pastel-border bg-pastel-bg hover:border-purple-200'}`}
                     >
+                      <div className="text-lg mb-0.5">{item.icon}</div>
                       <div className={`font-semibold text-sm ${active ? 'text-purple-700' : 'text-pastel-text'}`}>{item.label}</div>
-                      <div className="text-xs text-pastel-muted mt-1">{item.aspectRatio}</div>
+                      <div className="text-[10px] text-pastel-muted mt-0.5">{item.aspectRatio}</div>
                     </button>
                   );
                 })}
               </div>
-              <p className="text-xs text-pastel-muted mt-3">{currentBoard.description}</p>
             </div>
 
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <Package className="w-5 h-5 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text">产品素材图</h3>
+            {/* Product Upload */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <Package className="w-4 h-4 text-pastel-highlight" />
+                <h3 className="font-semibold text-pastel-text text-sm">产品素材图</h3>
+                <span className="text-[10px] text-pastel-muted ml-auto">上传后 AI 自动分析</span>
               </div>
-              <p className="text-xs text-pastel-muted mb-3">上传产品图后，系统将结合尺寸和卖点来思考场景方案（最多5张）</p>
               <div
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
-                className="relative border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50 rounded-lg p-4 cursor-pointer transition-all"
+                className="relative border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50 rounded-lg p-3 cursor-pointer transition-all"
               >
                 <input
                   ref={fileInputRef}
@@ -462,10 +588,10 @@ const SceneGenerationTab: React.FC = () => {
                   className="hidden"
                 />
                 {uploadedImages.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     {uploadedImages.map((img, index) => (
                       <div key={index} className="relative group/item">
-                        <img src={img.preview} alt={`product-${index}`} className="w-full h-24 object-cover rounded-lg border border-pastel-border" />
+                        <img src={img.preview} alt={`product-${index}`} className="w-full h-20 object-cover rounded-lg border border-pastel-border" />
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -478,258 +604,353 @@ const SceneGenerationTab: React.FC = () => {
                       </div>
                     ))}
                     {uploadedImages.length < 5 && (
-                      <div className="w-full h-24 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
-                        <Upload className="w-5 h-5" />
+                      <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
+                        <Upload className="w-4 h-4" />
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-center py-6">
-                    <Upload className="w-8 h-8 mx-auto mb-2 text-pastel-muted" />
-                    <p className="text-sm text-pastel-highlight">上传产品图片</p>
-                    <p className="text-xs text-pastel-muted mt-1">支持 JPG、PNG、WEBP</p>
+                  <div className="text-center py-5">
+                    <Upload className="w-7 h-7 mx-auto mb-2 text-pastel-muted" />
+                    <p className="text-sm text-pastel-highlight font-medium">上传产品图片</p>
+                    <p className="text-xs text-pastel-muted mt-1">支持拖拽、粘贴，JPG / PNG / WEBP（最多5张）</p>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <FileText className="w-5 h-5 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text">基础信息</h3>
+            {/* One-line Description */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <MessageSquare className="w-4 h-4 text-pastel-highlight" />
+                <h3 className="font-semibold text-pastel-text text-sm">一句话描述场景（选填）</h3>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input label="产品名称" value={form.productName} onChange={(value) => updateForm('productName', value)} placeholder="例如：毛绒小熊公仔" />
-                <Input label="产品品类" value={form.productCategory} onChange={(value) => updateForm('productCategory', value)} placeholder="例如：毛绒公仔 / 女装卫衣" />
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">产品类型</label>
-                  <select
-                    value={form.productType}
-                    onChange={(e) => updateForm('productType', e.target.value as SceneGenerationProductType)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+              <div className="flex gap-2">
+                <input
+                  value={form.userHint}
+                  onChange={(e) => updateForm('userHint', e.target.value)}
+                  placeholder="例如：圣诞节送礼场景、居家休闲使用、亲子互动..."
+                  className="flex-1 bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+                />
+                {uploadedImages.length > 0 && (
+                  <button
+                    onClick={runAnalysis}
+                    disabled={isAnalyzing}
+                    className="px-3 py-2 bg-purple-50 border border-purple-200 text-purple-600 rounded-lg text-sm font-medium hover:bg-purple-100 transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
                   >
-                    <option value="general">通用产品</option>
-                    <option value="plush">毛绒公仔</option>
-                    <option value="apparel">服装</option>
-                  </select>
-                </div>
-                <Input label="产品尺寸" value={form.productSize} onChange={(value) => updateForm('productSize', value)} placeholder="例如：40cm / M-L" />
-                <Input label="核心卖点" value={form.sellingPoints} onChange={(value) => updateForm('sellingPoints', value)} placeholder="例如：柔软、礼赠、治愈感" />
+                    {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    {isAnalyzing ? '分析中' : '重新分析'}
+                  </button>
+                )}
               </div>
-              <div className="mt-3">
-                <label className="text-xs text-pastel-muted mb-1 block">想要的场景方向</label>
-                <textarea
-                  value={form.sceneDirection}
-                  onChange={(e) => updateForm('sceneDirection', e.target.value)}
-                  placeholder="例如：温暖卧室、节日礼盒开箱、模特抱着公仔的生活方式场景"
-                  className="w-full h-24 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {['圣诞送礼', '居家休闲', '亲子陪伴', '户外野餐', '生日派对', '开箱体验'].map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => updateForm('userHint', tag)}
+                    className="px-2.5 py-1 bg-pastel-bg border border-pastel-border rounded-full text-xs text-pastel-muted hover:border-purple-200 hover:text-purple-600 transition-colors"
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Product Size Control — KEY for proportion accuracy */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <Ruler className="w-4 h-4 text-pastel-highlight" />
+                <h3 className="font-semibold text-pastel-text text-sm">产品尺寸</h3>
+                <span className="text-[10px] text-orange-500 font-medium bg-orange-50 px-1.5 py-0.5 rounded">影响比例精度</span>
+              </div>
+              <p className="text-[11px] text-pastel-muted mb-2">填写产品实际尺寸，AI 会按此精确控制场景中产品与人物的比例关系</p>
+              <div className="flex gap-2">
+                <input
+                  value={form.productSize}
+                  onChange={(e) => updateForm('productSize', e.target.value)}
+                  placeholder="例如：40cm、25x15cm、16inches"
+                  className="flex-1 bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-300 placeholder-pastel-muted font-medium"
                 />
               </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {[
+                  { label: '微型 8cm', value: '8cm' },
+                  { label: '小型 15cm', value: '15cm' },
+                  { label: '中小 25cm', value: '25cm' },
+                  { label: '中型 35cm', value: '35cm' },
+                  { label: '大型 50cm', value: '50cm' },
+                  { label: '超大 70cm', value: '70cm' },
+                ].map(size => (
+                  <button
+                    key={size.value}
+                    onClick={() => updateForm('productSize', size.value)}
+                    className={`px-2.5 py-1 rounded-full text-xs transition-colors border ${
+                      form.productSize === size.value
+                        ? 'bg-orange-50 border-orange-300 text-orange-700 font-medium'
+                        : 'bg-pastel-bg border-pastel-border text-pastel-muted hover:border-orange-200 hover:text-orange-600'
+                    }`}
+                  >
+                    {size.label}
+                  </button>
+                ))}
+              </div>
+              {form.productSize && (() => {
+                const cm = parseFloat(form.productSize);
+                if (isNaN(cm)) return null;
+                const bodyPct = Math.round((cm / 170) * 100);
+                const torsoPct = Math.round((cm / 55) * 100);
+                return (
+                  <div className="mt-2 p-2 bg-orange-50 border border-orange-100 rounded-lg">
+                    <p className="text-[11px] text-orange-700">
+                      📐 {cm}cm ≈ 成人身高的 <strong>{bodyPct}%</strong>，约躯干的 <strong>{torsoPct}%</strong>
+                      {cm <= 10 && ' → 可单手握住的小物件'}
+                      {cm > 10 && cm <= 25 && ' → 单手可持的小型产品'}
+                      {cm > 25 && cm <= 40 && ' → 需双手或单臂的中型产品'}
+                      {cm > 40 && cm <= 60 && ' → 需要双臂环抱的大型产品'}
+                      {cm > 60 && ' → 覆盖身体大面积的超大产品'}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="w-5 h-5 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text">模特人群控制</h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">人群模板</label>
-                  <select
-                    value={form.modelPersonaPreset}
-                    onChange={(e) => applyPersonaPreset(e.target.value)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                  >
-                    {Object.keys(PERSONA_PRESETS).map((preset) => (
-                      <option key={preset} value={preset}>{preset}</option>
-                    ))}
-                  </select>
+            {/* AI Analysis Result Card */}
+            {(isAnalyzing || analysisResult) && (
+              <div className="bg-gradient-to-br from-purple-50 to-white rounded-xl border border-purple-200 p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <Brain className="w-4 h-4 text-purple-500" />
+                  <h3 className="font-semibold text-purple-700 text-sm">AI 场景方案</h3>
+                  {isAnalyzing && (
+                    <span className="ml-auto flex items-center gap-1.5 text-xs text-purple-500">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      正在分析产品...
+                    </span>
+                  )}
+                  {analysisResult && !isAnalyzing && (
+                    <button
+                      onClick={() => setShowAnalysisDetail(prev => !prev)}
+                      className="ml-auto text-xs text-purple-500 hover:text-purple-700 flex items-center gap-1"
+                    >
+                      {showAnalysisDetail ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      {showAnalysisDetail ? '收起' : '展开'}
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">族裔</label>
-                  <select
-                    value={form.modelEthnicity}
-                    onChange={(e) => updateForm('modelEthnicity', e.target.value)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                  >
-                    {['自动匹配', '白人美国人', '黑人美国人', '拉丁裔美国人', '亚裔美国人', '中东裔美国人', '南亚裔美国人', '太平洋岛民', '混合族裔美国人', '无（纯产品图）'].map((item) => (
-                      <option key={item} value={item}>{item}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">年龄层</label>
-                  <select
-                    value={form.modelAgeGroup}
-                    onChange={(e) => updateForm('modelAgeGroup', e.target.value)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                  >
-                    {['自动匹配', '0-3岁', '3-6岁', '5-12岁', '13-18岁', '18-25岁', '20-30岁', '25-35岁', '30-45岁', '40-55岁', '55-70岁', '60岁以上', '多年龄段'].map((item) => (
-                      <option key={item} value={item}>{item}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">家庭结构</label>
-                  <select
-                    value={form.modelFamilyStructure}
-                    onChange={(e) => updateForm('modelFamilyStructure', e.target.value)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                  >
-                    {['自动匹配', '单人', '情侣', '亲子', '三口之家', '多孩家庭', '好友组合', '多人社交', '祖孙三代', '老年伴侣', '人与宠物', '无（纯产品图）'].map((item) => (
-                      <option key={item} value={item}>{item}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">生活方式</label>
-                  <select
-                    value={form.modelLifestyle}
-                    onChange={(e) => updateForm('modelLifestyle', e.target.value)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                  >
-                    {['自动匹配', '都市通勤', '职场商务', '郊区家庭', '校园', '健身运动', '居家休闲', '户外露营', '旅行度假', '宠物生活', '文艺生活', '新居生活', '退休生活', '社交聚会', '节日聚会', '节日送礼', '派对庆祝', '下午茶/咖啡', '车内场景', '无（纯产品图）'].map((item) => (
-                      <option key={item} value={item}>{item}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs text-pastel-muted mb-1 block">补充人群说明</label>
-                  <textarea
-                    value={form.modelPersonaNotes}
-                    onChange={(e) => updateForm('modelPersonaNotes', e.target.value)}
-                    placeholder="例如：纽约公寓里的亚裔美国年轻情侣，自然互动，不要太像棚拍图库"
-                    className="w-full h-20 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
-                  />
-                </div>
-              </div>
-            </div>
 
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
+                {isAnalyzing && !analysisResult && (
+                  <div className="flex items-center justify-center py-6">
+                    <div className="text-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-purple-400 mx-auto mb-2" />
+                      <p className="text-sm text-purple-500">AI 正在分析产品图片...</p>
+                      <p className="text-xs text-purple-400 mt-1">自动推断产品类型、场景、人群等</p>
+                    </div>
+                  </div>
+                )}
+
+                {analysisResult && showAnalysisDetail && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(ANALYSIS_FIELD_LABELS).map(([field, label]) => {
+                      const value = (analysisResult as any)[field] || '';
+                      const displayValue = field === 'productType'
+                        ? PRODUCT_TYPE_LABELS[value] || value
+                        : field === 'sizeCategory'
+                          ? SIZE_CATEGORY_LABELS[value] || value
+                          : value;
+                      const isEditing = editingField === field;
+                      const isWide = ['sceneDirection', 'interactionHint', 'sellingPoints'].includes(field);
+
+                      return (
+                        <div
+                          key={field}
+                          className={`bg-white rounded-lg border border-purple-100 p-2 group/card hover:border-purple-300 transition-colors ${isWide ? 'col-span-2' : ''}`}
+                        >
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-[10px] text-purple-400 font-medium">{label}</span>
+                            {!isEditing && (
+                              <button
+                                onClick={() => setEditingField(field)}
+                                className="opacity-0 group-hover/card:opacity-100 transition-opacity p-0.5"
+                              >
+                                <Edit3 className="w-2.5 h-2.5 text-purple-400" />
+                              </button>
+                            )}
+                          </div>
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <input
+                                autoFocus
+                                defaultValue={value}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleAnalysisFieldEdit(field, (e.target as HTMLInputElement).value);
+                                  }
+                                  if (e.key === 'Escape') setEditingField(null);
+                                }}
+                                className="flex-1 bg-purple-50 border border-purple-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-300"
+                              />
+                              <button
+                                onClick={(e) => {
+                                  const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                                  handleAnalysisFieldEdit(field, input.value);
+                                }}
+                                className="p-1 text-purple-500 hover:text-purple-700"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-pastel-text truncate" title={displayValue}>{displayValue || '—'}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {analysisResult && !showAnalysisDetail && (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full">{analysisResult.productName}</span>
+                    <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full">{PRODUCT_TYPE_LABELS[analysisResult.productType]}</span>
+                    <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full">{analysisResult.sceneDirection}</span>
+                    <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full">{analysisResult.modelPersonaPreset}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Advanced Settings (collapsed) */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
               <button
                 onClick={() => setShowAdvanced(prev => !prev)}
                 className="w-full flex items-center justify-between"
               >
                 <div className="flex items-center gap-2">
-                  <ScanSearch className="w-5 h-5 text-pastel-highlight" />
-                  <h3 className="font-semibold text-pastel-text">高级补充信息</h3>
+                  <ScanSearch className="w-4 h-4 text-pastel-highlight" />
+                  <h3 className="font-semibold text-pastel-text text-sm">高级设置</h3>
+                  <span className="text-[10px] text-pastel-muted">（手动覆盖 AI 推断 / 模型选择）</span>
                 </div>
                 {showAdvanced ? <ChevronUp className="w-4 h-4 text-pastel-muted" /> : <ChevronDown className="w-4 h-4 text-pastel-muted" />}
               </button>
               {showAdvanced && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                  <Input label="目标人群" value={form.targetAudience} onChange={(value) => updateForm('targetAudience', value)} placeholder="例如：送礼女生、年轻妈妈" icon={<Users className="w-3.5 h-3.5" />} />
-                  <Input label="材质/面料" value={form.material} onChange={(value) => updateForm('material', value)} placeholder="例如：水晶超柔绒 / 纯棉" />
-                  <Input label="颜色/视觉风格" value={form.colorStyle} onChange={(value) => updateForm('colorStyle', value)} placeholder="例如：奶油色、暖调、ins 风" />
-                  <Input label="使用场景" value={form.usageScenario} onChange={(value) => updateForm('usageScenario', value)} placeholder="例如：卧室陪伴、居家穿搭" />
-                  <Input label="品牌调性" value={form.brandTone} onChange={(value) => updateForm('brandTone', value)} placeholder="例如：治愈、轻奢、少女感" />
-                  <Input label="文案诉求" value={form.copyIntent} onChange={(value) => updateForm('copyIntent', value)} placeholder="例如：礼物感、节日促销、舒适穿搭" />
-                  <div className="md:col-span-2">
-                    <label className="text-xs text-pastel-muted mb-1 block">禁忌元素</label>
-                    <textarea
-                      value={form.avoidElements}
-                      onChange={(e) => updateForm('avoidElements', e.target.value)}
-                      placeholder="例如：避免复杂背景、避免暗黑风、避免过度节日元素"
-                      className="w-full h-20 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
-                    />
+                <div className="mt-4 space-y-4">
+                  {/* Model Selection */}
+                  <div>
+                    <label className="text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5 px-1">
+                      <Cpu className="w-3.5 h-3.5" /> 图像模型
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                          ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                          : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'}`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <BananaIcon className="w-3.5 h-3.5" />
+                          <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>Nano Banana 2</span>
+                        </div>
+                        <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
+                      </button>
+                      <button
+                        onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                          ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                          : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'}`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <BananaIcon className="w-3.5 h-3.5" />
+                          <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>Nano Banana Pro</span>
+                        </div>
+                        <span className="text-[9px] text-pastel-muted">3 Pro (推荐)</span>
+                      </button>
+                    </div>
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="text-xs text-pastel-muted mb-1 block">补充说明</label>
-                    <textarea
-                      value={form.extraNotes}
-                      onChange={(e) => updateForm('extraNotes', e.target.value)}
-                      placeholder="可填写更完整的运营信息、参考关键词、希望突出的镜头语言等"
-                      className="w-full h-24 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
-                    />
+
+                  {/* Resolution & Batch */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-pastel-muted mb-1 block">清晰度</label>
+                      <select
+                        value={resolution}
+                        onChange={(e) => setResolution(e.target.value as ImageResolution)}
+                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                      >
+                        <option value={ImageResolution.RES_1K}>1K 标准</option>
+                        <option value={ImageResolution.RES_2K}>2K 高清</option>
+                        <option value={ImageResolution.RES_4K}>4K 超清</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-pastel-muted mb-1 block">批量生成</label>
+                      <select
+                        value={form.batchCount}
+                        onChange={(e) => updateForm('batchCount', e.target.value)}
+                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                      >
+                        <option value={1}>1 张</option>
+                        <option value={2}>2 张（并行）</option>
+                        <option value={3}>3 张（并行）</option>
+                        <option value={4}>4 张（并行）</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Manual Override Fields */}
+                  <div className="border-t border-pastel-border pt-3">
+                    <p className="text-xs text-pastel-muted mb-2 flex items-center gap-1">
+                      <Edit3 className="w-3 h-3" />
+                      手动覆盖（填写后将覆盖 AI 推断）
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <SmallInput label="产品名称" value={form.productName} onChange={(v) => updateForm('productName', v)} placeholder="AI 自动推断" />
+                      <SmallInput label="产品品类" value={form.productCategory} onChange={(v) => updateForm('productCategory', v)} placeholder="AI 自动推断" />
+                      <div>
+                        <label className="text-[10px] text-pastel-muted mb-0.5 block">人群模板</label>
+                        <select
+                          value={form.modelPersonaPreset}
+                          onChange={(e) => {
+                            const preset = e.target.value;
+                            const mapped = PERSONA_PRESETS[preset];
+                            setForm(prev => ({
+                              ...prev,
+                              modelPersonaPreset: preset,
+                              ...(mapped || {}),
+                            }));
+                          }}
+                          className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                        >
+                          {Object.keys(PERSONA_PRESETS).map((preset) => (
+                            <option key={preset} value={preset}>{preset}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <SmallInput label="核心卖点" value={form.sellingPoints} onChange={(v) => updateForm('sellingPoints', v)} placeholder="AI 自动推断" />
+                    </div>
+                    <div className="mt-2">
+                      <label className="text-[10px] text-pastel-muted mb-0.5 block">禁忌元素</label>
+                      <input
+                        value={form.avoidElements}
+                        onChange={(e) => updateForm('avoidElements', e.target.value)}
+                        placeholder="例如：避免复杂背景、避免暗黑风"
+                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+                      />
+                    </div>
+                    <div className="mt-2">
+                      <label className="text-[10px] text-pastel-muted mb-0.5 block">补充说明</label>
+                      <textarea
+                        value={form.extraNotes}
+                        onChange={(e) => updateForm('extraNotes', e.target.value)}
+                        placeholder="更多运营信息、参考关键词、希望突出的镜头语言等"
+                        className="w-full h-16 bg-pastel-bg border border-pastel-border rounded-lg p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm space-y-5">
-              <div>
-                <label className="text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5 px-1">
-                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
-                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'}`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3.5 h-3.5" />
-                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>Nano Banana 2</span>
-                    </div>
-                    <span className="text-[9px] text-pastel-muted">3.1 Flash (极速)</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
-                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'}`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3.5 h-3.5" />
-                      <span className={`text-xs font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>Nano Banana Pro</span>
-                    </div>
-                    <span className="text-[9px] text-pastel-muted">3 Pro (推荐)</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">输出比例</label>
-                  <div className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm text-pastel-text font-medium">
-                    {currentBoard.aspectRatio}（由{currentBoard.label}板块自动决定）
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-pastel-muted mb-1 block">清晰度</label>
-                  <select
-                    value={resolution}
-                    onChange={(e) => setResolution(e.target.value as ImageResolution)}
-                    className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                  >
-                    <option value={ImageResolution.RES_1K}>1K 标准</option>
-                    <option value={ImageResolution.RES_2K}>2K 高清</option>
-                    <option value={ImageResolution.RES_4K}>4K 超清</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-pastel-muted mb-1 block">批量生成数量</label>
-                <select
-                  value={form.batchCount}
-                  onChange={(e) => updateForm('batchCount', e.target.value)}
-                  className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                >
-                  <option value={1}>1 张</option>
-                  <option value={2}>2 张（并行）</option>
-                  <option value={3}>3 张（并行）</option>
-                  <option value={4}>4 张（并行）</option>
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between rounded-xl border border-pastel-border bg-pastel-bg px-4 py-3">
-                <div>
-                  <div className="text-sm font-semibold text-pastel-text flex items-center gap-2">
-                    <Wand2 className="w-4 h-4 text-pastel-highlight" />
-                    AI 运营思考
-                  </div>
-                  <div className="text-xs text-pastel-muted mt-1">自动整理场景策略、真实感约束与美国生活方式 Prompt 草案</div>
-                </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <div className={`relative w-10 h-5 rounded-full transition-colors ${isThinkingEnabled ? 'bg-pastel-highlight' : 'bg-gray-200'}`}>
-                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isThinkingEnabled ? 'translate-x-5' : ''}`} />
-                    <input type="checkbox" checked={isThinkingEnabled} onChange={(e) => setIsThinkingEnabled(e.target.checked)} className="sr-only" />
-                  </div>
-                </label>
-              </div>
-
+            {/* Generate Button */}
+            <div className="space-y-2">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-sm text-red-600">
                   <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -740,39 +961,45 @@ const SceneGenerationTab: React.FC = () => {
               <button
                 onClick={handleGenerate}
                 disabled={!canGenerate}
-                className="w-full py-4 rounded-xl bg-pastel-text text-white font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pastel-highlight transition-colors flex items-center justify-center gap-2"
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold shadow-lg shadow-purple-200 disabled:opacity-50 disabled:cursor-not-allowed hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center justify-center gap-2"
               >
-                {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                 {isGenerating ? `生成 ${currentBoard.label} 场景图中...` : `生成 ${form.batchCount} 张 ${currentBoard.label} 场景图`}
               </button>
+              <p className="text-center text-[10px] text-pastel-muted">
+                当前：{currentBoard.label} / {currentBoard.aspectRatio} / {resolution} / {selectedModel.includes('flash') ? 'Flash 极速' : 'Pro 推荐'}
+              </p>
             </div>
           </div>
 
+          {/* ========== RIGHT COLUMN: Output ========== */}
           <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <ScanSearch className="w-5 h-5 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text">AI 思考后的场景方案</h3>
-              </div>
-              <textarea
-                value={thinkingDraft}
-                readOnly
-                placeholder="点击生成后，这里会展示系统整理出的运营目标、场景策略，以及符合美国真实生活场景的人物与画面执行重点。"
-                className="w-full h-56 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none text-pastel-text placeholder-pastel-muted"
-              />
-            </div>
 
-            <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm min-h-[520px] flex flex-col">
+            {/* AI Thinking Draft */}
+            {thinkingDraft && (
+              <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Wand2 className="w-4 h-4 text-pastel-highlight" />
+                  <h3 className="font-semibold text-pastel-text text-sm">AI 运营思路</h3>
+                </div>
+                <pre className="w-full bg-pastel-bg border border-pastel-border rounded-lg p-3 text-xs text-pastel-text whitespace-pre-wrap max-h-48 overflow-y-auto font-sans">
+                  {thinkingDraft}
+                </pre>
+              </div>
+            )}
+
+            {/* Generated Results */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm min-h-[520px] flex flex-col">
               <div className="flex items-center gap-2 mb-3">
-                <ImageIcon className="w-5 h-5 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text">生成结果</h3>
+                <ImageIcon className="w-4 h-4 text-pastel-highlight" />
+                <h3 className="font-semibold text-pastel-text text-sm">生成结果</h3>
               </div>
 
               {isGenerating ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center text-pastel-muted">
-                  <Loader2 className="w-10 h-10 animate-spin text-pastel-highlight mb-3" />
+                  <Loader2 className="w-10 h-10 animate-spin text-purple-400 mb-3" />
                   <p className="font-medium">正在生成 {currentBoard.label} 场景图</p>
-                  <p className="text-sm mt-1">系统会先整理运营思路，再调用现有生成能力输出图片</p>
+                  <p className="text-sm mt-1">AI 分析完成，正在调用图像生成模型...</p>
                 </div>
               ) : generatedImages.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -794,10 +1021,15 @@ const SceneGenerationTab: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center text-pastel-muted border-2 border-dashed border-pastel-border rounded-xl bg-pastel-bg/50">
+                <div className="flex-1 flex flex-col items-center justify-center text-center text-pastel-muted border-2 border-dashed border-pastel-border rounded-xl bg-pastel-bg/50 py-16">
                   <ImageIcon className="w-12 h-12 mb-3 text-pastel-muted" />
                   <p className="font-medium">生成的图片将显示在这里</p>
                   <p className="text-sm mt-1">当前板块：{currentBoard.label} / {currentBoard.aspectRatio}</p>
+                  <div className="mt-4 text-xs space-y-1 text-pastel-muted/70 max-w-xs">
+                    <p>① 上传产品图 → AI 自动分析</p>
+                    <p>② 可选 — 补充场景描述</p>
+                    <p>③ 点击生成 🚀</p>
+                  </div>
                 </div>
               )}
             </div>
@@ -805,6 +1037,7 @@ const SceneGenerationTab: React.FC = () => {
         </div>
       </div>
 
+      {/* Preview Modal */}
       {selectedPreview && (
         <div
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6"
@@ -817,23 +1050,21 @@ const SceneGenerationTab: React.FC = () => {
   );
 };
 
-const Input: React.FC<{
+// ==================== Small Input Component ====================
+
+const SmallInput: React.FC<{
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
-  icon?: React.ReactNode;
-}> = ({ label, value, onChange, placeholder, icon }) => (
+}> = ({ label, value, onChange, placeholder }) => (
   <div>
-    <label className="text-xs text-pastel-muted mb-1 flex items-center gap-1 block">
-      {icon}
-      <span>{label}</span>
-    </label>
+    <label className="text-[10px] text-pastel-muted mb-0.5 block">{label}</label>
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
+      className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
     />
   </div>
 );
