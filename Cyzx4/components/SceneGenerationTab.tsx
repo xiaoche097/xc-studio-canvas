@@ -421,7 +421,8 @@ const SceneGenerationTab: React.FC = () => {
     }
   }, []);
 
-  // Auto-trigger analysis when images are uploaded
+  // Auto-trigger analysis when images are uploaded - DISABLED by user request for manual control
+  /* 
   useEffect(() => {
     if (uploadedImages.length > 0 && !analysisResult && !isAnalyzing) {
       const debounce = setTimeout(() => {
@@ -430,6 +431,7 @@ const SceneGenerationTab: React.FC = () => {
       return () => clearTimeout(debounce);
     }
   }, [uploadedImages.length, analysisResult, isAnalyzing, runAnalysis]);
+  */
 
 
   // ==================== Prompt Building ====================
@@ -803,10 +805,20 @@ const SceneGenerationTab: React.FC = () => {
                   <button
                     onClick={runAnalysis}
                     disabled={isAnalyzing}
-                    className="px-3 py-2 bg-purple-50 border border-purple-200 text-purple-600 rounded-lg text-sm font-medium hover:bg-purple-100 transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap border shadow-sm ${
+                      !analysisResult 
+                        ? 'bg-purple-600 border-purple-700 text-white hover:bg-purple-700' 
+                        : 'bg-purple-50 border-purple-200 text-purple-600 hover:bg-purple-100'
+                    }`}
                   >
-                    {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                    {isAnalyzing ? '分析中' : '重新分析'}
+                    {isAnalyzing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : !analysisResult ? (
+                      <Brain className="w-3.5 h-3.5" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    {isAnalyzing ? '分析中...' : !analysisResult ? '开始 AI 自动分析' : '重新分析'}
                   </button>
                 )}
               </div>
