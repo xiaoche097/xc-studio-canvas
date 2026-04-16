@@ -359,7 +359,7 @@ const GarmentReplacementTab: React.FC = () => {
               resolution: resolution,
               workflowHint: 'garment-replacement',
               hasModelRef: !!modelRefFile,
-              negativePrompt: 'wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition',
+              negativePrompt: 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition',
               vtonReport: combinedReport
             }
           );

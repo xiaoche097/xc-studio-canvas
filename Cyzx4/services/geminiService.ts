@@ -538,7 +538,8 @@ export const generateImageToImage = async (
       ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
       ═══════════════════════════════════════════
       - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 3 (and Image 4 if present).
-      - **COLOR**: Match the EXACT hue, saturation, and brightness. ZERO color drift allowed. If Image 3 is blue, the output MUST be blue.
+      - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness. ZERO color drift allowed. If Image 3 is blue, the output MUST be blue.
+      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta (magenta), purple, or red color cast on skin or fabric. Ensure the background color and model's original skin tone are not distorted by artificial warmth.
       - **PRINT/LOGO/GRAPHIC**: Reproduce every graphic element (such as circles, text, logos) at the exact same scale, position, and detail level. Do not lose the graphic prints!
       - **FABRIC TEXTURE**: Match the exact material appearance.
       - **GARMENT STRUCTURE**: Match neckline shape, sleeve length, hem length, and overall silhouette.
@@ -581,7 +582,8 @@ export const generateImageToImage = async (
       ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
       ═══════════════════════════════════════════
       - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 2.
-      - **COLOR**: Match the EXACT hue, saturation, and brightness of Image 2. ZERO color drift allowed.
+      - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness of Image 2. ZERO color drift allowed.
+      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta (magenta), purple, or red color cast. The output must have true-to-life colors without artificial tinting or oversaturation of red channels.
       - **PRINT/LOGO/GRAPHIC**: Every graphic element, text, logo, or pattern on Image 2 must appear on the output garment at the exact same scale, position, and orientation.
       - **FABRIC TEXTURE**: Replicate the exact material surface.
       - **GARMENT STRUCTURE**: Match neckline, sleeve length, hem length, collar shape, and overall silhouette.
