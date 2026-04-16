@@ -1,3 +1,5 @@
+import { STYLE_PACKS } from './stylePacks';
+
 /**
  * Prompt Engineering Utilities
  * Based on Imagen 3.0 (Nano Banana) Skills Documentation
@@ -295,6 +297,9 @@ export interface SceneGenerationPromptInput {
     interactionHint?: string;
     /** AI-inferred size category for physics rules */
     sizeCategory?: 'tiny' | 'small' | 'medium' | 'large' | 'wearable';
+    /** Style pack selection */
+    stylePackId?: string;
+    styleVariantId?: string;
 }
 
 // ==================== Realism Physics Rules ====================
@@ -812,13 +817,55 @@ function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
 export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): string {
     const subject = [input.productName, input.productCategory, input.productSize].filter(Boolean).join(", ") || "commercial product";
 
-    // Add randomized scene variation for diversity
-    const sceneVariation = getRandomSceneVariation(input.sceneDirection || input.usageScenario || '');
+    // --- Style Pack Logic ---
+    let stylePackData: any = null;
+    let styleVariant: any = null;
+
+    if (input.stylePackId && input.styleVariantId) {
+        // stylePackData handled by top-level import
+        stylePackData = STYLE_PACKS.find((p: any) => p.stylePackName.includes(input.stylePackId!));
+        if (stylePackData) {
+            styleVariant = stylePackData.styleVariants.find((v: any) => v.id === input.styleVariantId);
+        }
+    }
+
+    if (styleVariant) {
+        let template = styleVariant.promptTemplate;
+        // Replace placeholders
+        template = template.replace(/\[SUBJECT\/PLUSH TOY\]/g, subject);
+        template = template.replace(/\[SUBJECT\/PLUSH TOYS\]/g, `${subject} s`);
+        template = template.replace(/\[BASE_STYLE\]/g, stylePackData.promptBlocks.BASE_STYLE || '');
+        template = template.replace(/\[COPY_SPACE\]/g, stylePackData.promptBlocks.COPY_SPACE || '');
+        template = template.replace(/\[BADGE_PLACEHOLDER\]/g, stylePackData.promptBlocks.BADGE_PLACEHOLDER || '');
+
+        const globalRules = [
+            `GLOBAL STYLE RULES: ${stylePackData.globalRules.mustHave.join(". ")}.`,
+            `Text Policy: ${stylePackData.globalRules.textPolicy}`,
+            `Badge Policy: ${stylePackData.globalRules.badgePolicy}`
+        ].join(" ");
+
+        return [
+            template,
+            globalRules,
+            `Ensure product identity: ${subject}`,
+            buildProductLockPrompt(input.productType),
+            buildMaterialLockPrompt(input),
+            "High resolution, professional photography, realistic texture."
+        ].join(" ");
+    }
+    // --- End Style Pack Logic ---
+
+    // Add randomized scene variation for diversity (skip if we have a detailed custom scene direction)
+    const hasDetailedDirection = (input.sceneDirection?.length || 0) > 40;
+    const sceneVariation = hasDetailedDirection 
+        ? "" 
+        : getRandomSceneVariation(input.sceneDirection || input.usageScenario || '');
+        
     const environment = [
         input.sceneDirection,
         input.usageScenario,
         input.targetAudience,
-        `Use this specific furniture/decor variation for uniqueness: ${sceneVariation}`,
+        sceneVariation ? `Use this specific furniture/decor variation for uniqueness: ${sceneVariation}` : "",
     ].filter(Boolean).join(", ") || "real American lifestyle setting";
 
     const style = [input.brandTone, input.colorStyle, SCENE_BOARD_GUIDE[input.boardType]].filter(Boolean).join(", ");
@@ -904,11 +951,29 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
 export function buildSceneGenerationNegativePrompt(input: {
     boardType: SceneGenerationBoardType;
     productType: SceneGenerationProductType;
+    stylePackId?: string;
+    styleVariantId?: string;
     avoidElements?: string;
+    negativePrompt?: string;
 }) {
+    // --- Style Pack Logic ---
+    let stylePackData: any = null;
+    let styleVariant: any = null;
+
+    if (input.stylePackId && input.styleVariantId) {
+        // stylePackData handled by top-level import
+        stylePackData = STYLE_PACKS.find((p: any) => p.stylePackName.includes(input.stylePackId!));
+        if (stylePackData) {
+            styleVariant = stylePackData.styleVariants.find((v: any) => v.id === input.styleVariantId);
+        }
+    }
+    // --- End Style Pack Logic ---
+
     const scene = input.boardType === "social" ? "portrait" : "product";
     const style = input.boardType === "social" ? "film" : "cinematic";
     const extra = [
+        stylePackData?.negativePromptGlobal || "",
+        styleVariant?.negativePromptAdd || "",
         "CGI",
         "3D render",
         "cartoon",
@@ -962,6 +1027,7 @@ export function buildSceneGenerationNegativePrompt(input: {
         input.productType === "apparel" ? "wrong garment structure, melted fabric, impossible folds, broken seams, incorrect fit, changed fabric weight, altered print placement, altered embroidery placement, recolored garment panels" : "",
         input.productType === "general" ? "changed hardware finish, altered edge construction, replaced accessories, changed material gloss" : "",
         input.avoidElements || "",
+        input.negativePrompt || "",
     ].filter(Boolean).join(", ");
 
     return buildNegativePrompt(scene as any, style as any, extra);

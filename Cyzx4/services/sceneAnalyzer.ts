@@ -239,3 +239,55 @@ function getDefaultAnalysisResult(): SceneAnalysisResult {
     sizeCategory: 'medium',
   };
 }
+
+export interface ReferenceSceneAnalysis {
+  /** Detailed English description for prompt */
+  sceneDirection: string;
+  /** Inferred interaction hint (Chinese) */
+  interactionHint: string;
+  /** Color style (Chinese) */
+  colorStyle: string;
+  /** Suggested model persona (Chinese) */
+  modelPersonaPreset: string;
+}
+
+/**
+ * Analyze a user-provided reference scene image to extract its composition,
+ * lighting, and atmosphere details for generation guidance.
+ */
+export async function analyzeReferenceScene(image: { base64: string; mimeType: string }): Promise<ReferenceSceneAnalysis | null> {
+  const ai = getAiClient();
+  
+  const prompt = `
+你是一位专业的商业摄影场景分析师。请分析这张参考图片，推断其构图、光影、环境元素，并输出用于指导 AI 图像生成的详细参数。
+
+请输出以下 JSON 格式：
+{
+  "sceneDirection": "详细的英文描述，涵盖 Composition (视角/景深), Lighting (光源性质/方向), Environment (核心家具/背景装饰), Mood (氛围/色调)。30-60词。",
+  "interactionHint": "中文描述。根据图片推断人物与产品的物理交互（例如：人物靠在床头抱着玩偶、双手托举产品、放在桌面背景等）",
+  "colorStyle": "中文描述出的色调风格（例如：暖光柔和、明亮家居、冷色调简约等）",
+  "modelPersonaPreset": "如果图中有人物，匹配最合适的预设标签（例如：美国年轻妈妈与儿童、美国都市女性等）。如果没人则写“无模特（纯产品）”"
+}
+
+只返回纯 JSON 对象。
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite-preview',
+      contents: {
+        parts: [
+          { inlineData: { mimeType: image.mimeType, data: image.base64 } },
+          { text: prompt }
+        ]
+      },
+    });
+
+    let text = response.text || '{}';
+    text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('Reference scene analysis failed:', error);
+    return null;
+  }
+}

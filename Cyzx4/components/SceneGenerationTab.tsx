@@ -9,7 +9,8 @@ import {
   enhancePrompt,
   QUALITY_BOOSTERS
 } from '../services/promptUtils';
-import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
+import { STYLE_PACKS, StylePack, StyleVariant } from '../services/stylePacks';
+import { analyzeProductForScene, SceneAnalysisResult, analyzeReferenceScene } from '../services/sceneAnalyzer';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { AspectRatio, ImageResolution } from '../types';
@@ -216,6 +217,7 @@ const PERSONA_PRESETS: Record<string, {
 
 const SceneGenerationTab: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const refSceneInputRef = useRef<HTMLInputElement>(null);
 
   const [boardType, setBoardType] = useState<BoardType>('main');
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
@@ -232,6 +234,11 @@ const SceneGenerationTab: React.FC = () => {
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [showAnalysisDetail, setShowAnalysisDetail] = useState(true);
+  const [selectedStylePack, setSelectedStylePack] = useState<StylePack | null>(null);
+  const [selectedStyleVariant, setSelectedStyleVariant] = useState<StyleVariant | null>(null);
+  const [referenceSceneImage, setReferenceSceneImage] = useState<UploadedImage | null>(null);
+  const [isAnalyzingReference, setIsAnalyzingReference] = useState(false);
+  const [hoveredSlot, setHoveredSlot] = useState<'product' | 'reference' | null>(null);
 
   const currentBoard = BOARD_CONFIG[boardType];
   const aspectRatio = currentBoard.aspectRatio;
@@ -253,7 +260,7 @@ const SceneGenerationTab: React.FC = () => {
 
   const addFiles = (files: File[]) => {
     const validFiles = files.filter(file => file.type.startsWith('image/'));
-    const nextFiles = validFiles.slice(0, Math.max(0, 5 - uploadedImages.length));
+    const nextFiles = validFiles.slice(0, Math.max(0, 4 - uploadedImages.length));
     if (nextFiles.length === 0) return;
 
     const mapped = nextFiles.map(file => ({
@@ -270,7 +277,11 @@ const SceneGenerationTab: React.FC = () => {
   };
 
   useImagePaste((files) => {
-    addFiles(files);
+    if (hoveredSlot === 'reference') {
+      handleReferenceSceneFile(files[0]);
+    } else {
+      addFiles(files);
+    }
   });
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -292,6 +303,16 @@ const SceneGenerationTab: React.FC = () => {
     }
   };
 
+  const handleReferenceSceneFile = (file: File) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const uploaded = {
+      file,
+      preview: URL.createObjectURL(file),
+    };
+    setReferenceSceneImage(uploaded);
+    runReferenceAnalysis(uploaded);
+  };
+
   // ==================== AI Auto-Analysis ====================
 
   const runAnalysis = useCallback(async () => {
@@ -309,30 +330,48 @@ const SceneGenerationTab: React.FC = () => {
       );
       
       const result = await analyzeProductForScene(images, form.userHint, boardType);
-      setAnalysisResult(result);
       
-      // Apply analysis results to form (user overrides are preserved)
-      setForm(prev => ({
-        ...prev,
-        productName: prev.productName || result.productName,
-        productCategory: prev.productCategory || result.productCategory,
-        productType: result.productType,
-        productSize: prev.productSize || result.productSize,
-        material: prev.material || result.material,
-        sellingPoints: prev.sellingPoints || result.sellingPoints,
-        sceneDirection: prev.sceneDirection || result.sceneDirection,
-        targetAudience: prev.targetAudience || result.targetAudience,
-        modelPersonaPreset: result.modelPersonaPreset,
-        modelEthnicity: result.modelEthnicity,
-        modelAgeGroup: result.modelAgeGroup,
-        modelFamilyStructure: result.modelFamilyStructure,
-        modelLifestyle: result.modelLifestyle,
-        colorStyle: prev.colorStyle || result.colorStyle,
-        usageScenario: prev.usageScenario || result.usageScenario,
-        brandTone: prev.brandTone || result.brandTone,
-        interactionHint: result.interactionHint,
-        sizeCategory: result.sizeCategory,
-      }));
+      // Update analysis result card, but PROTECT fields if they were already set by a reference image
+      setAnalysisResult(prev => {
+        if (!prev) return result;
+        // If a reference image is present, we keep the scene-specific fields from the previous state
+        const hasRef = !!referenceSceneImage;
+        return {
+          ...result,
+          sceneDirection: hasRef ? prev.sceneDirection : result.sceneDirection,
+          interactionHint: hasRef ? prev.interactionHint : result.interactionHint,
+          colorStyle: hasRef ? prev.colorStyle : result.colorStyle,
+          modelPersonaPreset: hasRef ? prev.modelPersonaPreset : result.modelPersonaPreset,
+        };
+      });
+      
+      // Apply analysis results to form (user overrides and reference-inferred scene info are preserved)
+      setForm(prev => {
+        const hasRef = !!referenceSceneImage;
+        return {
+          ...prev,
+          productName: prev.productName || result.productName,
+          productCategory: prev.productCategory || result.productCategory,
+          productType: result.productType,
+          productSize: prev.productSize || result.productSize,
+          material: prev.material || result.material,
+          sellingPoints: prev.sellingPoints || result.sellingPoints,
+          // If reference image exists, NEVER overwrite these scene fields
+          sceneDirection: hasRef ? prev.sceneDirection : (prev.sceneDirection || result.sceneDirection),
+          interactionHint: hasRef ? prev.interactionHint : result.interactionHint,
+          colorStyle: hasRef ? prev.colorStyle : (prev.colorStyle || result.colorStyle),
+          modelPersonaPreset: hasRef ? prev.modelPersonaPreset : result.modelPersonaPreset,
+          
+          targetAudience: prev.targetAudience || result.targetAudience,
+          modelEthnicity: result.modelEthnicity,
+          modelAgeGroup: result.modelAgeGroup,
+          modelFamilyStructure: result.modelFamilyStructure,
+          modelLifestyle: result.modelLifestyle,
+          usageScenario: prev.usageScenario || result.usageScenario,
+          brandTone: prev.brandTone || result.brandTone,
+          sizeCategory: result.sizeCategory,
+        };
+      });
     } catch (err) {
       console.error('AI analysis failed:', err);
       setError('AI 分析失败，请手动填写信息或重试');
@@ -340,6 +379,47 @@ const SceneGenerationTab: React.FC = () => {
       setIsAnalyzing(false);
     }
   }, [uploadedImages, form.userHint, boardType]);
+
+  const runReferenceAnalysis = useCallback(async (image: UploadedImage) => {
+    setIsAnalyzingReference(true);
+    setError(null);
+    try {
+      const base64 = await blobToBase64(image.file);
+      const result = await analyzeReferenceScene({
+        base64,
+        mimeType: image.file.type
+      });
+      if (result) {
+        setForm(prev => ({ 
+          ...prev, 
+          sceneDirection: result.sceneDirection,
+          interactionHint: result.interactionHint || prev.interactionHint,
+          colorStyle: result.colorStyle || prev.colorStyle,
+          modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
+            ? result.modelPersonaPreset 
+            : prev.modelPersonaPreset
+        }));
+        
+        // Sync with analysis result card so user sees everything change
+        if (analysisResult) {
+          setAnalysisResult(prev => prev ? { 
+            ...prev, 
+            sceneDirection: result.sceneDirection,
+            interactionHint: result.interactionHint || prev.interactionHint,
+            colorStyle: result.colorStyle || prev.colorStyle,
+            modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
+              ? result.modelPersonaPreset 
+              : prev.modelPersonaPreset
+          } : prev);
+        }
+      }
+    } catch (err) {
+      console.error('Reference scene analysis failed:', err);
+      setError('参考场景分析失败，请重试');
+    } finally {
+      setIsAnalyzingReference(false);
+    }
+  }, []);
 
   // Auto-trigger analysis when images are uploaded
   useEffect(() => {
@@ -349,7 +429,8 @@ const SceneGenerationTab: React.FC = () => {
       }, 800);
       return () => clearTimeout(debounce);
     }
-  }, [uploadedImages.length]);
+  }, [uploadedImages.length, analysisResult, isAnalyzing, runAnalysis]);
+
 
   // ==================== Prompt Building ====================
 
@@ -419,6 +500,8 @@ const SceneGenerationTab: React.FC = () => {
       extraNotes: form.extraNotes,
       interactionHint: form.interactionHint,
       sizeCategory: form.sizeCategory,
+      stylePackId: selectedStylePack?.stylePackName,
+      styleVariantId: selectedStyleVariant?.id,
     });
   };
 
@@ -441,6 +524,8 @@ const SceneGenerationTab: React.FC = () => {
         boardType,
         productType: form.productType,
         avoidElements: form.avoidElements,
+        stylePackId: selectedStylePack?.stylePackName,
+        styleVariantId: selectedStyleVariant?.id,
       });
 
       setThinkingDraft(thinkingSummary);
@@ -575,8 +660,10 @@ const SceneGenerationTab: React.FC = () => {
               </div>
               <div
                 onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={(e) => { e.preventDefault(); setHoveredSlot('product'); }}
                 onDrop={handleDrop}
+                onMouseEnter={() => setHoveredSlot('product')}
+                onMouseLeave={() => setHoveredSlot(null)}
                 className="relative border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50 rounded-lg p-3 cursor-pointer transition-all"
               >
                 <input
@@ -603,7 +690,7 @@ const SceneGenerationTab: React.FC = () => {
                         </button>
                       </div>
                     ))}
-                    {uploadedImages.length < 5 && (
+                    {uploadedImages.length < 4 && (
                       <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
                         <Upload className="w-4 h-4" />
                       </div>
@@ -613,7 +700,87 @@ const SceneGenerationTab: React.FC = () => {
                   <div className="text-center py-5">
                     <Upload className="w-7 h-7 mx-auto mb-2 text-pastel-muted" />
                     <p className="text-sm text-pastel-highlight font-medium">上传产品图片</p>
-                    <p className="text-xs text-pastel-muted mt-1">支持拖拽、粘贴，JPG / PNG / WEBP（最多5张）</p>
+                    <p className="text-xs text-pastel-muted mt-1">支持拖拽、粘贴，JPG / PNG / WEBP（最多4张）</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Reference Scene Upload */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <ImageIcon className="w-4 h-4 text-purple-500" />
+                <h3 className="font-semibold text-pastel-text text-sm">参考场景图 (可选)</h3>
+                <span className="text-[10px] text-pastel-muted ml-auto">参考其构图、光影及风格</span>
+              </div>
+              <div
+                onClick={() => refSceneInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setHoveredSlot('reference'); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) handleReferenceSceneFile(file);
+                }}
+                onMouseEnter={() => setHoveredSlot('reference')}
+                onMouseLeave={() => setHoveredSlot(null)}
+                className="relative border-2 border-dashed border-pastel-border hover:border-purple-300 hover:bg-purple-50/30 rounded-lg p-3 cursor-pointer transition-all"
+              >
+                <input
+                  ref={refSceneInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleReferenceSceneFile(file);
+                  }}
+                  className="hidden"
+                />
+                {referenceSceneImage ? (
+                  <div className="relative group/ref">
+                    <img src={referenceSceneImage.preview} alt="reference-scene" className="w-full h-32 object-cover rounded-lg border border-pastel-border" />
+                    {isAnalyzingReference && (
+                      <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-center rounded-lg">
+                        <Loader2 className="w-6 h-6 animate-spin text-purple-500 mb-2" />
+                        <span className="text-[10px] text-purple-600 font-medium">正在像素级分析场景...</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        URL.revokeObjectURL(referenceSceneImage.preview);
+                        setReferenceSceneImage(null);
+                      }}
+                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover/ref:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                    {!isAnalyzingReference && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (referenceSceneImage) runReferenceAnalysis(referenceSceneImage);
+                        }}
+                        className="absolute top-2 left-2 p-1.5 bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/20 rounded-full text-white transition-opacity opacity-0 group-hover/ref:opacity-100 flex items-center gap-1 px-2.5"
+                        title="重新分析场景"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span className="text-[10px] font-medium">重新分析</span>
+                      </button>
+                    )}
+                    {!isAnalyzingReference && (
+                      <div className="absolute bottom-2 left-2 right-2 bg-black/50 backdrop-blur-sm rounded px-2 py-1">
+                        <p className="text-[9px] text-white truncate">已提取参考信息，可在下方“场景描述”调整</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <div className="w-10 h-10 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-2">
+                      <Wand2 className="w-5 h-5 text-purple-400" />
+                    </div>
+                    <p className="text-xs text-purple-600 font-medium">上传参考图</p>
+                    <p className="text-[10px] text-pastel-muted mt-1">自动分析并同步构图与光影方案</p>
                   </div>
                 )}
               </div>
@@ -712,6 +879,86 @@ const SceneGenerationTab: React.FC = () => {
                   </div>
                 );
               })()}
+            </div>
+
+            {/* Brand Style Packs */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="w-4 h-4 text-purple-500" />
+                    <h3 className="font-semibold text-pastel-text text-sm">品牌风格包</h3>
+                    {selectedStylePack && (
+                        <button 
+                            onClick={() => { setSelectedStylePack(null); setSelectedStyleVariant(null); }}
+                            className="ml-auto text-[10px] text-red-500 hover:underline"
+                        >
+                            清除选择
+                        </button>
+                    )}
+                </div>
+                
+                <div className="space-y-3">
+                    <select
+                        value={selectedStylePack?.stylePackName || ''}
+                        onChange={(e) => {
+                            const pack = STYLE_PACKS.find(p => p.stylePackName === e.target.value);
+                            setSelectedStylePack(pack || null);
+                            setSelectedStyleVariant(pack ? pack.styleVariants[0] : null);
+                        }}
+                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-300"
+                    >
+                        <option value="">-- 选择品牌风格包 --</option>
+                        {STYLE_PACKS.map(p => (
+                            <option key={p.stylePackName} value={p.stylePackName}>{p.stylePackName}</option>
+                        ))}
+                    </select>
+
+                    {selectedStylePack && (
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                            {selectedStylePack.styleVariants.map(variant => (
+                                <button
+                                    key={variant.id}
+                                    onClick={() => {
+                                        setSelectedStyleVariant(variant);
+                                        // Sync config
+                                        if (variant.config?.config?.numberOfImages) {
+                                            updateForm('batchCount', variant.config.config.numberOfImages);
+                                        }
+                                        // Attempt to match boardType based on aspectRatio
+                                        if (variant.config?.config?.aspectRatio === '1:1') setBoardType('main');
+                                        else if (variant.config?.config?.aspectRatio === '16:9') setBoardType('aplus');
+                                        else if (variant.config?.config?.aspectRatio === '3:4') setBoardType('social');
+                                        else if (variant.config?.config?.aspectRatio === '4:3') setBoardType('aplus'); // 4:3 is close to aplus/landscape
+                                    }}
+                                    className={`relative p-2.5 rounded-xl border text-left transition-all ${
+                                        selectedStyleVariant?.id === variant.id
+                                            ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                                            : 'border-pastel-border bg-white hover:border-purple-200'
+                                    }`}
+                                >
+                                    <div className={`text-xs font-bold mb-1 ${selectedStyleVariant?.id === variant.id ? 'text-purple-700' : 'text-pastel-text'}`}>
+                                        {variant.name}
+                                    </div>
+                                    <div className="text-[10px] text-pastel-muted line-clamp-2">
+                                        适用：{variant.whenToUse.join('、')}
+                                    </div>
+                                    {selectedStyleVariant?.id === variant.id && (
+                                        <div className="absolute top-1 right-1">
+                                            <Check className="w-3 h-3 text-purple-500" />
+                                        </div>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    
+                    {selectedStyleVariant && (
+                        <div className="mt-2 p-3 bg-purple-50/50 border border-purple-100 rounded-lg">
+                            <p className="text-[11px] text-purple-700 leading-relaxed italic">
+                                ✨ 已应用风格预设："{selectedStyleVariant.name}"。生成时将自动优化光影、质感、构图和负向提示词，确保品牌一致性。
+                            </p>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* AI Analysis Result Card */}
