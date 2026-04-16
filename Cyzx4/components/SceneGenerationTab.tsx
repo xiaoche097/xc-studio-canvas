@@ -316,10 +316,13 @@ const SceneGenerationTab: React.FC = () => {
   // ==================== AI Auto-Analysis ====================
 
   const runAnalysis = useCallback(async () => {
-    if (uploadedImages.length === 0) return;
-    
     setIsAnalyzing(true);
     setError(null);
+    
+    if (uploadedImages.length === 0) {
+      setIsAnalyzing(false);
+      return;
+    }
     
     try {
       const images = await Promise.all(
@@ -378,7 +381,7 @@ const SceneGenerationTab: React.FC = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [uploadedImages, form.userHint, boardType]);
+  }, [uploadedImages, form.userHint, boardType, referenceSceneImage]);
 
   const runReferenceAnalysis = useCallback(async (image: UploadedImage) => {
     setIsAnalyzingReference(true);
@@ -400,9 +403,9 @@ const SceneGenerationTab: React.FC = () => {
             : prev.modelPersonaPreset
         }));
         
-        // Sync with analysis result card so user sees everything change
-        if (analysisResult) {
-          setAnalysisResult(prev => prev ? { 
+        setAnalysisResult(prev => {
+          if (!prev) return null; // Only sync if product analysis has run
+          return { 
             ...prev, 
             sceneDirection: result.sceneDirection,
             interactionHint: result.interactionHint || prev.interactionHint,
@@ -410,8 +413,8 @@ const SceneGenerationTab: React.FC = () => {
             modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
               ? result.modelPersonaPreset 
               : prev.modelPersonaPreset
-          } : prev);
-        }
+          };
+        });
       }
     } catch (err) {
       console.error('Reference scene analysis failed:', err);
@@ -419,7 +422,7 @@ const SceneGenerationTab: React.FC = () => {
     } finally {
       setIsAnalyzingReference(false);
     }
-  }, []);
+  }, [analysisResult]);
 
   // Auto-trigger analysis when images are uploaded - DISABLED by user request for manual control
   /* 
