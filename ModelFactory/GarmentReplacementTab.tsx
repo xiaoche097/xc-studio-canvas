@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone, Cpu } from 'lucide-react';
+import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone, Cpu, RefreshCw } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage, analyzeVtonMaterials } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -58,6 +58,7 @@ const GarmentReplacementTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
+  const [cachedGlobalReport, setCachedGlobalReport] = useState<string | null>(null);
 
   // Output settings
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
@@ -281,80 +282,11 @@ const GarmentReplacementTab: React.FC = () => {
       if (pairingImg) globalRefs.push(pairingImg);
       
       const globalReport = await analyzeVtonMaterials(globalRefs, { type: 'global' });
+      setCachedGlobalReport(globalReport); // Store in state for individual regeneration
 
       // PHASE 2: Individual Target Generation (Parallel)
-      const generationTasks = targetFiles.map(async (targetFile, index) => {
-        try {
-          setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating' } : r));
-
-          const targetImg = await compressImage(targetFile, 2048, 0.96);
-          
-          // Per-target Scene Analysis
-          const targetReport = await analyzeVtonMaterials([{ base64: targetImg.base64, mimeType: targetImg.mime }], { type: 'target' });
-          const combinedReport = `REF_REPORT:\n${globalReport}\n\nSCENE_REPORT:\n${targetReport}`;
-
-          const inputImages: { base64: string; mimeType: string }[] = [];
-          
-          if (processedModelRef) {
-            // Image 1 = Target Scene (Pose/Angle/Background Anchor)
-            inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
-            // Image 2 = Model Identity
-            inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
-            // Image 3 = Core Garment
-            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-            // Image 4 = Pairing
-            if (pairingImg) {
-              inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
-            }
-          } else {
-            // Image 1 = Target Scene (Pose/Angle/Identity Anchor)
-            inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
-            // Image 2 = Core Garment
-            inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-            // Image 3 = Pairing
-            if (pairingImg) {
-              inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
-            }
-          }
-
-          let lastError: any = null;
-          const fallbackModels = [selectedModel, selectedModel === 'gemini-3.1-flash-image-preview' ? 'gemini-3-pro-image-preview' : 'gemini-3.1-flash-image-preview'] as const;
-          let result: string[] = [];
-
-          for (const modelId of fallbackModels) {
-            try {
-              result = await generateImageToImage(
-                inputImages,
-                '', 
-                {
-                  modelId,
-                  aspectRatio: outputAspectRatio,
-                  resolution: resolution,
-                  workflowHint: 'garment-replacement',
-                  hasModelRef: !!modelRefFile,
-                  negativePrompt: 'wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition',
-                  vtonReport: combinedReport
-                }
-              );
-              if (result && result.length > 0) break;
-            } catch (e: any) {
-              lastError = e;
-              console.warn(`[GarmentSwap] Model ${modelId} failed:`, e);
-            }
-          }
-
-          if (result && result.length > 0) {
-            setResults(prev => prev.map((r, i) =>
-              i === index ? { ...r, status: 'done', resultUrl: result[0] } : r
-            ));
-          } else {
-            throw new Error(`生成失败: ${getErrorMessage(lastError)}`);
-          }
-        } catch (error: any) {
-          setResults(prev => prev.map((r, i) =>
-            i === index ? { ...r, status: 'error', error: getErrorMessage(error) } : r
-          ));
-        }
+      const generationTasks = targetFiles.map(async (_, index) => {
+        await performSingleGeneration(index, globalReport);
       });
 
       // Wait for all tasks to complete or fail
@@ -365,6 +297,124 @@ const GarmentReplacementTab: React.FC = () => {
     } finally {
       setIsGenerating(false);
       setStatusMessage('');
+    }
+  };
+
+  const performSingleGeneration = async (index: number, globalReport: string) => {
+    try {
+      setResults(prev => prev.map((r, i) => i === index ? { ...r, status: 'generating', error: undefined } : r));
+
+      const targetFile = targetFiles[index];
+      if (!targetFile) throw new Error('找不到目标图片');
+
+      const coreImg = await smartCrop(coreGarmentFile!);
+      let pairingImg: { base64: string; mimeType: string } | null = null;
+      if (pairingFile) pairingImg = await smartCrop(pairingFile);
+      
+      let processedModelRef: { base64: string; mimeType: string; displayUrl: string } | null = null;
+      if (modelRefFile) processedModelRef = await smartCrop(modelRefFile);
+
+      const targetImg = await compressImage(targetFile, 2048, 0.96);
+      
+      // Per-target Scene Analysis
+      const targetReport = await analyzeVtonMaterials([{ base64: targetImg.base64, mimeType: targetImg.mime }], { type: 'target' });
+      const combinedReport = `REF_REPORT:\n${globalReport}\n\nSCENE_REPORT:\n${targetReport}`;
+
+      const inputImages: { base64: string; mimeType: string }[] = [];
+      
+      if (processedModelRef) {
+        // Image 1 = Target Scene (Pose/Angle/Background Anchor)
+        inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
+        // Image 2 = Model Identity
+        inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
+        // Image 3 = Core Garment
+        inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
+        // Image 4 = Pairing
+        if (pairingImg) {
+          inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
+        }
+      } else {
+        // Image 1 = Target Scene (Pose/Angle/Identity Anchor)
+        inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
+        // Image 2 = Core Garment
+        inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
+        // Image 3 = Pairing
+        if (pairingImg) {
+          inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
+        }
+      }
+
+      let lastError: any = null;
+      const fallbackModels = [selectedModel, selectedModel === 'gemini-3.1-flash-image-preview' ? 'gemini-3-pro-image-preview' : 'gemini-3.1-flash-image-preview'] as const;
+      let result: string[] = [];
+
+      for (const modelId of fallbackModels) {
+        try {
+          result = await generateImageToImage(
+            inputImages,
+            '', 
+            {
+              modelId,
+              aspectRatio: outputAspectRatio,
+              resolution: resolution,
+              workflowHint: 'garment-replacement',
+              hasModelRef: !!modelRefFile,
+              negativePrompt: 'wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition',
+              vtonReport: combinedReport
+            }
+          );
+          if (result && result.length > 0) break;
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`[GarmentSwap] Model ${modelId} failed:`, e);
+        }
+      }
+
+      if (result && result.length > 0) {
+        setResults(prev => prev.map((r, i) =>
+          i === index ? { ...r, status: 'done', resultUrl: result[0] } : r
+        ));
+      } else {
+        throw new Error(`生成失败: ${getErrorMessage(lastError)}`);
+      }
+    } catch (error: any) {
+      console.error(`[GarmentSwap] Target ${index + 1} failed:`, error);
+      setResults(prev => prev.map((r, i) =>
+        i === index ? { ...r, status: 'error', error: getErrorMessage(error) } : r
+      ));
+    }
+  };
+
+  const handleRegenerateSingle = async (index: number) => {
+    if (!coreGarmentFile) {
+      alert('请上传服装 (核心)');
+      return;
+    }
+
+    try {
+      let report = cachedGlobalReport;
+      
+      // If no cached report, generate one first
+      if (!report) {
+        const coreImg = await smartCrop(coreGarmentFile);
+        let pairingImg: { base64: string; mimeType: string } | null = null;
+        if (pairingFile) pairingImg = await smartCrop(pairingFile);
+        let processedModelRef: { base64: string; mimeType: string; displayUrl: string } | null = null;
+        if (modelRefFile) processedModelRef = await smartCrop(modelRefFile);
+
+        const globalRefs = [];
+        if (processedModelRef) globalRefs.push(processedModelRef);
+        globalRefs.push(coreImg);
+        if (pairingImg) globalRefs.push(pairingImg);
+        
+        report = await analyzeVtonMaterials(globalRefs, { type: 'global' });
+        setCachedGlobalReport(report);
+      }
+
+      await performSingleGeneration(index, report);
+    } catch (err) {
+      console.error(err);
+      alert(getErrorMessage(err));
     }
   };
 
@@ -735,12 +785,19 @@ const GarmentReplacementTab: React.FC = () => {
                       </div>
                     </div>
                   ) : item.status === 'error' ? (
-                    <div className="w-full aspect-[3/4] bg-red-50/50 rounded-3xl border border-red-100 flex flex-col items-center justify-center p-6 text-center text-red-500">
+                    <div className="w-full aspect-[3/4] bg-red-50/50 rounded-3xl border border-red-100 flex flex-col items-center justify-center p-6 text-center text-red-500 relative group">
                       <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center mb-4">
                         <span className="text-2xl">⚠️</span>
                       </div>
                       <span className="text-sm font-bold mb-2">生成失败</span>
-                      <span className="text-[10px] opacity-80 break-all">{item.error}</span>
+                      <span className="text-[10px] opacity-80 break-all mb-4">{item.error}</span>
+                      <button
+                        onClick={() => handleRegenerateSingle(i)}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-xs font-bold hover:bg-red-600 transition-colors shadow-sm"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        重试
+                      </button>
                     </div>
                   ) : (
                     <div className="relative w-full aspect-[3/4] rounded-3xl border border-pastel-border shadow-sm overflow-hidden bg-white">
@@ -749,13 +806,22 @@ const GarmentReplacementTab: React.FC = () => {
                         ✓ #{i + 1}
                       </div>
 
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 backdrop-blur-[2px]">
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 backdrop-blur-[2px]">
                         <button
                           type="button"
                           onClick={() => setPreview({ src: item.resultUrl!, title: `替换结果 #${i + 1}` })}
-                          className="bg-white text-pastel-text p-3 rounded-full hover:scale-110 hover:text-pastel-highlight transition-all shadow-xl"
+                          className="bg-white text-pastel-text p-2.5 rounded-full hover:scale-110 hover:text-pastel-highlight transition-all shadow-xl"
+                          title="查看大图"
                         >
-                          <Maximize2 className="w-5 h-5" />
+                          <Maximize2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRegenerateSingle(i)}
+                          className="bg-white text-pastel-text p-2.5 rounded-full hover:scale-110 hover:text-pastel-highlight transition-all shadow-xl"
+                          title="重新生成"
+                        >
+                          <RefreshCw className="w-4 h-4" />
                         </button>
                         <button
                           type="button"
@@ -765,9 +831,10 @@ const GarmentReplacementTab: React.FC = () => {
                             a.download = `garment-replace-${i + 1}.png`;
                             a.click();
                           }}
-                          className="bg-pastel-highlight text-white p-3 rounded-full hover:scale-110 hover:shadow-xl transition-all shadow-lg"
+                          className="bg-pastel-highlight text-white p-2.5 rounded-full hover:scale-110 hover:shadow-xl transition-all shadow-lg"
+                          title="下载图片"
                         >
-                          <Download className="w-5 h-5" />
+                          <Download className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
