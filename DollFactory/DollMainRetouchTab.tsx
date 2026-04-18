@@ -84,10 +84,31 @@ const ANGLE_TEMPLATES = {
   }
 };
 
+const FABRIC_TEMPLATES = {
+  SLEEK: {
+    name: '哑光贴毛',
+    desc: '最干净、几乎无毛丝 (Sleek)',
+    prompt: 'very short pile, sleek velboa, minimal fuzz, compact surface',
+    negative: 'long fur, shaggy, fluffy, hairy edges'
+  },
+  PUFFY: {
+    name: '蓬松饱满',
+    desc: '稍微蓬松但仍高级 (Puffy)',
+    prompt: 'softly puffed short pile, fluffy but neat, airy and full, velvety volume',
+    negative: 'flat surface, thin fabric, bald spots'
+  },
+  NAP: {
+    name: '自然毛向',
+    desc: '带轻微逆毛层次 (Nap Marks)',
+    prompt: 'subtle nap marks, gentle brushed pile, soft tonal variation, natural fabric movement',
+    negative: 'uniform plastic look, artificial surface'
+  }
+};
+
 const GLOBAL_NEGATIVE_PROMPT = `change design, redesign, altered structure, mismatch, inaccurate details, different product, wrong proportions, wrong color, color shift, hue shift, changed texture, plastic look, glossy, over-smooth, over-sharpen, extra accessories, missing accessories, added patterns, added text, logo, watermark, label, tag, sticker, background props, hands, people, multiple products, duplicated product, cropped, cut off, out of frame, floating, harsh shadow, strong shadow, gray background, gradient background, messy edges, white outline, halo, jagged edges, blur, low resolution, noise, jpeg artifacts, cartoon, illustration, anime, 3D render, CGI`;
 
 
-const DollMainAdjustTab: React.FC = () => {
+const DollMainRetouchTab: React.FC = () => {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [guidance, setGuidance] = useState('');
@@ -98,7 +119,8 @@ const DollMainAdjustTab: React.FC = () => {
   const [resultImages, setResultImages] = useState<string[]>([]);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
-  const [selectedAngle, setSelectedAngle] = useState<string | null>(null);
+  const [selectedAngle, setSelectedAngle] = useState<string | null>('RETOUCH');
+  const [selectedFabric, setSelectedFabric] = useState<keyof typeof FABRIC_TEMPLATES | null>(null);
   const [variantCount, setVariantCount] = useState(1);
 
   // Reference Images (Up to 3)
@@ -195,22 +217,26 @@ const DollMainAdjustTab: React.FC = () => {
       let prompt = `[DOLL MAIN IMAGE ENHANCEMENT]\nOptimizing the main display image for a toy/doll.\nUser instruction: ${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the core features of the doll.'}`;
       let negativePrompt = 'deformed anatomy, totally different doll, distorted shape, extra limbs, bad lighting, text, watermark';
 
-      // Use Professional Angle Prompts if selected
-      if (selectedAngle && (ANGLE_TEMPLATES as any)[selectedAngle]) {
-        const template = (ANGLE_TEMPLATES as any)[selectedAngle];
-        prompt = template.prompt;
-        if (guidance) {
-          prompt += `\n\n**Additional Instruction**: ${guidance}`;
-        }
-        // Handle custom negative prompt for RETOUCH
+      // ==========================================
+      // [RETOUCH MODE] Always hardcoded to RETOUCH
+      // ==========================================
+      const template = ANGLE_TEMPLATES.RETOUCH;
+      prompt = template.prompt;
+      
+      // Inject Fabric specifics only if selected
+      if (selectedFabric && FABRIC_TEMPLATES[selectedFabric]) {
+        const fabricTemplate = FABRIC_TEMPLATES[selectedFabric];
+        prompt += `\n\n**FABRIC FINISH**: ${fabricTemplate.prompt}. Surface: short-pile velboa plush, crystal velboa, minky short pile, microfiber microfleece, dense and smooth nap, matte soft finish, subtle directional pile sheen, clean uniform texture, premium plush toy fabric.`;
+        negativePrompt = (template.negativePrompt || GLOBAL_NEGATIVE_PROMPT) + ', ' + fabricTemplate.negative;
+      } else {
         negativePrompt = template.negativePrompt || GLOBAL_NEGATIVE_PROMPT;
       }
 
       // ==========================================
       // [NEW] Agentic Pre-analysis for Precision Locality
       // ==========================================
-      if ((selectedAngle || (editorBoxes.length > 0 && refInputImages.length > 0))) {
-        setStatusMessage('🌍 Agent 正在解析视角转换与局部调整指令...');
+      if (editorBoxes.length > 0 && refInputImages.length > 0) {
+        setStatusMessage('🌍 Agent 正在解析局部调整指令...');
         // Execute Vision Pre-processing
         const analysis = await analyzeDollModification(
           { base64: compressedImage.base64, mimeType: compressedImage.mime },
@@ -220,7 +246,7 @@ const DollMainAdjustTab: React.FC = () => {
             color: ['Red', 'Yellow', 'Blue'][i % 3] 
           })),
           guidance,
-          selectedAngle ? (ANGLE_TEMPLATES as any)[selectedAngle].name : undefined
+          template.name
         );
         
         if (analysis && analysis.engineered_prompt) {
@@ -277,9 +303,9 @@ const DollMainAdjustTab: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">
               <Sparkles className="h-4 w-4" />
-              <span className="text-xs font-black uppercase tracking-[0.22em]">Doll Adjustment</span>
+              <span className="text-xs font-black uppercase tracking-[0.22em]">Doll Retouching</span>
             </div>
-            <h3 className="text-xl font-black tracking-tight text-pastel-text">玩偶主图调整</h3>
+            <h3 className="text-xl font-black tracking-tight text-pastel-text">玩偶主图精修</h3>
             <p className="text-[10px] leading-5 text-pastel-muted italic">
               上传基础的玩偶草图或原片，AI 结合提示词为您生成精美、专业的商业展示主图。
             </p>
@@ -350,23 +376,78 @@ const DollMainAdjustTab: React.FC = () => {
             )}
           </div>
 
-          {/* 角度锁定选择器 (NEW) */}
+          {/* 视角锁定状态展示 */}
+          <div className="bg-orange-50/10 border border-orange-200/50 rounded-2xl p-4 flex items-center gap-4 transition-all">
+             <div className="w-10 h-10 bg-orange-100/50 rounded-xl flex items-center justify-center flex-shrink-0 border border-orange-200/50 shadow-sm">
+                <Sparkles className="w-5 h-5 text-orange-500" />
+             </div>
+             <div className="flex-1">
+                <div className="text-[10px] font-black text-orange-800/60 uppercase tracking-wider mb-0.5">Perspective Locked</div>
+                <div className="text-[10px] text-orange-600/80 font-medium leading-relaxed">
+                  视角锁定模式已开启
+                </div>
+             </div>
+          </div>
+
+          {/* 面料精修选择器 (New Section) */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
-              <span>角度锁定 <span className="text-[10px] font-normal text-pastel-muted">(电商主图预设)</span></span>
-            </h3>
-            <div className="grid grid-cols-3 gap-2">
-              {Object.entries(ANGLE_TEMPLATES).map(([key, template]) => (
+             <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-pastel-text flex items-center gap-2">
+                   <Edit2 className="w-4 h-4 text-pastel-highlight" />
+                   <span>面料毛感精修</span>
+                </h3>
+                <span className="text-[10px] py-0.5 px-2 bg-pastel-highlight/10 text-pastel-highlight rounded-full font-bold">Premium Texture</span>
+             </div>
+             <div className="grid grid-cols-1 gap-2">
                 <button
-                  key={key}
-                  onClick={() => setSelectedAngle(selectedAngle === key ? null : key)}
-                  className={`px-2 py-2 rounded-xl border text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${selectedAngle === key ? 'border-orange-400 bg-orange-50 text-orange-700 shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-orange-200'}`}
+                   onClick={() => setSelectedFabric(null)}
+                   className={`group relative p-3 rounded-2xl border text-left transition-all duration-200 ${
+                      selectedFabric === null 
+                         ? 'border-pastel-highlight bg-white shadow-md' 
+                         : 'border-pastel-border bg-pastel-bg/50 hover:bg-white hover:border-pastel-highlight/30'
+                   }`}
                 >
-                  <span className="text-xs">{template.name}</span>
-                  <span className="opacity-40 text-[8px] uppercase">{template.label}</span>
+                   <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                         <span className={`text-xs font-black transition-colors ${selectedFabric === null ? 'text-pastel-highlight' : 'text-pastel-text'}`}>
+                            默认精修
+                         </span>
+                         <span className="text-[10px] text-pastel-muted mt-0.5">基础材质增强，保持原样</span>
+                      </div>
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                         selectedFabric === null ? 'border-pastel-highlight bg-pastel-highlight shadow-inner' : 'border-pastel-border bg-white'
+                      }`}>
+                         {selectedFabric === null && <div className="w-1.5 h-1.5 bg-white rounded-full shadow-sm" />}
+                      </div>
+                   </div>
                 </button>
-              ))}
-            </div>
+
+                {(Object.entries(FABRIC_TEMPLATES) as [keyof typeof FABRIC_TEMPLATES, any][]).map(([key, item]) => (
+                   <button
+                      key={key}
+                      onClick={() => setSelectedFabric(key)}
+                      className={`group relative p-3 rounded-2xl border text-left transition-all duration-200 ${
+                         selectedFabric === key 
+                            ? 'border-pastel-highlight bg-white shadow-md' 
+                            : 'border-pastel-border bg-pastel-bg/50 hover:bg-white hover:border-pastel-highlight/30'
+                      }`}
+                   >
+                      <div className="flex items-center justify-between">
+                         <div className="flex flex-col">
+                            <span className={`text-xs font-black transition-colors ${selectedFabric === key ? 'text-pastel-highlight' : 'text-pastel-text'}`}>
+                               {item.name}
+                            </span>
+                            <span className="text-[10px] text-pastel-muted mt-0.5">{item.desc}</span>
+                         </div>
+                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                            selectedFabric === key ? 'border-pastel-highlight bg-pastel-highlight shadow-inner' : 'border-pastel-border bg-white'
+                         }`}>
+                            {selectedFabric === key && <div className="w-1.5 h-1.5 bg-white rounded-full shadow-sm" />}
+                         </div>
+                      </div>
+                   </button>
+                ))}
+             </div>
           </div>
 
           {/* 参考图上传 (可选) */}
@@ -601,4 +682,4 @@ const DollMainAdjustTab: React.FC = () => {
   );
 };
 
-export default DollMainAdjustTab;
+export default DollMainRetouchTab;

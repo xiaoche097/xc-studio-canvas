@@ -40,6 +40,7 @@ export interface ImageGenerationConfig {
         aspectRatio?: AspectRatio | string;
         imageSize?: ImageResolution | string;
         negativePrompt?: string;
+        sampleCount?: number;
     };
     temperature?: number;
     safetySettings?: SafetySetting[];
@@ -175,3 +176,15 @@ export interface SearchResult {
     text: string;
     grounding: any[];
 }
+
+export type WorkflowHint = 
+  | 'pose-transfer' 
+  | 'main-angle-lock' 
+  | 'scene-product-lock' 
+  | 'strict-geometry-lock' 
+  | 'clothing-effect' 
+  | 'garment-replacement' 
+  | 'magic-mannequin' 
+  | 'clothing-modification' 
+  | 'doll-modification' 
+  | 'doll-retouching';

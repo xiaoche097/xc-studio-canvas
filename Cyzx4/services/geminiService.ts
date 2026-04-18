@@ -20,7 +20,8 @@ import type {
   ImageGenerationConfig,
   ImageReference,
   ProductAnalysisResult,
-  GenerationOptions
+  GenerationOptions,
+  WorkflowHint
 } from "../types/gemini.types";
 
 // ==================== 已删除重复定义 ====================
@@ -42,7 +43,8 @@ export const analyzeDollModification = async (
   sourceImage: { base64: string; mimeType: string },
   refImages: { base64: string; mimeType: string }[],
   boxes: Array<{ x: number; y: number; w: number; h: number; color: string }>,
-  userGuidance: string
+  userGuidance: string,
+  targetAngle?: string
 ) => {
   const ai = getAiClient();
   
@@ -60,26 +62,21 @@ The generator will receive an image sequence where:
 - Image 4 = Reference Image 2 (maps to your Box 2).
 ...and so on.
 
-**TASK**: Analyze the user's guidance and the visual properties to transfer.
-**USER GUIDANCE**: "${userGuidance}"
+**TEXTURE PROTOCOL**: Identify if the doll is made of **Short-pile Velboa**, **Crystal Velboa**, **Minky**, or **Microfleece**. Pay attention to the **Nap (毛向)** and any directional shading.
 
-**SPECIFIC CHALLENGE**: 
-If the user says "Keep the original color" but the reference has a different color: 
-- You MUST instruct the generator to capture ONLY the **Material Texture**, **Shape**, **Posing**, or **Design Pattern** from the reference, while STICKING RELIGIOUSLY to the base color of the master doll in Image 1.
+**TASK**: Analyze the user's guidance and the visual properties to transfer.
+**TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK. The output MUST maintain 1:1 identical camera angle and framing as Image 1. Absolute NO rotation.' : targetAngle ? `The final output MUST be in ${targetAngle} view. Even if Image 1 is at a different angle, ignore its camera orientation and rotate it to match ${targetAngle}.` : 'Maintain current perspective from Image 1.'}
+
+**USER GUIDANCE**: "${userGuidance}"
 
 **MAPPING DATA**:
 ${boxDescriptions}
 
 **OUTPUT REQUIRED (Strict JSON)**:
 {
-  "reasoning": "Analyze the visual disparity. E.g., 'Ref 1 is brown fur but user wants green. Target is to transfer the ruffled fur texture while enforcing hexadecimal green lock.'",
-  "engineered_prompt": "Specific command using Image indices (starting from 3 for references)."
+  "reasoning": "Analyze the visual disparity between Image 1 and reference images, focused on fabric texture (velboa/minky) and structural alignment.",
+  "engineered_prompt": "Specific command to generate the doll at the TARGET PERSPECTIVE. Describe the fabric texture precisely: e.g., 'Update the fabric texture to ultra-soft crystal velboa with a dense matte finish and subtle nap markings while locking the camera angle.' If a rotation is needed, explicitly command: 'Rotate the product from Image 1 to the ${targetAngle || 'current'} view, while transferring [details] from Image 3/4 [etc] to the designated boxes.' Ensure the prompt enforces the perspective switch."
 }
-
-**RULES FOR ENGINEERED_PROMPT**:
-1. ALWAYS reference Image 3, 4, etc. for styles.
-2. If "color preservation" is requested, use phrases like: "Transfer the structural topology and minky-fabric folds from Image 3 onto the feet area, but FORCE matched color parity with the green torso of Image 1."
-3. Mention the spatial coordinates: "In the coordinates of Box 1..."
 `;
 
   try {
@@ -505,9 +502,10 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement' | 'magic-mannequin' | 'clothing-modification' | 'doll-modification';
+    workflowHint?: WorkflowHint;
     hasModelRef?: boolean;
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
+    sampleCount?: number; // NEW: Multi-image support
   } = {}
 ) => {
   const { 
@@ -517,7 +515,8 @@ export const generateImageToImage = async (
     workflowHint, 
     modelId, 
     aspectRatio = '1:1', 
-    resolution = '2K' 
+    resolution = '2K',
+    sampleCount = 1
   } = options;
   const retryLimit = 3;
   let lastError: any = null;
@@ -789,7 +788,7 @@ export const generateImageToImage = async (
       - Output a single, clean, hyper-realistic plush toy image perfectly preserving Image 1 except for the requested localized changes.
       ${negativePromptLine}
       `
-            : options.workflowHint === 'clothing-effect'
+            : workflowHint === 'clothing-effect'
               ? `
       **ROLE**: High-end Fashion Photography Retoucher.
       **TASK**: Enhance the appearance of clothing and its interaction with the model's body.
@@ -801,13 +800,13 @@ export const generateImageToImage = async (
       
       **USER PROMPT**: ${prompt}
       
-      **QUALITY GUIDELINES**:
+      - **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Prioritize fabric realism and lighting accuracy.
       ${negativePromptLine}
       `
-              : options.workflowHint === 'strict-geometry-lock'
-                ? `
+            : workflowHint === 'strict-geometry-lock'
+              ? `
       **ROLE**: Senior E-commerce Retoucher and Geometry-Lock Specialist.
       **TASK**: High-fidelity product retouching on a pure white background without ANY structural changes.
       **INPUT**:
@@ -829,7 +828,58 @@ export const generateImageToImage = async (
       - Maintain commercial product photography standards.
       ${negativePromptLine}
       `
-                : options.workflowHint === 'scene-product-lock'
+                : workflowHint === 'doll-modification'
+                  ? `
+      **ROLE**: World-Class 3D Toy Sculptor & Product Photographer.
+      **TASK**: High-Precision Product Rotation and Ecommerce Retouching.
+      
+      **INPUT PROTOCOL**:
+      - Image 1 = **IDENTITY & MATERIAL MASTER**. This image defines the doll's character, specific eye shape, material texture (e.g., minky fabric), color palette, and unique accessories (hats, bows).
+      
+      **PERSPECTIVE FREEDOM (CRITICAL)**:
+      - **DO NOT LOCK** the output to the camera perspective of Image 1.
+      - You are REQUIRED to re-visualize and rotate the doll into the perspective requested in the USER PROMPT.
+      - If the user asks for "Front View" but Image 1 is "45 Degree Side View", you MUST rotate the character to face the camera directly.
+      - Treat the task as a **3D Re-render**: Maintain the "Soul" and "Material" of Image 1, but completely rebuild the pose and orientation.
+      
+      **QUALITY STANDARDS**:
+      - Output a clean, high-resolution product shot on a **PURE WHITE (#FFFFFF)** background.
+      - Ensure professional studio lighting with soft, realistic contact shadows.
+      - No background clutter, no hands, no human presence.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **QUALITY BOOSTERS**:
+      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
+      - Clean cutout with smooth, non-aliased edges.
+      - Realistic depth and soft shadows suitable for professional ecommerce listings.
+      ${negativePromptLine}
+      `
+                : workflowHint === 'doll-retouching'
+                  ? `
+      **ROLE**: Senior Ecommerce Product Post-Processing Specialist.
+      **TASK**: High-Fidelity Product Retouching & Perspective Locking.
+      
+      **CORE PRINCIPLE: 1:1 GEOMETRY LOCK**:
+      - Image 1 is the **ABSOLUTE MASTER** for geometry, pose, camera angle, focal length, and framing.
+      - **CRITICAL**: Do NOT rotate, move, resize, or re-pose the subject or any of its parts. 
+      - The output must overlap perfectly with the subject in Image 1 in terms of silhouette and position.
+      
+      **RETOUCHING MISSION**:
+      - Upgrade materials to premium 3D/photographic quality (e.g., precise plush texture: velboa, crystal velboa, or minky).
+      - **FABRIC PRECISION**: Pay attention to "short-pile", "dense and smooth nap", "matte soft finish", and "subtle tonal variation".
+      - Remove imperfections: dust, loose threads, wrinkles, or background distractions.
+      - Standardize the background to **PURE WHITE (#FFFFFF)**.
+      - Implement professional studio high-key lighting with soft contact shadows.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **QUALITY STANDARDS**:
+      - Maintain 100% identity and structural integrity.
+      - High resolution, sharp edges (no ghosting), and commercial-grade finish.
+      ${negativePromptLine}
+      `
+                : workflowHint === 'scene-product-lock'
                   ? `
       **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
       **TASK**: Place the reference product into a realistic lifestyle scene without changing the product itself.
@@ -854,7 +904,7 @@ export const generateImageToImage = async (
       - Keep the final result photorealistic, premium, and commercially usable for Amazon-style ecommerce.
       ${negativePromptLine}
       `
-                  : options.workflowHint === 'magic-mannequin'
+                  : workflowHint === 'magic-mannequin'
                     ? `
       **ROLE**: Professional 3D Mannequin & Sculptural Artist.
       **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin based on the style and pose of Image 2.
@@ -948,7 +998,8 @@ export const generateImageToImage = async (
             imageConfig: {
               aspectRatio: options.aspectRatio || "1:1",
               imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
-            },
+              sampleCount: sampleCount,
+            } as any,
           },
         }),
         { timeoutMs: generationTimeout }
