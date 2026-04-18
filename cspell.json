@@ -89,7 +89,9 @@
     "minky",
     "microfleece",
     "desaturated",
-    "oversharpen"
+    "oversharpen",
+    "Agentic",
+    "oversaturation"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

@@ -38,6 +38,74 @@ export { analyzeVtonMaterials } from "./vtonAnalyst";
  * Uses gemini-2.5-flash-image
  * UPDATED: Enforce "Film Look", "Candid Poses", "Texture", "Outfit Replacement", "Scene Randomizer"
  */
+export const analyzeDollModification = async (
+  sourceImage: { base64: string; mimeType: string },
+  refImages: { base64: string; mimeType: string }[],
+  boxes: Array<{ x: number; y: number; w: number; h: number; color: string }>,
+  userGuidance: string
+) => {
+  const ai = getAiClient();
+  
+  const boxDescriptions = boxes.map((b, i) => 
+    `Box ${i+1} (${b.color}): Position [X:${(b.x*100).toFixed(1)}%, Y:${(b.y*100).toFixed(1)}%, W:${(b.w*100).toFixed(1)}%, H:${(b.h*100).toFixed(1)}%]. Maps to Reference Image at technical stack index Image ${i+3}.`
+  ).join('\n');
+
+  const analysisPrompt = `
+**ROLE**: Precision Vision & Logic Analyst for Image Synthesis.
+**CONTEXT**: You are preparing a prompt for a "Double-Anchor" Image Generator.
+**GEN-STACK-VIEW (IMPORTANT)**: 
+The generator will receive an image sequence where:
+- Image 1 & Image 2 = IDENTICAL master doll images (acting as anchors to lock structure).
+- Image 3 = Reference Image 1 (maps to your Box 1).
+- Image 4 = Reference Image 2 (maps to your Box 2).
+...and so on.
+
+**TASK**: Analyze the user's guidance and the visual properties to transfer.
+**USER GUIDANCE**: "${userGuidance}"
+
+**SPECIFIC CHALLENGE**: 
+If the user says "Keep the original color" but the reference has a different color: 
+- You MUST instruct the generator to capture ONLY the **Material Texture**, **Shape**, **Posing**, or **Design Pattern** from the reference, while STICKING RELIGIOUSLY to the base color of the master doll in Image 1.
+
+**MAPPING DATA**:
+${boxDescriptions}
+
+**OUTPUT REQUIRED (Strict JSON)**:
+{
+  "reasoning": "Analyze the visual disparity. E.g., 'Ref 1 is brown fur but user wants green. Target is to transfer the ruffled fur texture while enforcing hexadecimal green lock.'",
+  "engineered_prompt": "Specific command using Image indices (starting from 3 for references)."
+}
+
+**RULES FOR ENGINEERED_PROMPT**:
+1. ALWAYS reference Image 3, 4, etc. for styles.
+2. If "color preservation" is requested, use phrases like: "Transfer the structural topology and minky-fabric folds from Image 3 onto the feet area, but FORCE matched color parity with the green torso of Image 1."
+3. Mention the spatial coordinates: "In the coordinates of Box 1..."
+`;
+
+  try {
+    const parts: any[] = [
+      { inlineData: { mimeType: sourceImage.mimeType, data: sourceImage.base64 } }
+    ];
+    refImages.forEach(img => {
+      parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+    });
+    parts.push({ text: analysisPrompt });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite-preview",
+      contents: { parts }
+    });
+
+    let text = response.text || "{}";
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Doll analysis failed", error);
+    // Fallback if formatting fails
+    return null;
+  }
+};
+
 export const analyzeProductImage = async (
   imageBase64: string,
   mimeType: string,
@@ -437,7 +505,7 @@ export const generateImageToImage = async (
     resolution?: ImageResolution;
     modelId?: string; // NEW: Dynamic model support
     negativePrompt?: string; // NEW: Negative prompt support
-    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement' | 'magic-mannequin' | 'clothing-modification';
+    workflowHint?: 'pose-transfer' | 'main-angle-lock' | 'scene-product-lock' | 'strict-geometry-lock' | 'clothing-effect' | 'garment-replacement' | 'magic-mannequin' | 'clothing-modification' | 'doll-modification';
     hasModelRef?: boolean;
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
   } = {}
@@ -476,6 +544,12 @@ export const generateImageToImage = async (
       // Gemini's attention mechanism to heavily weight the structure over the texture.
       if (workflowHint === 'strict-geometry-lock' && images.length === 1) {
         processedImages = [images[0], images[0]];
+      } else if (workflowHint === 'doll-modification') {
+        // [DUPLICATION TRICK] Force geometric consistency by pushing the source image twice 
+        // to overpower the reference textures spatially.
+        if (images.length >= 2) {
+           processedImages = [images[0], images[0], ...images.slice(1)];
+        }
       } else if (workflowHint === 'pose-transfer') {
         if (images.length === 2) {
           // For traditional pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower.
@@ -690,6 +764,29 @@ export const generateImageToImage = async (
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Ensure photorealistic fabric textures and seamless integration.
+      ${negativePromptLine}
+      `
+            : options.workflowHint === 'doll-modification'
+              ? `
+      **ROLE**: Precision Toy & Doll Retoucher and Visual Inpainting Expert.
+      **TASK**: Execute highly localized modification on a plush toy/doll based on the analysis provided.
+      
+      **INPUT MAPPING (CRITICAL)**:
+      - Image 1 = **PRIMARY ANCHOR SCENE** (The original doll, background, lighting, and 95% of the doll's body are FROZEN and UNTOUCHABLE).
+      - Image 2 = **SECONDARY ANCHOR SCENE** (Exact duplicate to heavily enforce geometric and structural locking of the main body).
+      - Image 3+ = **REFERENCE TEXTURES/FEATURES** (Only to be applied to the specifically requested local areas).
+      
+      ═══════════════════════════════════════════
+      ██  CRITICAL ANTI-POLLUTION RULE (HIGHEST) ██
+      ═══════════════════════════════════════════
+      - **DO NOT blend** the color or texture of the reference images into the main body of the doll.
+      - **ISOLATION**: If you are asked to change the feet to match Image 3, ONLY generate the matching parts on the feet. DO NOT add identical colors/trims to the hands, ears, or body.
+      - **IDENTITY LOCK**: The global shape, main body color, background, facial expression, and exact scale of Image 1 and 2 MUST remain exactly as they are.
+      
+      **USER PROMPT**: ${prompt}
+      
+      **QUALITY GUIDELINES**:
+      - Output a single, clean, hyper-realistic plush toy image perfectly preserving Image 1 except for the requested localized changes.
       ${negativePromptLine}
       `
             : options.workflowHint === 'clothing-effect'

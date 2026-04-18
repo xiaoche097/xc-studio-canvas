@@ -171,9 +171,9 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     } else if (title === "视频工作站") {
       // Direct jump to Video Station, bypassing modal
       onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
-    } else if (title === "分析专家") {
-      // Direct jump to Amazon Selection, bypassing modal
-      onStart("/selection", [], selectedModel, WorkflowStep.AMAZON_SELECTION);
+    } else if (title === "玩偶工厂") {
+      // Direct jump to Doll Factory, bypassing modal
+      onStart("/doll", [], selectedModel, WorkflowStep.DOLL_FACTORY);
     } else if (title === "创意中心") {
       // Direct jump to Creative Center
       onStart("/creative", [], selectedModel);
@@ -242,8 +242,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: VideoVisual
     },
     {
-      title: "分析专家",
-      prompt: "/selection 亚马逊数据分析专家",
+      title: "玩偶工厂",
+      prompt: "/doll-factory 开启玩偶主图调整",
       bgClass: "from-white to-sky-50/50 dark:from-white/5 dark:to-sky-900/20",
       borderClass: "hover:border-sky-200 dark:hover:border-sky-500/30",
       textClass: "text-gray-800 dark:text-gray-100",

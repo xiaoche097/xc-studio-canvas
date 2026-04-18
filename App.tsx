@@ -7,13 +7,13 @@ const ChatStudio = lazy(() => import('./components/ChatStudio').then((module) =>
 const SettingsModal = lazy(() => import('./components/SettingsModal').then((module) => ({ default: module.SettingsModal })));
 const ProjectGalleryModal = lazy(() => import('./components/ProjectGalleryModal').then((module) => ({ default: module.ProjectGalleryModal })));
 const VideoStationApp = lazy(() => import('./XcAISTUDIO-main/App').then((module) => ({ default: module.App })));
-const AmazonSelectionApp = lazy(() => import('./amazonxpzj/App'));
+const DollFactoryApp = lazy(() => import('./DollFactory/App'));
 const CreativeCenterApp = lazy(() => import('./Cyzx4/App'));
 const AIVideoApp = lazy(() => import('./AIVideo/App'));
 const YunwuApiStudio = lazy(() => import('./components/YunwuApiStudio'));
 const ModelFactoryApp = lazy(() => import('./ModelFactory/App'));
 
-type ViewState = 'home' | 'chat' | 'video' | 'selection' | 'creative' | 'ai-video' | 'yunwu' | 'model-factory';
+type ViewState = 'home' | 'chat' | 'video' | 'doll-factory' | 'creative' | 'ai-video' | 'yunwu' | 'model-factory';
 
 const LoadingScreen: React.FC<{ label?: string }> = ({ label = 'Loading workspace...' }) => (
   <div className="flex h-full w-full items-center justify-center bg-[#F8FAFC] dark:bg-[#050505]">
@@ -100,10 +100,10 @@ const App: React.FC = () => {
       );
     }
 
-    if (view === 'selection') {
+    if (view === 'doll-factory') {
       return (
-        <div className="relative w-full h-full bg-[#F8FAFC] dark:bg-[#050505] z-[100] overflow-y-auto">
-          <AmazonSelectionApp />
+        <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
+          <DollFactoryApp />
         </div>
       );
     }
@@ -137,8 +137,8 @@ const App: React.FC = () => {
         <AgentHome onStart={(text, img, model, step) => {
           if (step === 12) {
             setView('video');
-          } else if (step === 14) {
-            setView('selection');
+          } else if (step === 14 || step === 17) {
+            setView('doll-factory');
           } else if (step === 15) {
             setView('ai-video');
           } else if (step === 16) {
