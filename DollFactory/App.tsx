@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import DollMainAdjustTab from './DollMainAdjustTab';
 import DollMainRetouchTab from './DollMainRetouchTab';
+import DollDesignOptimizeTab from './DollDesignOptimizeTab';
 import SettingsTab from '../Cyzx4/components/SettingsTab';
-import { ArrowLeft, UserCircle2, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2 } from 'lucide-react';
 
-type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'settings';
+type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'design-optimize' | 'settings';
 
 const DollFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DollFactoryMode>('main-adjust');
@@ -39,6 +40,12 @@ const DollFactoryApp: React.FC = () => {
               icon={<Sparkles className="w-5 h-5" />}
               label="玩偶主图精修"
             />
+            <NavButton
+              active={activeTab === 'design-optimize'}
+              onClick={() => setActiveTab('design-optimize')}
+              icon={<Wand2 className="w-5 h-5" />}
+              label="玩偶设计优化"
+            />
           </div>
 
           <div className="mt-4 pt-4 border-t border-pastel-border/50">
@@ -58,6 +65,7 @@ const DollFactoryApp: React.FC = () => {
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === 'main-adjust' && "玩偶主图调整"}
             {activeTab === 'main-retouch' && "玩偶主图精修"}
+            {activeTab === 'design-optimize' && "玩偶设计优化"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
@@ -69,6 +77,9 @@ const DollFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'main-retouch' ? 'block' : 'none', height: '100%' }}>
               <DollMainRetouchTab />
+            </div>
+            <div style={{ display: activeTab === 'design-optimize' ? 'block' : 'none', height: '100%' }}>
+              <DollDesignOptimizeTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
               <SettingsTab />

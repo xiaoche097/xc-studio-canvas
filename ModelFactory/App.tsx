@@ -5,12 +5,10 @@ import ActionReferenceTab from './ActionReferenceTab.tsx';
 import GarmentReplacementTab from './GarmentReplacementTab.tsx';
 import BatchRecolorTab from './BatchRecolorTab.tsx';
 import ClothingModificationTab from './ClothingModificationTab.tsx';
-import DollAdjustmentTab from './DollAdjustmentTab.tsx';
-import DollMarketingTab from './DollMarketingTab.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette, Box, Sparkles } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette } from 'lucide-react';
 
-type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'doll-adjustment' | 'doll-marketing' | 'settings';
+type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('pose-fission');
@@ -74,22 +72,6 @@ const ModelFactoryApp: React.FC = () => {
             label="服装改款 (Clothing Modify)"
           />
 
-          <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 mt-6 hidden md:block">玩偶工厂</div>
-
-          <NavButton
-            active={activeTab === 'doll-adjustment'}
-            onClick={() => setActiveTab('doll-adjustment')}
-            icon={<Box className="w-5 h-5" />}
-            label="玩偶主图调整"
-          />
-
-          <NavButton
-            active={activeTab === 'doll-marketing'}
-            onClick={() => setActiveTab('doll-marketing')}
-            icon={<Sparkles className="w-5 h-5" />}
-            label="亚马逊副图优化"
-          />
-
           <NavButton
             active={activeTab === 'settings'}
             onClick={() => setActiveTab('settings')}
@@ -109,8 +91,6 @@ const ModelFactoryApp: React.FC = () => {
             {activeTab === 'garment-replacement' && "批量替换 (Garment Replace)"}
             {activeTab === 'batch-recolor' && "批量改色 (Batch Recolor)"}
             {activeTab === 'clothing-modification' && "服装改款 (Clothing Modify)"}
-            {activeTab === 'doll-adjustment' && "玩偶主图调整"}
-            {activeTab === 'doll-marketing' && "亚马逊副图优化"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
@@ -134,12 +114,6 @@ const ModelFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'clothing-modification' ? 'block' : 'none', height: '100%' }}>
               <ClothingModificationTab />
-            </div>
-            <div style={{ display: activeTab === 'doll-adjustment' ? 'block' : 'none', height: '100%' }}>
-              <DollAdjustmentTab />
-            </div>
-            <div style={{ display: activeTab === 'doll-marketing' ? 'block' : 'none', height: '100%' }}>
-              <DollMarketingTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
               <SettingsTab />

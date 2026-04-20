@@ -75,7 +75,7 @@ const BatchRecolorTab: React.FC = () => {
     if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
   };
 
-  useImagePaste((file) => handleFiles([file]));
+  useImagePaste(handleFiles);
 
   const removeSource = (index: number) => {
     URL.revokeObjectURL(sourceUrls[index]);
