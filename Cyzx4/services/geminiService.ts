@@ -558,9 +558,16 @@ export const generateImageToImage = async (
           processedImages = images;
         }
       } else if (workflowHint === 'garment-replacement') {
-        // Input: [Target Model, Core Garment, (Optional) Pairings]
-        // We pass it directly, without duplicating.
-        processedImages = images;
+        // [DUPLICATION TRICK] Duplicate the Core Garment to overpower the target scene's original clothing details.
+        if (images.length === 2) {
+          // [Target, Core] -> [Target, Core, Core]
+          processedImages = [images[0], images[1], images[1]];
+        } else if (images.length === 3 && hasModelRef) {
+          // [Target, Identity, Core] -> [Target, Identity, Core, Core]
+          processedImages = [images[0], images[1], images[2], images[2]];
+        } else {
+          processedImages = images;
+        }
       }
 
       // 1. Add All Input Images
@@ -591,6 +598,12 @@ export const generateImageToImage = async (
         2. GARMENT & STYLING: The user-provided core garment and matching outfits.
         3. POSE & ANGLE: The exact action, pose, and camera angle from the target replacement gallery image.
 
+      **STRUCTURAL PRIORITY PROTOCOL V2 (ENFORCED)**:
+      - The generated garment MUST match the **SILHOUETTE** and **STRUCTURE** of Image 3.
+      - If Image 3 is sleeveless, the output MUST be sleeveless.
+      - If Image 3 has a V-neck, the output MUST have a V-neck.
+      - Do NOT let the target scene's (Image 1) original clothing influence the structure of the new garment.
+
       **ANALYTICAL CONTEXT**:
       ${vtonReport || 'No pre-analysis available.'}
 
@@ -611,27 +624,26 @@ export const generateImageToImage = async (
       ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
       ═══════════════════════════════════════════
       - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 3 (and Image 4 if present).
-      - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness. ZERO color drift allowed. If Image 3 is blue, the output MUST be blue.
-      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta (magenta), purple, or red color cast on skin or fabric. Ensure the background color and model's original skin tone are not distorted by artificial warmth.
-      - **PRINT/LOGO/GRAPHIC**: Reproduce every graphic element (such as circles, text, logos) at the exact same scale, position, and detail level. Do not lose the graphic prints!
-      - **FABRIC TEXTURE**: Match the exact material appearance.
+      - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness. ZERO color drift allowed.
+      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta, purple, or red color cast on skin or fabric.
+      - **PRINT/LOGO/PATTERN**: Reproduce every pattern, floral print, graphic element, or logo at the exact same scale, position, color, and detail level. Do NOT simplify the patterns!
+      - **FABRIC TEXTURE**: Match the exact material appearance (silk, cotton, pleated, etc.).
+      - **HEM & TRIM CONSISTENCY (CRITICAL)**: If Image 3 has a clean hem with no border, the output MUST have a clean hem. **STRICTLY FORBIDDEN: Do NOT inherit the dark border, trim, or contrasting edge from Image 1.**
       - **GARMENT STRUCTURE**: Match neckline shape, sleeve length, hem length, and overall silhouette.
-      - **ABSOLUTE PROHIBITION**: Image 1 AND Image 2's original clothes are **INVISIBLE AND BANNED**. For example, if Image 1 has a beige shirt, DO NOT output a beige shirt. If Image 2 has a grey bodysuit, DO NOT output a grey bodysuit. Only Image 3 and 4 define what the person wears.
+      - **ABSOLUTE PROHIBITION**: Image 1 AND Image 2's original clothes are **INVISIBLE AND BANNED**. Only Image 3 and 4 define what the person wears.
 
       ═══════════════════════════════════════════
       ██  PRIORITY #2: POSE & COMPOSITION LOCK     ██
       ═══════════════════════════════════════════
       - The output image MUST have the **IDENTICAL composition and action** as Image 1.
-      - **CRITICAL ANTI-COLLAGE RULE**: You MUST generate EXACTLY ONE PERSON in a single scene. Do NOT generate a grid, layout, or collage. **Do NOT copy the multi-view grid layout from Image 3 (or Image 4). The multi-view input is ONLY for garment feature extraction.** 
-      - The single person's camera angle, body pose, limb placement, and background must perfectly match Image 1.
-      - Do NOT reframe, zoom in/out, or change the aspect ratio vs Image 1.
+      - **CRITICAL ANTI-COLLAGE RULE**: You MUST generate EXACTLY ONE PERSON in a single scene. Do NOT generate a grid, layout, or collage. **Do NOT copy the multi-view grid layout from Image 3. The multi-view input is ONLY for garment feature extraction.** 
+      - Same camera angle, body pose, limb placement, and background vs Image 1.
+      - Do NOT reframe, zoom in/out, or change the aspect ratio.
 
       **GARMENT ORIENTATION AWARENESS**:
       - Determine the body orientation from Image 1 (front/back/side/3/4).
-      - Image 3 (Core Garment) may be a multi-view collage containing front, back, and side views.
+      - Image 3 (Core Garment) may be a multi-view collage.
       - **CRITICAL**: Select the correct view from Image 3 to map onto the person based on Image 1's orientation.
-      - For example, if Image 1 faces away from the camera (back view), you MUST map the back view of the garment from Image 3 onto the person. IF Image 3 has no back view, assume the back is plain.
-      - Never copy a front print onto the back.
 
       **OUTPUT RULES**:
       - STRICTLY ONE photorealistic photograph of ONE person. No splitting the image into panels.
@@ -642,6 +654,12 @@ export const generateImageToImage = async (
             : `
       **ROLE**: Pixel-Perfect Virtual Try-On Specialist.
       **MISSION**: Replace the clothing on the person in Image 1 with the EXACT garment from Image 2, while preserving EVERYTHING else from Image 1 with zero deviation.
+
+      **STRUCTURAL PRIORITY PROTOCOL V2 (ENFORCED)**:
+      - The generated garment MUST match the **SILHOUETTE** and **STRUCTURE** of Image 2.
+      - If Image 2 is sleeveless, the output MUST be sleeveless.
+      - If Image 2 has a deep V-neck, the output MUST have a deep V-neck.
+      - Preserve the pattern density and graphic scale exactly as shown in Image 2.
 
       **ANALYTICAL CONTEXT**:
       ${vtonReport || 'No pre-analysis available.'}
@@ -656,9 +674,10 @@ export const generateImageToImage = async (
       ═══════════════════════════════════════════
       - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 2.
       - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness of Image 2. ZERO color drift allowed.
-      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta (magenta), purple, or red color cast. The output must have true-to-life colors without artificial tinting or oversaturation of red channels.
-      - **PRINT/LOGO/GRAPHIC**: Every graphic element, text, logo, or pattern on Image 2 must appear on the output garment at the exact same scale, position, and orientation.
+      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta, purple, or red color cast.
+      - **PRINT/LOGO/PATTERN**: Every pattern, floral print, graphic element, text, or logo on Image 2 must appear on the output garment at the exact same scale, position, and orientation. Do NOT generalize or blur the prints.
       - **FABRIC TEXTURE**: Replicate the exact material surface.
+      - **HEM & TRIM CONSISTENCY (CRITICAL)**: If Image 2 has a clean hem with no border, the output MUST have a clean hem. **DO NOT copy the dark border or decorative trim from Image 1's clothing.**
       - **GARMENT STRUCTURE**: Match neckline, sleeve length, hem length, collar shape, and overall silhouette.
       - **ABSOLUTE PROHIBITION**: Do NOT use ANY color, pattern, or texture from Image 1's original clothing. Only Image 2 defines the garment.
 
@@ -674,17 +693,14 @@ export const generateImageToImage = async (
       ██  PRIORITY #3: IDENTITY PRESERVATION       ██
       ═══════════════════════════════════════════
       - The person's face, hairstyle, skin tone, body proportions, and all non-clothing features MUST remain unchanged from Image 1.
-      - Preserve any accessories, jewelry, or items the person holds unless overridden by provided garment images.
 
       **GARMENT ORIENTATION AWARENESS**:
       - Determine the body orientation of the person in Image 1 (front/back/side/3/4).
-      - Image 2 (Core Garment) may be a multi-view collage containing front, back, and side views.
+      - Image 2 (Core Garment) may be a multi-view collage.
       - **CRITICAL**: Select the correct view from Image 2 to map onto the person based on Image 1's orientation.
-      - For example, if Image 1 faces away from the camera (back view), you MUST map the back view of the garment from Image 2 onto the person. IF Image 2 has no back view, assume the back is plain.
 
       **OUTPUT RULES**:
       - STRICTLY ONE photorealistic photograph of ONE person. No splitting the image into panels.
-      - If Image 2 is a top and no bottoms are provided, keep the original bottoms from Image 1.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       ${negativePromptLine}
       `

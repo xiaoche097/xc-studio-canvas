@@ -67,6 +67,7 @@ const GarmentReplacementTab: React.FC = () => {
   // Preview modal
   const [preview, setPreview] = useState<PreviewState>(null);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
+  const [userGuidance, setUserGuidance] = useState('');
 
   const MAX_TARGETS = 10;
 
@@ -242,6 +243,21 @@ const GarmentReplacementTab: React.FC = () => {
     });
   };
 
+  const buildGarmentReplacementPrompt = () => {
+    return `[NANO BANANA - STRUCTURAL GARMENT LOCK]
+- TASK: Virtual Try-On.
+- SUBJECT: Transfer the garment from the reference images to the model in the target scene.
+- FIDELITY: Maintain 1:1 identical color, print pattern, and fabric texture.
+- STRUCTURE: Preserve the original neckline, sleeve type, and hemline length.
+- STYLE: High-end fashion editorial, photorealistic, cinematic lighting.
+- CONSTRAINT: Image 1 is the POSE master. Image 2 (and 3) is the PRODUCT master.
+${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
+  };
+
+  const buildGarmentReplacementNegativePrompt = () => {
+    return 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition, strap, tank top, high neck, crew neck, turtleneck, blurred print, smeared texture, simplified patterns, changed neckline, altered sleeves, dark border at hem, hem trim, bottom border, decorative edge, contrasting trim';
+  };
+
   // ---- Generators ----
   const handleGenerate = async () => {
     if (!coreGarmentFile) {
@@ -352,14 +368,14 @@ const GarmentReplacementTab: React.FC = () => {
         try {
           result = await generateImageToImage(
             inputImages,
-            '', 
+            buildGarmentReplacementPrompt(), 
             {
               modelId,
               aspectRatio: outputAspectRatio,
               resolution: resolution,
               workflowHint: 'garment-replacement',
               hasModelRef: !!modelRefFile,
-              negativePrompt: 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition',
+              negativePrompt: buildGarmentReplacementNegativePrompt(),
               vtonReport: combinedReport
             }
           );
@@ -669,7 +685,27 @@ const GarmentReplacementTab: React.FC = () => {
                 </button>
               ))}
             </div>
-            {/* 图像模型选择 */}
+          
+          {/* 内容补充 */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3" />
+              内容补充 (Content Supplement)
+            </h3>
+            <div className="relative group">
+              <textarea
+                value={userGuidance}
+                onChange={(e) => setUserGuidance(e.target.value)}
+                placeholder="例如：保持领口V领不变、去掉裙摆边框、增加面料丝绸质感..."
+                className="w-full h-24 p-3 text-xs bg-white border border-pastel-border rounded-xl focus:ring-2 focus:ring-pastel-highlight/20 focus:border-pastel-highlight outline-none transition-all resize-none placeholder:text-pastel-muted/50"
+              />
+              <div className="absolute bottom-2 right-2 text-[9px] text-pastel-muted opacity-0 group-hover:opacity-100 transition-opacity">
+                AI 将优先考虑此补充内容
+              </div>
+            </div>
+          </div>
+
+          {/* 图像模型选择 */}
             <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
               <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5" /> 图像模型选择

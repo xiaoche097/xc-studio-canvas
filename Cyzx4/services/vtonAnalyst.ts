@@ -19,8 +19,8 @@ export const analyzeVtonMaterials = async (
   });
 
   const prompt = options.type === 'global' 
-    ? "Analyze these reference images. Provide a concise VTON REPORT (max 100 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's precise COLOR, PRINTS, PATTERNS, LOGOS, and graphic designs (describe any shapes or artwork on the clothes in detail). 3. Fabric texture and fit style. 4. Identify the dominant color temperature of the reference images."
-    : "Analyze this scene. Provide a concise SCENE REPORT (max 50 words) describing: 1. Lighting direction and shadow hardness. 2. Camera angle and pose. 3. Explicitly identify the WHITE BALANCE and COLOR TEMPERATURE of this scene (e.g., Warm/Tungsten, Cool/Daylight, Neutral/Studio).";
+    ? "Analyze these reference images. Provide a detailed VTON REPORT (max 200 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's precise COLOR, PRINTS, PATTERNS, LOGOS, and graphic designs (describe any shapes or artwork on the clothes in detail). 3. STRUCTURAL FEATURES: Explicitly identify the NECKLINE (e.g. V-neck, crew, scoop), SLEEVE TYPE (e.g. sleeveless, short, long, puff), and HEM LENGTH (e.g. mini, midi, maxi). 4. Fabric texture and fit style. 5. Identify the dominant color temperature."
+    : "Analyze this scene. Provide a concise SCENE REPORT (max 100 words) describing: 1. Lighting direction and shadow hardness. 2. Camera angle and pose. 3. Identify the original clothing's color and texture (to be replaced). 4. Explicitly identify the WHITE BALANCE and COLOR TEMPERATURE of this scene.";
 
   const parts: any[] = images.map(img => ({
     inlineData: { mimeType: img.mimeType, data: img.base64 }

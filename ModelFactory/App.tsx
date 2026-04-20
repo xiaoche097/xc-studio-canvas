@@ -3,11 +3,12 @@ import PoseFissionTab from './PoseFissionTab.tsx';
 import ModelAdjustTab from './ModelAdjustTabV2.tsx';
 import ActionReferenceTab from './ActionReferenceTab.tsx';
 import GarmentReplacementTab from './GarmentReplacementTab.tsx';
+import BatchRecolorTab from './BatchRecolorTab.tsx';
 import ClothingModificationTab from './ClothingModificationTab.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette } from 'lucide-react';
 
-type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'clothing-modification' | 'settings';
+type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('pose-fission');
@@ -58,6 +59,13 @@ const ModelFactoryApp: React.FC = () => {
           />
 
           <NavButton
+            active={activeTab === 'batch-recolor'}
+            onClick={() => setActiveTab('batch-recolor')}
+            icon={<Palette className="w-5 h-5" />}
+            label="批量改色 (Batch Recolor)"
+          />
+
+          <NavButton
             active={activeTab === 'clothing-modification'}
             onClick={() => setActiveTab('clothing-modification')}
             icon={<Wand2 className="w-5 h-5" />}
@@ -81,6 +89,7 @@ const ModelFactoryApp: React.FC = () => {
             {activeTab === 'model-adjust' && "模特调整 (Pose Transfer)"}
             {activeTab === 'action-reference' && "动作参考 (Action Reference)"}
             {activeTab === 'garment-replacement' && "批量替换 (Garment Replace)"}
+            {activeTab === 'batch-recolor' && "批量改色 (Batch Recolor)"}
             {activeTab === 'clothing-modification' && "服装改款 (Clothing Modify)"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
@@ -99,6 +108,9 @@ const ModelFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'garment-replacement' ? 'block' : 'none', height: '100%' }}>
               <GarmentReplacementTab />
+            </div>
+            <div style={{ display: activeTab === 'batch-recolor' ? 'block' : 'none', height: '100%' }}>
+              <BatchRecolorTab />
             </div>
             <div style={{ display: activeTab === 'clothing-modification' ? 'block' : 'none', height: '100%' }}>
               <ClothingModificationTab />
