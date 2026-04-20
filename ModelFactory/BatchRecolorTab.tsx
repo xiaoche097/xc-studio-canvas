@@ -12,6 +12,7 @@ interface ColorEntry {
   type: ColorType;
   value: string; // text name, hex code, or base64
   label: string;
+  previewUrl?: string; // For images
 }
 
 type ResultItem = {
@@ -28,10 +29,7 @@ const BatchRecolorTab: React.FC = () => {
   const [sourceUrls, setSourceUrls] = useState<string[]>([]);
   const MAX_SOURCES = 10;
 
-  const [colors, setColors] = useState<ColorEntry[]>([
-    { id: '1', type: 'text', value: '红色', label: '红色' },
-    { id: '2', type: 'text', value: '蓝色', label: '蓝色' },
-  ]);
+  const [colors, setColors] = useState<ColorEntry[]>([]);
   
   const [newColorText, setNewColorText] = useState('');
   const [selectedHex, setSelectedHex] = useState('#fbbf24');
@@ -44,6 +42,8 @@ const BatchRecolorTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [userGuidance, setUserGuidance] = useState('');
   const [preview, setPreview] = useState<{ src: string; title: string } | null>(null);
+
+  const [isDraggingRef, setIsDraggingRef] = useState(false);
 
   // 自定义香蕉图标组件
   const BananaIcon = ({ className }: { className?: string }) => (
@@ -107,19 +107,25 @@ const BatchRecolorTab: React.FC = () => {
     setColors([...colors, entry]);
   };
 
-  const handleImageRefChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImageRefFiles = async (files: File[]) => {
+    const file = files.find(f => f.type.startsWith('image/'));
     if (file) {
       const compressed = await compressImage(file, 512, 0.8);
       const entry: ColorEntry = {
         id: Date.now().toString(),
         type: 'image',
         value: compressed.base64,
-        label: '参考图颜色'
+        label: '参考图颜色',
+        previewUrl: `data:image/jpeg;base64,${compressed.base64}`
       };
-      setColors([...colors, entry]);
+      setColors(prev => [...prev, entry]);
     }
-    e.target.value = '';
+  };
+
+  const handleRefDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingRef(false);
+    if (e.dataTransfer.files) handleImageRefFiles(Array.from(e.dataTransfer.files));
   };
 
   const removeColor = (id: string) => {
@@ -352,31 +358,61 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                   </button>
                 </div>
                 <button 
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingRef(true); }}
+                  onDragLeave={() => setIsDraggingRef(false)}
+                  onDrop={handleRefDrop}
                   onClick={() => {
                     const input = document.createElement('input');
                     input.type = 'file';
-                    input.onchange = (e: any) => handleImageRefChange(e);
+                    input.onchange = (e: any) => { if(e.target.files) handleImageRefFiles(Array.from(e.target.files)); };
                     input.click();
                   }}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-pastel-border rounded-xl hover:border-pastel-highlight/40 transition-all group"
+                  className={`flex items-center gap-2 px-4 py-2 border rounded-xl transition-all group ${isDraggingRef ? 'bg-pastel-highlight/10 border-pastel-highlight' : 'bg-white border-pastel-border hover:border-pastel-highlight/40'}`}
                 >
-                  <ImageIcon className="w-4 h-4 text-pastel-muted group-hover:text-pastel-highlight" />
-                  <span className="text-[10px] font-bold">参考图</span>
+                  <ImageIcon className={`w-4 h-4 ${isDraggingRef ? 'text-pastel-highlight' : 'text-pastel-muted group-hover:text-pastel-highlight'}`} />
+                  <span className="text-[10px] font-bold">参考图 (拖拽上传)</span>
                 </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 min-h-[40px]">
+            {/* Visual Color Grid */}
+            <div className="grid grid-cols-4 gap-3">
               {colors.map((c) => (
-                <div key={c.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-pastel-border rounded-full text-xs font-medium group transition-all hover:border-pastel-highlight/40 shadow-sm animate-in fade-in slide-in-from-left-2">
-                  {c.type === 'hex' && <div className="w-3 h-3 rounded-full border border-black/5 shadow-inner" style={{ backgroundColor: c.value }} />}
-                  {c.type === 'image' && <ImageIcon className="w-3 h-3 text-pastel-highlight" />}
-                  <span>{c.label}</span>
-                  <button onClick={() => removeColor(c.id)} className="text-pastel-muted hover:text-red-500 transition-colors ml-1">
+                <div key={c.id} className="group relative aspect-square bg-white border border-pastel-border rounded-2xl overflow-hidden flex flex-col items-center justify-center transition-all hover:border-pastel-highlight/40 shadow-sm animate-in zoom-in-95 duration-200">
+                  {c.type === 'hex' ? (
+                    <div className="w-full h-full flex flex-col p-1.5">
+                      <div className="flex-1 rounded-xl shadow-inner border border-black/5" style={{ backgroundColor: c.value }} />
+                      <span className="text-[8px] font-mono font-bold text-center mt-1 text-pastel-muted">{c.label}</span>
+                    </div>
+                  ) : c.type === 'image' ? (
+                    <div className="w-full h-full flex flex-col p-1.5">
+                      <div className="flex-1 rounded-xl overflow-hidden border border-pastel-border shadow-inner">
+                        <img src={c.previewUrl} className="w-full h-full object-cover" alt="ref" />
+                      </div>
+                      <span className="text-[8px] font-bold text-center mt-1 text-pastel-muted truncate">参考图</span>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
+                      <Palette className="w-5 h-5 text-pastel-highlight/60 mb-1" />
+                      <span className="text-[9px] font-black leading-tight text-pastel-text line-clamp-2">{c.label}</span>
+                    </div>
+                  )}
+                  
+                  <button 
+                    onClick={() => removeColor(c.id)}
+                    className="absolute -top-1 -right-1 w-5 h-5 bg-white rounded-full shadow-md border border-pastel-border flex items-center justify-center text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
                     <X className="w-3 h-3" />
                   </button>
                 </div>
               ))}
+              
+              {colors.length === 0 && (
+                <div className="col-span-4 py-8 border-2 border-dashed border-pastel-border rounded-2xl flex flex-col items-center justify-center text-pastel-muted/40">
+                  <Sparkles className="w-6 h-6 mb-2" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">暂无颜色，请从上方添加</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -583,6 +619,10 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                   <div className="flex items-center gap-2">
                     {item.entry.type === 'hex' ? (
                       <div className="w-3 h-3 rounded-full border border-black/5" style={{ backgroundColor: item.entry.value }} />
+                    ) : item.entry.type === 'image' ? (
+                      <div className="w-4 h-4 rounded border border-black/5 overflow-hidden">
+                        <img src={item.entry.previewUrl} className="w-full h-full object-cover" alt="ref" />
+                      </div>
                     ) : (
                       <div className="w-2 h-2 rounded-full bg-pastel-highlight shadow-[0_0_8px_rgba(251,146,60,0.5)]" />
                     )}
