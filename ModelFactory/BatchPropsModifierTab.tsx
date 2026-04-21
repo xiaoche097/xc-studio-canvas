@@ -472,10 +472,11 @@ ${userGuidance ? `USER SUPPLEMENT: ${userGuidance}` : ""}
               <label className="block text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5" /> 图像模型选择
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', version: '3.1 Flash' },
-                  { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', version: '3.0 Pro' }
+                  { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', version: '3.1 Flash' },
+                  { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', version: '3.0 Pro' },
+                  { id: 'gpt-image-2', label: 'GPT Image 2', version: 'Ultra Quality' }
                 ].map(m => (
                   <button
                     key={m.id}
@@ -484,8 +485,8 @@ ${userGuidance ? `USER SUPPLEMENT: ${userGuidance}` : ""}
                       selectedModel === m.id ? 'border-purple-300 bg-purple-50 ring-2 ring-purple-100' : 'border-gray-100 bg-pastel-bg'
                     }`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <BananaIcon className="w-3 h-3" />
+                    <div className="flex items-center gap-1">
+                      {m.id === 'gpt-image-2' ? <Sparkles className="w-3 h-3 text-orange-500" /> : <BananaIcon className="w-3 h-3" />}
                       <span className={`text-[10px] font-black ${selectedModel === m.id ? 'text-purple-700' : 'text-pastel-text'}`}>{m.label}</span>
                     </div>
                     <span className="text-[8px] text-pastel-muted font-bold">{m.version}</span>

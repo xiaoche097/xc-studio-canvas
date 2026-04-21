@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { analyzeProductImage, generateMarketingImage, blobToBase64, inpaintImage } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
-import { Camera, Image as ImageIcon, Loader2, Sparkles, Wand2, Check, AlignLeft, AlertCircle, User, ToggleLeft, ToggleRight, X, Clock, Trash2, RotateCcw, Brush, Eraser, Download, MousePointer2, Ruler, Palette, Key } from 'lucide-react';
+import { Camera, Image as ImageIcon, Loader2, Sparkles, Wand2, Check, AlignLeft, AlertCircle, User, ToggleLeft, ToggleRight, X, Clock, Trash2, RotateCcw, Brush, Eraser, Download, MousePointer2, Ruler, Palette, Key, Cpu } from 'lucide-react';
 import { useImagePaste } from '../hooks/useImagePaste';
 
 interface DirectorTabProps {
@@ -51,6 +51,22 @@ const renderContent = (content: any) => {
   return '';
 };
 
+const BananaIcon = ({ className }: { className?: string }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2.5" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+    style={{ color: '#fbbf24' }}
+  >
+    <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+    <path d="M15 3s-1.5 1-2 3" />
+  </svg>
+);
+
 const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -78,13 +94,14 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
   const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
   const [inpaintPrompt, setInpaintPrompt] = useState('');
   const [isInpainting, setIsInpainting] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+  const [generationHistory, setGenerationHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
     try {
       const savedHistory = localStorage.getItem('vp_history');
       if (savedHistory) {
-        setHistory(JSON.parse(savedHistory));
+        setGenerationHistory(JSON.parse(savedHistory));
       }
     } catch (e) {
       console.warn("Failed to load history", e);
@@ -201,15 +218,15 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
 
   const addToHistory = (url: string, usedPrompt: string) => {
     const newItem: HistoryItem = { id: Date.now().toString(), url, prompt: usedPrompt, timestamp: Date.now() };
-    const updatedHistory = [newItem, ...history].slice(0, 20);
-    setHistory(updatedHistory);
+    const updatedHistory = [newItem, ...generationHistory].slice(0, 20);
+    setGenerationHistory(updatedHistory);
     try { localStorage.setItem('vp_history', JSON.stringify(updatedHistory)); } catch (e) { /* Quota handled silently */ }
   };
 
   const deleteFromHistory = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = history.filter(item => item.id !== id);
-    setHistory(updated);
+    const updated = generationHistory.filter(item => item.id !== id);
+    setGenerationHistory(updated);
     try { localStorage.setItem('vp_history', JSON.stringify(updated)); } catch (e) {}
   };
 
@@ -310,7 +327,7 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
         modelReferenceImage = { base64: await blobToBase64(modelFile), mimeType: modelFile.type };
       }
 
-      const images = await generateMarketingImage(prompt, aspectRatio, resolution, referenceImage, modelReferenceImage);
+      const images = await generateMarketingImage(prompt, aspectRatio, resolution, referenceImage, modelReferenceImage, selectedModel);
       if (images.length > 0) {
         setActiveImage(images[0]);
         onImageGenerated(images[0]);
@@ -580,7 +597,61 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Model Selection */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5" /> 图像模型 (Model)
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <BananaIcon className="w-3 h-3" />
+                    <span className={`text-[10px] font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Banana 2
+                    </span>
+                  </div>
+                  <span className="text-[8px] text-pastel-muted">3.1 Flash</span>
+                </button>
+                <button
+                  onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <BananaIcon className="w-3 h-3" />
+                    <span className={`text-[10px] font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Banana Pro
+                    </span>
+                  </div>
+                  <span className="text-[8px] text-pastel-muted">3.0 Pro</span>
+                </button>
+                <button
+                  onClick={() => setSelectedModel('gpt-image-2')}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gpt-image-2'
+                      ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                      : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-orange-500" />
+                    <span className={`text-[10px] font-bold ${selectedModel === 'gpt-image-2' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      GPT Image 2
+                    </span>
+                  </div>
+                  <span className="text-[8px] text-pastel-muted">Ultra Quality</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-pastel-muted mb-1">画幅比例</label>
                   <select 
@@ -740,17 +811,17 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
         )}
 
         {/* History Gallery */}
-        {history.length > 0 && (
+        {generationHistory.length > 0 && (
           <div className="bg-pastel-card p-4 rounded-xl border border-pastel-border shadow-sm mt-6">
             <h3 className="text-sm font-semibold text-pastel-muted mb-3 flex items-center gap-2">
-               <Clock className="w-4 h-4" /> 历史记录 ({history.length})
+               <Clock className="w-4 h-4" /> 历史记录 ({generationHistory.length})
             </h3>
             <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-4 gap-3">
-               {history.map((item) => (
+               {generationHistory.map((item) => (
                  <div 
                    key={item.id} 
                    className={`relative group aspect-square rounded-lg overflow-hidden border bg-gray-50 cursor-pointer transition-colors ${
-                     activeImage === item.url ? 'border-pastel-highlight ring-2 ring-pastel-pink' : 'border-pastel-border hover:border-pastel-highlight'
+                     activeImage === item.url ? 'border-pastel-highlight ring-2 ring-pastel-pink' : 'border-pastel-highlight'
                    }`}
                    onClick={() => setActiveImage(item.url)}
                  >

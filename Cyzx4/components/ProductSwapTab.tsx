@@ -51,8 +51,9 @@ const SWAP_COT_STEPS = [
 
 // ==================== Model Options ====================
 const MODEL_OPTIONS = [
-    { value: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', subLabel: '3.1 Flash (极速)' },
-    { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', subLabel: '3.0 Pro (推荐)' },
+    { value: 'gemini-3.1-flash-image-preview', label: 'Banana 2', subLabel: '3.1 Flash' },
+    { value: 'gemini-3-pro-image-preview', label: 'Banana Pro', subLabel: '3.0 Pro' },
+    { value: 'gpt-image-2', label: 'GPT Image 2', subLabel: 'Ultra Quality' },
 ];
 
 type ImageData = {
@@ -429,23 +430,23 @@ const ProductSwapTab: React.FC = () => {
                                 <label className="text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5 px-1">
                                     <Cpu className="w-3.5 h-3.5" /> 图像模型选择
                                 </label>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-3 gap-2">
                                     {MODEL_OPTIONS.map(m => (
                                         <button
                                             key={m.value}
                                             onClick={() => setSelectedModel(m.value)}
-                                            className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === m.value
+                                            className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === m.value
                                                 ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
                                                 : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
                                                 }`}
                                         >
-                                            <div className="flex items-center gap-1.5">
-                                                <BananaIcon className="w-3.5 h-3.5" />
-                                                <span className={`text-xs font-bold ${selectedModel === m.value ? 'text-purple-700' : 'text-pastel-text'}`}>
+                                            <div className="flex items-center gap-1">
+                                                {m.value === 'gpt-image-2' ? <Sparkles className="w-3 h-3 text-orange-500" /> : <BananaIcon className="w-3 h-3" />}
+                                                <span className={`text-[10px] font-bold ${selectedModel === m.value ? 'text-purple-700' : 'text-pastel-text'}`}>
                                                     {m.label}
                                                 </span>
                                             </div>
-                                            <span className="text-[9px] text-pastel-muted">{m.subLabel}</span>
+                                            <span className="text-[8px] text-pastel-muted">{m.subLabel}</span>
                                         </button>
                                     ))}
                                 </div>

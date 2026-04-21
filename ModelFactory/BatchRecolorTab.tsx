@@ -497,18 +497,18 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               <label className="block text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5" /> 图像模型选择
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
                     ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
                     : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
                     }`}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <BananaIcon className="w-3.5 h-3.5" />
-                    <span className={`text-[10px] font-black ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                  <div className="flex items-center gap-1">
+                    <BananaIcon className="w-3 h-3" />
+                    <span className={`text-[9px] font-black ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
                       Nano Banana 2
                     </span>
                   </div>
@@ -517,18 +517,34 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                 <button
                   type="button"
                   onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
-                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
                     ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
                     : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
                     }`}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <BananaIcon className="w-3.5 h-3.5" />
-                    <span className={`text-[10px] font-black ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                      Nano Banana Pro
+                  <div className="flex items-center gap-1">
+                    <BananaIcon className="w-3 h-3" />
+                    <span className={`text-[9px] font-black ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      Banana Pro
                     </span>
                   </div>
                   <span className="text-[8px] text-pastel-muted font-bold">3.0 Pro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedModel('gpt-image-2')}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gpt-image-2'
+                    ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                    : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                    }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-orange-500" />
+                    <span className={`text-[9px] font-black ${selectedModel === 'gpt-image-2' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                      GPT Image 2
+                    </span>
+                  </div>
+                  <span className="text-[8px] text-pastel-muted font-bold">Ultra Quality</span>
                 </button>
               </div>
             </div>

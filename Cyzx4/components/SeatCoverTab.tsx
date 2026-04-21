@@ -2,9 +2,26 @@ import React, { useState } from 'react';
 import { generateSeatCoverFit, blobToBase64, compressImage, optimizePrompt, editGeneratedImage } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
-import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X, Box, Wand2 } from 'lucide-react';
+import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X, Box, Wand2, Cpu } from 'lucide-react';
 import { storageService } from '../../services/storageService';
 import { compressImageFiles } from '../utils/imageCompressor';
+
+// 自定义香蕉图标组件
+const BananaIcon = ({ className }: { className?: string }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2.5" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+    style={{ color: '#fbbf24' }}
+  >
+    <path d="M4 11s2.5-3 6.5-3 7.5 5 7.5 5 1.5 6-3.5 8-10.5-2-10.5-2" />
+    <path d="M15 3s-1.5 1-2 3" />
+  </svg>
+);
 
 const anglePresets = [
   {
@@ -117,6 +134,8 @@ const SeatCoverTab: React.FC = () => {
   };
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
+
+  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
 
   const handleSeatFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -452,7 +471,8 @@ const SeatCoverTab: React.FC = () => {
         aspectRatio,
         qualityMode,
         customRequest, // NEW: Custom Request
-        visualGuide // Pass strict visual guide
+        visualGuide, // Pass strict visual guide
+        selectedModel
       );
 
       setProgress('渲染完成！');
@@ -850,6 +870,60 @@ const SeatCoverTab: React.FC = () => {
                 <span className="w-4 h-4 rounded-full bg-pastel-bg border border-pastel-pink flex items-center justify-center text-[10px] text-pastel-highlight">3</span>
                 输出设置
               </h3>
+
+              {/* Model Selection */}
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5" /> 图像模型 (Model)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <BananaIcon className="w-3 h-3" />
+                      <span className={`text-[10px] font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Banana 2
+                      </span>
+                    </div>
+                    <span className="text-[8px] text-pastel-muted">3.1 Flash</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <BananaIcon className="w-3 h-3" />
+                      <span className={`text-[10px] font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Banana Pro
+                      </span>
+                    </div>
+                    <span className="text-[8px] text-pastel-muted">3.0 Pro</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedModel('gpt-image-2')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gpt-image-2'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-orange-500" />
+                      <span className={`text-[10px] font-bold ${selectedModel === 'gpt-image-2' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        GPT Image 2
+                      </span>
+                    </div>
+                    <span className="text-[8px] text-pastel-muted">Ultra Quality</span>
+                  </button>
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>

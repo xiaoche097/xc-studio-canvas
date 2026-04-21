@@ -382,6 +382,7 @@ export const generateMarketingImage = async (
   resolution: ImageResolution,
   referenceImage?: { base64: string; mimeType: string }, // Product
   modelReferenceImage?: { base64: string; mimeType: string }, // Model Face
+  modelId: string = 'gemini-3-pro-image-preview',
 ) => {
   const ai = getAiClient();
   try {
@@ -440,7 +441,7 @@ export const generateMarketingImage = async (
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: "gemini-3-pro-image-preview",
+        model: modelId,
         contents: {
           parts: parts,
         },
@@ -1426,7 +1427,8 @@ export const generateSeatCoverFit = async (
   aspectRatio: AspectRatio,
   resolution: ImageResolution,
   customRequest?: string, // NEW: User Custom Request
-  visualGuide?: { base64: string; mime: string } // NEW: Optional Visual Guide
+  visualGuide?: { base64: string; mime: string }, // NEW: Optional Visual Guide
+  modelId: string = 'gemini-3-pro-image-preview'
 ) => {
   const ai = getAiClient();
   try {
@@ -1854,7 +1856,7 @@ Generate a **NEW photorealistic image** that:
     // Gemini 2.0 Flash-Exp does NOT support Image Generation (Outputs Text).
     // Must use 'gemini-3-pro-image-preview' for actual image synthesis.
     // Speed optimization must be done via 'aspectRatio' or 'imageSize' param, not model swap.
-    const modelName = "gemini-3-pro-image-preview";
+    const modelName = modelId;
     console.log(`🎨 [AutoFusion] Generating with ${modelName} (Resolution: ${resolution})`);
 
     const response = await executeWithTimeout(
