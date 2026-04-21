@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Sparkles, Upload, X, LayoutGrid, CheckCircle2, ChevronRight, AlertCircle, Sparkle, Cpu, Image as ImageIcon } from 'lucide-react';
+import { Download, Loader2, Sparkles, Upload, X, LayoutGrid, CheckCircle2, ChevronRight, AlertCircle, Sparkle, Cpu, Image as ImageIcon, ShoppingCart, Smartphone } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
@@ -396,31 +396,45 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
               </div>
             </div>
 
-            {/* Layout Settings */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <h3 className="text-[10px] font-bold text-gray-500 uppercase">输出画幅</h3>
-                <select
-                  value={outputAspectRatio}
-                  onChange={(e) => setOutputAspectRatio(e.target.value as AspectRatio)}
-                  className="w-full bg-white border border-gray-200 rounded-lg py-2 px-3 text-xs outline-none focus:border-[#F5B27A]"
-                >
-                  <option value={AspectRatio.SQUARE}>1:1 (主图标准)</option>
-                  <option value={AspectRatio.PORTRAIT_3_4}>3:4 (竖版副图)</option>
-                  <option value={AspectRatio.PORTRAIT_4_5}>4:5 (社交媒体)</option>
-                </select>
+            {/* Aspect Ratio Selection */}
+            <div className="space-y-2">
+              <h3 className="text-[10px] font-bold text-gray-500 uppercase">输出画幅</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: AspectRatio.SQUARE, label: '副图', ratio: '1:1', icon: <ShoppingCart className="w-4 h-4" /> },
+                  { id: AspectRatio.LANDSCAPE_16_9, label: 'A+', ratio: '16:9', icon: <Sparkles className="w-4 h-4" /> },
+                  { id: AspectRatio.PORTRAIT_3_4, label: '社媒买家秀', ratio: '3:4', icon: <Smartphone className="w-4 h-4" /> }
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setOutputAspectRatio(item.id)}
+                    className={`flex flex-col items-center justify-center py-3 rounded-2xl border transition-all ${
+                      outputAspectRatio === item.id
+                        ? 'bg-[#FDF4FF] border-[#D8B4FE] text-[#9333EA] shadow-sm'
+                        : 'bg-white border-gray-100 text-slate-500 hover:border-gray-200'
+                    }`}
+                  >
+                    <div className={`${outputAspectRatio === item.id ? 'text-[#9333EA]' : 'text-slate-400'} mb-1.5`}>
+                      {item.icon}
+                    </div>
+                    <span className="text-xs font-bold block">{item.label}</span>
+                    <span className="text-[9px] opacity-60 font-medium">{item.ratio}</span>
+                  </button>
+                ))}
               </div>
-              <div className="space-y-2">
-                <h3 className="text-[10px] font-bold text-gray-500 uppercase">清晰度</h3>
-                <select
-                  value={resolution}
-                  onChange={(e) => setResolution(e.target.value as ImageResolution)}
-                  className="w-full bg-white border border-gray-200 rounded-lg py-2 px-3 text-xs outline-none focus:border-[#F5B27A]"
-                >
-                  <option value={ImageResolution.RES_2K}>2K 高清</option>
-                  <option value={ImageResolution.RES_4K}>4K 极致</option>
-                </select>
-              </div>
+            </div>
+
+            {/* Resolution Settings */}
+            <div className="space-y-2">
+              <h3 className="text-[10px] font-bold text-gray-500 uppercase">清晰度</h3>
+              <select
+                value={resolution}
+                onChange={(e) => setResolution(e.target.value as ImageResolution)}
+                className="w-full bg-white border border-gray-100 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-[#F5B27A] shadow-sm"
+              >
+                <option value={ImageResolution.RES_2K}>2K 高清</option>
+                <option value={ImageResolution.RES_4K}>4K 极致 (推荐)</option>
+              </select>
             </div>
 
             {/* Guidance */}
