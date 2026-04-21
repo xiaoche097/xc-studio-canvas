@@ -1289,7 +1289,7 @@ const SceneGenerationTab: React.FC = () => {
                       <img
                         src={image}
                         alt={`generated-${index}`}
-                        className="w-full aspect-[4/4] object-cover cursor-zoom-in"
+                        className="w-full h-auto object-contain cursor-zoom-in"
                         onClick={() => setSelectedPreview(image)}
                       />
                       <button

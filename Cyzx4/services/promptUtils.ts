@@ -734,14 +734,14 @@ const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
     main: "shot on 50mm standard lens, commercial ecommerce hero shot, crisp centered composition, clean depth separation",
     aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
     social: "shot on 85mm portrait lens, candid handheld lifestyle framing, natural indoor light, authentic buyer-show perspective",
-    story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, deep depth of field, epic spatial storytelling",
+    story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, far-left subject placement, negative space on right, deep depth of field, epic spatial storytelling",
 };
 
 const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
     main: "Amazon secondary image style, clear subject hierarchy, product-first composition, clean but realistic background, strong click-through appeal",
     aplus: "premium A+ storytelling visual, wider environment context, richer spatial layering, elevated brand atmosphere",
     social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
-    story: "cinematic brand story epic, ultra-wide environment context, high spatial tension, dramatic atmosphere, cinematic masterpiece quality",
+    story: "premium cinematic A+ brand story visual, clean high-end spatial storytelling, refined atmospheric depth, high commercial conversion aesthetic",
 };
 
 const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
@@ -757,9 +757,9 @@ const PRODUCT_TYPE_SCENE_DETAIL: Record<SceneGenerationProductType, string> = {
 };
 
 const PRODUCT_LOCK_RULES: Record<SceneGenerationProductType, string> = {
-    plush: "Treat the reference images as the only source of truth for the plush toy identities. Do not recolor, restyle, reshape, simplify, or substitute the fur, embroidery, facial features, seams, stuffing volume, pile length, sheen, or silhouette. Preserve the exact hue family, saturation balance, plush density, stitched details, and surface finish for EACH product. Any lifestyle styling must adapt around the plush products instead of changing them.",
-    apparel: "Treat the reference images as the only source of truth for the apparel product identities. Do not recolor, restyle, repaint, redesign, or substitute the fabric type, garment structure, print placement, embroidery placement, trims, fit, drape, or silhouette. Preserve the exact main color and secondary color relationship, fabric texture, seam construction, and finishing details for EACH item. Any lifestyle styling must adapt around the garments instead of changing them.",
-    general: "Treat the reference images as the only source of truth for the product identities. Do not recolor, repaint, redesign, simplify, or substitute the material, hardware, trim, edge construction, surface finish, or silhouette. Preserve the exact hue family, saturation balance, texture depth, structural proportions, and visible product details for EACH product. Any scene styling must adapt around the products instead of changing them.",
+    plush: "STRICT PRODUCT LOCK: Treat the reference images as the only source of truth for the plush toy identities. ZERO TOLERANCE for AI re-interpretation. Do not recolor, restyle, reshape, simplify, or substitute the fur, embroidery, facial features, seams, stuffing volume, pile length, sheen, or silhouette. Preserve the exact hue family, saturation balance, plush density, stitched details, and surface finish for EACH product. The generated product must be a pixel-perfect conceptual match to the original.",
+    apparel: "STRICT PRODUCT LOCK: Treat the reference images as the only source of truth for the apparel product identities. ZERO TOLERANCE for AI re-interpretation. Do not recolor, restyle, repaint, redesign, or substitute the fabric type, garment structure, print placement, embroidery placement, trims, fit, drape, or silhouette. Preserve the exact main color and secondary color relationship, fabric texture, seam construction, and finishing details for EACH item. The generated garment must be a pixel-perfect conceptual match to the original.",
+    general: "STRICT PRODUCT LOCK: Treat the reference images as the only source of truth for the product identities. ZERO TOLERANCE for AI re-interpretation. Do not recolor, repaint, redesign, simplify, or substitute the material, hardware, trim, edge construction, surface finish, or silhouette. Preserve the exact hue family, saturation balance, texture depth, structural proportions, and visible product details for EACH product. The generated product must be a pixel-perfect conceptual match to the original.",
 };
 
 function buildProductLockPrompt(productType: SceneGenerationProductType) {
@@ -884,12 +884,10 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         lighting: input.boardType === "social"
             ? "natural window light, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo"
             : input.boardType === "aplus"
-                ? "premium editorial lighting, layered highlights, realistic depth, refined brand atmosphere"
-                : input.boardType === "story"
-                    ? "dramatic cinematic lighting, volumetric light beams, deep shadows, epic atmosphere, golden hour or moody twilight, cinematic color grading"
+                    ? "premium cinematic lighting, clean layered highlights, volumetric light beams, epic atmospheric depth, refined brand atmosphere, high-end commercial color grading"
                     : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
         composition: SCENE_LENS_MAP[input.boardType],
-        qualityBooster: (input.boardType === "social" || input.boardType === "story") ? "FILM" : "EDITORIAL",
+        qualityBooster: (input.boardType === "social") ? "FILM" : "EDITORIAL",
     });
 
     // Board-type specific instructions
@@ -916,11 +914,13 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
         ].join(' '),
         story: [
-            `This is a cinematic brand story epic visual for the product: "${productTitleContext}".`,
-            "The image must feel like a high-budget movie frame with 21:9 aspect ratio tension.",
-            "Use wide-angle storytelling to show the product within a vast, atmospheric environment.",
-            "Emphasize depth, scale, and emotional resonance. The lighting should be dramatic and evocative.",
-            "Vary the environment dramatically: from high-end modern interiors to epic outdoor landscapes, each image should tell a unique brand narrative.",
+            `This is a premium high-end cinematic brand story visual for the product: "${productTitleContext}".`,
+            "The image must match the premium quality of Amazon A+ Content banners, with 21:9 aspect ratio tension.",
+            "CRITICAL COMPOSITION RULE: All subjects (products and people) MUST be positioned on the far left side of the image frame.",
+            "Leave the right 60-70% of the image as clean, high-end negative space or atmospheric background, reserved for advertising copy.",
+            "Use wide-angle storytelling to show the product within a vast, premium, and clean environment.",
+            "Emphasize spatial depth, clean highlights, and refined commercial aesthetic. Lighting must be bright, clean, and professional like A+ editorial photography.",
+            "Vary the environment dramatically: from high-end modern minimalist interiors to clean, breathtaking outdoor landscapes.",
         ].join(' '),
     };
 
@@ -953,9 +953,10 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         input.avoidElements ? `Strictly avoid these elements: ${input.avoidElements}.` : "",
         input.extraNotes ? `Additional execution notes: ${input.extraNotes}.` : "",
         basePrompt,
+        "STRICT PRODUCT FIDELITY: The reference product images are the absolute source of truth. You must maintain the exact structure, color, texture, and identity of the product without any deviation.",
         input.boardType === 'social'
             ? "Make this look like a real buyer's phone photo shared on social media — authentic, casual, unpolished but appealing. NOT a professional photo."
-            : "Make the image look like a premium real photo shot by an experienced Amazon ecommerce art director, not CGI or AI art.",
+            : "Make the image look like a premium real photo shot by a top-tier Amazon ecommerce art director, following high-end A+ content standards.",
     ].filter(Boolean).join(" ");
 }
 
