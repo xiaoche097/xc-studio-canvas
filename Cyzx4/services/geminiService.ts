@@ -910,8 +910,10 @@ export const generateImageToImage = async (
       - Preserve exact hue family, saturation balance, texture depth, seams, embroidery placement, print placement, edge construction, and tactile realism from the reference image.
       - You may change the background, props, human presence, lighting mood, and environment only insofar as the product itself remains visually identical.
       - If any scene idea conflicts with product fidelity, change the scene idea instead of changing the product.
-      - If multiple reference images are provided, use them only to reinforce the same product identity. Do not blend mismatched colors, materials, or details into a new variant.
-      - Output exactly one polished commercial image. No collage, no split layout, no before-after composition.
+      - If multiple reference images are provided, determine if they represent different products or different views of the same product. 
+      - **MULTIPLE PRODUCTS**: If they are different products, you MUST include ALL of them in the scene together in a natural, balanced composition as described in the prompt.
+      - **SINGLE PRODUCT**: If they are different views/colors of the same product, use them to reinforce a single consistent product identity.
+      - Output exactly one polished commercial image containing all requested products. No collage, no split layout, no before-after composition.
 
       **USER PROMPT**: ${prompt}
 
