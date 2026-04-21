@@ -269,7 +269,7 @@ export const TEXTURE_KEYWORDS = {
 } as const;
 
 export type SceneGenerationProductType = "plush" | "apparel" | "general";
-export type SceneGenerationBoardType = "main" | "aplus" | "social";
+export type SceneGenerationBoardType = "main" | "aplus" | "social" | "story";
 
 export interface SceneGenerationPromptInput {
     boardType: SceneGenerationBoardType;
@@ -734,12 +734,14 @@ const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
     main: "shot on 50mm standard lens, commercial ecommerce hero shot, crisp centered composition, clean depth separation",
     aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
     social: "shot on 85mm portrait lens, candid handheld lifestyle framing, natural indoor light, authentic buyer-show perspective",
+    story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, deep depth of field, epic spatial storytelling",
 };
 
 const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
     main: "Amazon secondary image style, clear subject hierarchy, product-first composition, clean but realistic background, strong click-through appeal",
     aplus: "premium A+ storytelling visual, wider environment context, richer spatial layering, elevated brand atmosphere",
     social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
+    story: "cinematic brand story epic, ultra-wide environment context, high spatial tension, dramatic atmosphere, cinematic masterpiece quality",
 };
 
 const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
@@ -883,9 +885,11 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             ? "natural window light, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo"
             : input.boardType === "aplus"
                 ? "premium editorial lighting, layered highlights, realistic depth, refined brand atmosphere"
-                : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
+                : input.boardType === "story"
+                    ? "dramatic cinematic lighting, volumetric light beams, deep shadows, epic atmosphere, golden hour or moody twilight, cinematic color grading"
+                    : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
         composition: SCENE_LENS_MAP[input.boardType],
-        qualityBooster: input.boardType === "social" ? "FILM" : "EDITORIAL",
+        qualityBooster: (input.boardType === "social" || input.boardType === "story") ? "FILM" : "EDITORIAL",
     });
 
     // Board-type specific instructions
@@ -910,6 +914,13 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             "Include realistic everyday details: a half-drunk coffee cup, phone charger on the table, slightly messy but lived-in space, personal items in the background.",
             "The scene interior must vary dramatically between images — different apartment styles, different furniture, different wall colors, different decorations. Each buyer photo should feel like it's from a completely different person's home.",
             "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
+        ].join(' '),
+        story: [
+            `This is a cinematic brand story epic visual for the product: "${productTitleContext}".`,
+            "The image must feel like a high-budget movie frame with 21:9 aspect ratio tension.",
+            "Use wide-angle storytelling to show the product within a vast, atmospheric environment.",
+            "Emphasize depth, scale, and emotional resonance. The lighting should be dramatic and evocative.",
+            "Vary the environment dramatically: from high-end modern interiors to epic outdoor landscapes, each image should tell a unique brand narrative.",
         ].join(' '),
     };
 

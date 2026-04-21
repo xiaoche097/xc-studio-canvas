@@ -41,7 +41,7 @@ import {
   Ruler,
 } from 'lucide-react';
 
-type BoardType = 'main' | 'aplus' | 'social';
+type BoardType = 'main' | 'aplus' | 'social' | 'story';
 
 interface UploadedImage {
   file: File;
@@ -138,6 +138,12 @@ const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspe
     description: '更生活化的人物/使用场景，适合种草与社媒传播',
     aspectRatio: AspectRatio.PORTRAIT_3_4,
     icon: '📱',
+  },
+  story: {
+    label: '品牌故事',
+    description: '电影级超宽场景，适合展示品牌深度、空间感与氛围感',
+    aspectRatio: AspectRatio.LANDSCAPE_21_9,
+    icon: '🎬',
   },
 };
 
@@ -249,6 +255,7 @@ const SceneGenerationTab: React.FC = () => {
   const businessGoal = useMemo(() => {
     if (boardType === 'main') return '生成高点击率亚马逊副图场景，突出产品主体、核心卖点与电商可读性';
     if (boardType === 'aplus') return '生成适合 A+ 模块的横版场景图，强调品牌感、故事感与细节质感';
+    if (boardType === 'story') return '生成电影宽画幅品牌场景，强调史诗感、空间深度与品牌故事张力';
     return '生成接近真实买家秀/社媒传播风格的生活化场景图，增强代入感与分享感';
   }, [boardType]);
 
@@ -635,7 +642,7 @@ const SceneGenerationTab: React.FC = () => {
                 <Store className="w-4 h-4 text-pastel-highlight" />
                 <h3 className="font-semibold text-pastel-text text-sm">场景板块</h3>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {(Object.keys(BOARD_CONFIG) as BoardType[]).map((key) => {
                   const item = BOARD_CONFIG[key];
                   const active = boardType === key;

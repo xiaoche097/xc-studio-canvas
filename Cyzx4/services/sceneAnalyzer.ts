@@ -58,6 +58,7 @@ function buildAnalysisPrompt(userHint: string, boardType: SceneGenerationBoardTy
     main: '亚马逊副图场景（突出产品卖点、电商转化）',
     aplus: 'A+ 横幅场景（品牌叙事、故事感）',
     social: '社媒买家秀（真实生活场景、手机拍摄感）',
+    story: '品牌故事（电影级超宽场景、空间感、史诗氛围）',
   };
 
   return `
