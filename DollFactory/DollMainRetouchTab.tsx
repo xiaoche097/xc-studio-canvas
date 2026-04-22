@@ -343,38 +343,40 @@ const DollMainRetouchTab: React.FC = () => {
             </h3>
             {sourceUrl ? (
               <div 
-                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center"
+                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleSourceDrop}
               >
-                <div className="relative max-w-full max-h-full flex items-center justify-center">
-                  <img src={sourceUrl} alt="source" className="max-w-full max-h-full w-auto h-auto block" />
-                  
-                  {/* Draw Boxes Preview (Visual only) */}
-                  <div className="absolute inset-0 pointer-events-none">
-                     {editorBoxes.map((b, i) => {
-                        const colors = [
-                           { border: 'border-red-500', bg: 'bg-red-500', text: 'text-white' },
-                           { border: 'border-yellow-400', bg: 'bg-yellow-400', text: 'text-black' },
-                           { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-white' }
-                        ];
-                        const style = colors[i % 3];
-                        return (
-                        <div 
-                           key={b.id} 
-                           className={`absolute border-2 ${style.border} ${style.bg}/10 pointer-events-none flex items-start justify-start overflow-hidden`}
-                           style={{ left: `${b.x*100}%`, top: `${b.y*100}%`, width: `${b.w*100}%`, height: `${b.h*100}%` }}
-                        >
-                           <span className={`${style.bg} ${style.text} text-[8px] font-bold px-1 rounded-br-sm`}>{i+1}</span>
-                        </div>
-                     )})}
+                <div className="absolute inset-3 flex items-center justify-center">
+                  <div className="relative max-w-full max-h-full">
+                    <img src={sourceUrl} alt="source" className="max-w-full max-h-full w-auto h-auto block rounded-lg" />
+                    
+                    {/* Draw Boxes Preview (Visual only) */}
+                    <div className="absolute inset-0 pointer-events-none">
+                       {editorBoxes.map((b, i) => {
+                          const colors = [
+                             { border: 'border-red-500', bg: 'bg-red-500', text: 'text-white' },
+                             { border: 'border-yellow-400', bg: 'bg-yellow-400', text: 'text-black' },
+                             { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-white' }
+                          ];
+                          const style = colors[i % 3];
+                          return (
+                          <div 
+                             key={b.id} 
+                             className={`absolute border-2 ${style.border} ${style.bg}/10 pointer-events-none flex items-start justify-start overflow-hidden`}
+                             style={{ left: `${b.x*100}%`, top: `${b.y*100}%`, width: `${b.w*100}%`, height: `${b.h*100}%` }}
+                          >
+                             <span className={`${style.bg} ${style.text} text-[8px] font-bold px-1 rounded-br-sm`}>{i+1}</span>
+                          </div>
+                       )})}
+                    </div>
                   </div>
                 </div>
                 
                 {/* Delete button (Top Right) */}
                 <button 
                   onClick={() => { setSourceUrl(null); setSourceFile(null); setEditorBoxes([]); }}
-                  className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-black/80 transition-colors opacity-0 group-hover:opacity-100 z-10"
+                  className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-black/80 transition-colors opacity-0 group-hover:opacity-100 z-20"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -382,7 +384,7 @@ const DollMainRetouchTab: React.FC = () => {
                 {/* Edit Button overlay (Bottom Right) */}
                 <button 
                   onClick={() => setIsEditorOpen(true)}
-                  className="absolute bottom-3 right-3 bg-black/70 text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-black/90 transition-colors shadow-lg opacity-0 group-hover:opacity-100 z-10 backdrop-blur-sm border border-white/10"
+                  className="absolute bottom-3 right-3 bg-black/70 text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-black/90 transition-colors shadow-lg opacity-0 group-hover:opacity-100 z-20 backdrop-blur-sm border border-white/10"
                 >
                   编辑
                 </button>
