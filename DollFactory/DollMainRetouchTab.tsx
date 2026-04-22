@@ -523,17 +523,18 @@ const DollMainRetouchTab: React.FC = () => {
           {/* 画幅选择 */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2">输出画幅 (Aspect Ratio)</h3>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-2">
               {[
                 { value: AspectRatio.SQUARE, label: '1:1' },
                 { value: AspectRatio.PORTRAIT_3_4, label: '3:4' },
                 { value: AspectRatio.PORTRAIT_4_5, label: '4:5' },
+                { value: AspectRatio.PORTRAIT_2_3, label: '2:3' },
                 { value: AspectRatio.PORTRAIT_9_16, label: '9:16' }
               ].map((item) => (
                 <button
                   key={item.value}
                   onClick={() => setOutputAspectRatio(item.value)}
-                  className={`rounded-xl border py-2 text-xs font-bold transition-all ${outputAspectRatio === item.value ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
+                  className={`rounded-xl border py-2 text-[10px] font-bold transition-all ${outputAspectRatio === item.value ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
                 >
                   {item.label}
                 </button>
