@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Sparkles, Upload, X, LayoutGrid, CheckCircle2, ChevronRight, AlertCircle, Sparkle, Cpu, Image as ImageIcon, ShoppingCart, Smartphone } from 'lucide-react';
+import { Download, Loader2, Sparkles, Upload, X, LayoutGrid, CheckCircle2, ChevronRight, AlertCircle, Sparkle, Cpu, Image as ImageIcon, ShoppingCart, Smartphone, RotateCcw } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
@@ -82,6 +82,10 @@ const DollDesignOptimizeTab: React.FC = () => {
       }
       return next;
     });
+  };
+  
+  const resetDiagnosis = (id: string) => {
+    setImages(prev => prev.map(p => p.id === id ? { ...p, status: 'pending', diagnosis: undefined, optimizedUrl: undefined } : p));
   };
 
   // --- Phase 1: Diagnose ---
@@ -515,7 +519,17 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
                       {img.diagnosis?.scene_type || `待诊断副图`}
                     </h2>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    {(img.status === 'diagnosed' || img.status === 'done' || img.status === 'error') && (
+                      <button 
+                        onClick={() => resetDiagnosis(img.id)}
+                        className="flex items-center gap-1 text-slate-400 hover:text-slate-600 px-2 py-1 rounded border border-gray-200 bg-white hover:bg-gray-50 transition-all text-[10px] font-bold"
+                        title="重新分析"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        重新分析
+                      </button>
+                    )}
                     {img.status === 'done' && <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase">Optimized</span>}
                     {img.status === 'diagnosed' && <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase">Diagnosed</span>}
                     {img.status === 'error' && <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase">Error</span>}
