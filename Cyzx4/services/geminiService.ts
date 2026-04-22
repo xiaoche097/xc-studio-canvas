@@ -48,34 +48,47 @@ export const analyzeDollModification = async (
 ) => {
   const ai = getAiClient();
   
-  const boxDescriptions = boxes.map((b, i) => 
-    `Box ${i+1} (${b.color}): Position [X:${(b.x*100).toFixed(1)}%, Y:${(b.y*100).toFixed(1)}%, W:${(b.w*100).toFixed(1)}%, H:${(b.h*100).toFixed(1)}%]. Maps to Reference Image at technical stack index Image ${i+3}.`
-  ).join('\n');
+  // Convert abstract percentages to human-readable spatial descriptions
+  const describePosition = (x: number, y: number, w: number, h: number): string => {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const vPos = cy < 0.33 ? '上部' : cy < 0.66 ? '中部' : '下部';
+    const hPos = cx < 0.33 ? '左侧' : cx < 0.66 ? '中央' : '右侧';
+    const sizeDesc = (w * h) > 0.25 ? '大面积' : (w * h) > 0.1 ? '中等面积' : '小面积';
+    return `${vPos}${hPos}区域 (${sizeDesc}，覆盖约 ${(w * 100).toFixed(0)}%宽 × ${(h * 100).toFixed(0)}%高)`;
+  };
+
+  const boxDescriptions = boxes.map((b, i) => {
+    const spatialDesc = describePosition(b.x, b.y, b.w, b.h);
+    return `[修改区域 ${i+1}] (${b.color} Box): 位于图片的 ${spatialDesc}。精确坐标: 左上角(${(b.x*100).toFixed(1)}%, ${(b.y*100).toFixed(1)}%), 尺寸(${(b.w*100).toFixed(1)}%×${(b.h*100).toFixed(1)}%)。此区域对应参考图 Image ${i+3}。`;
+  }).join('\n');
 
   const analysisPrompt = `
-**ROLE**: Precision Vision & Logic Analyst for Image Synthesis.
-**CONTEXT**: You are preparing a prompt for a "Double-Anchor" Image Generator.
-**GEN-STACK-VIEW (IMPORTANT)**: 
-The generator will receive an image sequence where:
-- Image 1 & Image 2 = IDENTICAL master doll images (acting as anchors to lock structure).
-- Image 3 = Reference Image 1 (maps to your Box 1).
-- Image 4 = Reference Image 2 (maps to your Box 2).
-...and so on.
+**ROLE**: Precision Vision Analyst for Localized Image Modification.
 
-**TEXTURE PROTOCOL**: Identify if the doll is made of **Short-pile Velboa**, **Crystal Velboa**, **Minky**, or **Microfleece**. Pay attention to the **Nap (毛向)** and any directional shading.
+**YOUR TASK**: Analyze the source doll image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
 
-**TASK**: Analyze the user's guidance and the visual properties to transfer.
-**TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK. The output MUST maintain 1:1 identical camera angle and framing as Image 1. Absolute NO rotation.' : targetAngle ? `The final output MUST be in ${targetAngle} view. Even if Image 1 is at a different angle, ignore its camera orientation and rotate it to match ${targetAngle}.` : 'Maintain current perspective from Image 1.'}
+**CRITICAL RULES**:
+1. You MUST identify what body part / feature of the doll falls inside EACH box.
+2. You MUST identify what body parts / features are OUTSIDE all boxes.
+3. The generated prompt MUST contain an explicit "FROZEN ZONES" section listing ALL parts that must NOT change.
 
-**USER GUIDANCE**: "${userGuidance}"
+**SOURCE IMAGE**: Image 1 (the doll to be modified).
+**REFERENCE IMAGES**: ${refImages.length > 0 ? `Images 2-${refImages.length + 1} are style/effect references.` : 'None provided.'}
 
-**MAPPING DATA**:
-${boxDescriptions}
+**USER'S BOX SELECTIONS** (these define the ONLY areas that may be modified):
+${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modification.'}
 
-**OUTPUT REQUIRED (Strict JSON)**:
+**USER GUIDANCE**: "${userGuidance || 'Enhance the selected regions based on reference images.'}"
+
+**TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.' : targetAngle ? `Rotate to ${targetAngle} view.` : 'Keep current perspective.'}
+
+**OUTPUT (Strict JSON)**:
 {
-  "reasoning": "Analyze the visual disparity between Image 1 and reference images, focused on fabric texture (velboa/minky) and structural alignment.",
-  "engineered_prompt": "Specific command to generate the doll at the TARGET PERSPECTIVE. Describe the fabric texture precisely: e.g., 'Update the fabric texture to ultra-soft crystal velboa with a dense matte finish and subtle nap markings while locking the camera angle.' If a rotation is needed, explicitly command: 'Rotate the product from Image 1 to the ${targetAngle || 'current'} view, while transferring [details] from Image 3/4 [etc] to the designated boxes.' Ensure the prompt enforces the perspective switch."
+  "reasoning": "Step 1: Identify what's inside Box 1 (e.g., 'left ear'). Step 2: Identify what's outside all boxes (e.g., 'tail, body, eyes, nose'). Step 3: Describe the modification needed.",
+  "inside_boxes": ["list of body parts/features inside the selected boxes"],
+  "outside_boxes": ["list of body parts/features OUTSIDE the boxes that MUST NOT change"],
+  "engineered_prompt": "A precise prompt that: (1) States exactly which parts to modify and how, (2) Contains a FROZEN ZONES section listing everything that must remain identical, (3) Includes spatial anchoring like 'modify ONLY the left ear area in the upper-left quadrant'."
 }
 `;
 
@@ -95,13 +108,19 @@ ${boxDescriptions}
 
     let text = response.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    return JSON.parse(text);
+    const result = JSON.parse(text);
+    
+    // Log analysis for debugging
+    console.log("[Doll Analysis] Inside boxes:", result.inside_boxes);
+    console.log("[Doll Analysis] Outside boxes (FROZEN):", result.outside_boxes);
+    
+    return result;
   } catch (error) {
     console.error("Doll analysis failed", error);
-    // Fallback if formatting fails
     return null;
   }
 };
+
 
 export const analyzeProductImage = async (
   imageBase64: string,
@@ -736,8 +755,13 @@ export const generateImageToImage = async (
         `
               : options.workflowHint === 'doll-modification'
                 ? `
-        **ROLE**: Precision Toy & Doll Retoucher and Visual Inpainting Expert.
-        **TASK**: Execute highly localized modification on a plush toy/doll.
+        **ROLE**: Precision Toy & Doll Spatial Modification Expert.
+        **TASK**: Execute STRICTLY LOCALIZED modification on a plush toy/doll.
+        **CRITICAL SPATIAL RULES**:
+        1. ONLY modify the specific body parts/regions explicitly mentioned in the prompt below.
+        2. ALL other parts of the doll (tail, body, limbs, face, eyes, accessories, etc.) that are NOT mentioned as modification targets MUST remain 100% IDENTICAL to Image 1.
+        3. If the prompt contains a "FROZEN ZONES" section, treat those listed parts as ABSOLUTELY IMMUTABLE.
+        4. Maintain the exact same camera angle, lighting, and background as Image 1.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
@@ -755,13 +779,7 @@ export const generateImageToImage = async (
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
-                  : workflowHint === 'doll-modification'
-                    ? `
-        **ROLE**: World-Class 3D Toy Sculptor & Product Photographer.
-        **TASK**: High-Precision Product Rotation and Ecommerce Retouching.
-        **USER PROMPT**: ${forcedPrompt}
-        ${negativePromptLine}
-        `
+
                   : workflowHint === 'doll-retouching'
                     ? `
         **ROLE**: Senior Ecommerce Product Post-Processing Specialist.

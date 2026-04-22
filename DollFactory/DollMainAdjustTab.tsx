@@ -224,7 +224,31 @@ const DollMainAdjustTab: React.FC = () => {
         );
         
         if (analysis && analysis.engineered_prompt) {
-           prompt = `[PRECISION ORIENTATION & INPAINTING MODE]\n` + analysis.engineered_prompt;
+           // Build a spatially-constrained prompt with explicit frozen zones
+           let constrainedPrompt = `[PRECISION LOCALIZED MODIFICATION MODE]\n`;
+           constrainedPrompt += analysis.engineered_prompt;
+           
+           // Inject frozen zones as hard constraints
+           if (analysis.outside_boxes && analysis.outside_boxes.length > 0) {
+             constrainedPrompt += `\n\n=== FROZEN ZONES (ABSOLUTELY DO NOT MODIFY) ===\nThe following parts MUST remain 100% IDENTICAL to Image 1. Any change to these areas is a CRITICAL FAILURE:\n`;
+             constrainedPrompt += analysis.outside_boxes.map((part: string) => `- ${part}`).join('\n');
+             constrainedPrompt += `\n=== END FROZEN ZONES ===`;
+           }
+           
+           if (analysis.inside_boxes && analysis.inside_boxes.length > 0) {
+             constrainedPrompt += `\n\n=== MODIFICATION TARGETS (ONLY these may change) ===\n`;
+             constrainedPrompt += analysis.inside_boxes.map((part: string) => `- ${part}`).join('\n');
+             constrainedPrompt += `\n=== END MODIFICATION TARGETS ===`;
+           }
+           
+           prompt = constrainedPrompt;
+           
+           // Also inject frozen parts into the negative prompt for double enforcement
+           if (analysis.outside_boxes && analysis.outside_boxes.length > 0) {
+             const frozenNegative = analysis.outside_boxes.map((part: string) => `change ${part}, modify ${part}`).join(', ');
+             negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box`;
+           }
+           
            if (analysis.reasoning) {
              console.log("Agent Reasoning:", analysis.reasoning);
            }
