@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AppMode } from './types';
 import DirectorTab from './components/DirectorTab';
 import HDUpscaleTab from './components/HDUpscaleTab';
-import TrendTab from './components/TrendTab';
+import AspectRatioTab from './components/AspectRatioTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
 import SceneGenerationTab from './components/SceneGenerationTab';
 import ImageCleanTab from './components/ImageCleanTab';
@@ -97,10 +97,10 @@ const App: React.FC = () => {
             label="AI 洗图"
           />
           <NavButton
-            active={activeTab === AppMode.TRENDS}
-            onClick={() => setActiveTab(AppMode.TRENDS)}
+            active={activeTab === AppMode.RATIO_QUERY}
+            onClick={() => setActiveTab(AppMode.RATIO_QUERY)}
             icon={<Activity className="w-5 h-5" />}
-            label="趋势洞察"
+            label="比例查询"
           />
           <NavButton
             active={activeTab === AppMode.SETTINGS}
@@ -126,7 +126,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
             {activeTab === AppMode.IMAGE_CLEAN && "AI 洗图 (Image Clean)"}
-            {activeTab === AppMode.TRENDS && "趋势洞察 (Trend Insights)"}
+            {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
           </h1>
         </header>
@@ -174,7 +174,7 @@ const App: React.FC = () => {
             <div style={{ display: activeTab === AppMode.IMAGE_CLEAN ? 'block' : 'none', height: '100%' }}>
               <ImageCleanTab />
             </div>
-            {activeTab === AppMode.TRENDS && <TrendTab />}
+            {activeTab === AppMode.RATIO_QUERY && <AspectRatioTab />}
             {activeTab === AppMode.SETTINGS && <SettingsTab />}
           </div>
         </div>
