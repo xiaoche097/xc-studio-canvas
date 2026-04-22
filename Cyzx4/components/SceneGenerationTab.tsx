@@ -41,7 +41,7 @@ import {
   Ruler,
 } from 'lucide-react';
 
-type BoardType = 'main' | 'aplus' | 'social' | 'story';
+type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset';
 
 interface UploadedImage {
   file: File;
@@ -144,6 +144,12 @@ const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspe
     description: '电影级超宽场景，适合展示品牌深度、空间感与氛围感',
     aspectRatio: AspectRatio.LANDSCAPE_21_9,
     icon: '🎬',
+  },
+  asset: {
+    label: '品牌资产卡',
+    description: '2:3 竖向场景图，适合高转化竖向内容与品牌资产沉淀',
+    aspectRatio: AspectRatio.PORTRAIT_2_3,
+    icon: '🎴',
   },
 };
 
@@ -256,6 +262,7 @@ const SceneGenerationTab: React.FC = () => {
     if (boardType === 'main') return '生成高点击率亚马逊副图场景，突出产品主体、核心卖点与电商可读性';
     if (boardType === 'aplus') return '生成适合 A+ 模块的横版场景图，强调品牌感、故事感与细节质感';
     if (boardType === 'story') return '生成电影宽画幅品牌场景，强调史诗感、空间深度与品牌故事张力';
+    if (boardType === 'asset') return '生成 2:3 竖版品牌资产卡，适合高转化营销传播与竖屏内容资产';
     return '生成接近真实买家秀/社媒传播风格的生活化场景图，增强代入感与分享感';
   }, [boardType]);
 
@@ -471,7 +478,9 @@ const SceneGenerationTab: React.FC = () => {
       ? `买家秀策略：生成真实买家手机拍摄感的图片，场景必须贴近「${productTitleContext}」的实际使用场景。`
       : boardType === 'aplus'
         ? `A+策略：内容必须紧扣产品标题「${productTitleContext}」，讲述产品的使用故事。`
-        : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。`;
+        : boardType === 'asset'
+          ? `资产卡策略：生成 2:3 竖版场景，内容必须紧扣产品「${productTitleContext}」的核心资产展示。`
+          : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。`;
 
     const strategy = [
       `运营目标：面向${currentBoard.label}板块，输出符合美国真实生活场景的高转化营销图。`,
@@ -642,7 +651,7 @@ const SceneGenerationTab: React.FC = () => {
                 <Store className="w-4 h-4 text-pastel-highlight" />
                 <h3 className="font-semibold text-pastel-text text-sm">场景板块</h3>
               </div>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-5 gap-2">
                 {(Object.keys(BOARD_CONFIG) as BoardType[]).map((key) => {
                   const item = BOARD_CONFIG[key];
                   const active = boardType === key;

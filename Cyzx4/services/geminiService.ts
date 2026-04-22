@@ -408,33 +408,54 @@ export const generateMarketingImage = async (
       });
     }
 
-    // 3. Construct Prompt Logic
+    // 3. Construct Prompt Logic (with Forced Aspect Ratio)
     let finalPrompt = "";
+    
+    const getAspectRatioHint = (ar: string) => {
+      if (ar === '16:9') return 'WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation';
+      if (ar === '9:16') return 'TALL PHONE SCREEN, 1024x1792 resolution, vertical portrait orientation';
+      if (ar === '3:2') return '3:2 landscape, 1536x1024';
+      if (ar === '2:3') return '2:3 portrait, 1024x1536';
+      if (ar === '4:3') return '4:3 standard landscape, 1280x960';
+      if (ar === '3:4') return '3:4 portrait, 960x1280';
+      if (ar === '21:9') return 'ULTRA-WIDE cinematic, 1792x768, panorama';
+      return '';
+    };
+    const arHint = getAspectRatioHint(aspectRatio);
+    const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
+    
+    const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
+      ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
+      : prompt;
+
     // Dynamic quality suffix from Nano Banana Skills
     const qualitySuffix = `, ${QUALITY_BOOSTERS.EDITORIAL}`;
 
     if (referenceImage && modelReferenceImage) {
       // Dual Image Scenario
       finalPrompt = `
+      **REQUIRED ASPECT RATIO**: ${aspectRatio} (${aspectRatio.includes('9:16') || aspectRatio.includes('2:3') || aspectRatio.includes('3:4') ? 'Vertical/Portrait' : aspectRatio.includes('16:9') || aspectRatio.includes('3:2') || aspectRatio.includes('21:9') ? 'Horizontal/Landscape' : 'Square'})
+      
       You have two input images. 
       Image 1 is the [Product Reference]. 
       Image 2 is the [Model Reference].
       
-      Goal: Generate a High-End Editorial Photograph.
+      **Aspect Ratio**: ${aspectRatio}
+      **Goal**: Generate a High-End Editorial Photograph.
+      **Scene Description**: ${forcedPrompt} ${qualitySuffix}
       
       CRITICAL INSTRUCTIONS:
       1. You MUST use the facial features of the person in Image 2.
       2. The model (Image 2) should be interacting with the Product (Image 1) in a CANDID way (not stiff).
       3. The Product (Image 1) must be preserved exactly as shown.
       4. STYLE: Cinematic, editorial, photorealistic with natural textures.
-      
-      Scene Description: ${prompt} ${qualitySuffix}`;
+      `;
     } else if (referenceImage) {
       // Single Image Scenario
-      finalPrompt = `Create a high quality editorial photograph based on the provided product reference. ${prompt} ${qualitySuffix}`;
+      finalPrompt = `Create a high quality editorial photograph based on the provided product reference. Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}`;
     } else {
       // Text Only Scenario
-      finalPrompt = `${prompt} ${qualitySuffix}`;
+      finalPrompt = `Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}`;
     }
 
     parts.push({ text: finalPrompt });
@@ -461,6 +482,11 @@ export const generateMarketingImage = async (
           images.push(
             `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
           );
+        } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
+          const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
+          if (urlMatch) {
+            urlMatch.forEach(url => images.push(url));
+          }
         }
       }
     }
@@ -527,6 +553,23 @@ export const generateImageToImage = async (
   const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
   let targetModel = "gemini-3-pro-image-preview";
+  
+  // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
+  const getAspectRatioHint = (ar: string) => {
+    if (ar === '16:9') return 'WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation';
+    if (ar === '9:16') return 'TALL PHONE SCREEN, 1024x1792 resolution, vertical portrait orientation';
+    if (ar === '3:2') return '3:2 landscape, 1536x1024';
+    if (ar === '2:3') return '2:3 portrait, 1024x1536';
+    if (ar === '4:3') return '4:3 standard landscape, 1280x960';
+    if (ar === '3:4') return '3:4 portrait, 960x1280';
+    if (ar === '21:9') return 'ULTRA-WIDE cinematic, 1792x768, panorama';
+    return '';
+  };
+  const arHint = getAspectRatioHint(aspectRatio);
+  const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
+  const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
+    ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
+    : prompt;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
@@ -589,7 +632,10 @@ export const generateImageToImage = async (
       const isSkeletonWorkflow = workflowHint === 'pose-transfer' && images.length === 3;
       const isGarmentReplacement = workflowHint === 'garment-replacement';
 
-      const systemPrompt = processedImages.length > 0
+      const arHint = getAspectRatioHint(aspectRatio);
+      const ratioHint = `**REQUIRED ASPECT RATIO**: ${aspectRatio} - ${arHint} (${aspectRatio.includes('9:16') || aspectRatio.includes('2:3') || aspectRatio.includes('3:4') || aspectRatio.includes('4:5') ? 'Vertical/Portrait' : aspectRatio.includes('16:9') || aspectRatio.includes('3:2') || aspectRatio.includes('4:3') || aspectRatio.includes('21:9') ? 'Horizontal/Landscape' : 'Square'})\n      `;
+
+      const systemPrompt = ratioHint + (processedImages.length > 0
         ? isGarmentReplacement
           ? hasModelRef
             ? `
@@ -727,7 +773,7 @@ export const generateImageToImage = async (
       - Maintain all original accessories (necklaces, belts, bags) exactly as they appear in Image 3.
       - Do NOT inherit ANY clothing or accessories from Image 2.
 
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
 
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
@@ -775,7 +821,7 @@ export const generateImageToImage = async (
       2. **NATURALISM**: Ensure any added patterns or changed shapes follow the laws of physics and clothing wrinkles. Shadows and highlights must be consistent with Image 1.
       3. **FIDELITY**: If a pattern is provided in Image 2, replicate its scale, orientation, and texture precisely on the target garment.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
@@ -799,7 +845,7 @@ export const generateImageToImage = async (
       - **ISOLATION**: If you are asked to change the feet to match Image 3, ONLY generate the matching parts on the feet. DO NOT add identical colors/trims to the hands, ears, or body.
       - **IDENTITY LOCK**: The global shape, main body color, background, facial expression, and exact scale of Image 1 and 2 MUST remain exactly as they are.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **QUALITY GUIDELINES**:
       - Output a single, clean, hyper-realistic plush toy image perfectly preserving Image 1 except for the requested localized changes.
@@ -815,7 +861,7 @@ export const generateImageToImage = async (
       - Ensure the clothing looks premium, crisp, and high-quality.
       - Maintain the model's identity and the overall scene composition.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       - **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
@@ -839,7 +885,7 @@ export const generateImageToImage = async (
       - Pure white background #FFFFFF.
       - NEVER mirror, rotate, or re-pose the subject.
 
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
 
       **QUALITY GUIDELINES**:
       - Maintain commercial product photography standards.
@@ -864,7 +910,7 @@ export const generateImageToImage = async (
       - Ensure professional studio lighting with soft, realistic contact shadows.
       - No background clutter, no hands, no human presence.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **QUALITY BOOSTERS**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
@@ -889,7 +935,7 @@ export const generateImageToImage = async (
       - Standardize the background to **PURE WHITE (#FFFFFF)**.
       - Implement professional studio high-key lighting with soft contact shadows.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **QUALITY STANDARDS**:
       - Maintain 100% identity and structural integrity.
@@ -915,7 +961,7 @@ export const generateImageToImage = async (
       - **SINGLE PRODUCT**: If they are different views/colors of the same product, use them to reinforce a single consistent product identity.
       - Output exactly one polished commercial image containing all requested products. No collage, no split layout, no before-after composition.
 
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
 
       **QUALITY GUIDELINES**:
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
@@ -946,7 +992,7 @@ export const generateImageToImage = async (
       - Replicate the **EXACT** body pose and arm angles from Image 2.
       - Replicate the **EXACT** camera angle and focal length from Image 2.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **OUTPUT**: A single, clean, faceless 3D mannequin render with no features or clothing.
       ${negativePromptLine}
@@ -958,7 +1004,7 @@ export const generateImageToImage = async (
       
       **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **QUALITY GUIDELINES**:
       - Maintain high fidelity to the visual style of reference images unless overridden by the user prompt.
@@ -973,14 +1019,14 @@ export const generateImageToImage = async (
       
       **INSTRUCTION**: Generate a new high-quality image based on the user's description below.
       
-      **USER PROMPT**: ${prompt}
+      **USER PROMPT**: ${forcedPrompt}
       
       **QUALITY GUIDELINES**:
       - Follow the prompt's aesthetic style precisely.
       - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
       - Ensure realistic textures, accurate lighting, and professional composition.
       ${negativePromptLine}
-      `;
+      `);
 
       parts.push({ text: systemPrompt });
 
@@ -1031,6 +1077,11 @@ export const generateImageToImage = async (
             generatedImages.push(
               `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
             );
+          } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
+            const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
+            if (urlMatch) {
+              urlMatch.forEach(url => generatedImages.push(url));
+            }
           }
         }
       }
@@ -1094,6 +1145,24 @@ export const generateInpainting = async (
   const maxRetries = Math.min(initialConfig.keyCount, 3);
 
   let targetModel = options.modelId || "gemini-3-pro-image-preview";
+  
+  const aspectRatio = options.aspectRatio || AspectRatio.SQUARE;
+  const getAspectRatioHint = (ar: string) => {
+    if (ar === '16:9') return 'WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation';
+    if (ar === '9:16') return 'TALL PHONE SCREEN, 1024x1792 resolution, vertical portrait orientation';
+    if (ar === '3:2') return '3:2 landscape, 1536x1024';
+    if (ar === '2:3') return '2:3 portrait, 1024x1536';
+    if (ar === '4:3') return '4:3 standard landscape, 1280x960';
+    if (ar === '3:4') return '3:4 portrait, 960x1280';
+    if (ar === '21:9') return 'ULTRA-WIDE cinematic, 1792x768, panorama';
+    return '';
+  };
+  const arHint = getAspectRatioHint(aspectRatio);
+  const resolution = options.resolution || "2K";
+  const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
+  const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
+    ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
+    : prompt;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
@@ -1186,7 +1255,7 @@ export const generateInpainting = async (
       3. The newly generated content in the white areas must seamlessly blend with the surrounding preserved areas in terms of lighting, perspective, color temperature, and style.
       4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}
 
-      **USER DESCRIPTION**: ${prompt}
+      **USER DESCRIPTION**: ${forcedPrompt}
 
       **QUALITY GUIDELINES**:
       - Seamless edge blending between generated and preserved regions.
@@ -1594,6 +1663,7 @@ export const generateSeatCoverFit = async (
 # 📐 CAMERA & PERSPECTIVE LOCK [NON-NEGOTIABLE]
 > **CAMERA INSTRUCTION**: ${angleInstruction}
 > **LENS SIMULATION**: ${lensSimulation}
+> **ASPECT RATIO**: ${aspectRatio}
 > **CRITICAL**: The camera MUST NOT move. Match the reference/preset angle EXACTLY.
 > **PHYSICS**: DO NOT change the lens focal length, camera height, or field of view.
 > **COMPOSITION**: Keep the subject framed exactly as described in the spatial anchors.
@@ -1884,16 +1954,12 @@ Generate a **NEW photorealistic image** that:
           const generatedBase64 = part.inlineData.data;
 
           // Validation: Check if the generated image is the same as the visual guide
-          // This detects the "reference passthrough" issue where AI returns the input unchanged
           if (visualGuide) {
-            // Compare first 500 chars of base64 - if identical, likely same image
             const guideSnippet = visualGuide.base64.substring(0, 500);
             const outputSnippet = generatedBase64.substring(0, 500);
 
             if (guideSnippet === outputSnippet) {
               console.warn("⚠️ [AutoFusion] VALIDATION FAILED: Generated image appears identical to visual guide!");
-              console.warn("⚠️ [AutoFusion] This may indicate the model returned the reference without product replacement.");
-              // Continue anyway - user can regenerate, but log the issue
             } else {
               console.log("✅ [AutoFusion] Validation passed: Generated image differs from visual guide.");
             }
@@ -1902,6 +1968,11 @@ Generate a **NEW photorealistic image** that:
           images.push(
             `data:${part.inlineData.mimeType || "image/png"};base64,${generatedBase64}`,
           );
+        } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
+          const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
+          if (urlMatch) {
+            urlMatch.forEach(url => images.push(url));
+          }
         }
       }
     }
@@ -1932,6 +2003,7 @@ export const inpaintImage = async (
   options: { resolution?: ImageResolution } = {},
   referenceImages: { base64: string; mimeType: string }[] = []
 ) => {
+  const forcedPrompt = prompt; // Inpainting doesn't typically change AR, but we'll keep it for consistency
   const ai = getAiClient();
   try {
     const parts: any[] = [
@@ -1998,6 +2070,11 @@ export const inpaintImage = async (
           images.push(
             `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
           );
+        } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
+          const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
+          if (urlMatch) {
+            urlMatch.forEach(url => images.push(url));
+          }
         }
       }
     }
@@ -2019,6 +2096,22 @@ export const editGeneratedImage = async (
   referenceImages: { base64: string; mimeType: string }[] = [],
   options: { aspectRatio?: AspectRatio; resolution?: ImageResolution } = {}
 ) => {
+  const { aspectRatio = "1:1", resolution = "2K" } = options;
+  const getAspectRatioHint = (ar: string) => {
+    if (ar === '16:9') return 'WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation';
+    if (ar === '9:16') return 'TALL PHONE SCREEN, 1024x1792 resolution, vertical portrait orientation';
+    if (ar === '3:2') return '3:2 landscape, 1536x1024';
+    if (ar === '2:3') return '2:3 portrait, 1024x1536';
+    if (ar === '4:3') return '4:3 standard landscape, 1280x960';
+    if (ar === '3:4') return '3:4 portrait, 960x1280';
+    if (ar === '21:9') return 'ULTRA-WIDE cinematic, 1792x768, panorama';
+    return '';
+  };
+  const arHint = getAspectRatioHint(aspectRatio);
+  const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
+  const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
+    ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
+    : prompt;
   const ai = getAiClient();
   try {
     const parts: any[] = [
@@ -2046,7 +2139,7 @@ export const editGeneratedImage = async (
     **TASK**: Edit the provided image according to the instruction below.
     ${referenceImages.length > 0 ? `**REFERENCES**: ${referenceImages.length} reference image(s) provided for style/content guidance.` : ''}
     
-    **EDIT INSTRUCTION**: ${prompt}
+    **EDIT INSTRUCTION**: ${forcedPrompt}
     
     **QUALITY**: ${QUALITY_BOOSTERS.RETOUCHING}
     **CONSTRAINT**: Preserve all unedited areas exactly. Only modify what the instruction requests.
@@ -2074,6 +2167,11 @@ export const editGeneratedImage = async (
           images.push(
             `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
           );
+        } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
+          const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
+          if (urlMatch) {
+            urlMatch.forEach(url => images.push(url));
+          }
         }
       }
     }
@@ -2142,6 +2240,11 @@ export const generateOutpainting = async (
           images.push(
             `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
           );
+        } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
+          const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
+          if (urlMatch) {
+            urlMatch.forEach(url => images.push(url));
+          }
         }
       }
     }

@@ -269,7 +269,7 @@ export const TEXTURE_KEYWORDS = {
 } as const;
 
 export type SceneGenerationProductType = "plush" | "apparel" | "general";
-export type SceneGenerationBoardType = "main" | "aplus" | "social" | "story";
+export type SceneGenerationBoardType = "main" | "aplus" | "social" | "story" | "asset";
 
 export interface SceneGenerationPromptInput {
     boardType: SceneGenerationBoardType;
@@ -735,6 +735,7 @@ const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
     aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
     social: "shot on 85mm portrait lens, candid handheld lifestyle framing, natural indoor light, authentic buyer-show perspective",
     story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, far-left subject placement, negative space on right, deep depth of field, epic spatial storytelling",
+    asset: "shot on 85mm portrait lens, premium 2:3 vertical composition, focused product-lifestyle hero shot, high-end editorial clarity",
 };
 
 const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
@@ -742,6 +743,7 @@ const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
     aplus: "premium A+ storytelling visual, wider environment context, richer spatial layering, elevated brand atmosphere",
     social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
     story: "premium cinematic A+ brand story visual, clean high-end spatial storytelling, refined atmospheric depth, high commercial conversion aesthetic",
+    asset: "premium 2:3 vertical marketing visual, clean and focused brand asset, high-conversion vertical content, editorial product-lifestyle quality",
 };
 
 const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
@@ -921,6 +923,13 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             "Use wide-angle storytelling to show the product within a vast, premium, and clean environment.",
             "Emphasize spatial depth, clean highlights, and refined commercial aesthetic. Lighting must be bright, clean, and professional like A+ editorial photography.",
             "Vary the environment dramatically: from high-end modern minimalist interiors to clean, breathtaking outdoor landscapes.",
+        ].join(' '),
+        asset: [
+            `This is a premium 2:3 vertical Brand Asset Card for the product: "${productTitleContext}".`,
+            "Focus on high-conversion vertical content that captures the product's essence for mobile marketing.",
+            "Use a refined, editorial portrait composition that feels clean and professional.",
+            "Ensure the background is stylishly supportive but never distracting from the main brand asset.",
+            "Vary the scene interior and decorations between generations — no two asset cards should look like the same room.",
         ].join(' '),
     };
 
