@@ -553,22 +553,24 @@ export const generateImageToImage = async (
   const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
   let targetModel = "gemini-3-pro-image-preview";
-  
+
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
-    if (ar === '16:9') return 'WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation';
-    if (ar === '9:16') return 'TALL PHONE SCREEN, 1024x1792 resolution, vertical portrait orientation';
-    if (ar === '3:2') return '3:2 landscape, 1536x1024';
-    if (ar === '2:3') return '2:3 portrait, 1024x1536';
+    if (ar === '16:9') return 'ULTRA-WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation, horizontal format';
+    if (ar === '9:16') return 'TALL VERTICAL SCREEN, 1024x1792 resolution, portrait orientation, NO BORDERS, NO PHONE FRAME, THE ENTIRE IMAGE MUST BE 9:16';
+    if (ar === '3:2') return '3:2 landscape format, 1536x1024';
+    if (ar === '2:3') return '2:3 portrait format, 1024x1536';
     if (ar === '4:3') return '4:3 standard landscape, 1280x960';
     if (ar === '3:4') return '3:4 portrait, 960x1280';
-    if (ar === '21:9') return 'ULTRA-WIDE cinematic, 1792x768, panorama';
+    if (ar === '21:9') return 'ULTRA-WIDE cinematic panorama, 1792x768';
     return '';
   };
   const arHint = getAspectRatioHint(aspectRatio);
   const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
+  
+  // Use a more aggressive "Command" style for the prompt to bypass model laziness
   const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
-    ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
+    ? `[DIMENSIONS: ${aspectRatio}] [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()} --ar ${aspectRatio}` 
     : prompt;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -598,8 +600,8 @@ export const generateImageToImage = async (
           // For traditional pose transfer, input is [Pose] and [Identity]. We duplicate Pose to overpower.
           processedImages = [images[0], images[0], images[1]];
         } else if (images.length === 3) {
-          // Input is [Skeleton, Pose, Identity]. We don't duplicate, but will use a specialized prompt.
-          processedImages = images;
+          // Input is [Pose], [Model], [Garment]. Duplicate Pose.
+          processedImages = [images[0], images[0], images[1], images[2]];
         }
       } else if (workflowHint === 'garment-replacement') {
         // [DUPLICATION TRICK] Duplicate the Core Garment to overpower the target scene's original clothing details.
@@ -625,8 +627,12 @@ export const generateImageToImage = async (
       });
 
       // 2. Construct Prompt
-      const negativePromptLine = negativePrompt
-        ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${negativePrompt}`
+      const finalNegativePrompt = (aspectRatio && aspectRatio !== '1:1')
+        ? `${negativePrompt ? negativePrompt + ', ' : ''}square image, 1:1 aspect ratio, wide border, letterbox, pillarbox, frame around image`
+        : negativePrompt;
+
+      const negativePromptLine = finalNegativePrompt
+        ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${finalNegativePrompt}`
         : '';
 
       const isSkeletonWorkflow = workflowHint === 'pose-transfer' && images.length === 3;
