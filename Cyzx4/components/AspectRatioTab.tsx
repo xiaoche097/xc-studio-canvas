@@ -57,10 +57,16 @@ const AspectRatioTab: React.FC = () => {
     return `${width / common}:${height / common}`;
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
+    let file: File | undefined;
+    
+    if ('files' in e.target && e.target.files) {
+      file = e.target.files[0];
+    } else if ('dataTransfer' in e && e.dataTransfer.files) {
+      file = e.dataTransfer.files[0];
+    }
 
+    if (!file) return;
     if (!file.type.startsWith('image/')) {
       setError('请上传有效的图片文件');
       return;
@@ -100,6 +106,37 @@ const AspectRatioTab: React.FC = () => {
     }
   };
 
+  const copyToClipboard = (text: string) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showCopyFeedback();
+      });
+    } else {
+      // Fallback for non-secure contexts
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        showCopyFeedback();
+      } catch (err) {
+        console.error('Fallback copy failed', err);
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  const showCopyFeedback = () => {
+    const target = document.getElementById('copy-hint');
+    if (target) {
+      target.innerText = '已复制!';
+      setTimeout(() => {
+        if (target) target.innerText = '点击复制 / 拖拽';
+      }, 2000);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-8 animate-fade-in">
       <div className="flex items-center gap-3 mb-2">
@@ -112,6 +149,15 @@ const AspectRatioTab: React.FC = () => {
       {!data ? (
         <div 
           onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleFileChange(e);
+          }}
           className="group relative h-96 border-2 border-dashed border-pastel-border rounded-3xl bg-white hover:bg-pastel-bg hover:border-pastel-highlight transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-4 overflow-hidden"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-pastel-pink/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -223,15 +269,7 @@ const AspectRatioTab: React.FC = () => {
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', data.ratio);
                   }}
-                  onClick={() => {
-                    navigator.clipboard.writeText(data.ratio);
-                    // Optional: show a temporary toast or change icon
-                    const target = document.getElementById('copy-hint');
-                    if (target) {
-                      target.innerText = '已复制!';
-                      setTimeout(() => target.innerText = '点击复制 / 拖拽', 2000);
-                    }
-                  }}
+                  onClick={() => copyToClipboard(data.ratio)}
                   className="text-pastel-highlight cursor-move hover:scale-105 transition-transform bg-pastel-pink/10 px-3 py-1 rounded-lg border border-pastel-highlight/20 select-none group/ratio relative"
                   title="点击复制，拖拽使用"
                 >
