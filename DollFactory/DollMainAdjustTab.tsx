@@ -317,11 +317,33 @@ const DollMainAdjustTab: React.FC = () => {
             </h3>
             {sourceUrl ? (
               <div 
-                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white"
+                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleSourceDrop}
               >
-                <img src={sourceUrl} alt="source" className="w-full h-full object-contain" />
+                <div className="relative max-w-full max-h-full flex items-center justify-center">
+                  <img src={sourceUrl} alt="source" className="max-w-full max-h-full object-contain block" />
+                  
+                  {/* Draw Boxes Preview (Visual only) */}
+                  <div className="absolute inset-0 pointer-events-none">
+                     {editorBoxes.map((b, i) => {
+                        const colors = [
+                           { border: 'border-red-500', bg: 'bg-red-500', text: 'text-white' },
+                           { border: 'border-yellow-400', bg: 'bg-yellow-400', text: 'text-black' },
+                           { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-white' }
+                        ];
+                        const style = colors[i % 3];
+                        return (
+                        <div 
+                           key={b.id} 
+                           className={`absolute border-2 ${style.border} ${style.bg}/10 pointer-events-none flex items-start justify-start overflow-hidden`}
+                           style={{ left: `${b.x*100}%`, top: `${b.y*100}%`, width: `${b.w*100}%`, height: `${b.h*100}%` }}
+                        >
+                           <span className={`${style.bg} ${style.text} text-[8px] font-bold px-1 rounded-br-sm`}>{i+1}</span>
+                        </div>
+                     )})}
+                  </div>
+                </div>
                 
                 {/* Delete button (Top Right) */}
                 <button 
@@ -338,26 +360,6 @@ const DollMainAdjustTab: React.FC = () => {
                 >
                   编辑
                 </button>
-                
-                {/* Draw Boxes Preview (optional, visual only) */}
-                <div className="absolute inset-0 pointer-events-none">
-                   {editorBoxes.map((b, i) => {
-                      const colors = [
-                         { border: 'border-red-500', bg: 'bg-red-500', text: 'text-white' },
-                         { border: 'border-yellow-400', bg: 'bg-yellow-400', text: 'text-black' },
-                         { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-white' }
-                      ];
-                      const style = colors[i % 3];
-                      return (
-                      <div 
-                         key={b.id} 
-                         className={`absolute border-2 ${style.border} ${style.bg}/10 pointer-events-none flex items-start justify-start overflow-hidden`}
-                         style={{ left: `${b.x*100}%`, top: `${b.y*100}%`, width: `${b.w*100}%`, height: `${b.h*100}%` }}
-                      >
-                         <span className={`${style.bg} ${style.text} text-[8px] font-bold px-1 rounded-br-sm`}>{i+1}</span>
-                      </div>
-                   )})}
-                </div>
               </div>
             ) : (
               <label 
