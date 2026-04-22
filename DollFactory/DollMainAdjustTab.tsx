@@ -322,7 +322,7 @@ const DollMainAdjustTab: React.FC = () => {
                 onDrop={handleSourceDrop}
               >
                 <div className="relative max-w-full max-h-full flex items-center justify-center">
-                  <img src={sourceUrl} alt="source" className="max-w-full max-h-full object-contain block" />
+                  <img src={sourceUrl} alt="source" className="max-w-full max-h-full w-auto h-auto block" />
                   
                   {/* Draw Boxes Preview (Visual only) */}
                   <div className="absolute inset-0 pointer-events-none">

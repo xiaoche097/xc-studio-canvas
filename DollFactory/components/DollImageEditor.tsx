@@ -304,7 +304,7 @@ export const DollImageEditor: React.FC<DollImageEditorProps> = ({
                 <img 
                   ref={imgRef}
                   src={currentImage} 
-                  className="max-w-[500px] max-h-[500px] object-contain block select-none pointer-events-none" 
+                  className="max-w-[500px] max-h-[500px] w-auto h-auto block select-none pointer-events-none" 
                   draggable={false} 
                 />
                 
