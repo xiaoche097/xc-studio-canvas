@@ -534,7 +534,7 @@ export const generateImageToImage = async (
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
     sampleCount?: number; // NEW: Multi-image support
   } = {}
-) => {
+): Promise<string[]> => {
   const { 
     hasModelRef, 
     vtonReport, 
@@ -552,7 +552,14 @@ export const generateImageToImage = async (
   const initialConfig = getApiConfig();
   const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
-  let targetModel = "gemini-3-pro-image-preview";
+  // 1. Determine Target Model FIRST (Critical for specialized prompt logic)
+  let targetModel = options.modelId || "gemini-3-pro-image-preview";
+  if (targetModel === 'nanobanana2' || targetModel === 'standard') {
+    targetModel = "gemini-3.1-flash-image-preview";
+  } else if (targetModel === 'nanobananapro' || targetModel === 'pro') {
+    targetModel = "gemini-3-pro-image-preview";
+  }
+  const isGptModel = targetModel.toLowerCase().includes('gpt');
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -570,7 +577,7 @@ export const generateImageToImage = async (
   
   // Use a more aggressive "Command" style for the prompt to bypass model laziness
   const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
-    ? `[DIMENSIONS: ${aspectRatio}] [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()} --ar ${aspectRatio}` 
+    ? `--ar ${aspectRatio} [DIMENSIONS: ${aspectRatio}] [ORIENTATION: ${aspectRatio === '9:16' || aspectRatio === '2:3' ? 'Tall Portrait' : 'Wide Landscape'}] [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()} --ar ${aspectRatio}` 
     : prompt;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -616,17 +623,6 @@ export const generateImageToImage = async (
         }
       }
 
-      // 1. Add All Input Images
-      processedImages.forEach((img: any) => {
-        parts.push({
-          inlineData: {
-            mimeType: img.mimeType || img.mime || 'image/jpeg', // 增加容错：兼容 mime 字段并提供默认值
-            data: img.base64,
-          },
-        });
-      });
-
-      // 2. Construct Prompt
       const finalNegativePrompt = (aspectRatio && aspectRatio !== '1:1')
         ? `${negativePrompt ? negativePrompt + ', ' : ''}square image, 1:1 aspect ratio, wide border, letterbox, pillarbox, frame around image`
         : negativePrompt;
@@ -634,417 +630,163 @@ export const generateImageToImage = async (
       const negativePromptLine = finalNegativePrompt
         ? `- **NEGATIVE PROMPT (Strictly Avoid)**: ${finalNegativePrompt}`
         : '';
-
       const isSkeletonWorkflow = workflowHint === 'pose-transfer' && images.length === 3;
       const isGarmentReplacement = workflowHint === 'garment-replacement';
 
       const arHint = getAspectRatioHint(aspectRatio);
       const ratioHint = `**REQUIRED ASPECT RATIO**: ${aspectRatio} - ${arHint} (${aspectRatio.includes('9:16') || aspectRatio.includes('2:3') || aspectRatio.includes('3:4') || aspectRatio.includes('4:5') ? 'Vertical/Portrait' : aspectRatio.includes('16:9') || aspectRatio.includes('3:2') || aspectRatio.includes('4:3') || aspectRatio.includes('21:9') ? 'Horizontal/Landscape' : 'Square'})\n      `;
 
-      const systemPrompt = ratioHint + (processedImages.length > 0
-        ? isGarmentReplacement
-          ? hasModelRef
+      console.warn(`[AI GEN] Target: ${targetModel}, Ratio: ${aspectRatio}, Res: ${resolution}`);
+
+      // Specialized handling for GPT-based proxy models
+      if (isGptModel) {
+        const resHint = resolution === '4K' ? 'hyper-detailed 4k photography, 8k resolution' : resolution === '2K' ? 'high resolution 2k, detailed photography' : '';
+        const flatPrompt = `--ar ${aspectRatio} ${resHint} A high-quality ${aspectRatio === '9:16' || aspectRatio === '2:3' ? 'vertical portrait' : 'wide landscape'} image: ${prompt.trim()} --ar ${aspectRatio}`;
+        parts.push({ text: flatPrompt });
+        processedImages.forEach((img: any) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType || img.mime || 'image/jpeg',
+              data: img.base64,
+            },
+          });
+        });
+      } else {
+        const systemPrompt = ratioHint + (processedImages.length > 0
+          ? isGarmentReplacement
+            ? hasModelRef
+              ? `
+        **ROLE**: Pixel-Perfect Virtual Try-On Director & Identity Cloning Surgeon.
+        **MISSION**: Generate ONE photorealistic image that combines these core elements with ZERO deviation:
+          1. MODEL: The user-provided model's face, hair, skin tone, and body shape.
+          2. GARMENT & STYLING: The user-provided core garment and matching outfits.
+          3. POSE & ANGLE: The exact action, pose, and camera angle from the target replacement gallery image.
+
+        **STRUCTURAL PRIORITY PROTOCOL V2 (ENFORCED)**:
+        - The generated garment MUST match the **SILHOUETTE** and **STRUCTURE** of Image 3.
+        - If Image 3 is sleeveless, the output MUST be sleeveless.
+        - If Image 3 has a V-neck, the output MUST have a V-neck.
+        - Do NOT let the target scene's (Image 1) original clothing influence the structure of the new garment.
+
+        **ANALYTICAL CONTEXT**:
+        ${vtonReport || 'No pre-analysis available.'}
+
+        **INPUT MAPPING (MEMORIZE THIS)**:
+        - Image 1 = **POSE & ANGLE REPLACEMENT SOURCE**
+        - Image 2 = **MODEL IDENTITY SOURCE (FACE & SKIN ONLY)**
+        - Image 3 = **CORE GARMENT**
+        ${processedImages.length >= 4 ? '- Image 4 = STYLING & MATCHING / SECONDARY GARMENT.' : ''}
+
+        **CRITICAL RULE**: The generated person MUST BE the model provided in Image 2. The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 3. The output image MUST have the **IDENTICAL composition and action** as Image 1.
+
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+              `
+              : `
+        **ROLE**: Pixel-Perfect Virtual Try-On Specialist.
+        **MISSION**: Replace the clothing on the person in Image 1 with the EXACT garment from Image 2.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+          : isSkeletonWorkflow
             ? `
-      **ROLE**: Pixel-Perfect Virtual Try-On Director & Identity Cloning Surgeon.
-      **MISSION**: Generate ONE photorealistic image that combines these core elements with ZERO deviation:
-        1. MODEL: The user-provided model's face, hair, skin tone, and body shape.
-        2. GARMENT & STYLING: The user-provided core garment and matching outfits.
-        3. POSE & ANGLE: The exact action, pose, and camera angle from the target replacement gallery image.
-
-      **STRUCTURAL PRIORITY PROTOCOL V2 (ENFORCED)**:
-      - The generated garment MUST match the **SILHOUETTE** and **STRUCTURE** of Image 3.
-      - If Image 3 is sleeveless, the output MUST be sleeveless.
-      - If Image 3 has a V-neck, the output MUST have a V-neck.
-      - Do NOT let the target scene's (Image 1) original clothing influence the structure of the new garment.
-
-      **ANALYTICAL CONTEXT**:
-      ${vtonReport || 'No pre-analysis available.'}
-
-      **INPUT MAPPING (MEMORIZE THIS)**:
-      - Image 1 = **POSE & ANGLE REPLACEMENT SOURCE** (from the replacement image gallery. Replicate the exact body pose, action, camera angle, crop, limb placement, and background. This is the structural anchor!).
-      - Image 2 = **MODEL IDENTITY SOURCE (FACE & SKIN ONLY)** (the person's face, hair, skin tone, body shape/size. **CRITICAL: DO NOT COPY HER CLOTHING. HER GREY/ORIGINAL CLOTHING IS STRICTLY FORBIDDEN.**).
-      - Image 3 = **CORE GARMENT** (the main clothing item to dress the person in. Replicate color, pattern, logo, and fabric texture EXACTLY).
-      ${processedImages.length >= 4 ? '- Image 4 = STYLING & MATCHING / SECONDARY GARMENT (pants, skirt, or accessory to pair and wear together).' : ''}
-
-      ═══════════════════════════════════════════
-      ██  CRITICAL RULE: WHAT TO KEEP & REPLACE  ██
-      ═══════════════════════════════════════════
-      - **THE POSE**: The generated action, pose, and camera angle MUST BE entirely from Image 1.
-      - **THE MODEL**: The generated person MUST BE the model provided in Image 2. Do NOT use the face or body from Image 1.
-      - **THE GARMENT**: The generated person MUST BE WEARING the core garment from Image 3 (plus pairing from Image 4 if present). **NEVER, EVER use the clothing from Image 1 (Target Scene) or Image 2 (Model Identity).**
-
-      ═══════════════════════════════════════════
-      ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
-      ═══════════════════════════════════════════
-      - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 3 (and Image 4 if present).
-      - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness. ZERO color drift allowed.
-      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta, purple, or red color cast on skin or fabric.
-      - **PRINT/LOGO/PATTERN**: Reproduce every pattern, floral print, graphic element, or logo at the exact same scale, position, color, and detail level. Do NOT simplify the patterns!
-      - **FABRIC TEXTURE**: Match the exact material appearance (silk, cotton, pleated, etc.).
-      - **HEM & TRIM CONSISTENCY (CRITICAL)**: If Image 3 has a clean hem with no border, the output MUST have a clean hem. **STRICTLY FORBIDDEN: Do NOT inherit the dark border, trim, or contrasting edge from Image 1.**
-      - **GARMENT STRUCTURE**: Match neckline shape, sleeve length, hem length, and overall silhouette.
-      - **ABSOLUTE PROHIBITION**: Image 1 AND Image 2's original clothes are **INVISIBLE AND BANNED**. Only Image 3 and 4 define what the person wears.
-
-      ═══════════════════════════════════════════
-      ██  PRIORITY #2: POSE & COMPOSITION LOCK     ██
-      ═══════════════════════════════════════════
-      - The output image MUST have the **IDENTICAL composition and action** as Image 1.
-      - **CRITICAL ANTI-COLLAGE RULE**: You MUST generate EXACTLY ONE PERSON in a single scene. Do NOT generate a grid, layout, or collage. **Do NOT copy the multi-view grid layout from Image 3. The multi-view input is ONLY for garment feature extraction.** 
-      - Same camera angle, body pose, limb placement, and background vs Image 1.
-      - Do NOT reframe, zoom in/out, or change the aspect ratio.
-
-      **GARMENT ORIENTATION AWARENESS**:
-      - Determine the body orientation from Image 1 (front/back/side/3/4).
-      - Image 3 (Core Garment) may be a multi-view collage.
-      - **CRITICAL**: Select the correct view from Image 3 to map onto the person based on Image 1's orientation.
-
-      **OUTPUT RULES**:
-      - STRICTLY ONE photorealistic photograph of ONE person. No splitting the image into panels.
-      - Lighting must match Image 1's environment.
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      ${negativePromptLine}
-            `
-            : `
-      **ROLE**: Pixel-Perfect Virtual Try-On Specialist.
-      **MISSION**: Replace the clothing on the person in Image 1 with the EXACT garment from Image 2, while preserving EVERYTHING else from Image 1 with zero deviation.
-
-      **STRUCTURAL PRIORITY PROTOCOL V2 (ENFORCED)**:
-      - The generated garment MUST match the **SILHOUETTE** and **STRUCTURE** of Image 2.
-      - If Image 2 is sleeveless, the output MUST be sleeveless.
-      - If Image 2 has a deep V-neck, the output MUST have a deep V-neck.
-      - Preserve the pattern density and graphic scale exactly as shown in Image 2.
-
-      **ANALYTICAL CONTEXT**:
-      ${vtonReport || 'No pre-analysis available.'}
-
-      **INPUT MAPPING (MEMORIZE THIS)**:
-      - Image 1 = **SCENE MASTER** (the person's face, hairstyle, body pose, limb placement, camera angle, crop, background, lighting — ALL of this is FROZEN and UNTOUCHABLE. This is the structural anchor!)
-      - Image 2 = **CORE GARMENT** (the clothing item — replicate its color, pattern, print, logo, fabric texture EXACTLY)
-      ${processedImages.length >= 3 ? '- Image 3 = SECONDARY GARMENT (pants, skirt, shoes, or accessories)' : ''}
-
-      ═══════════════════════════════════════════
-      ██  PRIORITY #1: GARMENT FIDELITY (HIGHEST)  ██
-      ═══════════════════════════════════════════
-      - The output garment MUST be a **PIXEL-LEVEL CLONE** of Image 2.
-      - **COLOR ACCURACY (OBLIGATORY)**: Match the EXACT hue, saturation, and brightness of Image 2. ZERO color drift allowed.
-      - **WHITE BALANCE CONTROL**: Maintain a clean, neutral white balance. Strictly avoid any magenta, purple, or red color cast.
-      - **PRINT/LOGO/PATTERN**: Every pattern, floral print, graphic element, text, or logo on Image 2 must appear on the output garment at the exact same scale, position, and orientation. Do NOT generalize or blur the prints.
-      - **FABRIC TEXTURE**: Replicate the exact material surface.
-      - **HEM & TRIM CONSISTENCY (CRITICAL)**: If Image 2 has a clean hem with no border, the output MUST have a clean hem. **DO NOT copy the dark border or decorative trim from Image 1's clothing.**
-      - **GARMENT STRUCTURE**: Match neckline, sleeve length, hem length, collar shape, and overall silhouette.
-      - **ABSOLUTE PROHIBITION**: Do NOT use ANY color, pattern, or texture from Image 1's original clothing. Only Image 2 defines the garment.
-
-      ═══════════════════════════════════════════
-      ██  PRIORITY #2: COMPOSITION LOCK (HIGH)     ██
-      ═══════════════════════════════════════════
-      - The output MUST preserve the **IDENTICAL composition** from Image 1.
-      - **CRITICAL ANTI-COLLAGE RULE**: You MUST generate EXACTLY ONE PERSON in a single scene. Do NOT generate a grid, layout, or collage. **Do NOT copy the multi-view grid layout from Image 2. The multi-view input is ONLY for garment feature extraction.** 
-      - Same camera angle, crop boundaries, aspect ratio, background, lighting direction.
-      - Same body pose — every limb, joint, hand position, weight shift, subject scale.
-
-      ═══════════════════════════════════════════
-      ██  PRIORITY #3: IDENTITY PRESERVATION       ██
-      ═══════════════════════════════════════════
-      - The person's face, hairstyle, skin tone, body proportions, and all non-clothing features MUST remain unchanged from Image 1.
-
-      **GARMENT ORIENTATION AWARENESS**:
-      - Determine the body orientation of the person in Image 1 (front/back/side/3/4).
-      - Image 2 (Core Garment) may be a multi-view collage.
-      - **CRITICAL**: Select the correct view from Image 2 to map onto the person based on Image 1's orientation.
-
-      **OUTPUT RULES**:
-      - STRICTLY ONE photorealistic photograph of ONE person. No splitting the image into panels.
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      ${negativePromptLine}
-      `
-        : isSkeletonWorkflow
-          ? `
-      **ROLE**: Senior fashion retoucher and AI processing expert specializing in strict pose transfer using OpenPose skeleton topologies.
-      **TASK**: Re-stage the person and outfit from Image 3 into the EXACT geometric posture mapped by Image 1, matching the real-world framing of Image 2.
-      **INPUT**:
-      - Image 1 = OPENPOSE SKELETON MAP (Absolute master for 2D body joints, limb trajectory, and skeletal alignment)
-      - Image 2 = REFERENCE PHOTOGRAPH (Master for camera distance, crop boundaries, object depth, and subject scale)
-      - Image 3 = IDENTITY / OUTFIT TARGET (Master for face, hair, body proportions, and clothing texture ONLY)
-
-      **NON-NEGOTIABLE RULES**:
-      - **CRITICAL POSTURE LOCK**: You MUST force the body from Image 3 to bend, orient, and align flawlessly with every coloured joint line shown in Image 1's skeleton.
-      - **CRITICAL FRAME LOCK**: Maintain a 1:1 identical visual crop to Image 2. If Image 2 cuts off at the waist, output MUST cut off at the waist.
-      - Treat Image 3 exclusively as a texture palette. **IGNORE Image 3's pose completely.** Never output the posture seen in Image 3.
-      - Never copy Image 2's outfit design, fabric details, accessories, bag, background, or lighting into the result.
-      - Do not output a coloured stick figure. Output a photorealistic final image of the person from Image 3, mapped onto the skeleton.
-
-      **CLOTHING INTEGRITY (CRITICAL)**:
-      - Preserve the EXACT clothing from Image 3: same garment color, fabric, texture, pattern, print, and structure.
-      - Preserve HOW the clothing is worn in Image 3 (tucked/untucked, sleeve state, exact hem position relative to waistband).
-      - Maintain all original accessories (necklaces, belts, bags) exactly as they appear in Image 3.
-      - Do NOT inherit ANY clothing or accessories from Image 2.
-
-      **USER PROMPT**: ${forcedPrompt}
-
-      **QUALITY GUIDELINES**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Output a single, standalone photorealistic commercial image.
-      ${negativePromptLine}
-      `
-          : workflowHint === 'pose-transfer'
-            ? `
-      **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
-      **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
-      **INPUT**:
-      - Image 1 & 2 = STRICT POSE / ANGLE / FRAMING BLUEPRINT (Duplicated to anchor composition)
-      - Image 3 = IDENTITY / OUTFIT / PRODUCT SOURCE
-
-      **NON-NEGOTIABLE RULES**:
-      - Treat Image 1 and 2 as the absolute masters for pose, body angle, crop distance, subject placement, arm arrangement, hand placement, and visual framing.
-      - Treat Image 3 as the master for identity, body proportions, clothing, accessories, product details, tattoos, and skin texture.
-      - NEVER copy Image 1 & 2's outfit design, fabric details, accessories, bag, background, lighting, or skin tone into the result.
-      - **CRITICAL**: Do NOT use the pose or the camera crop of Image 3! Image 3's pose MUST be ignored. You MUST force the body from Image 3 to align with the skeleton and cropping of Image 1 & 2.
-      - If Image 1 & 2 is a close-up crop without hands, the output MUST be a close-up crop without hands.
-      - Abandon Image 3's composition entirely. Only extract its clothing and face.
-
-      **CLOTHING INTEGRITY (CRITICAL)**:
-      - Preserve the EXACT clothing from Image 3: same garment color, fabric, texture, pattern, print, and structure.
-      - Preserve HOW the clothing is worn in Image 3:
-        * If the shirt is TUCKED IN, it MUST stay tucked in the output.
-        * If the shirt hangs LOOSE, it MUST hang loose in the output.
-        * Preserve the exact hem position relative to the waistband.
-        * Preserve sleeve state (rolled up, folded, or natural).
-      ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      ${negativePromptLine}
-      `
-            : options.workflowHint === 'clothing-modification'
+        **ROLE**: Senior fashion retoucher and AI processing expert.
+        **TASK**: Re-stage the person and outfit from Image 3 into the EXACT geometric posture mapped by Image 1.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+            : workflowHint === 'pose-transfer'
               ? `
-      **ROLE**: Professional Fashion Designer and AI Modification Expert.
-      **TASK**: Execute precise clothing modification based on user instructions and reference images.
-      
-      **MISSION**:
-      - If Pattern modification: Transfer pattern from Image 2 onto the specified garment area of Image 1.
-      - If Style modification: Alter the cut/silhouette of Image 1's garment according to Image 2 or description.
-      - If Color modification: Change the color of specific garment parts while keeping texture and lighting.
-      
-      **CRITICAL RULES**:
-      1. **LOCALITY**: Only modify the requested garment or area. The model's face, hair, body, and background should remain UNTOUCHED.
-      2. **NATURALISM**: Ensure any added patterns or changed shapes follow the laws of physics and clothing wrinkles. Shadows and highlights must be consistent with Image 1.
-      3. **FIDELITY**: If a pattern is provided in Image 2, replicate its scale, orientation, and texture precisely on the target garment.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **QUALITY GUIDELINES**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Ensure photorealistic fabric textures and seamless integration.
-      ${negativePromptLine}
-      `
-            : options.workflowHint === 'doll-modification'
-              ? `
-      **ROLE**: Precision Toy & Doll Retoucher and Visual Inpainting Expert.
-      **TASK**: Execute highly localized modification on a plush toy/doll based on the analysis provided.
-      
-      **INPUT MAPPING (CRITICAL)**:
-      - Image 1 = **PRIMARY ANCHOR SCENE** (The original doll, background, lighting, and 95% of the doll's body are FROZEN and UNTOUCHABLE).
-      - Image 2 = **SECONDARY ANCHOR SCENE** (Exact duplicate to heavily enforce geometric and structural locking of the main body).
-      - Image 3+ = **REFERENCE TEXTURES/FEATURES** (Only to be applied to the specifically requested local areas).
-      
-      ═══════════════════════════════════════════
-      ██  CRITICAL ANTI-POLLUTION RULE (HIGHEST) ██
-      ═══════════════════════════════════════════
-      - **DO NOT blend** the color or texture of the reference images into the main body of the doll.
-      - **ISOLATION**: If you are asked to change the feet to match Image 3, ONLY generate the matching parts on the feet. DO NOT add identical colors/trims to the hands, ears, or body.
-      - **IDENTITY LOCK**: The global shape, main body color, background, facial expression, and exact scale of Image 1 and 2 MUST remain exactly as they are.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **QUALITY GUIDELINES**:
-      - Output a single, clean, hyper-realistic plush toy image perfectly preserving Image 1 except for the requested localized changes.
-      ${negativePromptLine}
-      `
-            : workflowHint === 'clothing-effect'
-              ? `
-      **ROLE**: High-end Fashion Photography Retoucher.
-      **TASK**: Enhance the appearance of clothing and its interaction with the model's body.
-      
-      **MISSION**:
-      - Focus on fabric drape, texture, and the way light interacts with the material.
-      - Ensure the clothing looks premium, crisp, and high-quality.
-      - Maintain the model's identity and the overall scene composition.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      - **QUALITY GUIDELINES**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Prioritize fabric realism and lighting accuracy.
-      ${negativePromptLine}
-      `
-            : workflowHint === 'strict-geometry-lock'
-              ? `
-      **ROLE**: Senior E-commerce Retoucher and Geometry-Lock Specialist.
-      **TASK**: High-fidelity product retouching on a pure white background without ANY structural changes.
-      **INPUT**:
-      - Image 1 is the STRICT GEOMETRY REFERENCE (Anchors the composition)
-      - Image 2 is the IDENTITY / PRODUCT SOURCE (Anchors the texture)
-
-      **NON-NEGOTIABLE RULES**:
-      - **CRITICAL: DO NOT CHANGE THE CAMERA ANGLE, POSING, PERSPECTIVE, OR FRAMING OF IMAGE 1.**
-      - Treat Image 1 as the absolute master for silhouette, proportions, orientation, camera tilt, part placement, and bounding box.
-      - Treat Image 2 as the absolute master for colors, fluffiness, material, and details.
-      - You must output a purely retouched, material-enhanced version of the reference exactly as it stands.
-      - Abandon any natural inclination to re-orient the product to a "better" angle. Force the exact original angle.
-      - Pure white background #FFFFFF.
-      - NEVER mirror, rotate, or re-pose the subject.
-
-      **USER PROMPT**: ${forcedPrompt}
-
-      **QUALITY GUIDELINES**:
-      - Maintain commercial product photography standards.
-      ${negativePromptLine}
-      `
-                : workflowHint === 'doll-modification'
-                  ? `
-      **ROLE**: World-Class 3D Toy Sculptor & Product Photographer.
-      **TASK**: High-Precision Product Rotation and Ecommerce Retouching.
-      
-      **INPUT PROTOCOL**:
-      - Image 1 = **IDENTITY & MATERIAL MASTER**. This image defines the doll's character, specific eye shape, material texture (e.g., minky fabric), color palette, and unique accessories (hats, bows).
-      
-      **PERSPECTIVE FREEDOM (CRITICAL)**:
-      - **DO NOT LOCK** the output to the camera perspective of Image 1.
-      - You are REQUIRED to re-visualize and rotate the doll into the perspective requested in the USER PROMPT.
-      - If the user asks for "Front View" but Image 1 is "45 Degree Side View", you MUST rotate the character to face the camera directly.
-      - Treat the task as a **3D Re-render**: Maintain the "Soul" and "Material" of Image 1, but completely rebuild the pose and orientation.
-      
-      **QUALITY STANDARDS**:
-      - Output a clean, high-resolution product shot on a **PURE WHITE (#FFFFFF)** background.
-      - Ensure professional studio lighting with soft, realistic contact shadows.
-      - No background clutter, no hands, no human presence.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **QUALITY BOOSTERS**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Clean cutout with smooth, non-aliased edges.
-      - Realistic depth and soft shadows suitable for professional ecommerce listings.
-      ${negativePromptLine}
-      `
-                : workflowHint === 'doll-retouching'
-                  ? `
-      **ROLE**: Senior Ecommerce Product Post-Processing Specialist.
-      **TASK**: High-Fidelity Product Retouching & Perspective Locking.
-      
-      **CORE PRINCIPLE: 1:1 GEOMETRY LOCK**:
-      - Image 1 is the **ABSOLUTE MASTER** for geometry, pose, camera angle, focal length, and framing.
-      - **CRITICAL**: Do NOT rotate, move, resize, or re-pose the subject or any of its parts. 
-      - The output must overlap perfectly with the subject in Image 1 in terms of silhouette and position.
-      
-      **RETOUCHING MISSION**:
-      - Upgrade materials to premium 3D/photographic quality (e.g., precise plush texture: velboa, crystal velboa, or minky).
-      - **FABRIC PRECISION**: Pay attention to "short-pile", "dense and smooth nap", "matte soft finish", and "subtle tonal variation".
-      - Remove imperfections: dust, loose threads, wrinkles, or background distractions.
-      - Standardize the background to **PURE WHITE (#FFFFFF)**.
-      - Implement professional studio high-key lighting with soft contact shadows.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **QUALITY STANDARDS**:
-      - Maintain 100% identity and structural integrity.
-      - High resolution, sharp edges (no ghosting), and commercial-grade finish.
-      ${negativePromptLine}
-      `
-                : workflowHint === 'scene-product-lock'
-                  ? `
-      **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
-      **TASK**: Place the reference product into a realistic lifestyle scene without changing the product itself.
-      **INPUT**:
-      - Reference images are the single source of truth for product identity.
-      - The user's prompt describes the desired American-market scene, people, composition, and selling context.
-
-      **NON-NEGOTIABLE RULES**:
-      - Lock the product first, then build the scene around it.
-      - NEVER recolor, repaint, redesign, simplify, restyle, or substitute the product's material, fabric, fur, print, embroidery, trim, hardware, structure, proportions, silhouette, or surface finish.
-      - Preserve exact hue family, saturation balance, texture depth, seams, embroidery placement, print placement, edge construction, and tactile realism from the reference image.
-      - You may change the background, props, human presence, lighting mood, and environment only insofar as the product itself remains visually identical.
-      - If any scene idea conflicts with product fidelity, change the scene idea instead of changing the product.
-      - If multiple reference images are provided, determine if they represent different products or different views of the same product. 
-      - **MULTIPLE PRODUCTS**: If they are different products, you MUST include ALL of them in the scene together in a natural, balanced composition as described in the prompt.
-      - **SINGLE PRODUCT**: If they are different views/colors of the same product, use them to reinforce a single consistent product identity.
-      - Output exactly one polished commercial image containing all requested products. No collage, no split layout, no before-after composition.
-
-      **USER PROMPT**: ${forcedPrompt}
-
-      **QUALITY GUIDELINES**:
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Prioritize exact product fidelity over creative scene variation.
-      - Keep the final result photorealistic, premium, and commercially usable for Amazon-style ecommerce.
-      ${negativePromptLine}
-      `
+        **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
+        **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : options.workflowHint === 'clothing-modification'
+                ? `
+        **ROLE**: Professional Fashion Designer and AI Modification Expert.
+        **TASK**: Execute precise clothing modification based on user instructions.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : options.workflowHint === 'doll-modification'
+                ? `
+        **ROLE**: Precision Toy & Doll Retoucher and Visual Inpainting Expert.
+        **TASK**: Execute highly localized modification on a plush toy/doll.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : workflowHint === 'clothing-effect'
+                ? `
+        **ROLE**: High-end Fashion Photography Retoucher.
+        **TASK**: Enhance the appearance of clothing and its interaction with the model's body.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : workflowHint === 'strict-geometry-lock'
+                ? `
+        **ROLE**: Senior E-commerce Retoucher and Geometry-Lock Specialist.
+        **TASK**: High-fidelity product retouching on a pure white background without ANY structural changes.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : workflowHint === 'doll-modification'
+                    ? `
+        **ROLE**: World-Class 3D Toy Sculptor & Product Photographer.
+        **TASK**: High-Precision Product Rotation and Ecommerce Retouching.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : workflowHint === 'doll-retouching'
+                    ? `
+        **ROLE**: Senior Ecommerce Product Post-Processing Specialist.
+        **TASK**: High-Fidelity Product Retouching & Perspective Locking.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : workflowHint === 'scene-product-lock'
+                    ? `
+        **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
+        **TASK**: Place the reference product into a realistic lifestyle scene.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
                   : workflowHint === 'magic-mannequin'
                     ? `
-      **ROLE**: Professional 3D Mannequin & Sculptural Artist.
-      **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin based on the style and pose of Image 2.
-      
-      **INPUT MAPPING**:
-      - Image 1 = **BODY REFERENCE** (Only for body proportions and height. **STRICTLY IGNORE** the face, hair, clothing, and any prints/patterns/logos/graphics).
-      - Image 2 = **POSE & STYLE BLUEPRINT** (Master for the 3D material, lighting, pose, and camera framing).
-      
-      ═══════════════════════════════════════════
-      ██  CRITICAL PROHIBITION: CLEAN MANNEQUIN  ██
-      ═══════════════════════════════════════════
-      - **NO FACE**: The output mannequin MUST have a **blank, faceless head** (like a mannequin or a smooth sculpture). Remove eyes, nose, and mouth.
-      - **0% CLOTHING**: Absolutely no clothing, garments, or fabric.
-      - **NO PRINTS/TATTOOS**: Strictly ignore and remove any prints, logos, sunflower graphics, or patterns found in Image 1. The skin/surface must be 100% clean and uniform.
-      - **MATERIAL**: Smooth 3D render material (matte plastic, clay, or porcelain) from Image 2.
-      
-      ═══════════════════════════════════════════
-      ██  POSE & FRAMING LOCK                       ██
-      ═══════════════════════════════════════════
-      - Replicate the **EXACT** body pose and arm angles from Image 2.
-      - Replicate the **EXACT** camera angle and focal length from Image 2.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **OUTPUT**: A single, clean, faceless 3D mannequin render with no features or clothing.
-      ${negativePromptLine}
-      `
+        **ROLE**: Professional 3D Mannequin & Sculptural Artist.
+        **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
                     : `
-      **ROLE**: Professional Image Generation Artist.
-      **TASK**: Image-to-Image Generation (Scene Fusion).
-      **INPUT**: ${images.length} Reference Image(s).
-      
-      **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description below.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **QUALITY GUIDELINES**:
-      - Maintain high fidelity to the visual style of reference images unless overridden by the user prompt.
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - If multiple images are provided, intelligently fuse their elements or styles as implied by the prompt.
-      - Preserve fine details: textures, material quality, lighting accuracy.
-      ${negativePromptLine}
-      `
-        : `
-      **ROLE**: Professional Image Generation Artist.
-      **TASK**: Text-to-Image Generation.
-      
-      **INSTRUCTION**: Generate a new high-quality image based on the user's description below.
-      
-      **USER PROMPT**: ${forcedPrompt}
-      
-      **QUALITY GUIDELINES**:
-      - Follow the prompt's aesthetic style precisely.
-      - ${QUALITY_BOOSTERS.PHOTOGRAPHY}
-      - Ensure realistic textures, accurate lighting, and professional composition.
-      ${negativePromptLine}
-      `);
+        **ROLE**: Professional Image Generation Artist.
+        **TASK**: Image-to-Image Generation (Scene Fusion).
+        **INSTRUCTION**: Based on the provided reference image(s), generate a new image following the user's description.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+          : `
+        **ROLE**: Professional Image Generation Artist.
+        **TASK**: Text-to-Image Generation.
+        **INSTRUCTION**: Generate a new high-quality image based on the user's description.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `);
 
-      parts.push({ text: systemPrompt });
+        // 1. Add System Prompt FIRST (Critical for many models/proxies to see instructions before data)
+        parts.push({ text: systemPrompt });
 
-      // Model mapping logic for nanobanana
-      let requestedModel = options.modelId || "gemini-3-pro-image-preview";
-      if (requestedModel === 'nanobanana2' || requestedModel === 'standard') {
-        targetModel = "gemini-3.1-flash-image-preview";
-      } else if (requestedModel === 'nanobananapro' || requestedModel === 'pro') {
-        targetModel = "gemini-3-pro-image-preview";
-      } else {
-        targetModel = requestedModel;
+        // 2. Add All Input Images
+        processedImages.forEach((img: any) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType || img.mime || 'image/jpeg', // 增加容错：兼容 mime 字段并提供默认值
+              data: img.base64,
+            },
+          });
+        });
       }
+
 
       // 柏拉图模型映射逻辑 (nanobanana2)
       // 注释掉强制追加 -4k/-2k 的逻辑，因为报错显示柏拉图的 v1/v1beta 路径不识别带后缀的模型名。
@@ -1061,18 +803,51 @@ export const generateImageToImage = async (
       // Calculate dynamic timeout: 4K/2K generation is slow, 180s. Others 120s.
       const generationTimeout = (options.resolution === ImageResolution.RES_4K || options.resolution === ImageResolution.RES_2K) ? 180000 : 120000;
 
+      // Map resolution to explicit dimensions for proxy compatibility
+      const getDimensions = (ar: string, res: string) => {
+        const isTall = ar === '9:16' || ar === '2:3' || ar === '3:4';
+        const isWide = ar === '16:9' || ar === '3:2' || ar === '4:3' || ar === '21:9';
+        
+        if (res === '4K') return isTall ? '1536x2048' : isWide ? '2048x1536' : '2048x2048';
+        if (res === '2K') return isTall ? '1024x1792' : isWide ? '1792x1024' : '1024x1024';
+        return isTall ? '768x1024' : isWide ? '1024x768' : '1024x1024';
+      };
+      const explicitDimensions = getDimensions(aspectRatio, resolution);
+
+      console.warn(`[AI GENERATION ATTEMPT]
+        Model: ${targetModel}
+        Aspect Ratio: ${aspectRatio}
+        Resolution: ${resolution} (${explicitDimensions})
+        Prompt Snippet: ${forcedPrompt.substring(0, 100)}...
+      `);
+
       const response = await executeWithTimeout(
         ai.models.generateContent({
           model: targetModel,
           contents: { parts: parts },
+          // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
+          // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
           config: {
             imageConfig: {
-              aspectRatio: options.aspectRatio || "1:1",
-              imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
+              aspectRatio: aspectRatio,
+              aspect_ratio: aspectRatio,
+              // Standard Gemini expects "1K", "2K", "4K"
+              imageSize: resolution, 
+              image_size: explicitDimensions, // Proxy fallback for pixel values
+              resolution: resolution, // Extra fallback
+              quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard", // GPT/DALL-E style
               sampleCount: sampleCount,
             } as any,
-          },
-        }),
+          } as any,
+          // Fallback for proxies that map Gemini 'generationConfig' to target model parameters
+          generationConfig: {
+            aspectRatio: aspectRatio,
+            aspect_ratio: aspectRatio,
+            image_size: explicitDimensions,
+            resolution: resolution,
+            quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard",
+          } as any
+        } as any),
         { timeoutMs: generationTimeout }
       );
 
