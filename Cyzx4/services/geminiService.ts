@@ -638,11 +638,36 @@ export const generateImageToImage = async (
 
       console.warn(`[AI GEN] Target: ${targetModel}, Ratio: ${aspectRatio}, Res: ${resolution}`);
 
-      // Specialized handling for GPT-based proxy models
+      // Specialized handling for GPT-based proxy models (OpenAI/DALL-E/Midjourney style)
       if (isGptModel) {
-        const resHint = resolution === '4K' ? 'hyper-detailed 4k photography, 8k resolution' : resolution === '2K' ? 'high resolution 2k, detailed photography' : '';
-        const flatPrompt = `--ar ${aspectRatio} ${resHint} A high-quality ${aspectRatio === '9:16' || aspectRatio === '2:3' ? 'vertical portrait' : 'wide landscape'} image: ${prompt.trim()} --ar ${aspectRatio}`;
-        parts.push({ text: flatPrompt });
+        const resHint = resolution === '4K' ? '8k resolution, cinematic, hyper-detailed' : resolution === '2K' ? '4k high resolution, high quality' : 'high quality';
+        const arDescription = aspectRatio === '9:16' || aspectRatio === '2:3' ? 'vertical portrait' : aspectRatio === '16:9' || aspectRatio === '3:2' ? 'wide landscape' : 'square';
+        
+        // Build a more descriptive prompt for GPT models to ensure they look at the reference images
+        let gptContext = `[IMAGE GENERATION TASK]
+        Role: Professional Fashion AI Artist.
+        Instruction: Generate a NEW image based on the provided reference images and the prompt below.
+        Reference Images:
+        - Image 1: Primary scene and pose anchor.
+        - Image 2: Core garment/product details.
+        ${processedImages.length >= 3 ? '- Image 3: Secondary garment or model identity.' : ''}
+        ${processedImages.length >= 4 ? '- Image 4: Additional styling details.' : ''}
+        
+        Task Requirement:
+        1. Maintain the exact pose and composition of Image 1.
+        2. Replace/Apply the exact garment details from Image 2.
+        3. Output MUST be ${arDescription} with aspect ratio ${aspectRatio}.
+        
+        Detailed Analysis context:
+        ${vtonReport || 'N/A'}
+        
+        User Description: ${prompt.trim()}
+        
+        Final Parameters: --ar ${aspectRatio} --v 6.0 --q 2 --style raw
+        `;
+
+        parts.push({ text: gptContext });
+        
         processedImages.forEach((img: any) => {
           parts.push({
             inlineData: {
@@ -833,7 +858,8 @@ export const generateImageToImage = async (
               aspect_ratio: aspectRatio,
               // Standard Gemini expects "1K", "2K", "4K"
               imageSize: resolution, 
-              image_size: explicitDimensions, // Proxy fallback for pixel values
+              size: explicitDimensions, // DALL-E 3 standard
+              image_size: explicitDimensions, // Proxy fallback
               resolution: resolution, // Extra fallback
               quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard", // GPT/DALL-E style
               sampleCount: sampleCount,
