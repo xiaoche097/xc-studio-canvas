@@ -217,6 +217,25 @@ const FusionTab: React.FC = () => {
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
+  // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+  useEffect(() => {
+    if (selectedModel === 'gpt-image-2') {
+      if (resolution === ImageResolution.RES_05K) {
+        setResolution(ImageResolution.RES_1K);
+      }
+      const allowedRatios = [
+        AspectRatio.SQUARE, 
+        AspectRatio.LANDSCAPE_3_2, 
+        AspectRatio.PORTRAIT_2_3, 
+        AspectRatio.LANDSCAPE_16_9, 
+        AspectRatio.PORTRAIT_9_16
+      ];
+      if (!allowedRatios.includes(aspectRatio)) {
+        setAspectRatio(AspectRatio.SQUARE);
+      }
+    }
+  }, [selectedModel]);
+
   // Style Model State
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<StylePreset | null>(null);
@@ -797,13 +816,23 @@ const FusionTab: React.FC = () => {
                       <option value={AspectRatio.SQUARE}>1:1 (正方形)</option>
                       <option value={AspectRatio.LANDSCAPE_3_2}>3:2 (横构图)</option>
                       <option value={AspectRatio.PORTRAIT_2_3}>2:3 (竖构图)</option>
-                      <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (常规)</option>
-                      <option value={AspectRatio.PORTRAIT_3_4}>3:4 (人像)</option>
-                      <option value={AspectRatio.LANDSCAPE_5_4}>5:4 (宽幅人像)</option>
-                      <option value={AspectRatio.PORTRAIT_4_5}>4:5 (社交媒体)</option>
+                      
+                      {/* For gpt-image-2, only show official supported ratios if requested, or keep common ones */}
+                      {selectedModel !== 'gpt-image-2' && (
+                        <>
+                          <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (常规)</option>
+                          <option value={AspectRatio.PORTRAIT_3_4}>3:4 (人像)</option>
+                          <option value={AspectRatio.LANDSCAPE_5_4}>5:4 (宽幅人像)</option>
+                          <option value={AspectRatio.PORTRAIT_4_5}>4:5 (社交媒体)</option>
+                        </>
+                      )}
+                      
                       <option value={AspectRatio.LANDSCAPE_16_9}>16:9 (宽屏)</option>
                       <option value={AspectRatio.PORTRAIT_9_16}>9:16 (手机)</option>
-                      <option value={AspectRatio.LANDSCAPE_21_9}>21:9 (电影感)</option>
+                      
+                      {selectedModel !== 'gpt-image-2' && (
+                        <option value={AspectRatio.LANDSCAPE_21_9}>21:9 (电影感)</option>
+                      )}
                     </select>
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
                       <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
@@ -820,7 +849,10 @@ const FusionTab: React.FC = () => {
                       onChange={(e) => setResolution(e.target.value as ImageResolution)}
                       className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm text-pastel-text outline-none focus:ring-2 focus:ring-pastel-highlight/20 transition-all font-medium hover:border-pastel-highlight/50 cursor-pointer"
                     >
-                      <option value={ImageResolution.RES_05K}>0.5K (512px)</option>
+                      {/* gpt-image-2 requires at least ~0.65M pixels, 0.5K (512x512) is too small */}
+                      {selectedModel !== 'gpt-image-2' && (
+                        <option value={ImageResolution.RES_05K}>0.5K (512px)</option>
+                      )}
                       <option value={ImageResolution.RES_1K}>1K (标准)</option>
                       <option value={ImageResolution.RES_2K}>2K (高清)</option>
                       <option value={ImageResolution.RES_4K}>4K (超清)</option>

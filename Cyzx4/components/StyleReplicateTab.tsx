@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateStyleReplication, compressImage } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
@@ -70,6 +70,22 @@ const StyleReplicateTab: React.FC = () => {
 
     // Config states
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3-pro-image-preview");
+
+    // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+    useEffect(() => {
+        if (selectedModel === 'gpt-image-2') {
+            const allowedRatios = [
+                AspectRatio.SQUARE, 
+                AspectRatio.LANDSCAPE_3_2, 
+                AspectRatio.PORTRAIT_2_3, 
+                AspectRatio.LANDSCAPE_16_9, 
+                AspectRatio.PORTRAIT_9_16
+            ];
+            if (!allowedRatios.includes(aspectRatio)) {
+                setAspectRatio(AspectRatio.SQUARE);
+            }
+        }
+    }, [selectedModel]);
     const [isRetouchEnabled, setIsRetouchEnabled] = useState(false);
     const [customPrompt, setCustomPrompt] = useState('');
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
@@ -681,13 +697,22 @@ const StyleReplicateTab: React.FC = () => {
                                         <option value="1:1">1:1 正方形</option>
                                         <option value="2:3">2:3 坚版</option>
                                         <option value="3:2">3:2 横版</option>
-                                        <option value="3:4">3:4 坚版</option>
-                                        <option value="4:3">4:3 横版</option>
-                                        <option value="4:5">4:5 坚版</option>
-                                        <option value="5:4">5:4 横版</option>
+                                        
+                                        {selectedModel !== 'gpt-image-2' && (
+                                            <>
+                                                <option value="3:4">3:4 坚版</option>
+                                                <option value="4:3">4:3 横版</option>
+                                                <option value="4:5">4:5 坚版</option>
+                                                <option value="5:4">5:4 横版</option>
+                                            </>
+                                        )}
+                                        
                                         <option value="9:16">9:16 手机坚屏</option>
                                         <option value="16:9">16:9 宽屏</option>
-                                        <option value="21:9">21:9 超宽屏</option>
+                                        
+                                        {selectedModel !== 'gpt-image-2' && (
+                                            <option value="21:9">21:9 超宽屏</option>
+                                        )}
                                     </select>
                                 </div>
 

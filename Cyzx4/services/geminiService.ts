@@ -1145,7 +1145,7 @@ export const generateInpainting = async (
           item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url
         );
         
-        if (results.length > 0) return { candidates: [{ content: { parts: results.map((r: string) => ({ text: r })) } }] };
+        if (results.length > 0) return results;
         throw new Error("API returned success but no images were found.");
       }
 

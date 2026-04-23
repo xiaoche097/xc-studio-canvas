@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { generateSeatCoverFit, blobToBase64, compressImage, optimizePrompt, editGeneratedImage } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
@@ -136,6 +136,25 @@ const SeatCoverTab: React.FC = () => {
   const [progress, setProgress] = useState<string>('');
 
   const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+
+  // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+  useEffect(() => {
+    if (selectedModel === 'gpt-image-2') {
+      if (qualityMode === ImageResolution.RES_05K) {
+        setQualityMode(ImageResolution.RES_1K);
+      }
+      const allowedRatios = [
+        AspectRatio.SQUARE, 
+        AspectRatio.LANDSCAPE_3_2, 
+        AspectRatio.PORTRAIT_2_3, 
+        AspectRatio.LANDSCAPE_16_9, 
+        AspectRatio.PORTRAIT_9_16
+      ];
+      if (!allowedRatios.includes(aspectRatio)) {
+        setAspectRatio(AspectRatio.SQUARE);
+      }
+    }
+  }, [selectedModel]);
 
   const handleSeatFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -936,7 +955,10 @@ const SeatCoverTab: React.FC = () => {
                     <option value={AspectRatio.SQUARE}>1:1 (亚马逊主图)</option>
                     <option value={AspectRatio.PORTRAIT_9_16}>9:16 (手机/TikTok)</option>
                     <option value={AspectRatio.LANDSCAPE_16_9}>16:9 (横屏/Banner)</option>
-                    <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (标准)</option>
+                    
+                    {selectedModel !== 'gpt-image-2' && (
+                      <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (标准)</option>
+                    )}
                   </select>
                 </div>
                 <div>

@@ -63,6 +63,25 @@ const InpaintingTab: React.FC = () => {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
+
+  // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+  useEffect(() => {
+    if (selectedModel === 'gpt-image-2') {
+      if (resolution === ImageResolution.RES_05K) {
+        setResolution(ImageResolution.RES_1K);
+      }
+      const allowedRatios = [
+        AspectRatio.SQUARE, 
+        AspectRatio.LANDSCAPE_3_2, 
+        AspectRatio.PORTRAIT_2_3, 
+        AspectRatio.LANDSCAPE_16_9, 
+        AspectRatio.PORTRAIT_9_16
+      ];
+      if (!allowedRatios.includes(aspectRatio)) {
+        setAspectRatio(AspectRatio.SQUARE);
+      }
+    }
+  }, [selectedModel]);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
   // 更多拖拽状态
@@ -1153,8 +1172,14 @@ const InpaintingTab: React.FC = () => {
                       <option value={AspectRatio.SQUARE}>1:1 (正方形)</option>
                       <option value={AspectRatio.LANDSCAPE_3_2}>3:2 (横构图)</option>
                       <option value={AspectRatio.PORTRAIT_2_3}>2:3 (竖构图)</option>
-                      <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (常规)</option>
-                      <option value={AspectRatio.PORTRAIT_3_4}>3:4 (人像)</option>
+                      
+                      {selectedModel !== 'gpt-image-2' && (
+                        <>
+                          <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (常规)</option>
+                          <option value={AspectRatio.PORTRAIT_3_4}>3:4 (人像)</option>
+                        </>
+                      )}
+                      
                       <option value={AspectRatio.LANDSCAPE_16_9}>16:9 (宽屏)</option>
                       <option value={AspectRatio.PORTRAIT_9_16}>9:16 (手机)</option>
                     </select>
@@ -1173,7 +1198,9 @@ const InpaintingTab: React.FC = () => {
                       onChange={(e) => setResolution(e.target.value as ImageResolution)}
                       className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm text-pastel-text outline-none focus:ring-2 focus:ring-pastel-highlight/20 transition-all font-medium hover:border-pastel-highlight/50 cursor-pointer"
                     >
-                      <option value={ImageResolution.RES_05K}>0.5K (512px)</option>
+                      {selectedModel !== 'gpt-image-2' && (
+                        <option value={ImageResolution.RES_05K}>0.5K (512px)</option>
+                      )}
                       <option value={ImageResolution.RES_1K}>1K (标准)</option>
                       <option value={ImageResolution.RES_2K}>2K (高清)</option>
                       <option value={ImageResolution.RES_4K}>4K (超清)</option>

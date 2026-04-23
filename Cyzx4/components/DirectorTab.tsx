@@ -95,6 +95,25 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
   const [inpaintPrompt, setInpaintPrompt] = useState('');
   const [isInpainting, setIsInpainting] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+
+  // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+  useEffect(() => {
+    if (selectedModel === 'gpt-image-2') {
+      if (resolution === ImageResolution.RES_05K) {
+        setResolution(ImageResolution.RES_1K);
+      }
+      const allowedRatios = [
+        AspectRatio.SQUARE, 
+        AspectRatio.LANDSCAPE_3_2, 
+        AspectRatio.PORTRAIT_2_3, 
+        AspectRatio.LANDSCAPE_16_9, 
+        AspectRatio.PORTRAIT_9_16
+      ];
+      if (!allowedRatios.includes(aspectRatio)) {
+        setAspectRatio(AspectRatio.SQUARE);
+      }
+    }
+  }, [selectedModel]);
   const [generationHistory, setGenerationHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
@@ -659,9 +678,23 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
                     onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
                     className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
                   >
-                    {Object.entries(AspectRatio).map(([key, value]) => (
-                      <option key={key} value={value}>{value}</option>
-                    ))}
+                    {Object.entries(AspectRatio)
+                      .filter(([_, value]) => {
+                        if (selectedModel === 'gpt-image-2') {
+                          return [
+                            AspectRatio.SQUARE, 
+                            AspectRatio.LANDSCAPE_3_2, 
+                            AspectRatio.PORTRAIT_2_3, 
+                            AspectRatio.LANDSCAPE_16_9, 
+                            AspectRatio.PORTRAIT_9_16
+                          ].includes(value);
+                        }
+                        return true;
+                      })
+                      .map(([key, value]) => (
+                        <option key={key} value={value}>{value}</option>
+                      ))
+                    }
                   </select>
                 </div>
                 <div>
@@ -671,9 +704,17 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
                     onChange={(e) => setResolution(e.target.value as ImageResolution)}
                     className="w-full bg-pastel-input border border-pastel-border rounded-lg p-2 text-sm focus:ring-1 focus:ring-pastel-pink outline-none text-pastel-text"
                   >
-                    {Object.entries(ImageResolution).map(([key, value]) => (
-                      <option key={key} value={value}>{value}</option>
-                    ))}
+                    {Object.entries(ImageResolution)
+                      .filter(([_, value]) => {
+                        if (selectedModel === 'gpt-image-2') {
+                          return value !== ImageResolution.RES_05K;
+                        }
+                        return true;
+                      })
+                      .map(([key, value]) => (
+                        <option key={key} value={value}>{value}</option>
+                      ))
+                    }
                   </select>
                 </div>
               </div>

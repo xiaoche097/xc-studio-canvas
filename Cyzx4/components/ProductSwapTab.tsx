@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateProductSwap, compressImage } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
@@ -83,6 +83,23 @@ const ProductSwapTab: React.FC = () => {
     const [currentStep, setCurrentStep] = useState(0);
     const [progress, setProgress] = useState(0);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+    // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+    useEffect(() => {
+        if (selectedModel === 'gpt-image-2') {
+            const allowedRatios: (AspectRatio | 'auto')[] = [
+                'auto',
+                AspectRatio.SQUARE, 
+                AspectRatio.LANDSCAPE_3_2, 
+                AspectRatio.PORTRAIT_2_3, 
+                AspectRatio.LANDSCAPE_16_9, 
+                AspectRatio.PORTRAIT_9_16
+            ];
+            if (!allowedRatios.includes(aspectRatio)) {
+                setAspectRatio('auto');
+            }
+        }
+    }, [selectedModel]);
 
     // Drag state
     const [isDraggingScene, setIsDraggingScene] = useState(false);
@@ -464,8 +481,14 @@ const ProductSwapTab: React.FC = () => {
                                         >
                                             <option value="auto">自动识别 (Auto)</option>
                                             <option value="1:1">1:1</option>
-                                            <option value="4:3">4:3</option>
-                                            <option value="3:4">3:4</option>
+                                            
+                                            {selectedModel !== 'gpt-image-2' && (
+                                                <>
+                                                    <option value="4:3">4:3</option>
+                                                    <option value="3:4">3:4</option>
+                                                </>
+                                            )}
+                                            
                                             <option value="16:9">16:9</option>
                                             <option value="9:16">9:16</option>
                                         </select>
