@@ -78,6 +78,7 @@ const ModelMainAdjustTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [selectedAngle, setSelectedAngle] = useState<string | null>(null);
   const [variantCount, setVariantCount] = useState(1);
+  const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
 
   // Reference Images (Up to 3)
   const [refFiles, setRefFiles] = useState<File[]>([]);
@@ -154,6 +155,29 @@ const ModelMainAdjustTab: React.FC = () => {
   const handleRefDrop = (e: React.DragEvent) => {
     e.preventDefault();
     Array.from(e.dataTransfer.files || []).forEach(file => addRefFile(file));
+  };
+
+  const downloadImage = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Download failed:', error);
+      // Fallback
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.target = '_blank';
+      a.click();
+    }
   };
 
   const handleGenerate = async () => {
@@ -515,12 +539,7 @@ const ModelMainAdjustTab: React.FC = () => {
             <div className="flex items-center justify-between w-full max-w-4xl px-2">
                <span className="text-sm font-bold">生成结果 ({selectedResultIndex + 1}/{resultImages.length})</span>
                <button
-                 onClick={() => {
-                   const a = document.createElement('a');
-                   a.href = resultImages[selectedResultIndex];
-                   a.download = `model-adjust-${Date.now()}.png`;
-                   a.click();
-                 }}
+                 onClick={() => downloadImage(resultImages[selectedResultIndex], `model-adjust-${Date.now()}.png`)}
                  className="flex items-center gap-2 rounded-xl bg-pastel-highlight/10 px-4 py-2 text-xs font-bold text-pastel-highlight hover:bg-pastel-highlight/20 transition-all"
                >
                  <Download className="h-3.5 w-3.5" /> 下载图片
@@ -532,6 +551,15 @@ const ModelMainAdjustTab: React.FC = () => {
               style={{ aspectRatio: outputAspectRatio.replace(':', ' / '), maxHeight: '85%', height: '100%' }}
             >
               <img src={resultImages[selectedResultIndex]} alt="Result" className="w-full h-full object-contain" />
+              
+              <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-all group flex items-center justify-center">
+                 <button
+                   onClick={() => setPreview({ src: resultImages[selectedResultIndex], title: `生成结果 #${selectedResultIndex + 1}` })}
+                   className="bg-white/90 p-3 rounded-full shadow-xl opacity-0 group-hover:opacity-100 transition-all hover:scale-110"
+                 >
+                   <Maximize2 className="w-6 h-6 text-pastel-text" />
+                 </button>
+              </div>
               
               {resultImages.length > 1 && (
                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
@@ -562,6 +590,30 @@ const ModelMainAdjustTab: React.FC = () => {
               setEditorBoxes(boxes);
            }}
         />
+      )}
+
+      {/* Preview Modal */}
+      {preview && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/75 p-6 backdrop-blur-xl" onClick={() => setPreview(null)}>
+          <button type="button" onClick={() => setPreview(null)} className="absolute right-6 top-6 rounded-full border border-white/15 bg-white/10 p-4 text-white transition-colors hover:bg-white/20 shadow-2xl">
+            <X className="h-8 w-8" />
+          </button>
+
+          <div className="relative flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[40px] border border-white/10 bg-[#0d1117] shadow-[0_60px_150px_rgba(0,0,0,0.6)] animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 px-8 py-6 text-white bg-white/5">
+              <div className="text-xl font-black tracking-tight">{preview.title}</div>
+              <button
+                onClick={() => downloadImage(preview.src, `download-${Date.now()}.png`)}
+                className="flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-sm font-black text-white hover:bg-orange-600 transition-all active:scale-95"
+              >
+                <Download className="h-4 w-4" /> 下载图片
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto bg-[radial-gradient(#ffffff10_1px,transparent_1px)] [background-size:20px_20px] p-12 flex items-center justify-center">
+              <img src={preview.src} alt="Preview" className="max-w-full max-h-full object-contain shadow-2xl rounded-lg" />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
