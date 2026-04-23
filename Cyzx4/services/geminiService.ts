@@ -702,8 +702,9 @@ ${forcedPrompt}`;
           prompt: gptPrompt,
           size: gptSize,
           response_format: "b64_json",
-          // The proxy expects an array of base64 strings for the 'image' parameter
-          image: images.map(img => img.base64)
+          // Exact match with your doc: array[string]
+          // AND adding the prefix for input images as required by most reverse proxies
+          image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
         };
 
         const endpoint = `${config.baseUrl}/v1/images/generations`; 
@@ -726,9 +727,12 @@ ${forcedPrompt}`;
         }
 
         const data = await fetchResponse.json();
-        const results = (data.data || []).map((item: any) => 
-          item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url
-        );
+        const results = (data.data || []).map((item: any) => {
+          if (!item.b64_json) return item.url;
+          // Fix double prefix on output: only add if not already present
+          const b64 = item.b64_json;
+          return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+        });
         
         if (results.length > 0) return results;
         throw new Error("API returned success but no images were found in the data array.");

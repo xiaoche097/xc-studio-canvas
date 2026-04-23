@@ -376,14 +376,14 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
                   3.1 Flash (极速)
                 </button>
                 <button
-                  onClick={() => setThinkingModel('gemini-3-pro')}
+                  onClick={() => setThinkingModel('gpt-5.4')}
                   className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-all ${
-                    thinkingModel === 'gemini-3-pro'
+                    thinkingModel === 'gpt-5.4'
                       ? 'bg-[#FDF4FF] text-[#9333EA] border border-[#D8B4FE]'
                       : 'bg-white text-slate-500 border border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  3 Pro (推荐)
+                  GPT-5.4 (推荐)
                 </button>
               </div>
             </div>
