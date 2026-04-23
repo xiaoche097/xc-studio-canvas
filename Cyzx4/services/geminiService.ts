@@ -70,10 +70,11 @@ export const analyzeDollModification = async (
 **YOUR TASK**: Analyze the source image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
 
 **CRITICAL RULES**:
-1. **SURGICAL MODIFICATION**: You are performing surgery on the image. ONLY the areas inside the boxes should be modified.
-2. **STRICT REFERENCE ALIGNMENT**: For [区域 i], the visual attributes (texture, design, color, effect) MUST be pulled from Image [i+1]. If Box 1 is over a shirt and Image 2 shows a specific silk texture, the shirt in Box 1 MUST become that silk texture.
-3. **STRICT GUIDANCE ADHERENCE**: The "USER GUIDANCE" is a mandatory constraint. If it says "reduce wrinkles", you must focus on wrinkle reduction in the selected boxes.
-4. **FROZEN ZONES PROTECTION**: ALL areas outside the boxes are "FROZEN". Your generated prompt MUST explicitly command the generator to keep everything outside the boxes unchanged.
+1. **SURGICAL MODIFICATION**: You are performing surgery on an existing image. ONLY the areas inside the boxes should be modified.
+2. **STRICT REFERENCE ALIGNMENT**: For [区域 i], the visual attributes (texture, design, color, effect, angle) MUST be pulled from Image [i+1].
+3. **NO NEW OBJECTS**: DO NOT add any new dolls, props, or background elements. The final image MUST contain EXACTLY the same number of objects as Image 1, in the same positions.
+4. **FROZEN ZONES PROTECTION**: ALL areas outside the boxes are "FROZEN". You must describe the objects outside the boxes EXACTLY as they appear in Image 1 to ensure they are preserved.
+5. **ENGINEERED PROMPT FORMAT**: The prompt must be a detailed description of the ENTIRE FINAL IMAGE, but it must use language like "Keeping everything else identical to Image 1, modify ONLY the [area] to look like [reference description]".
 
 **SOURCE IMAGE**: Image 1.
 **REFERENCE IMAGES**: ${refImages.length > 0 ? `Images 2-${refImages.length + 1} are style/effect references.` : 'None provided.'}
@@ -83,14 +84,14 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
 
 **USER GUIDANCE (HIGH WEIGHT COMMAND)**: "${userGuidance || 'Enhance the selected regions based on reference images.'}"
 
-**TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.' : targetAngle ? `Rotate to ${targetAngle} view.` : 'Keep current perspective.'}
+**TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.' : targetAngle ? `Rotate the object INSIDE the box to ${targetAngle} view, while keeping the rest of the image perspective identical to Image 1.` : 'Keep current perspective.'}
 
 **OUTPUT (Strict JSON)**:
 {
-  "reasoning": "Step 1: Identify what's inside the boxes. Step 2: Identify what's outside all boxes. Step 3: Parse User Guidance and identify which reference images contain the requested effect. Step 4: Combine these into a surgical prompt.",
+  "reasoning": "Step 1: Identify objects inside/outside boxes. Step 2: Plan how to describe the change in the box while anchoring the rest of the image to the source. Step 3: Ensure no new objects are mentioned.",
   "inside_boxes": ["list of parts inside the selected boxes"],
   "outside_boxes": ["list of parts OUTSIDE the boxes that MUST NOT change"],
-  "engineered_prompt": "A precise prompt that: (1) Commands the modification with the specific attributes from references, (2) Strictly follows the USER GUIDANCE, (3) Contains a FROZEN ZONES section, (4) Uses spatial anchoring."
+  "engineered_prompt": "A surgical prompt that: (1) Describes the final image, (2) Explicitly states 'No new objects added', (3) Describes the modified area with reference details, (4) Describes the frozen areas exactly as Image 1."
 }
 `;
 

@@ -225,7 +225,7 @@ const DollMainAdjustTab: React.FC = () => {
       }
 
       let prompt = `[DOLL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a toy/doll.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the core features of the doll.'}\n=== END STRICT INSTRUCTIONS ===`;
-      let negativePrompt = 'deformed anatomy, totally different doll, distorted shape, extra limbs, bad lighting, text, watermark';
+      let negativePrompt = 'deformed anatomy, totally different doll, distorted shape, extra limbs, bad lighting, text, watermark, extra objects, additional dolls, new props, change layout';
 
       // Use Professional Angle Prompts if selected
       if (selectedAngle && (ANGLE_TEMPLATES as any)[selectedAngle]) {
@@ -278,7 +278,7 @@ const DollMainAdjustTab: React.FC = () => {
            // Also inject frozen parts into the negative prompt for double enforcement
            if (analysis.outside_boxes && analysis.outside_boxes.length > 0) {
              const frozenNegative = analysis.outside_boxes.map((part: string) => `change ${part}, modify ${part}`).join(', ');
-             negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box`;
+             negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box, add new objects, hallucinate items`;
            }
            
            if (analysis.reasoning) {

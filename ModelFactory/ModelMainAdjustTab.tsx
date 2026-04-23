@@ -204,7 +204,7 @@ const ModelMainAdjustTab: React.FC = () => {
       }
 
       let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
-      let negativePrompt = GLOBAL_NEGATIVE_PROMPT;
+      let negativePrompt = `${GLOBAL_NEGATIVE_PROMPT}, extra objects, additional items, new props, change layout, hallucinate`;
 
       // Use Professional Angle Prompts if selected
       if (selectedAngle && (ANGLE_TEMPLATES as any)[selectedAngle]) {
@@ -254,10 +254,10 @@ const ModelMainAdjustTab: React.FC = () => {
            prompt = constrainedPrompt;
            
            // Also inject frozen parts into the negative prompt for double enforcement
-           if (analysis.outside_boxes && analysis.outside_boxes.length > 0) {
-             const frozenNegative = analysis.outside_boxes.map((part: string) => `change ${part}, modify ${part}`).join(', ');
-             negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box`;
-           }
+            if (analysis.outside_boxes && analysis.outside_boxes.length > 0) {
+              const frozenNegative = analysis.outside_boxes.map((part: string) => `change ${part}, modify ${part}`).join(', ');
+              negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box, add new objects, hallucinate items`;
+            }
            
            if (analysis.reasoning) {
              console.log("Agent Reasoning:", analysis.reasoning);
