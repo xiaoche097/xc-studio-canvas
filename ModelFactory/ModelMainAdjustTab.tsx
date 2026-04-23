@@ -76,7 +76,7 @@ const ModelMainAdjustTab: React.FC = () => {
   const [resultImages, setResultImages] = useState<string[]>([]);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
-  const [selectedAngle, setSelectedAngle] = useState<string>('RETOUCH');
+  const [selectedAngle, setSelectedAngle] = useState<string | null>(null);
   const [variantCount, setVariantCount] = useState(1);
 
   // Reference Images (Up to 3)
@@ -179,7 +179,7 @@ const ModelMainAdjustTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n=== END STRICT INSTRUCTIONS ===`;
+      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
       let negativePrompt = GLOBAL_NEGATIVE_PROMPT;
 
       // Use Professional Angle Prompts if selected
@@ -376,7 +376,7 @@ const ModelMainAdjustTab: React.FC = () => {
                 {Object.entries(ANGLE_TEMPLATES).map(([key, item]) => (
                    <button
                       key={key}
-                      onClick={() => setSelectedAngle(key)}
+                      onClick={() => setSelectedAngle(selectedAngle === key ? null : key)}
                       className={`py-2 px-1 rounded-xl border text-[10px] font-bold transition-all ${selectedAngle === key ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
                    >
                       {item.name}
