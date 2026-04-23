@@ -671,11 +671,35 @@ export const generateImageToImage = async (
       // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
       if (isGptImage2) {
         const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
-        console.warn(`[GPT Image 2] Sending optimized request. Size: ${gptSize}, Ratio: ${aspectRatio}`);
+        console.warn(`[GPT Image 2] Sending optimized request. Size: ${gptSize}, Ratio: ${aspectRatio}, Workflow: ${workflowHint}`);
         
+        // Build workflow-aware prompt for GPT (since it doesn't get separate system instructions)
+        let gptPrompt = forcedPrompt;
+        if (workflowHint === 'listing-optimization') {
+          gptPrompt = `[ROLE: Senior Amazon A+ Content Visual Strategist & High-Conversion Layout Designer]
+[TASK: Redesign the product listing image based on the optimization brief below]
+[CORE PRINCIPLES]
+1. PRODUCT FIDELITY (HIGHEST PRIORITY): The physical product MUST remain PIXEL-IDENTICAL to the reference image. DO NOT alter the product's shape, color, design, or any visual detail. Only redesign layout, background, typography, and supporting elements.
+2. LAYOUT: Apply a modern, premium, Apple-inspired grid layout with generous negative space. Product is the visual anchor.
+3. TYPOGRAPHY: ALL text MUST be in English. Use clean, modern sans-serif fonts. Text must NEVER overlap the product.
+4. COLOR & LIGHTING: Background must be bright, clean, warm (cream white, soft apricot). Natural soft lighting. NO dark or muddy backgrounds.
+5. VISUAL ELEMENTS: Replace cheap cartoon icons with ultra-minimal line icons. All graphics must feel premium and cohesive.
+
+${forcedPrompt}`;
+        } else if (workflowHint) {
+          gptPrompt = `[ROLE: Professional Fashion AI Artist]
+[TASK: Generate a new image based on reference images and the prompt below]
+[INSTRUCTIONS]
+- Maintain the exact pose and composition of the reference image.
+- Apply changes precisely as described in the user prompt.
+- Output MUST have aspect ratio ${aspectRatio}.
+
+${forcedPrompt}`;
+        }
+
         const payload = {
           model: targetModel,
-          prompt: forcedPrompt,
+          prompt: gptPrompt,
           size: gptSize,
           response_format: "b64_json",
           // The proxy expects an array of base64 strings for the 'image' parameter
@@ -864,6 +888,20 @@ export const generateImageToImage = async (
         2. ALL other parts of the doll (tail, body, limbs, face, eyes, accessories, etc.) that are NOT mentioned as modification targets MUST remain 100% IDENTICAL to Image 1.
         3. If the prompt contains a "FROZEN ZONES" section, treat those listed parts as ABSOLUTELY IMMUTABLE.
         4. Maintain the exact same camera angle, lighting, and background as Image 1.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : options.workflowHint === 'listing-optimization'
+                ? `
+        **ROLE**: Senior Amazon A+ Content Visual Strategist & High-Conversion Layout Designer.
+        **TASK**: Redesign the product listing image based on the structured optimization brief in the user prompt below.
+        **CORE PRINCIPLES**:
+        1. **PRODUCT FIDELITY (HIGHEST PRIORITY)**: The physical product in the image MUST remain PIXEL-IDENTICAL to Image 1. DO NOT alter the product's shape, color, design, pattern, or any visual detail. Only redesign the layout, background, typography, and supporting elements around the product.
+        2. **LAYOUT PHILOSOPHY**: Apply a modern, premium, Apple-inspired grid layout with generous negative space. The product must be the clear visual anchor. Information hierarchy: Product → Headline → Sub-features.
+        3. **TYPOGRAPHY**: ALL text MUST be in English. Use clean, modern sans-serif fonts (like Helvetica, Inter, or SF Pro). Text must NEVER overlap the product. Headlines should be bold and concise.
+        4. **COLOR & LIGHTING**: Background must be bright, clean, and warm (cream white, soft apricot). Lighting should feel natural, soft, and inviting. NO dark, muddy, or cold backgrounds.
+        5. **VISUAL ELEMENTS**: Replace any cheap cartoon icons with ultra-minimal line icons. All supporting graphics must feel premium and cohesive.
+        6. **CONVERSION PSYCHOLOGY**: The layout must guide the viewer's eye from the product to the headline to the features, creating a clear purchase rationale.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

@@ -187,4 +187,5 @@ export type WorkflowHint =
   | 'magic-mannequin' 
   | 'clothing-modification' 
   | 'doll-modification' 
-  | 'doll-retouching';
+  | 'doll-retouching'
+  | 'listing-optimization';

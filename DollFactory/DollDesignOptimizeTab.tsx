@@ -28,7 +28,7 @@ interface ImageItem {
 
 const DollDesignOptimizeTab: React.FC = () => {
   const [images, setImages] = useState<ImageItem[]>([]);
-  const [thinkingModel, setThinkingModel] = useState('gemini-3.1-flash-lite-preview');
+  const [thinkingModel, setThinkingModel] = useState('gemini-3.1-flash-preview');
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
@@ -113,19 +113,45 @@ const DollDesignOptimizeTab: React.FC = () => {
           : `STYLE DIRECTION: 默认采用「温暖治愈系 · 极简高级」风格 (主色: 奶油米白 #F6F2ED, 辅色: 浅暖杏 #F3E4D7, 点缀: 薰衣草紫 #BFAEDC, 强调: 暖橙 #F5B27A)。`;
         
         const prompt = `
-ROLE: 资深亚马逊 A+ Content 视觉策略师 & 欧美电商转化率优化专家
-TASK: 
-1. 识别这张图的核心展示目的（例如：尺寸说明、细节展示、加热功能、使用场景等）。
-2. 分析并输出结构化诊断报告，重点关注排版、文案和视觉高级感。
+ROLE: 你是一位资深亚马逊 A+ Content 视觉策略师 & 欧美电商转化率优化大师，拥有 15 年 DTC 品牌视觉设计经验。
+
+TASK: 对这张亚马逊产品副图进行深度视觉诊断。你需要像审计一个品牌的视觉资产一样，从专业角度分析每个维度的问题。
 
 ${stylePrompt}
 
-诊断维度：
-1. 核心场景（这到底是一张什么图？展示了什么核心卖点？）
-2. 构图问题（产品是否是视觉中心，信息层级是否清晰）
-3. 文案问题（是否有说明书感、字数是否过多、是否符合欧美极简审美）
-4. 视觉风格（图标是否廉价如彩色插画、颜色是否统一）
-5. 转化逻辑（是否能引发购买欲、情绪价值是否足够）
+分析框架（必须逐项深度分析）：
+
+1. **核心场景识别**: 
+   - 这张图的展示目的是什么？（尺寸说明/功能演示/使用场景/细节特写/对比图/成分说明）
+   - 当前的图片能否在 3 秒内让买家理解核心卖点？
+
+2. **构图与信息层级** (权重 25%):
+   - 产品是否是绝对的视觉中心？占比是否合理（建议 40-60%）？
+   - 信息层级是否清晰：主标题 → 产品 → 辅助说明？
+   - 是否存在视觉噪音（太多箭头、线条、文字堆叠）？
+
+3. **文案与排版** (权重 25%):
+   - 文字量是否过多？（欧美审美倾向 less is more，每个区域不超过 5-8 个单词）
+   - 是否有"说明书感"（过度技术化、缺乏情感价值）？
+   - 字体选择是否现代、高级？（避免圆体、手写体、装饰性字体）
+   - 中英文混排是否不专业？
+
+4. **视觉风格与一致性** (权重 25%):
+   - 图标/插画是否廉价？（彩色卡通图标 = 低端感）
+   - 配色是否统一协调？是否有超过 3 种主色？
+   - 背景是否干净高级？（灰暗/杂乱 = 扣分）
+
+5. **转化心理学** (权重 25%):
+   - 是否能激发购买欲望？是否有情感价值（安全感/治愈感/高级感）？
+   - 是否有竞品差异化的视觉亮点？
+   - CTA（行动号召）是否隐含在设计中？
+
+输出要求：
+1. overall_score 必须严格打分，不要客气。60分以下 = 需要重做，60-75 = 及格但有明显问题，75-85 = 良好，85+ = 优秀。
+2. issues 数组必须包含 3-6 个具体问题，每个问题的 suggestion 必须是可执行的具体指令（不要说"优化一下"，要说"将标题字号放大到 48px，居中对齐，使用 Inter Bold"）。
+3. layout_suggestion 必须给出具体的空间布局指令（例如"采用上 40% 主图 + 中 20% 标题区 + 下 40% 三列图标网格"）。
+4. copy_suggestion 的 headline 必须精炼到 2-4 个英文单词，subheadline 不超过 8 个单词，features 不超过 4 个。
+5. style_direction 必须给出具体的视觉替换指令。
 
 你必须返回一段严格的 JSON，格式如下：
 \`\`\`json
@@ -133,18 +159,20 @@ ${stylePrompt}
   "scene_type": "尺寸与细节展示图",
   "overall_score": 65,
   "issues": [
-    { "category": "构图", "problem": "细节图太小", "suggestion": "放大细节图" }
+    { "category": "构图", "problem": "产品占比不到20%，信息分散", "suggestion": "将产品居中放大至画面50%，移除多余装饰元素" },
+    { "category": "文案", "problem": "中英文混排，文字过多有说明书感", "suggestion": "全部改为英文，标题精简为3个单词，副标题不超过8个单词" },
+    { "category": "视觉", "problem": "使用了彩色卡通图标，颜色不统一", "suggestion": "替换为统一的1px细线灰色图标，配色限定在奶油白+暖杏色" }
   ],
-  "layout_suggestion": "采用极简三段式布局：上主图，中标题，下横排Icon。",
+  "layout_suggestion": "上40%放大产品居中展示 → 中20%标题区(Inter Bold 48px) → 下40%三列极简图标+文字",
   "copy_suggestion": { 
-    "headline": "Product Dimensions", 
-    "subheadline": "Perfect Size for Hugging", 
-    "features": ["12 inch tall", "Ultra Soft"] 
+    "headline": "Perfect Size", 
+    "subheadline": "Designed to be hugged", 
+    "features": ["12 inch tall", "Ultra Soft Fill", "Machine Washable"] 
   },
-  "style_direction": "移除所有彩色插画Icon，改用统一的细线极简Icon。"
+  "style_direction": "移除所有彩色插画Icon，改用统一的1px细线极简Icon(#9CA3AF)。背景改为纯净奶油白(#F6F2ED)。所有文字使用Inter字体家族。"
 }
 \`\`\`
-确保输出完全符合上述 JSON 结构，不要包含 markdown 格式以外的文字。
+只输出 JSON 代码块，不要包含任何其他文字。
 `;
         
         const response = await ai.models.generateContent({
@@ -225,7 +253,7 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
             resolution: resolution,
             modelId: selectedModel,
             negativePrompt: 'chinese text, non-english text, altered product, deformed product, different product design, cluttered text, cheap illustration, cartoon icons, busy background, messy layout, hard shadows, ugly typography, instruction manual look',
-            workflowHint: 'doll-modification'
+            workflowHint: 'listing-optimization'
           }
         );
         
@@ -338,9 +366,9 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setThinkingModel('gemini-3.1-flash-lite-preview')}
+                  onClick={() => setThinkingModel('gemini-3.1-flash-preview')}
                   className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-all ${
-                    thinkingModel === 'gemini-3.1-flash-lite-preview'
+                    thinkingModel === 'gemini-3.1-flash-preview'
                       ? 'bg-[#FDF4FF] text-[#9333EA] border border-[#D8B4FE]'
                       : 'bg-white text-slate-500 border border-gray-200 hover:border-gray-300'
                   }`}
@@ -348,14 +376,14 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
                   3.1 Flash (极速)
                 </button>
                 <button
-                  onClick={() => setThinkingModel('gpt-5.4')}
+                  onClick={() => setThinkingModel('gemini-3-pro')}
                   className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-all ${
-                    thinkingModel === 'gpt-5.4'
+                    thinkingModel === 'gemini-3-pro'
                       ? 'bg-[#FDF4FF] text-[#9333EA] border border-[#D8B4FE]'
                       : 'bg-white text-slate-500 border border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  GPT-5.4 (推荐)
+                  3 Pro (推荐)
                 </button>
               </div>
             </div>
