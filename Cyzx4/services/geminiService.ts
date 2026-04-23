@@ -537,6 +537,65 @@ export const generateFusionImage = async (
 };
 
 /**
+ * Calculate the optimal size for gpt-image-2 model following specific constraints:
+ * - Max edge length <= 3840px
+ * - Both edges must be multiples of 16px
+ * - Long edge to short edge ratio must not exceed 3:1
+ * - Total pixels must be between 655,360 and 8,294,400
+ */
+const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution): string => {
+  const [rw, rh] = aspectRatio.split(':').map(Number);
+  const ratio = rw / rh;
+
+  // 1. Handle popular sizes for better consistency
+  if (resolution === '1K') {
+    if (aspectRatio === '1:1') return '1024x1024';
+    if (aspectRatio === '3:2') return '1536x1024';
+    if (aspectRatio === '2:3') return '1024x1536';
+    if (aspectRatio === '16:9') return '1792x1024';
+    if (aspectRatio === '9:16') return '1024x1792';
+  } else if (resolution === '2K') {
+    if (aspectRatio === '1:1') return '2048x2048';
+    if (aspectRatio === '16:9') return '2048x1152';
+    if (aspectRatio === '9:16') return '1152x2048';
+    if (aspectRatio === '3:2') return '2304x1536';
+    if (aspectRatio === '2:3') return '1536x2304';
+  } else if (resolution === '4K') {
+    if (aspectRatio === '16:9') return '3840x2160';
+    if (aspectRatio === '9:16') return '2160x3840';
+    if (aspectRatio === '1:1') return '2880x2880'; // 3840x3840 is ~14.7M pixels, too many. 2880x2880 is ~8.29M.
+  }
+
+  // 2. Dynamic calculation for other cases
+  let targetPixels = 1048576; // Default 1K
+  if (resolution === '2K') targetPixels = 2359296; // ~2.3M
+  if (resolution === '4K') targetPixels = 8294400; // 8.2M Max
+
+  let w = Math.sqrt(targetPixels * ratio);
+  let h = w / ratio;
+
+  // Round to multiple of 16
+  w = Math.round(w / 16) * 16;
+  h = Math.round(h / 16) * 16;
+
+  // Ensure within max edge constraint
+  if (w > 3840) { w = 3840; h = Math.round((w / ratio) / 16) * 16; }
+  if (h > 3840) { h = 3840; w = Math.round((h * ratio) / 16) * 16; }
+
+  // Pixel count audit
+  while (w * h > 8294400) {
+    w -= 16;
+    h = Math.round((w / ratio) / 16) * 16;
+  }
+  while (w * h < 655360 && w < 3840 && h < 3840) {
+    w += 16;
+    h = Math.round((w / ratio) / 16) * 16;
+  }
+
+  return `${w}x${h}`;
+};
+
+/**
  * 2.1.1 Image-to-Image Generation (Multi-Image Support)
  * Supports dynamic model selection and automatic API key rotation on failure.
  */
@@ -579,16 +638,17 @@ export const generateImageToImage = async (
     targetModel = "gemini-3-pro-image-preview";
   }
   const isGptModel = targetModel.toLowerCase().includes('gpt');
+  const isGptImage2 = targetModel === 'gpt-image-2';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
-    if (ar === '16:9') return 'ULTRA-WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation, horizontal format';
-    if (ar === '9:16') return 'TALL VERTICAL SCREEN, 1024x1792 resolution, portrait orientation, NO BORDERS, NO PHONE FRAME, THE ENTIRE IMAGE MUST BE 9:16';
-    if (ar === '3:2') return '3:2 landscape format, 1536x1024';
-    if (ar === '2:3') return '2:3 portrait format, 1024x1536';
-    if (ar === '4:3') return '4:3 standard landscape, 1280x960';
-    if (ar === '3:4') return '3:4 portrait, 960x1280';
-    if (ar === '21:9') return 'ULTRA-WIDE cinematic panorama, 1792x768';
+    if (ar === '16:9') return 'ULTRA-WIDE SCREEN, cinematic landscape orientation';
+    if (ar === '9:16') return 'TALL VERTICAL SCREEN, portrait orientation';
+    if (ar === '3:2') return '3:2 landscape format';
+    if (ar === '2:3') return '2:3 portrait format';
+    if (ar === '4:3') return '4:3 standard landscape';
+    if (ar === '3:4') return '3:4 portrait';
+    if (ar === '21:9') return 'ULTRA-WIDE cinematic panorama';
     return '';
   };
   const arHint = getAspectRatioHint(aspectRatio);
@@ -596,7 +656,7 @@ export const generateImageToImage = async (
   
   // Use a more aggressive "Command" style for the prompt to bypass model laziness
   const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
-    ? `--ar ${aspectRatio} [DIMENSIONS: ${aspectRatio}] [ORIENTATION: ${aspectRatio === '9:16' || aspectRatio === '2:3' ? 'Tall Portrait' : 'Wide Landscape'}] [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()} --ar ${aspectRatio}` 
+    ? `--ar ${aspectRatio} [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()}` 
     : prompt;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -608,6 +668,48 @@ export const generateImageToImage = async (
     });
 
     try {
+      // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
+      if (isGptImage2) {
+        const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
+        console.warn(`[GPT Image 2] Sending optimized request. Size: ${gptSize}, Ratio: ${aspectRatio}`);
+        
+        const payload = {
+          model: targetModel,
+          prompt: forcedPrompt,
+          size: gptSize,
+          response_format: "b64_json",
+          // The proxy expects an array of base64 strings for the 'image' parameter
+          image: images.map(img => img.base64)
+        };
+
+        const endpoint = `${config.baseUrl}/v1/images/generations`; 
+        
+        const fetchResponse = await executeWithTimeout(
+          fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${config.apiKey}`
+            },
+            body: JSON.stringify(payload)
+          }),
+          { timeoutMs: 120000 } // Extended timeout for high-res generation
+        );
+
+        if (!fetchResponse.ok) {
+          const errText = await fetchResponse.text();
+          throw new Error(`GPT Image 2 API Error: ${fetchResponse.status} ${errText}`);
+        }
+
+        const data = await fetchResponse.json();
+        const results = (data.data || []).map((item: any) => 
+          item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url
+        );
+        
+        if (results.length > 0) return results;
+        throw new Error("API returned success but no images were found in the data array.");
+      }
+
       const parts: any[] = [];
 
       let processedImages = images;
@@ -989,6 +1091,8 @@ export const generateInpainting = async (
     ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
     : prompt;
 
+  const isGptImage2 = targetModel === 'gpt-image-2';
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
@@ -998,6 +1102,53 @@ export const generateInpainting = async (
     });
 
     try {
+      // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
+      if (isGptImage2) {
+        const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
+        console.warn(`[GPT Image 2 Inpaint] Size: ${gptSize}, Prompt: ${forcedPrompt.substring(0, 50)}...`);
+        
+        const payload = {
+          model: targetModel,
+          prompt: forcedPrompt,
+          size: gptSize,
+          response_format: "b64_json",
+          // For edits, standard is image + mask. Proxy might accept them as specific fields or in the array.
+          // Based on user "compatible with edits interface", we use standard field names.
+          image: sourceImage.base64,
+          mask: maskImage.base64,
+          // If the proxy expects an array (from user example), we might need to adapt.
+          // But "image" parameter being an array of strings in the example suggests a multi-reference generation.
+          // For true inpainting/edits, we'll try the standard image/mask fields first.
+        };
+
+        const endpoint = `${config.baseUrl}/v1/images/edits`; 
+        
+        const fetchResponse = await executeWithTimeout(
+          fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${config.apiKey}`
+            },
+            body: JSON.stringify(payload)
+          }),
+          { timeoutMs: 120000 }
+        );
+
+        if (!fetchResponse.ok) {
+          const errText = await fetchResponse.text();
+          throw new Error(`GPT Image 2 Inpaint Error: ${fetchResponse.status} ${errText}`);
+        }
+
+        const data = await fetchResponse.json();
+        const results = (data.data || []).map((item: any) => 
+          item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url
+        );
+        
+        if (results.length > 0) return { candidates: [{ content: { parts: results.map((r: string) => ({ text: r })) } }] };
+        throw new Error("API returned success but no images were found.");
+      }
+
       const parts: any[] = [];
 
       // 1. 原图
