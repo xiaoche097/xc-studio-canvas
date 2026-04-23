@@ -108,6 +108,7 @@ const DollMainAdjustTab: React.FC = () => {
   // Editor states
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorBoxes, setEditorBoxes] = useState<EditorBox[]>([]);
+  const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null);
 
   const dataURLtoFile = (dataUrl: string, filename: string) => {
     let arr = dataUrl.split(','),
@@ -125,9 +126,17 @@ const DollMainAdjustTab: React.FC = () => {
     if (!file.type.startsWith('image/')) return;
     if (sourceUrl && sourceUrl.startsWith('blob:')) URL.revokeObjectURL(sourceUrl);
     setSourceFile(file);
-    setSourceUrl(URL.createObjectURL(file));
+    const url = URL.createObjectURL(file);
+    setSourceUrl(url);
     setResultImages([]);
     setEditorBoxes([]); // Reset boxes on new image
+    
+    // Calculate aspect ratio
+    const img = new Image();
+    img.onload = () => {
+      setImageAspectRatio(img.width / img.height);
+    };
+    img.src = url;
   };
 
   const handleSourceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -317,13 +326,20 @@ const DollMainAdjustTab: React.FC = () => {
             </h3>
             {sourceUrl ? (
               <div 
-                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white"
+                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleSourceDrop}
               >
-                <div className="absolute inset-3 flex items-center justify-center">
-                  <div className="relative max-w-full max-h-full">
-                    <img src={sourceUrl} alt="source" className="max-w-full max-h-full w-auto h-auto block rounded-lg" />
+                <div className="relative w-full h-full p-3 flex items-center justify-center">
+                  <div 
+                    className="relative shadow-sm"
+                    style={{ 
+                      aspectRatio: imageAspectRatio || '1/1', 
+                      maxHeight: '100%', 
+                      maxWidth: '100%' 
+                    }}
+                  >
+                    <img src={sourceUrl} alt="source" className="w-full h-full block rounded-lg object-contain" />
                     
                     {/* Draw Boxes Preview (Visual only) */}
                     <div className="absolute inset-0 pointer-events-none">
@@ -601,7 +617,14 @@ const DollMainAdjustTab: React.FC = () => {
                </button>
             </div>
             
-            <div className="relative group max-h-[80%] aspect-square overflow-hidden rounded-[32px] border-4 border-white bg-white shadow-2xl transition-all">
+            <div 
+              className="relative group max-h-[85%] overflow-hidden rounded-[32px] border-4 border-white bg-white shadow-2xl transition-all flex items-center justify-center"
+              style={{ 
+                aspectRatio: outputAspectRatio.replace(':', ' / '),
+                width: 'auto',
+                height: '100%'
+              }}
+            >
               <img
                 src={resultImages[selectedResultIndex]}
                 alt="Doll Result"

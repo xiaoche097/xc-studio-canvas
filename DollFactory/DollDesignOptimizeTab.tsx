@@ -649,10 +649,11 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
                     <div className="flex-1 flex items-center justify-center min-h-[300px]">
                       {img.optimizedUrl ? (
                         <div 
-                          className="w-full max-w-sm rounded-2xl overflow-hidden shadow-lg border-4 border-white cursor-zoom-in hover:shadow-xl transition-all"
+                          className="w-full max-w-sm rounded-2xl overflow-hidden shadow-lg border-4 border-white cursor-zoom-in hover:shadow-xl transition-all flex items-center justify-center bg-white"
+                          style={{ aspectRatio: outputAspectRatio.replace(':', ' / ') }}
                           onClick={() => setFullscreenImage(img.optimizedUrl!)}
                         >
-                          <img src={img.optimizedUrl} className="w-full h-auto object-cover" alt="optimized" />
+                          <img src={img.optimizedUrl} className="w-full h-full object-contain" alt="optimized" />
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center text-gray-400 gap-3">
