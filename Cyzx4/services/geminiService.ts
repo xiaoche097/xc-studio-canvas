@@ -550,20 +550,26 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
   // 1. Handle popular sizes for better consistency
   if (resolution === '1K') {
     if (aspectRatio === '1:1') return '1024x1024';
-    if (aspectRatio === '3:2') return '1536x1024';
-    if (aspectRatio === '2:3') return '1024x1536';
-    if (aspectRatio === '16:9') return '1792x1024';
-    if (aspectRatio === '9:16') return '1024x1792';
+    if (aspectRatio === '3:2') return '1152x768';
+    if (aspectRatio === '2:3') return '768x1152';
+    if (aspectRatio === '4:3') return '1152x864';
+    if (aspectRatio === '3:4') return '864x1152';
+    if (aspectRatio === '16:9') return '1280x720';
+    if (aspectRatio === '9:16') return '720x1280';
   } else if (resolution === '2K') {
     if (aspectRatio === '1:1') return '2048x2048';
     if (aspectRatio === '16:9') return '2048x1152';
     if (aspectRatio === '9:16') return '1152x2048';
+    if (aspectRatio === '4:3') return '2048x1536';
+    if (aspectRatio === '3:4') return '1536x2048';
     if (aspectRatio === '3:2') return '2304x1536';
     if (aspectRatio === '2:3') return '1536x2304';
   } else if (resolution === '4K') {
     if (aspectRatio === '16:9') return '3840x2160';
     if (aspectRatio === '9:16') return '2160x3840';
-    if (aspectRatio === '1:1') return '2880x2880'; // 3840x3840 is ~14.7M pixels, too many. 2880x2880 is ~8.29M.
+    if (aspectRatio === '4:3') return '3200x2400';
+    if (aspectRatio === '3:4') return '2400x3200';
+    if (aspectRatio === '1:1') return '2880x2880';
   }
 
   // 2. Dynamic calculation for other cases
@@ -655,9 +661,18 @@ export const generateImageToImage = async (
   const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
   
   // Use a more aggressive "Command" style for the prompt to bypass model laziness
-  const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
+  // UPDATED: Only use this for Gemini/Nano models. GPT models should have a cleaner prompt to avoid parameter conflict.
+  const forcedPrompt = (!isGptModel && ((aspectRatio && aspectRatio !== '1:1') || resolutionHint))
     ? `--ar ${aspectRatio} [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()}` 
-    : prompt;
+    : prompt.trim();
+
+  // Natural language ratio hint for GPT models (secondary insurance)
+  const gptRatioHint = isGptModel && aspectRatio && aspectRatio !== '1:1'
+    ? (() => {
+        const [w, h] = aspectRatio.split(':').map(Number);
+        return `[ORIENTATION: CRITICAL - The image must be in a ${aspectRatio} ${w > h ? 'HORIZONTAL' : 'VERTICAL'} orientation. DO NOT generate a square image.]`;
+      })()
+    : '';
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
@@ -678,6 +693,7 @@ export const generateImageToImage = async (
         if (workflowHint === 'listing-optimization') {
           gptPrompt = `[ROLE: Senior Amazon A+ Content Visual Strategist & High-Conversion Layout Designer]
 [TASK: Redesign the product listing image based on the optimization brief below]
+[ORIENTATION: Use ${aspectRatio} aspect ratio]
 [CORE PRINCIPLES]
 1. PRODUCT FIDELITY (HIGHEST PRIORITY): The physical product MUST remain PIXEL-IDENTICAL to the reference image. DO NOT alter the product's shape, color, design, or any visual detail. Only redesign layout, background, typography, and supporting elements.
 2. LAYOUT: Apply a modern, premium, Apple-inspired grid layout with generous negative space. Product is the visual anchor.
@@ -685,6 +701,7 @@ export const generateImageToImage = async (
 4. COLOR & LIGHTING: Background must be bright, clean, warm (cream white, soft apricot). Natural soft lighting. NO dark or muddy backgrounds.
 5. VISUAL ELEMENTS: Replace cheap cartoon icons with ultra-minimal line icons. All graphics must feel premium and cohesive.
 
+${gptRatioHint}
 ${forcedPrompt}`;
         } else if (workflowHint) {
           gptPrompt = `[ROLE: Professional Fashion AI Artist]
@@ -694,13 +711,18 @@ ${forcedPrompt}`;
 - Apply changes precisely as described in the user prompt.
 - Output MUST have aspect ratio ${aspectRatio}.
 
+${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (gptRatioHint) {
+          // Add ratio hint for general generation too
+          gptPrompt = `${gptRatioHint}\n${forcedPrompt}`;
         }
 
         const payload = {
           model: targetModel,
           prompt: gptPrompt,
           size: gptSize,
+          quality: "auto",
           response_format: "b64_json",
           // Exact match with your doc: array[string]
           // AND adding the prefix for input images as required by most reverse proxies

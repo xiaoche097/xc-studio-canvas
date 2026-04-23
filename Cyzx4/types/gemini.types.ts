@@ -188,4 +188,5 @@ export type WorkflowHint =
   | 'clothing-modification' 
   | 'doll-modification' 
   | 'doll-retouching'
-  | 'listing-optimization';
+  | 'listing-optimization'
+  | 'reference-refinement';

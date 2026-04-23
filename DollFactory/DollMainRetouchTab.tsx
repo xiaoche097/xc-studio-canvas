@@ -4,7 +4,42 @@ import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
 
-// --- Multi-Angle Ecommerce Prompts ---
+// --- Reference Refinement Prompt ---
+const REFINEMENT_PROMPT = {
+  prompt: `[ROLE] You are a top-tier e-commerce product retouching expert.
+[TASK] Using the "reference effect images" (Image 2+) as the quality benchmark, refine the "base original image" (Image 1) to match their visual quality level (lighting, color saturation, background treatment, overall atmosphere).
+[ABSOLUTE CONSTRAINT - GEOMETRY LOCK]
+- DO NOT change Image 1's camera angle, lens height, focal length perspective (camera/view locked, same camera angle, same perspective, same focal length)
+- DO NOT change the subject's orientation, pose, composition or cropping (do not change pose, do not change framing, no rotation, no viewpoint change)
+- DO NOT change the doll's design, proportions, or any part positions (do not redesign, do not rearrange parts)
+- ONLY modify: lighting, color, sharpness, background, material texture
+[REFINEMENT TARGETS]
+- Lighting: Match reference images' studio lighting style (soft even studio lighting, high-key, clean highlights)
+- Texture: Upgrade fabric/plush texture to reference quality (premium short-pile plush texture, dense and smooth)
+- Background: Match reference background style, default seamless pure white
+- Color: Align overall color tone with reference, vibrant but realistic colors, rich contrast
+- Sharpness: Match reference-level detail and resolution (sharp focus, high resolution, professional retouching)
+- Cleanup: Remove all dust, lint, threads, spots, creases`,
+  negativePrompt: `change of angle, different viewpoint, rotation, tilted camera, zoomed out, zoomed in, crop change, rearranged parts, redesign, deformed, wrong proportions, extra objects, background texture, gradient background, shadow too strong, harsh light, overexposed, underexposed, dull colors, desaturated, noisy, grainy, blurry, low resolution, oversharpen, watermark, text, logo, change design, altered structure, different product, wrong color, color shift, plastic look, glossy, cartoon, illustration, anime, 3D render, CGI`
+};
+
+type IntensityLevel = 'conservative' | 'standard' | 'aggressive';
+const INTENSITY_CONFIG: Record<IntensityLevel, { name: string; desc: string; suffix: string }> = {
+  conservative: {
+    name: '保守', desc: '仅提升清晰度和光影，最大程度保留原图特征',
+    suffix: '\n[INTENSITY: CONSERVATIVE] Only do minor enhancement, keep 90%+ of original color and atmosphere. Only improve sharpness, remove blemishes, and fine-tune lighting.'
+  },
+  standard: {
+    name: '标准', desc: '全面对齐参考图风格（推荐）',
+    suffix: ''
+  },
+  aggressive: {
+    name: '激进', desc: '最大程度靠近参考图效果',
+    suffix: '\n[INTENSITY: AGGRESSIVE] Boldly align with reference image style. Allow significant color, lighting and atmosphere adjustments to match reference quality as closely as possible.'
+  }
+};
+
+// Keep this for backward compat with editor boxes logic
 const ANGLE_TEMPLATES = {
   A: {
     name: '左前 45°',
@@ -119,8 +154,7 @@ const DollMainRetouchTab: React.FC = () => {
   const [resultImages, setResultImages] = useState<string[]>([]);
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
-  const [selectedAngle, setSelectedAngle] = useState<string | null>('RETOUCH');
-  const [selectedFabric, setSelectedFabric] = useState<keyof typeof FABRIC_TEMPLATES | null>(null);
+  const [intensity, setIntensity] = useState<IntensityLevel>('standard');
   const [variantCount, setVariantCount] = useState(1);
 
   // Reference Images (Up to 3)
@@ -196,6 +230,10 @@ const DollMainRetouchTab: React.FC = () => {
       alert('请上传玩偶原图');
       return;
     }
+    if (refFiles.length === 0) {
+      alert('请上传至少一张参考效果图');
+      return;
+    }
 
     setIsGenerating(true);
     setStatusMessage('正在分析玩偶原图结构属性，调整生成参数...');
@@ -214,22 +252,18 @@ const DollMainRetouchTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[DOLL MAIN IMAGE ENHANCEMENT]\nOptimizing the main display image for a toy/doll.\nUser instruction: ${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the core features of the doll.'}`;
-      let negativePrompt = 'deformed anatomy, totally different doll, distorted shape, extra limbs, bad lighting, text, watermark';
+      // ==========================================
+      // [REFERENCE REFINEMENT MODE]
+      // ==========================================
+      let prompt = REFINEMENT_PROMPT.prompt;
+      let negativePrompt = REFINEMENT_PROMPT.negativePrompt;
 
-      // ==========================================
-      // [RETOUCH MODE] Always hardcoded to RETOUCH
-      // ==========================================
-      const template = ANGLE_TEMPLATES.RETOUCH;
-      prompt = template.prompt;
-      
-      // Inject Fabric specifics only if selected
-      if (selectedFabric && FABRIC_TEMPLATES[selectedFabric]) {
-        const fabricTemplate = FABRIC_TEMPLATES[selectedFabric];
-        prompt += `\n\n**FABRIC FINISH**: ${fabricTemplate.prompt}. Surface: short-pile velboa plush, crystal velboa, minky short pile, microfiber microfleece, dense and smooth nap, matte soft finish, subtle directional pile sheen, clean uniform texture, premium plush toy fabric.`;
-        negativePrompt = (template.negativePrompt || GLOBAL_NEGATIVE_PROMPT) + ', ' + fabricTemplate.negative;
-      } else {
-        negativePrompt = template.negativePrompt || GLOBAL_NEGATIVE_PROMPT;
+      // Apply intensity suffix
+      prompt += INTENSITY_CONFIG[intensity].suffix;
+
+      // Append user guidance if provided
+      if (guidance.trim()) {
+        prompt += `\n\n[USER ADDITIONAL INSTRUCTIONS]: ${guidance.trim()}`;
       }
 
       // ==========================================
@@ -281,11 +315,10 @@ const DollMainRetouchTab: React.FC = () => {
         }
       } else if (refInputImages.length > 0) {
         // Fallback for global reference without specific boxes
-        prompt += `\nCRITICAL: You have been provided ${refFiles.length} additional input image(s) acting as STYLE/EFFECT REFERENCES. Please seamlessly blend their visual features globally onto the main doll.`;
+        prompt += `\nCRITICAL: You have been provided ${refFiles.length} additional input image(s) acting as STYLE/EFFECT REFERENCES. Refine Image 1 to match their visual quality while strictly maintaining Image 1's angle and structure.`;
       }
       
-      setStatusMessage(`正在为您并行生成 ${variantCount} 组精修方案 (约 30-60s)...`);
-      
+      setStatusMessage(`正在为您并行生成 ${variantCount} 组参考精修方案 (约 30-60s)...`);
       const generationTasks = Array(variantCount).fill(null).map(() => 
         generateImageToImage(
           inputImages,
@@ -295,7 +328,7 @@ const DollMainRetouchTab: React.FC = () => {
             resolution: resolution,
             modelId: selectedModel,
             negativePrompt,
-            workflowHint: (selectedAngle === 'RETOUCH' ? 'doll-retouching' : 'doll-modification') as any,
+            workflowHint: 'reference-refinement' as any,
             sampleCount: 1 
           }
         )
@@ -307,7 +340,7 @@ const DollMainRetouchTab: React.FC = () => {
       if (flattenedResult.length > 0) {
         setResultImages(flattenedResult);
         setSelectedResultIndex(0);
-        setStatusMessage(selectedAngle ? '视角转换方案已生成！请从变体中挑选最准确的一张。' : '精修图已生成！');
+        setStatusMessage('参考精修完成！请查看生成效果。');
       } else {
         throw new Error('未返回任何图片');
       }
@@ -327,11 +360,11 @@ const DollMainRetouchTab: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">
               <Sparkles className="h-4 w-4" />
-              <span className="text-xs font-black uppercase tracking-[0.22em]">Doll Retouching</span>
+              <span className="text-xs font-black uppercase tracking-[0.22em]">Reference Refinement</span>
             </div>
-            <h3 className="text-xl font-black tracking-tight text-pastel-text">玩偶主图精修</h3>
+            <h3 className="text-xl font-black tracking-tight text-pastel-text">参考图精修</h3>
             <p className="text-[10px] leading-5 text-pastel-muted italic">
-              上传基础的玩偶草图或原片，AI 结合提示词为您生成精美、专业的商业展示主图。
+              上传基础玩偶原图 + 参考效果图，AI 将原图精修至参考图级别的视觉品质，严格保持原图角度和结构不变。
             </p>
           </div>
 
@@ -404,73 +437,43 @@ const DollMainRetouchTab: React.FC = () => {
             )}
           </div>
 
-          {/* 视角锁定状态展示 */}
-          <div className="bg-orange-50/10 border border-orange-200/50 rounded-2xl p-4 flex items-center gap-4 transition-all">
-             <div className="w-10 h-10 bg-orange-100/50 rounded-xl flex items-center justify-center flex-shrink-0 border border-orange-200/50 shadow-sm">
-                <Sparkles className="w-5 h-5 text-orange-500" />
-             </div>
-             <div className="flex-1">
-                <div className="text-[10px] font-black text-orange-800/60 uppercase tracking-wider mb-0.5">Perspective Locked</div>
-                <div className="text-[10px] text-orange-600/80 font-medium leading-relaxed">
-                  视角锁定模式已开启
-                </div>
-             </div>
+          {/* 角度锁定提示条 */}
+          <div className="bg-orange-50/10 border border-orange-200/50 rounded-xl p-3 flex items-center gap-3">
+             <span className="text-base">🔒</span>
+             <span className="text-[10px] text-orange-600/80 font-medium">角度锁定：AI 会严格保持原图的角度、结构和姿态</span>
           </div>
 
-          {/* 面料精修选择器 (New Section) */}
+          {/* 精修强度选择器 */}
           <div className="space-y-3">
              <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-pastel-text flex items-center gap-2">
                    <Edit2 className="w-4 h-4 text-pastel-highlight" />
-                   <span>面料毛感精修</span>
+                   <span>精修强度</span>
                 </h3>
-                <span className="text-[10px] py-0.5 px-2 bg-pastel-highlight/10 text-pastel-highlight rounded-full font-bold">Premium Texture</span>
+                <span className="text-[10px] py-0.5 px-2 bg-pastel-highlight/10 text-pastel-highlight rounded-full font-bold">Intensity</span>
              </div>
              <div className="grid grid-cols-1 gap-2">
-                <button
-                   onClick={() => setSelectedFabric(null)}
-                   className={`group relative p-3 rounded-2xl border text-left transition-all duration-200 ${
-                      selectedFabric === null 
-                         ? 'border-pastel-highlight bg-white shadow-md' 
-                         : 'border-pastel-border bg-pastel-bg/50 hover:bg-white hover:border-pastel-highlight/30'
-                   }`}
-                >
-                   <div className="flex items-center justify-between">
-                      <div className="flex flex-col">
-                         <span className={`text-xs font-black transition-colors ${selectedFabric === null ? 'text-pastel-highlight' : 'text-pastel-text'}`}>
-                            默认精修
-                         </span>
-                         <span className="text-[10px] text-pastel-muted mt-0.5">基础材质增强，保持原样</span>
-                      </div>
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                         selectedFabric === null ? 'border-pastel-highlight bg-pastel-highlight shadow-inner' : 'border-pastel-border bg-white'
-                      }`}>
-                         {selectedFabric === null && <div className="w-1.5 h-1.5 bg-white rounded-full shadow-sm" />}
-                      </div>
-                   </div>
-                </button>
-
-                {(Object.entries(FABRIC_TEMPLATES) as [keyof typeof FABRIC_TEMPLATES, any][]).map(([key, item]) => (
+                {(Object.entries(INTENSITY_CONFIG) as [IntensityLevel, typeof INTENSITY_CONFIG[IntensityLevel]][]).map(([key, item]) => (
                    <button
                       key={key}
-                      onClick={() => setSelectedFabric(key)}
+                      onClick={() => setIntensity(key)}
                       className={`group relative p-3 rounded-2xl border text-left transition-all duration-200 ${
-                         selectedFabric === key 
+                         intensity === key 
                             ? 'border-pastel-highlight bg-white shadow-md' 
                             : 'border-pastel-border bg-pastel-bg/50 hover:bg-white hover:border-pastel-highlight/30'
                       }`}
                    >
                       <div className="flex items-center justify-between">
                          <div className="flex flex-col">
-                            <span className={`text-xs font-black transition-colors ${selectedFabric === key ? 'text-pastel-highlight' : 'text-pastel-text'}`}>
+                            <span className={`text-xs font-black transition-colors ${intensity === key ? 'text-pastel-highlight' : 'text-pastel-text'}`}>
                                {item.name}
                             </span>
                             <span className="text-[10px] text-pastel-muted mt-0.5">{item.desc}</span>
                          </div>
                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                            selectedFabric === key ? 'border-pastel-highlight bg-pastel-highlight shadow-inner' : 'border-pastel-border bg-white'
+                            intensity === key ? 'border-pastel-highlight bg-pastel-highlight shadow-inner' : 'border-pastel-border bg-white'
                          }`}>
-                            {selectedFabric === key && <div className="w-1.5 h-1.5 bg-white rounded-full shadow-sm" />}
+                            {intensity === key && <div className="w-1.5 h-1.5 bg-white rounded-full shadow-sm" />}
                          </div>
                       </div>
                    </button>
@@ -478,11 +481,11 @@ const DollMainRetouchTab: React.FC = () => {
              </div>
           </div>
 
-          {/* 参考图上传 (可选) */}
+          {/* 目标效果图上传 (必须) */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
-              <span>参考效果图 <span className="opacity-60 font-normal">({refFiles.length}/3)</span></span>
-              <span className="text-[10px] font-normal text-pastel-muted">可选</span>
+              <span>目标效果图 <span className="opacity-60 font-normal">({refFiles.length}/3)</span></span>
+              <span className="text-[10px] font-normal text-red-500 font-bold">必须上传</span>
             </h3>
             <div className="grid grid-cols-3 gap-2">
                {refUrls.map((url, i) => {
@@ -610,13 +613,13 @@ const DollMainRetouchTab: React.FC = () => {
         <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10 shadow-sm">
           <button
             onClick={handleGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || !sourceFile || refFiles.length === 0}
             className="w-full py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all hover:brightness-105 active:scale-[0.98]"
           >
             {isGenerating ? (
-              <><Loader2 className="h-5 w-5 animate-spin" /> 正在生成玩偶主图...</>
+              <><Loader2 className="h-5 w-5 animate-spin" /> 正在参考精修中...</>
             ) : (
-              <><Zap className="h-5 w-5" /> 立即生成</>
+              <><Zap className="h-5 w-5" /> 开始参考精修</>
             )}
           </button>
         </div>
@@ -641,8 +644,8 @@ const DollMainRetouchTab: React.FC = () => {
              <div className="w-24 h-24 rounded-3xl bg-white border-2 border-dashed border-pastel-border flex items-center justify-center mb-6 shadow-sm">
                <Zap className="w-10 h-10 text-pastel-border" />
              </div>
-             <p className="text-lg font-black text-pastel-text">等待生成</p>
-             <p className="text-xs mt-2 opacity-70">请在左侧上传玩偶底图并点击生成</p>
+              <p className="text-lg font-black text-pastel-text">等待生成</p>
+              <p className="text-xs mt-2 opacity-70">请在左侧上传玩偶原图和参考效果图并点击生成</p>
           </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-4">

@@ -38,7 +38,7 @@ const DollFactoryApp: React.FC = () => {
               active={activeTab === 'main-retouch'}
               onClick={() => setActiveTab('main-retouch')}
               icon={<Sparkles className="w-5 h-5" />}
-              label="玩偶主图精修"
+              label="参考图精修"
             />
             <NavButton
               active={activeTab === 'design-optimize'}
@@ -64,7 +64,7 @@ const DollFactoryApp: React.FC = () => {
         <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === 'main-adjust' && "玩偶主图调整"}
-            {activeTab === 'main-retouch' && "玩偶主图精修"}
+            {activeTab === 'main-retouch' && "参考图精修"}
             {activeTab === 'design-optimize' && "玩偶设计优化"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
