@@ -560,7 +560,11 @@ TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in $
             </h3>
 
             {/* Reference image grid */}
-            <div className="grid grid-cols-3 gap-2">
+            <div 
+              className="grid grid-cols-3 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleRefDrop}
+            >
               {refUrls.map((url, i) => (
                 <div key={i} className="relative group aspect-[3/4] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white">
                   <img src={skeletonUrls[i] || url} alt={`ref-${i + 1}`} className="w-full h-full object-cover" />

@@ -179,7 +179,7 @@ const ModelMainAdjustTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT]\nOptimizing the main display image for a fashion model.\nUser instruction: ${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}`;
+      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n=== END STRICT INSTRUCTIONS ===`;
       let negativePrompt = GLOBAL_NEGATIVE_PROMPT;
 
       // Use Professional Angle Prompts if selected
@@ -391,7 +391,11 @@ const ModelMainAdjustTab: React.FC = () => {
               <span>参考效果图 (可选)</span>
               <span className="text-[10px] font-normal text-pastel-muted">{refFiles.length}/3</span>
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div 
+              className="grid grid-cols-3 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleRefDrop}
+            >
                {refUrls.map((url, i) => (
                   <div key={i} className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white p-1">
                     <img src={url} alt={`ref-${i}`} className="w-full h-full object-contain" />
@@ -404,7 +408,11 @@ const ModelMainAdjustTab: React.FC = () => {
                   </div>
                ))}
                {refFiles.length < 3 && (
-                  <label className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 cursor-pointer">
+                  <label 
+                    className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 cursor-pointer"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleRefDrop}
+                  >
                     <input type="file" className="hidden" onChange={handleRefChange} accept="image/*" multiple />
                     <Upload className="w-4 h-4 text-pastel-muted" />
                   </label>
@@ -463,7 +471,7 @@ const ModelMainAdjustTab: React.FC = () => {
               rows={2}
               value={guidance}
               onChange={(e) => setGuidance(e.target.value)}
-              placeholder="例如：加强肤质感、背景换成简约家居场景..."
+              placeholder="例如：将模特的衣服颜色改为参考图1的深蓝色，或者将背景换成参考图2的家居场景（高权重指令）..."
               className="w-full bg-white border border-pastel-border rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none resize-none"
             />
           </div>

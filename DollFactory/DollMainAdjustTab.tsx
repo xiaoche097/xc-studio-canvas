@@ -201,7 +201,7 @@ const DollMainAdjustTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[DOLL MAIN IMAGE ENHANCEMENT]\nOptimizing the main display image for a toy/doll.\nUser instruction: ${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the core features of the doll.'}`;
+      let prompt = `[DOLL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a toy/doll.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the core features of the doll.'}\n=== END STRICT INSTRUCTIONS ===`;
       let negativePrompt = 'deformed anatomy, totally different doll, distorted shape, extra limbs, bad lighting, text, watermark';
 
       // Use Professional Angle Prompts if selected
@@ -419,7 +419,11 @@ const DollMainAdjustTab: React.FC = () => {
               <span>参考效果图 <span className="opacity-60 font-normal">({refFiles.length}/3)</span></span>
               <span className="text-[10px] font-normal text-pastel-muted">可选</span>
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div 
+              className="grid grid-cols-3 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleRefDrop}
+            >
                {refUrls.map((url, i) => {
                   const colors = ['bg-red-500', 'bg-yellow-400', 'bg-blue-500'];
                   return (
@@ -515,7 +519,7 @@ const DollMainAdjustTab: React.FC = () => {
               rows={3}
               value={guidance}
               onChange={(e) => setGuidance(e.target.value)}
-              placeholder="例如：毛绒材质、明亮的暖色调灯光、背景是童话房间..."
+              placeholder="例如：将玩偶材质改为参考图1的丝绒感，或者参考图2的配色方案进行局部调整（高权重指令）..."
               className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
             />
           </div>

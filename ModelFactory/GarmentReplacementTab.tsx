@@ -201,6 +201,13 @@ const GarmentReplacementTab: React.FC = () => {
     setResults([]);
   };
 
+  const handleTargetDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files) {
+      addTargetFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
   /**
    * Prepares an image for API parsing (compresses it to a max of 2048px width without destroying multi-view formats).
    */
@@ -598,7 +605,11 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div 
+              className="grid grid-cols-3 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleTargetDrop}
+            >
               {targetUrls.map((url, i) => (
                 <div key={i} className="relative group aspect-[3/4] rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white">
                   <img src={url} alt={`target-${i + 1}`} className="w-full h-full object-cover" />

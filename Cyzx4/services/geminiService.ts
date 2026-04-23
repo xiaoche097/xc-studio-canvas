@@ -66,29 +66,31 @@ export const analyzeDollModification = async (
   const analysisPrompt = `
 **ROLE**: Precision Vision Analyst for Localized Image Modification.
 
-**YOUR TASK**: Analyze the source doll image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
+**YOUR TASK**: Analyze the source image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
 
 **CRITICAL RULES**:
-1. You MUST identify what body part / feature of the doll falls inside EACH box.
-2. You MUST identify what body parts / features are OUTSIDE all boxes.
-3. The generated prompt MUST contain an explicit "FROZEN ZONES" section listing ALL parts that must NOT change.
+1. **STRICT GUIDANCE ADHERENCE**: The "USER GUIDANCE" provided below is the HIGHEST PRIORITY. You must interpret it as a mandatory command. If the user specifies a change (e.g., "change the color", "use the style from reference"), you must prioritize this over any default enhancement.
+2. **REFERENCE IMAGE MAPPING**: If reference images are provided (Images 2+), you MUST extract the specific visual features (textures, colors, lighting, or patterns) requested in the USER GUIDANCE from these references and apply them to the modified regions.
+3. You MUST identify what body part / feature falls inside EACH box.
+4. You MUST identify what body parts / features are OUTSIDE all boxes.
+5. The generated prompt MUST contain an explicit "FROZEN ZONES" section listing ALL parts that must NOT change.
 
-**SOURCE IMAGE**: Image 1 (the doll to be modified).
+**SOURCE IMAGE**: Image 1.
 **REFERENCE IMAGES**: ${refImages.length > 0 ? `Images 2-${refImages.length + 1} are style/effect references.` : 'None provided.'}
 
 **USER'S BOX SELECTIONS** (these define the ONLY areas that may be modified):
 ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modification.'}
 
-**USER GUIDANCE**: "${userGuidance || 'Enhance the selected regions based on reference images.'}"
+**USER GUIDANCE (HIGH WEIGHT COMMAND)**: "${userGuidance || 'Enhance the selected regions based on reference images.'}"
 
 **TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.' : targetAngle ? `Rotate to ${targetAngle} view.` : 'Keep current perspective.'}
 
 **OUTPUT (Strict JSON)**:
 {
-  "reasoning": "Step 1: Identify what's inside Box 1 (e.g., 'left ear'). Step 2: Identify what's outside all boxes (e.g., 'tail, body, eyes, nose'). Step 3: Describe the modification needed.",
-  "inside_boxes": ["list of body parts/features inside the selected boxes"],
-  "outside_boxes": ["list of body parts/features OUTSIDE the boxes that MUST NOT change"],
-  "engineered_prompt": "A precise prompt that: (1) States exactly which parts to modify and how, (2) Contains a FROZEN ZONES section listing everything that must remain identical, (3) Includes spatial anchoring like 'modify ONLY the left ear area in the upper-left quadrant'."
+  "reasoning": "Step 1: Identify what's inside the boxes. Step 2: Identify what's outside all boxes. Step 3: Parse User Guidance and identify which reference images contain the requested effect. Step 4: Combine these into a surgical prompt.",
+  "inside_boxes": ["list of parts inside the selected boxes"],
+  "outside_boxes": ["list of parts OUTSIDE the boxes that MUST NOT change"],
+  "engineered_prompt": "A precise prompt that: (1) Commands the modification with the specific attributes from references, (2) Strictly follows the USER GUIDANCE, (3) Contains a FROZEN ZONES section, (4) Uses spatial anchoring."
 }
 `;
 
