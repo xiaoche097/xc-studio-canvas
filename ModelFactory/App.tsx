@@ -7,12 +7,14 @@ import BatchRecolorTab from './BatchRecolorTab.tsx';
 import ClothingModificationTab from './ClothingModificationTab.tsx';
 import BatchPropsModifierTab from './BatchPropsModifierTab.tsx';
 import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette, Scissors } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette, Scissors, ImageIcon } from 'lucide-react';
 
-type ModelFactoryMode = 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'batch-props-modifier' | 'settings';
+import ModelMainAdjustTab from './ModelMainAdjustTab.tsx';
+
+type ModelFactoryMode = 'model-main-adjust' | 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'batch-props-modifier' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<ModelFactoryMode>('pose-fission');
+  const [activeTab, setActiveTab] = useState<ModelFactoryMode>('model-main-adjust');
 
   return (
     <div className="flex h-screen bg-pastel-bg text-pastel-text overflow-hidden font-sans">
@@ -30,6 +32,13 @@ const ModelFactoryApp: React.FC = () => {
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
           <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 hidden md:block">模特工厂</div>
+
+          <NavButton
+            active={activeTab === 'model-main-adjust'}
+            onClick={() => setActiveTab('model-main-adjust')}
+            icon={<Wand2 className="w-5 h-5" />}
+            label="模特主图调整 (Model Main Adjust)"
+          />
 
           <NavButton
             active={activeTab === 'pose-fission'}
@@ -93,6 +102,7 @@ const ModelFactoryApp: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
           <h1 className="text-xl font-medium text-pastel-text">
+            {activeTab === 'model-main-adjust' && "模特主图调整 (Model Main Adjust)"}
             {activeTab === 'pose-fission' && "姿势裂变 (Pose Fission)"}
             {activeTab === 'model-adjust' && "模特调整 (Pose Transfer)"}
             {activeTab === 'action-reference' && "动作参考 (Action Reference)"}
@@ -106,6 +116,9 @@ const ModelFactoryApp: React.FC = () => {
 
         <div className="flex-1 overflow-auto p-0 relative">
           <div className="h-full w-full">
+            <div style={{ display: activeTab === 'model-main-adjust' ? 'block' : 'none', height: '100%' }}>
+              <ModelMainAdjustTab />
+            </div>
             <div style={{ display: activeTab === 'pose-fission' ? 'block' : 'none', height: '100%' }}>
               <PoseFissionTab />
             </div>

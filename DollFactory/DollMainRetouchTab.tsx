@@ -289,7 +289,7 @@ const DollMainRetouchTab: React.FC = () => {
             color: ['Red', 'Yellow', 'Blue'][i % 3] 
           })),
           guidance,
-          template.name
+          ANGLE_TEMPLATES.RETOUCH.name
         );
         
         if (analysis && analysis.engineered_prompt) {
