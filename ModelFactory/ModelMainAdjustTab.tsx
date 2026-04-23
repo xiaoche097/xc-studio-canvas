@@ -410,8 +410,6 @@ const ModelMainAdjustTab: React.FC = () => {
                {refFiles.length < 3 && (
                   <label 
                     className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 cursor-pointer"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={handleRefDrop}
                   >
                     <input type="file" className="hidden" onChange={handleRefChange} accept="image/*" multiple />
                     <Upload className="w-4 h-4 text-pastel-muted" />

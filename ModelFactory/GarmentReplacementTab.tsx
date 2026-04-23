@@ -629,8 +629,6 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               {targetFiles.length < MAX_TARGETS && (
                 <label
                   className="relative flex flex-col items-center justify-center aspect-[3/4] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) addTargetFiles(Array.from(e.dataTransfer.files)); }}
                 >
                   <input type="file" className="hidden" onChange={handleTargetChange} accept="image/*" multiple />
                   <Upload className="w-5 h-5 text-pastel-muted group-hover:text-pastel-highlight transition-colors mb-1" />

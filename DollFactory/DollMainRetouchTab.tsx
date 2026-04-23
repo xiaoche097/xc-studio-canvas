@@ -533,8 +533,6 @@ const DollMainRetouchTab: React.FC = () => {
 
                {refFiles.length < 3 && (
                  <label 
-                   onDragOver={(e) => e.preventDefault()}
-                   onDrop={handleRefDrop}
                    className="relative flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
                  >
                    <input type="file" className="hidden" onChange={handleRefChange} accept="image/*" multiple />

@@ -600,8 +600,6 @@ TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in $
               {/* Add more slot */}
               {refFiles.length < MAX_REFS && (
                 <label
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={handleRefDrop}
                   className="relative flex flex-col items-center justify-center aspect-[3/4] rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
                 >
                   <input type="file" className="hidden" onChange={handleRefChange} accept="image/*" multiple />
