@@ -60,7 +60,8 @@ export const analyzeDollModification = async (
 
   const boxDescriptions = boxes.map((b, i) => {
     const spatialDesc = describePosition(b.x, b.y, b.w, b.h);
-    return `[修改区域 ${i+1}] (${b.color} Box): 位于图片的 ${spatialDesc}。精确坐标: 左上角(${(b.x*100).toFixed(1)}%, ${(b.y*100).toFixed(1)}%), 尺寸(${(b.w*100).toFixed(1)}%×${(b.h*100).toFixed(1)}%)。此区域对应参考图 Image ${i+3}。`;
+    const colorCode = b.color === 'Red' ? '红框' : b.color === 'Yellow' ? '黄框' : '蓝框';
+    return `[区域 ${i+1}] (${colorCode}): 位于 ${spatialDesc}。精确坐标: (${(b.x*100).toFixed(1)}%, ${(b.y*100).toFixed(1)}%)。此区域的目标效果**必须参考 Image ${i+2}**。`;
   }).join('\n');
 
   const analysisPrompt = `
@@ -69,11 +70,10 @@ export const analyzeDollModification = async (
 **YOUR TASK**: Analyze the source image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
 
 **CRITICAL RULES**:
-1. **STRICT GUIDANCE ADHERENCE**: The "USER GUIDANCE" provided below is the HIGHEST PRIORITY. You must interpret it as a mandatory command. If the user specifies a change (e.g., "change the color", "use the style from reference"), you must prioritize this over any default enhancement.
-2. **REFERENCE IMAGE MAPPING**: If reference images are provided (Images 2+), you MUST extract the specific visual features (textures, colors, lighting, or patterns) requested in the USER GUIDANCE from these references and apply them to the modified regions.
-3. You MUST identify what body part / feature falls inside EACH box.
-4. You MUST identify what body parts / features are OUTSIDE all boxes.
-5. The generated prompt MUST contain an explicit "FROZEN ZONES" section listing ALL parts that must NOT change.
+1. **SURGICAL MODIFICATION**: You are performing surgery on the image. ONLY the areas inside the boxes should be modified.
+2. **STRICT REFERENCE ALIGNMENT**: For [区域 i], the visual attributes (texture, design, color, effect) MUST be pulled from Image [i+1]. If Box 1 is over a shirt and Image 2 shows a specific silk texture, the shirt in Box 1 MUST become that silk texture.
+3. **STRICT GUIDANCE ADHERENCE**: The "USER GUIDANCE" is a mandatory constraint. If it says "reduce wrinkles", you must focus on wrinkle reduction in the selected boxes.
+4. **FROZEN ZONES PROTECTION**: ALL areas outside the boxes are "FROZEN". Your generated prompt MUST explicitly command the generator to keep everything outside the boxes unchanged.
 
 **SOURCE IMAGE**: Image 1.
 **REFERENCE IMAGES**: ${refImages.length > 0 ? `Images 2-${refImages.length + 1} are style/effect references.` : 'None provided.'}

@@ -396,17 +396,25 @@ const ModelMainAdjustTab: React.FC = () => {
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleRefDrop}
             >
-               {refUrls.map((url, i) => (
-                  <div key={i} className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white p-1">
-                    <img src={url} alt={`ref-${i}`} className="w-full h-full object-contain" />
-                    <button 
-                      onClick={() => removeRefFile(i)}
-                      className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-2 h-2" />
-                    </button>
-                  </div>
-               ))}
+               {refUrls.map((url, i) => {
+                   const colors = ['bg-red-500', 'bg-yellow-400', 'bg-blue-500'];
+                   return (
+                   <div key={i} className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white p-1">
+                     <img src={url} alt={`ref-${i}`} className="w-full h-full object-contain" />
+                     
+                     {/* Color mapping badge */}
+                     <span className={`absolute top-1 left-1 w-3.5 h-3.5 ${colors[i % 3]} rounded-full border-2 border-white shadow-sm flex items-center justify-center text-[8px] font-bold text-white z-10`}>
+                       {i+1}
+                     </span>
+
+                     <button 
+                       onClick={() => removeRefFile(i)}
+                       className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                     >
+                       <X className="w-2 h-2" />
+                     </button>
+                   </div>
+                )})}
                {refFiles.length < 3 && (
                   <label 
                     className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 cursor-pointer"
