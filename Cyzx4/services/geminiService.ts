@@ -70,10 +70,12 @@ export const analyzeDollModification = async (
 **YOUR TASK**: Analyze the source image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
 
 **CRITICAL RULES**:
-1. **SURGICAL MODIFICATION**: You are performing surgery on an existing image. ONLY the areas inside the boxes should be modified.
-2. **STRICT REFERENCE ALIGNMENT**: For [区域 i], the visual attributes (texture, design, color, effect, angle) MUST be pulled from Image [i+1].
-3. **NO NEW OBJECTS**: DO NOT add any new dolls, props, or background elements. The final image MUST contain EXACTLY the same number of objects as Image 1, in the same positions.
-4. **FROZEN ZONES PROTECTION**: ALL areas outside the boxes are "FROZEN". You must describe the objects outside the boxes EXACTLY as they appear in Image 1 to ensure they are preserved.
+1. **MODIFICATION MODE**:
+   - **Surgical (Boxes provided)**: ONLY the areas inside the boxes should be modified. EVERYTHING else is "FROZEN".
+   - **Global (No boxes provided)**: You may refine the entire image (lighting, texture, quality). HOWEVER, you must maintain 100% of the original objects' positions, counts, poses, and basic shapes from Image 1. DO NOT add or remove objects.
+2. **STRICT REFERENCE ALIGNMENT**: Extract visual attributes (texture, lighting, color depth, material feel) from the REFERENCE IMAGES (Images 2+). Apply these attributes to the modified areas or the entire image.
+3. **NO NEW OBJECTS**: Absolutely NO hallucination of additional dolls, props, or background details not present in Image 1.
+4. **LAYOUT PRESERVATION**: The final image must be a 1:1 structural match to Image 1. If Image 1 has a doll on the left, the final image must have that same doll on the left, just refined.
 5. **ENGINEERED PROMPT FORMAT**: The prompt must be a detailed description of the ENTIRE FINAL IMAGE, but it must use language like "Keeping everything else identical to Image 1, modify ONLY the [area] to look like [reference description]".
 
 **SOURCE IMAGE**: Image 1.

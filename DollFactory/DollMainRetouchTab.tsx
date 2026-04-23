@@ -301,7 +301,7 @@ const DollMainRetouchTab: React.FC = () => {
       // ==========================================
       // [NEW] Agentic Pre-analysis for Precision Locality
       // ==========================================
-      if (editorBoxes.length > 0 && refInputImages.length > 0) {
+      if (refInputImages.length > 0) {
         setStatusMessage('🌍 Agent 正在解析局部调整指令...');
         // Execute Vision Pre-processing
         const analysis = await analyzeDollModification(
@@ -338,16 +338,13 @@ const DollMainRetouchTab: React.FC = () => {
            // Also inject frozen parts into the negative prompt for double enforcement
            if (analysis.outside_boxes && analysis.outside_boxes.length > 0) {
              const frozenNegative = analysis.outside_boxes.map((part: string) => `change ${part}, modify ${part}`).join(', ');
-             negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box`;
+             negativePrompt = `${negativePrompt}, ${frozenNegative}, change unselected areas, modify areas outside selection box, add new objects, hallucinate items, change layout`;
            }
            
            if (analysis.reasoning) {
              console.log("Agent Reasoning:", analysis.reasoning);
            }
         }
-      } else if (refInputImages.length > 0) {
-        // Fallback for global reference without specific boxes
-        prompt += `\nCRITICAL: You have been provided ${refFiles.length} additional input image(s) acting as STYLE/EFFECT REFERENCES. Refine Image 1 to match their visual quality while strictly maintaining Image 1's angle and structure.`;
       }
       
       setStatusMessage(`正在为您并行生成 ${variantCount} 组参考精修方案 (约 30-60s)...`);

@@ -219,7 +219,7 @@ const ModelMainAdjustTab: React.FC = () => {
       // ==========================================
       // [NEW] Agentic Pre-analysis for Precision Locality
       // ==========================================
-      if (selectedAngle || (editorBoxes.length > 0 && refInputImages.length > 0)) {
+      if (selectedAngle || refInputImages.length > 0) {
         setStatusMessage('🌍 Agent 正在解析局部调整指令...');
         // Execute Vision Pre-processing
         const analysis = await analyzeDollModification(
