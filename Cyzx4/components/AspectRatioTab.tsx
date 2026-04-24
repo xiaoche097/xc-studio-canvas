@@ -7,7 +7,9 @@ interface RatioData {
   height: number;
   pixelWidth: number;
   pixelHeight: number;
+  fileSize: number;
   previewUrl: string;
+  resolutionK: string;
 }
 
 const AspectRatioTab: React.FC = () => {
@@ -18,6 +20,24 @@ const AspectRatioTab: React.FC = () => {
 
   const gcd = (a: number, b: number): number => {
     return b === 0 ? a : gcd(b, a % b);
+  };
+
+  const getKResolution = (width: number, height: number): string => {
+    const maxSide = Math.max(width, height);
+    if (maxSide >= 7680) return '8K';
+    if (maxSide >= 3840) return '4K';
+    if (maxSide >= 2560) return '2.5K';
+    if (maxSide >= 2048) return '2K';
+    if (maxSide >= 1024) return '1K';
+    return '标准 (SD)';
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 KB';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   const getSimplifiedRatio = (width: number, height: number): string => {
@@ -93,6 +113,8 @@ const AspectRatioTab: React.FC = () => {
             height: rh || 1,
             pixelWidth: w,
             pixelHeight: h,
+            resolutionK: getKResolution(w, h),
+            fileSize: file!.size,
             previewUrl: event.target?.result as string
           });
           setIsAnalyzing(false);
@@ -228,7 +250,7 @@ const AspectRatioTab: React.FC = () => {
               {/* Pixel Values */}
               <div className="grid grid-cols-2 gap-6 items-end pt-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-pastel-muted ml-1">像素宽度 *</label>
+                  <label className="text-sm font-bold text-pastel-muted ml-1">像素宽度</label>
                   <input 
                     type="text" 
                     readOnly
@@ -240,13 +262,36 @@ const AspectRatioTab: React.FC = () => {
                   <X className="text-pastel-muted w-6 h-6" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-pastel-muted ml-1">像素高度 *</label>
+                  <label className="text-sm font-bold text-pastel-muted ml-1">像素高度</label>
                   <input 
                     type="text" 
                     readOnly
                     value={data.pixelHeight}
                     className="w-full bg-white border border-pastel-border rounded-xl px-4 py-4 text-pastel-text font-bold text-xl"
                   />
+                </div>
+              </div>
+
+              {/* File Info */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-pastel-muted ml-1">分辨率解析</label>
+                  <div className="w-full bg-pastel-bg border border-pastel-border rounded-xl px-4 py-4 text-pastel-text font-bold text-lg">
+                    {data.pixelWidth} × {data.pixelHeight}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-pastel-muted ml-1">画质等级 (K)</label>
+                  <div className="w-full bg-pastel-bg border border-pastel-border rounded-xl px-4 py-4 text-pastel-highlight font-bold text-xl flex items-center justify-between">
+                    <span>{data.resolutionK}</span>
+                    <ImageIcon className="w-5 h-5 opacity-50" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-pastel-muted ml-1">文件大小</label>
+                  <div className="w-full bg-pastel-bg border border-pastel-border rounded-xl px-4 py-4 text-pastel-highlight font-bold text-lg">
+                    {formatFileSize(data.fileSize)}
+                  </div>
                 </div>
               </div>
 
