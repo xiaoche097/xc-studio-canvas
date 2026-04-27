@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, X, Maximize2, Camera } from 'lucide-react';
+import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, X, Maximize2, Camera, ArrowLeft } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
@@ -373,12 +373,12 @@ const DollAnglePresetsTab: React.FC = () => {
                  </div>
                </div>
                
-               <div className="flex items-center gap-2 flex-shrink-0">
+               <div className="flex items-center gap-2 flex-shrink-0 z-30">
                   {resultImages.map((img, idx) => (
                     <button 
                       key={idx}
                       onClick={() => setSelectedResultIndex(idx)}
-                      className={`w-12 h-12 rounded-xl border-2 overflow-hidden transition-all duration-300 flex-shrink-0 ${selectedResultIndex === idx ? 'border-pastel-highlight scale-110 shadow-lg' : 'border-white opacity-40 hover:opacity-100 shadow-sm'}`}
+                      className={`w-12 h-12 rounded-xl border-2 overflow-hidden transition-all duration-300 flex-shrink-0 ${selectedResultIndex === idx ? 'border-pastel-highlight scale-110 shadow-lg' : 'border-pastel-border opacity-60 hover:opacity-100 shadow-sm'}`}
                     >
                       <img src={img} className="w-full h-full object-cover" />
                     </button>
@@ -395,7 +395,22 @@ const DollAnglePresetsTab: React.FC = () => {
                   alt="Doll Angle Result"
                   className="w-full h-full object-contain bg-slate-50"
                 />
-                <div className="absolute inset-0 bg-black/0 hover:bg-black/5 transition-all flex items-center justify-center gap-4">
+                <div className="absolute inset-0 flex items-center justify-between px-4 pointer-events-none">
+                   <button 
+                     onClick={() => setSelectedResultIndex(prev => (prev - 1 + resultImages.length) % resultImages.length)}
+                     className={`p-3 bg-white/90 rounded-full shadow-xl pointer-events-auto transition-all hover:scale-110 active:scale-90 ${resultImages.length <= 1 ? 'hidden' : 'flex'}`}
+                   >
+                     <ArrowLeft className="w-6 h-6 text-pastel-text" />
+                   </button>
+                   <button 
+                     onClick={() => setSelectedResultIndex(prev => (prev + 1) % resultImages.length)}
+                     className={`p-3 bg-white/90 rounded-full shadow-xl pointer-events-auto transition-all hover:scale-110 active:scale-90 ${resultImages.length <= 1 ? 'hidden' : 'flex'}`}
+                   >
+                     <ArrowLeft className="w-6 h-6 text-pastel-text rotate-180" />
+                   </button>
+                </div>
+
+                <div className="absolute inset-0 bg-black/0 hover:bg-black/5 transition-all flex items-center justify-center gap-4 group">
                    <button
                      onClick={() => setPreview({ src: resultImages[selectedResultIndex], title: `角度预设变体 #${selectedResultIndex + 1}` })}
                      className="bg-white/95 p-4 rounded-full shadow-2xl opacity-0 group-hover:opacity-100 transition-all hover:scale-110 active:scale-95"
@@ -411,7 +426,7 @@ const DollAnglePresetsTab: React.FC = () => {
                 </div>
               </div>
               
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-6 py-3 bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 pointer-events-none">
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-6 py-3 bg-white/90 backdrop-blur-md rounded-2xl shadow-xl border border-pastel-border z-30">
                 <div className="w-2 h-2 rounded-full bg-pastel-highlight animate-pulse" />
                 <span className="text-[10px] font-black text-pastel-text uppercase tracking-widest">变体 {selectedResultIndex + 1} / {resultImages.length}</span>
               </div>
