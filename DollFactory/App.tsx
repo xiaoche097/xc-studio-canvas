@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import DollMainAdjustTab from './DollMainAdjustTab';
 import DollMainRetouchTab from './DollMainRetouchTab';
 import DollDesignOptimizeTab from './DollDesignOptimizeTab';
+import DollAnglePresetsTab from './DollAnglePresetsTab';
 import SettingsTab from '../Cyzx4/components/SettingsTab';
-import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2 } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2, Camera } from 'lucide-react';
 
-type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'design-optimize' | 'settings';
+type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'design-optimize' | 'angle-presets' | 'settings';
 
 const DollFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DollFactoryMode>('main-adjust');
@@ -46,6 +47,12 @@ const DollFactoryApp: React.FC = () => {
               icon={<Wand2 className="w-5 h-5" />}
               label="玩偶设计优化"
             />
+            <NavButton
+              active={activeTab === 'angle-presets'}
+              onClick={() => setActiveTab('angle-presets')}
+              icon={<Camera className="w-5 h-5" />}
+              label="可爱角度转变"
+            />
           </div>
 
           <div className="mt-4 pt-4 border-t border-pastel-border/50">
@@ -66,6 +73,7 @@ const DollFactoryApp: React.FC = () => {
             {activeTab === 'main-adjust' && "玩偶主图调整"}
             {activeTab === 'main-retouch' && "参考图精修"}
             {activeTab === 'design-optimize' && "玩偶设计优化"}
+            {activeTab === 'angle-presets' && "可爱角度转变"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
@@ -80,6 +88,9 @@ const DollFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'design-optimize' ? 'block' : 'none', height: '100%' }}>
               <DollDesignOptimizeTab />
+            </div>
+            <div style={{ display: activeTab === 'angle-presets' ? 'block' : 'none', height: '100%' }}>
+              <DollAnglePresetsTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
               <SettingsTab />

@@ -184,9 +184,10 @@ export const DollImageEditor: React.FC<DollImageEditorProps> = ({
         let w = Math.abs(px - startPos.x);
         let h = Math.abs(py - startPos.y);
 
-        if (cropRatio) {
+        if (cropRatio !== null) {
            const imgRatio = imgRef.current.naturalWidth / imgRef.current.naturalHeight;
-           const targetScreenRatio = cropRatio / imgRatio;
+           const actualTargetRatio = cropRatio === 0 ? imgRatio : cropRatio;
+           const targetScreenRatio = actualTargetRatio / imgRatio;
            if (w / h > targetScreenRatio) {
               h = w / targetScreenRatio;
            } else {
@@ -219,9 +220,10 @@ export const DollImageEditor: React.FC<DollImageEditorProps> = ({
            if (type.includes('n')) { ny = Math.min(boxRaw.y + boxRaw.h - 0.05, Math.max(0, boxRaw.y + dy)); nh = boxRaw.y + boxRaw.h - ny; }
            if (type.includes('s')) { nh = Math.max(0.05, Math.min(1 - boxRaw.y, boxRaw.h + dy)); }
            
-           if (cropRatio) {
+           if (cropRatio !== null) {
               const imgRatio = imgRef.current.naturalWidth / imgRef.current.naturalHeight;
-              const targetScreenRatio = cropRatio / imgRatio;
+              const actualTargetRatio = cropRatio === 0 ? imgRatio : cropRatio;
+              const targetScreenRatio = actualTargetRatio / imgRatio;
               nh = nw / targetScreenRatio;
               if (ny + nh > 1) { nh = 1 - ny; nw = nh * targetScreenRatio; }
            }

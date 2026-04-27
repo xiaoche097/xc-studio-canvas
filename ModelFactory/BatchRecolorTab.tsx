@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, Loader2, Maximize2, Palette, Plus, RefreshCw, Trash2, Upload, X, Zap, Sparkles, Image as ImageIcon, Ratio, MonitorSmartphone, Cpu, Settings2 } from 'lucide-react';
+import { Download, Loader2, Maximize2, Palette, Plus, RefreshCw, Trash2, Upload, X, Zap, Sparkles, Image as ImageIcon, Ratio, MonitorSmartphone, Cpu, Settings2, Crop } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { DollImageEditor, EditorBox } from '../DollFactory/components/DollImageEditor';
 
 type ColorType = 'text' | 'hex' | 'image';
 
@@ -42,6 +43,7 @@ const BatchRecolorTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [userGuidance, setUserGuidance] = useState('');
   const [preview, setPreview] = useState<{ src: string; title: string } | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const [isDraggingRef, setIsDraggingRef] = useState(false);
 
@@ -82,6 +84,49 @@ const BatchRecolorTab: React.FC = () => {
     setSourceFiles(prev => prev.filter((_, i) => i !== index));
     setSourceUrls(prev => prev.filter((_, i) => i !== index));
     setResults([]);
+  };
+
+  const handleApplyCrop = (base64: string) => {
+    if (editingIndex === null) return;
+    
+    // Convert base64 to File
+    const parts = base64.split(',');
+    const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    const croppedFile = new File([u8arr], `cropped-${Date.now()}.png`, { type: mime });
+    
+    const newFiles = [...sourceFiles];
+    newFiles[editingIndex] = croppedFile;
+    setSourceFiles(newFiles);
+    
+    const newUrls = [...sourceUrls];
+    URL.revokeObjectURL(newUrls[editingIndex]);
+    newUrls[editingIndex] = URL.createObjectURL(croppedFile);
+    setSourceUrls(newUrls);
+    
+    setEditingIndex(null);
+    setResults([]);
+  };
+
+  const handleDownloadAll = () => {
+    const doneResults = results.filter(r => r.status === 'done' && r.url);
+    if (doneResults.length === 0) return;
+    
+    doneResults.forEach((res, i) => {
+      setTimeout(() => {
+        const link = document.createElement('a');
+        link.href = res.url!;
+        link.download = `recolor-${res.entry.label}-${i + 1}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }, i * 300);
+    });
   };
 
   const addTextColor = () => {
@@ -286,14 +331,24 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               {sourceUrls.length > 0 && (
                 <div className="grid grid-cols-5 gap-2">
                   {sourceUrls.map((url, idx) => (
-                    <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden group bg-white">
+                    <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden group bg-white shadow-sm">
                       <img src={url} className="w-full h-full object-cover" alt={`source-${idx}`} />
-                      <button 
-                        onClick={() => removeSource(idx)}
-                        className="absolute top-1 right-1 p-1 bg-white/90 rounded-full text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => setEditingIndex(idx)}
+                          className="p-1.5 bg-white/95 rounded-full text-pastel-highlight shadow-sm hover:scale-110 transition-transform"
+                          title="裁切图片"
+                        >
+                          <Crop className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                          onClick={() => removeSource(idx)}
+                          className="p-1.5 bg-white/95 rounded-full text-red-500 shadow-sm hover:scale-110 transition-transform"
+                          title="删除"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                   {sourceFiles.length < MAX_SOURCES && (
@@ -586,7 +641,29 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+          <div className="space-y-8">
+            <div className="flex items-center justify-between bg-white/60 backdrop-blur-md p-4 rounded-3xl border border-pastel-border shadow-sm sticky top-0 z-20">
+              <div className="flex items-center gap-4">
+                <div className="bg-pastel-highlight/10 p-2 rounded-xl">
+                  <Sparkles className="w-5 h-5 text-pastel-highlight" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-pastel-text">生成结果</h3>
+                  <p className="text-[10px] text-pastel-muted">共 {results.length} 张图片，已完成 {results.filter(r => r.status === 'done').length} 张</p>
+                </div>
+              </div>
+              
+              <button 
+                onClick={handleDownloadAll}
+                disabled={results.filter(r => r.status === 'done').length === 0}
+                className="flex items-center gap-2 px-6 py-2.5 bg-pastel-text text-white rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 shadow-lg shadow-black/5"
+              >
+                <Download className="w-4 h-4" />
+                全部下载
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {results.map((item, i) => (
               <div key={i} className="group relative bg-white rounded-3xl border border-pastel-border shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-xl animate-in fade-in zoom-in-95 duration-300">
                 <div className="aspect-[3/4] relative bg-pastel-bg overflow-hidden">
@@ -650,6 +727,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                 </div>
               </div>
             ))}
+            </div>
           </div>
         )}
       </div>
@@ -667,6 +745,17 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             <img src={preview.src} className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" alt="Preview" />
           </div>
         </div>
+      )}
+
+      {/* Editor Modal */}
+      {editingIndex !== null && (
+        <DollImageEditor
+          initialImage={sourceUrls[editingIndex]}
+          initialBoxes={[]}
+          onClose={() => setEditingIndex(null)}
+          onApplyCrop={handleApplyCrop}
+          onApplyBoxes={() => {}}
+        />
       )}
     </div>
   );
