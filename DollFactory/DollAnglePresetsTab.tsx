@@ -82,6 +82,8 @@ const DollAnglePresetsTab: React.FC = () => {
   const [intensity, setIntensity] = useState<'low' | 'medium'>('low'); // low for better consistency
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
   const [variantCount, setVariantCount] = useState(4);
+  const [negativeGuidance, setNegativeGuidance] = useState('避免复杂背景、避免暗黑风');
+  const [supplementGuidance, setSupplementGuidance] = useState('');
   const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
 
   const setSourceFromFile = (file: File) => {
@@ -135,7 +137,9 @@ const DollAnglePresetsTab: React.FC = () => {
         ? "STRICT CONSISTENCY: High structural lock, do not change any small features. Keep denoise level low." 
         : "BALANCED: Maintain structure but allow for natural perspective adjustments.";
 
-      const prompt = `[DOLL ANGLE PRESET TRANSFORMATION]\n\n${STRUCTURE_LOCK}\n\nCAMERA ANGLE: ${preset?.prompt}\n\nSTYLE: ${ECOMMERCE_MODULE}\n\n${intensityPrompt}\n\nSTRICT: Maintain 100% design fidelity to the reference image.`;
+      const prompt = `[DOLL ANGLE PRESET TRANSFORMATION]\n\n${STRUCTURE_LOCK}\n\nCAMERA ANGLE: ${preset?.prompt}\n\nSTYLE: ${ECOMMERCE_MODULE}\n\n${intensityPrompt}\n\nSTRICT: Maintain 100% design fidelity to the reference image.\n\n${supplementGuidance ? `SUPPLEMENTARY说明: ${supplementGuidance}` : ''}`;
+      
+      const negPrompt = `${UNIVERSAL_NEGATIVE}${negativeGuidance ? `, ${negativeGuidance}` : ''}`;
 
       setStatusMessage(`正在并行为您生成 ${variantCount} 组视角方案 (约 30-60s)...`);
 
@@ -147,7 +151,7 @@ const DollAnglePresetsTab: React.FC = () => {
             aspectRatio: AspectRatio.SQUARE,
             resolution: resolution,
             modelId: selectedModel,
-            negativePrompt: UNIVERSAL_NEGATIVE,
+            negativePrompt: negPrompt,
             workflowHint: 'doll-modification',
             sampleCount: 1
           }
@@ -305,26 +309,30 @@ const DollAnglePresetsTab: React.FC = () => {
             </select>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-pastel-border shadow-sm space-y-3">
-             <label className="block text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
-               <Cpu className="w-3.5 h-3.5" /> 图像模型选择
-             </label>
-             <div className="grid grid-cols-2 gap-2">
-               <button
-                 onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                 className={`py-2 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-pastel-border text-pastel-muted'}`}
-               >
-                 3.1 Flash (极速)
-               </button>
-               <button
-                 onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
-                 className={`py-2 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gemini-3-pro-image-preview' ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-pastel-border text-pastel-muted'}`}
-               >
-                 3.0 Pro (稳定)
-               </button>
-             </div>
-          </div>
-        </div>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-pastel-muted mb-2">禁忌元素</h3>
+              <input
+                type="text"
+                value={negativeGuidance}
+                onChange={(e) => setNegativeGuidance(e.target.value)}
+                placeholder="例如：避免复杂背景、避免暗黑风"
+                className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-4 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none transition-all"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-pastel-muted mb-2">补充说明</h3>
+              <textarea
+                rows={3}
+                value={supplementGuidance}
+                onChange={(e) => setSupplementGuidance(e.target.value)}
+                placeholder="更多运营信息、参考关键词、希望突出的镜头语言等"
+                className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
+              />
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
 
         {/* Generate Button */}
         <div className="p-6 border-t border-pastel-border bg-white/50 backdrop-blur-sm sticky bottom-0 z-10">
