@@ -137,21 +137,28 @@ const DollAnglePresetsTab: React.FC = () => {
 
       const prompt = `[DOLL ANGLE PRESET TRANSFORMATION]\n\n${STRUCTURE_LOCK}\n\nCAMERA ANGLE: ${preset?.prompt}\n\nSTYLE: ${ECOMMERCE_MODULE}\n\n${intensityPrompt}\n\nSTRICT: Maintain 100% design fidelity to the reference image.`;
 
-      const res = await generateImageToImage(
-        [{ base64: compressedImage.base64, mimeType: compressedImage.mime }],
-        prompt,
-        {
-          aspectRatio: AspectRatio.SQUARE,
-          resolution: resolution,
-          modelId: selectedModel,
-          negativePrompt: UNIVERSAL_NEGATIVE,
-          workflowHint: 'doll-modification',
-          sampleCount: variantCount
-        }
+      setStatusMessage(`正在并行为您生成 ${variantCount} 组视角方案 (约 30-60s)...`);
+
+      const generationTasks = Array(variantCount).fill(null).map(() => 
+        generateImageToImage(
+          [{ base64: compressedImage.base64, mimeType: compressedImage.mime }],
+          prompt,
+          {
+            aspectRatio: AspectRatio.SQUARE,
+            resolution: resolution,
+            modelId: selectedModel,
+            negativePrompt: UNIVERSAL_NEGATIVE,
+            workflowHint: 'doll-modification',
+            sampleCount: 1
+          }
+        )
       );
 
-      if (res && res.length > 0) {
-        setResultImages(res);
+      const allResults = await Promise.all(generationTasks);
+      const flattenedResult = allResults.flat().filter(img => !!img);
+
+      if (flattenedResult.length > 0) {
+        setResultImages(flattenedResult);
         setSelectedResultIndex(0);
       } else {
         throw new Error('未返回任何图片');
