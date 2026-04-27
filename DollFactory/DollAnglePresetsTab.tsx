@@ -81,6 +81,7 @@ const DollAnglePresetsTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [intensity, setIntensity] = useState<'low' | 'medium'>('low'); // low for better consistency
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [variantCount, setVariantCount] = useState(4);
   const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
 
   const setSourceFromFile = (file: File) => {
@@ -145,7 +146,7 @@ const DollAnglePresetsTab: React.FC = () => {
           modelId: selectedModel,
           negativePrompt: UNIVERSAL_NEGATIVE,
           workflowHint: 'doll-modification',
-          sampleCount: 4 // Generate 4 as requested for better consistency choice
+          sampleCount: variantCount
         }
       );
 
@@ -268,16 +269,33 @@ const DollAnglePresetsTab: React.FC = () => {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-pastel-muted uppercase tracking-widest">输出画质</label>
-              <select 
-                value={resolution}
-                onChange={(e) => setResolution(e.target.value as ImageResolution)}
-                className="w-full bg-white border border-pastel-border rounded-xl py-2 px-2 text-[10px] font-bold outline-none"
-              >
-                <option value={ImageResolution.RES_2K}>2K 高清</option>
-                <option value={ImageResolution.RES_4K}>4K 极致</option>
-              </select>
+              <label className="text-[10px] font-black text-pastel-muted uppercase tracking-widest">变体数量</label>
+              <div className="flex p-1 bg-white border border-pastel-border rounded-xl">
+                {[1, 2, 4].map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => setVariantCount(num)}
+                    className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${variantCount === num ? 'bg-pastel-highlight text-white' : 'text-pastel-muted hover:bg-pastel-bg'}`}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold flex items-center justify-between">
+              输出画质
+            </h3>
+            <select 
+              value={resolution}
+              onChange={(e) => setResolution(e.target.value as ImageResolution)}
+              className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-3 text-xs font-bold outline-none"
+            >
+              <option value={ImageResolution.RES_2K}>2K (快速清晰)</option>
+              <option value={ImageResolution.RES_4K}>4K (极致细节)</option>
+            </select>
           </div>
 
           <div className="bg-white p-4 rounded-2xl border border-pastel-border shadow-sm space-y-3">
@@ -311,7 +329,7 @@ const DollAnglePresetsTab: React.FC = () => {
             {isGenerating ? (
               <><Loader2 className="h-5 w-5 animate-spin" /> 正在视角转换...</>
             ) : (
-              <><Zap className="h-5 w-5 fill-white" /> 立即生成批量角度 (4张)</>
+              <><Zap className="h-5 w-5 fill-white" /> 立即生成批量角度 ({variantCount}张)</>
             )}
           </button>
         </div>
@@ -340,7 +358,7 @@ const DollAnglePresetsTab: React.FC = () => {
                <Camera className="w-12 h-12" />
              </div>
              <p className="text-xl font-black text-pastel-text/60">等待生成视角预设</p>
-             <p className="text-xs mt-3 opacity-60 max-w-xs text-center leading-relaxed font-medium">请在左侧上传玩偶底图并选择一个角度预设。系统将自动批量生成4个变体供您挑选。</p>
+             <p className="text-xs mt-3 opacity-60 max-w-xs text-center leading-relaxed font-medium">请在左侧上传玩偶底图并选择一个角度预设。系统将自动生成变体供您挑选。</p>
           </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
@@ -351,21 +369,21 @@ const DollAnglePresetsTab: React.FC = () => {
                  </div>
                  <div>
                    <h3 className="text-sm font-black text-pastel-text">生成方案挑选</h3>
-                   <p className="text-[10px] text-pastel-muted">系统已生成 4 组变体，请点击下方缩略图切换预览</p>
+                   <p className="text-[10px] text-pastel-muted">系统已生成 {resultImages.length} 组变体，请点击下方缩略图切换预览</p>
                  </div>
                </div>
                
-               <div className="flex items-center gap-2">
-                 {resultImages.map((img, idx) => (
-                   <button 
-                     key={idx}
-                     onClick={() => setSelectedResultIndex(idx)}
-                     className={`w-12 h-12 rounded-xl border-2 overflow-hidden transition-all duration-300 ${selectedResultIndex === idx ? 'border-pastel-highlight scale-110 shadow-lg' : 'border-transparent opacity-40 hover:opacity-100 shadow-sm'}`}
-                   >
-                     <img src={img} className="w-full h-full object-cover" />
-                   </button>
-                 ))}
-               </div>
+               <div className="flex items-center gap-2 flex-shrink-0">
+                  {resultImages.map((img, idx) => (
+                    <button 
+                      key={idx}
+                      onClick={() => setSelectedResultIndex(idx)}
+                      className={`w-12 h-12 rounded-xl border-2 overflow-hidden transition-all duration-300 flex-shrink-0 ${selectedResultIndex === idx ? 'border-pastel-highlight scale-110 shadow-lg' : 'border-white opacity-40 hover:opacity-100 shadow-sm'}`}
+                    >
+                      <img src={img} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
             </div>
             
             <div className="relative group flex-1 w-full max-w-4xl flex items-center justify-center">
@@ -395,7 +413,7 @@ const DollAnglePresetsTab: React.FC = () => {
               
               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-6 py-3 bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/50 pointer-events-none">
                 <div className="w-2 h-2 rounded-full bg-pastel-highlight animate-pulse" />
-                <span className="text-[10px] font-black text-pastel-text uppercase tracking-widest">变体 {selectedResultIndex + 1} / 4</span>
+                <span className="text-[10px] font-black text-pastel-text uppercase tracking-widest">变体 {selectedResultIndex + 1} / {resultImages.length}</span>
               </div>
             </div>
           </div>
