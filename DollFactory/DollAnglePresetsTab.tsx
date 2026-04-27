@@ -332,7 +332,27 @@ const DollAnglePresetsTab: React.FC = () => {
               />
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+            <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm space-y-3">
+              <label className="block text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5" /> 图像模型选择
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                  className={`py-2 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-pastel-border text-pastel-muted'}`}
+                >
+                  3.1 Flash (极速)
+                </button>
+                <button
+                  onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                  className={`py-2 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gemini-3-pro-image-preview' ? 'border-purple-400 bg-purple-50 text-purple-700' : 'border-pastel-border text-pastel-muted'}`}
+                >
+                  3.0 Pro (稳定)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Generate Button */}
         <div className="p-6 border-t border-pastel-border bg-white/50 backdrop-blur-sm sticky bottom-0 z-10">
