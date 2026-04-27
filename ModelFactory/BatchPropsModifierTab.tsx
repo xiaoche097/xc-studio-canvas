@@ -9,6 +9,7 @@ import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { storageService } from '../services/storageService';
 
 // Types
 type PropCategory = 'hair' | 'pants' | 'shoes' | 'bag' | 'accessory' | 'handheld';
@@ -207,6 +208,31 @@ ${userGuidance ? `USER SUPPLEMENT: ${userGuidance}` : ""}
             batchAnchorBase64 = res[0];
           }
           setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'done', url: res[0] } : r));
+
+          // Save to recent projects
+          try {
+            await storageService.saveProject({
+              id: crypto.randomUUID(),
+              type: 'MODEL',
+              createdAt: Date.now(),
+              thumbnail: res[0],
+              assets: {
+                original: [sourceUrls[i]],
+                generated: res,
+              },
+              metadata: {
+                subType: 'batch_props_modifier',
+                category: activeCategory,
+                description: description,
+                userGuidance,
+                resolution,
+                aspectRatio: outputAspectRatio,
+                modelId: selectedModel,
+              },
+            });
+          } catch (e) {
+            console.error("Failed to save project", e);
+          }
         } else {
           throw new Error('No image returned');
         }

@@ -4,6 +4,7 @@ import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { storageService } from '../services/storageService';
 
 type ResultItem = {
   refIndex: number;
@@ -445,6 +446,29 @@ TARGET: Swap the pose of the person in ${identityIndex} with the EXACT pose in $
 
           if (result && result.length > 0) {
             setResults(prev => prev.map((r, i) => i === index ? { ...r, resultUrl: result[0], status: 'done' } : r));
+
+            // Save to recent projects
+            try {
+              await storageService.saveProject({
+                id: crypto.randomUUID(),
+                type: 'MODEL',
+                createdAt: Date.now(),
+                thumbnail: result[0],
+                assets: {
+                  original: [modelUrl!],
+                  generated: result,
+                },
+                metadata: {
+                  subType: 'action_reference',
+                  refIndex: index,
+                  resolution,
+                  aspectRatio: outputAspectRatio,
+                  modelId: selectedModel,
+                },
+              });
+            } catch (e) {
+              console.error("Failed to save project", e);
+            }
           } else {
             throw lastError || new Error('模型未返回图片');
           }

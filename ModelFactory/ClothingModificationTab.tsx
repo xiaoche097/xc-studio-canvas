@@ -18,6 +18,7 @@ import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage, refineModificationPrompt } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { storageService } from '../services/storageService';
 
 // --- Types & Constants ---
 
@@ -504,12 +505,37 @@ const ClothingModificationTab: React.FC = () => {
 
       const allResultsFlat = (await Promise.all(generationPromises)).flat().filter(Boolean);
       
-      if (allResultsFlat.length === 0) {
-        throw new Error('渲染引擎未返回有效图像，请尝试更换模型。');
-      }
-
       updateTask(taskId, { status: 'success', results: allResultsFlat });
 
+      // Save to recent projects
+      if (allResultsFlat.length > 0) {
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: allResultsFlat[0],
+            assets: {
+              original: img1Url ? [img1Url] : [],
+              generated: allResultsFlat,
+            },
+            metadata: {
+              subType: 'clothing_modification',
+              mode: currentMode,
+              prompt: currentPrompt,
+              refinedPrompt,
+              settings: {
+                model: selectedModel,
+                ratio: selectedRatio,
+                res: selectedRes,
+                count: generateCount
+              },
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
+      }
     } catch (err) {
       console.error(err);
       updateTask(taskId, { status: 'error', error: getErrorMessage(err) });

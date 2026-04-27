@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2 } from 'lucide-react';
-import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { compressImage, getErrorMessage, blobToBase64 } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from '../DollFactory/components/DollImageEditor';
+import { storageService } from '../services/storageService';
 
 // --- Multi-Angle Ecommerce Prompts ---
 const ANGLE_TEMPLATES = {
@@ -292,6 +293,32 @@ const ModelMainAdjustTab: React.FC = () => {
         setResultImages(flattenedResult);
         setSelectedResultIndex(0);
         setStatusMessage(selectedAngle ? '视角转换完成！请查看生成效果。' : '精修完成！');
+
+        // Save to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: flattenedResult[0],
+            assets: {
+              original: sourceUrl ? [sourceUrl] : [],
+              generated: flattenedResult,
+            },
+            metadata: {
+              subType: 'model_main_adjust',
+              prompt: prompt,
+              negativePrompt,
+              selectedAngle,
+              resolution,
+              aspectRatio: outputAspectRatio,
+              modelId: selectedModel,
+              variantCount
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw new Error('未返回任何图片');
       }

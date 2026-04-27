@@ -4,6 +4,7 @@ import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { storageService } from '../services/storageService';
 
 type TransferScope = 'upper-body' | 'full-body';
 type PoseTransferAspectRatio =
@@ -440,6 +441,31 @@ ${guidance || 'Preserve clothing exactly. Force the pose and framing to match th
       if (result && result.length > 0) {
         setPoseResultImage(result[0]);
         setPoseStatusMessage('姿势迁移完成，可以放大查看细节。');
+
+        // Save to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: result[0],
+            assets: {
+              original: poseSourceUrl ? [poseSourceUrl] : [],
+              generated: result,
+            },
+            metadata: {
+              subType: 'model_adjust_v2',
+              prompt: prompt,
+              negativePrompt,
+              resolution,
+              aspectRatio: outputAspectRatio,
+              transferScope,
+              modelId: selectedModel,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw lastError || new Error('模型未返回任何图片，请稍后重试');
       }

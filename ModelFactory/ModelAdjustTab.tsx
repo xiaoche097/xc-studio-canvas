@@ -3,6 +3,7 @@ import { Upload, X, Zap, Loader2, Download, Maximize2, Lock, Sparkles } from 'lu
 import { AspectRatio } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { blobToBase64, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { storageService } from '../services/storageService';
 
 const ModelAdjustTab: React.FC = () => {
   const [poseSourceFile, setPoseSourceFile] = useState<File | null>(null); // 图1
@@ -202,7 +203,7 @@ Output one photorealistic corrected image. The final result should look like Ima
       ]);
 
       const aspect = await detectClosestAspectRatio(poseSourceUrl);
-      const prompt = buildPoseTransferPrompt(poseGuidance);
+      const prompt = buildPoseTransferPrompt(poseGuidance, transferScope);
 
       const result = await generateImageToImage(
         [
@@ -220,6 +221,30 @@ Output one photorealistic corrected image. The final result should look like Ima
       if (result && result.length > 0) {
         setPoseResultImage(result[0]);
         setPoseStatusMessage('');
+
+        // Save to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: result[0],
+            assets: {
+              original: poseSourceUrl ? [poseSourceUrl] : [],
+              generated: result,
+            },
+            metadata: {
+              subType: 'model_adjust_pose_transfer',
+              prompt: prompt,
+              resolution,
+              aspectRatio: aspect,
+              transferScope,
+              modelId: 'gemini-3.1-flash-image-preview',
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw new Error('模型未返回任何图片，请稍后重试');
       }

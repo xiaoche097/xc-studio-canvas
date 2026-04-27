@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Loader2, Download, X, Maximize2, Zap, Sparkles, ChevronRight, Camera, PlusIcon, Bookmark } from 'lucide-react';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { storageService } from '../services/storageService';
 
 /**
  * 极致高级感 UI 重塑
@@ -137,6 +138,28 @@ ${contextPrompt}
       if (result && result.length > 0) {
         setCellStates(prev => ({ ...prev, [cellIdx]: { isGenerating: false, resultUrl: result[0] } }));
         setDetailCellIndex(cellIdx);
+
+        // Save to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: result[0],
+            assets: {
+              original: [imageUrl],
+              generated: result,
+            },
+            metadata: {
+              subType: 'pose_fission_cell_redraw',
+              cellIndex: cellIdx,
+              prompt: promptInput,
+              context: analysisContext,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw new Error("Generate failed");
       }

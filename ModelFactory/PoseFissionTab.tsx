@@ -3,6 +3,7 @@ import { Upload, X, Zap, Loader2, FolderHeart } from 'lucide-react';
 import { generateImageToImage, analyzeFissionContext } from '../Cyzx4/services/geminiService';
 import { AspectRatio } from '../Cyzx4/types';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { storageService } from '../services/storageService';
 import MainAngleGallery from './MainAngleGallery';
 import PoseGrid from './PoseGrid';
 import PoseLibraryModal, { savePoseSet } from './components/PoseLibraryModal';
@@ -654,13 +655,32 @@ ${wardrobeLock}
             workflowHint: 'main-angle-lock',
           });
 
-          if (!result || result.length === 0) {
-            throw new Error(`${angle.id} 未返回图片，请稍后重试`);
-          }
-
           setGeneratedMainAngles(prev => 
             prev.map(item => item.id === angle.id ? { ...angle, imageUrl: result[0] } : item)
           );
+
+          // Save each main angle to recent projects
+          try {
+            await storageService.saveProject({
+              id: crypto.randomUUID(),
+              type: 'MODEL',
+              createdAt: Date.now(),
+              thumbnail: result[0],
+              assets: {
+                original: modelImages.length > 0 ? [modelImages[0]] : productImages,
+                generated: result,
+              },
+              metadata: {
+                subType: 'pose_fission_main_angle',
+                angleId: angle.id,
+                angleLabel: angle.label,
+                resolution,
+                modelId: modelType,
+              },
+            });
+          } catch (e) {
+            console.error("Failed to save project", e);
+          }
         }));
 
         return;
@@ -768,6 +788,28 @@ ${gridRules}
       
       if (result && result.length > 0) {
         setGeneratedGridImage(result[0]);
+
+        // Save grid to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: result[0],
+            assets: {
+              original: modelImages.length > 0 ? [modelImages[0]] : productImages,
+              generated: result,
+            },
+            metadata: {
+              subType: 'pose_fission_grid',
+              aspectRatio,
+              resolution,
+              modelId: modelType,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw new Error("模型未返回任何图片，请稍后重试");
       }

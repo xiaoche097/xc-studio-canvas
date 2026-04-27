@@ -3,6 +3,7 @@ import { Download, Loader2, Maximize2, Shirt, Sparkles, Upload, X, Zap } from 'l
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { storageService } from '../services/storageService';
 
 type ClothingAspectRatio =
   | AspectRatio.PORTRAIT_2_3
@@ -199,6 +200,29 @@ Do NOT reinterpret the clothing. Do NOT generate a "similar" garment. CLONE Imag
       if (result && result.length > 0) {
         setResultImage(result[0]);
         setStatusMessage('衣服效果调整完成！可以放大查看细节。');
+
+        // Save to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: result[0],
+            assets: {
+              original: sourceUrl ? [sourceUrl] : [],
+              generated: result,
+            },
+            metadata: {
+              subType: 'clothing_effect',
+              guidance,
+              resolution,
+              aspectRatio: outputAspectRatio,
+              modelId: fallbackModels[0], // Or use the one that succeeded if we tracked it
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw lastError || new Error('模型未返回任何图片，请稍后重试');
       }

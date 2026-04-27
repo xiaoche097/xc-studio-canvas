@@ -4,6 +4,7 @@ import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage, analyzeVtonMaterials } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { storageService } from '../services/storageService';
 // Removed broken smartCrop import
 
 type ResultItem = {
@@ -397,6 +398,29 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
         setResults(prev => prev.map((r, i) =>
           i === index ? { ...r, status: 'done', resultUrl: result[0] } : r
         ));
+
+        // Save to recent projects
+        try {
+          await storageService.saveProject({
+            id: crypto.randomUUID(),
+            type: 'MODEL',
+            createdAt: Date.now(),
+            thumbnail: result[0],
+            assets: {
+              original: [targetUrls[index]],
+              generated: result,
+            },
+            metadata: {
+              subType: 'garment_replacement',
+              userGuidance,
+              resolution,
+              aspectRatio: outputAspectRatio,
+              modelId: selectedModel,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to save project", e);
+        }
       } else {
         throw new Error(`生成失败: ${getErrorMessage(lastError)}`);
       }
