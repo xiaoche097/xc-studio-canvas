@@ -733,7 +733,7 @@ function getRandomSceneVariation(sceneDirection: string): string {
 const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
     main: "shot on 50mm standard lens, commercial ecommerce hero shot, crisp centered composition, clean depth separation",
     aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
-    social: "shot on 85mm portrait lens, candid handheld lifestyle framing, natural indoor light, authentic buyer-show perspective",
+    social: "shot on 85mm portrait lens, candid handheld lifestyle framing, authentic buyer-show perspective",
     story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, far-left subject placement, negative space on right, deep depth of field, epic spatial storytelling",
     asset: "shot on 85mm portrait lens, premium 2:3 vertical composition, focused product-lifestyle hero shot, high-end editorial clarity",
 };
@@ -808,7 +808,7 @@ function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
 
     const sceneCue = input.modelLifestyle && lifestyleSceneMap[input.modelLifestyle]
         ? lifestyleSceneMap[input.modelLifestyle]
-        : "realistically American interior or neighborhood context";
+        : "realistically American setting (indoor or outdoor neighborhood context)";
 
     return [
         `Use ${personaParts.join(", ")} people only if humans appear in the image.`,
@@ -884,7 +884,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         environment,
         style,
         lighting: input.boardType === "social"
-            ? "natural window light, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo"
+            ? "natural ambient lighting, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo (can be natural window light or outdoor sunlight as appropriate)"
             : input.boardType === "aplus"
                     ? "premium cinematic lighting, clean layered highlights, volumetric light beams, epic atmospheric depth, refined brand atmosphere, high-end commercial color grading"
                     : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
@@ -909,10 +909,15 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         social: [
             `This is a real buyer-show / social media UGC content image for the product: "${productTitleContext}".`,
             "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone — NOT a professional studio shot.",
-            "Characteristics of authentic buyer photos: slightly imperfect composition, natural phone-camera perspective (slightly tilted or off-center), real home environment with visible personal belongings, natural ambient lighting (not studio-lit), casual and spontaneous feel.",
+            "Characteristics of authentic buyer photos: slightly imperfect composition, natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment with visible personal surroundings, natural ambient lighting (not studio-lit), casual and spontaneous feel.",
             "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
+            "Incorporate one of these authentic social media visual logics: " +
+            "1) Minimalist Chic: emphasis on clean color blocks, premium fabric textures like ribbed or satin, and minimalist backgrounds (stone walls, clean corners). " +
+            "2) American Retro/Y2K: baby tees, cargo elements, industrial backgrounds (parking lots, street corners). " +
+            "3) Effortless Loungewear: relaxed co-ord sets, lifestyle props like coffee cups, cozy home or cafe settings. " +
+            "4) Vacation Baddie: asymmetric cuts, high skin exposure, sun-drenched settings like beaches or bright rooms with hard shadows.",
             "Include realistic everyday details: a half-drunk coffee cup, phone charger on the table, slightly messy but lived-in space, personal items in the background.",
-            "The scene interior must vary dramatically between images — different apartment styles, different furniture, different wall colors, different decorations. Each buyer photo should feel like it's from a completely different person's home.",
+            "The scene must vary dramatically between images — alternate between different apartment styles, street corners, parking lots, beaches, and backyards. Each buyer photo should feel like it's from a completely different person's life.",
             "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
         ].join(' '),
         story: [
