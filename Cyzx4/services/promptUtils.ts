@@ -594,6 +594,11 @@ const SCENE_VARIATION_POOL: Record<string, string[]> = {
         "large suburban lawn with kids' swing set, garden hose reel, white picket fence, American flag on porch",
         "lakeside picnic in a US national park, plaid flannel blanket, cooler, Yeti cups, pine trees in background",
         "family camping campsite with REI tent, campfire, s'mores setup, camp chairs, Forest Park USA setting",
+        "urban street crosswalk with motion-blurred yellow taxi, skyscraper background, modern glass architecture, street-style fashion influencer vibe",
+        "minimalist concrete courtyard with a single architectural bench, harsh direct sunlight, high-contrast shadows, premium high-end fashion editorial feel",
+        "tropical beach at magic hour, palm trees swaying, turquoise water, fine white sand, vacation influencer aesthetic with lens flare",
+        "underground industrial parking garage, raw concrete pillars, dramatic overhead lighting, streetwear and Y2K photography vibe",
+        "cluttered urban alleyway with colorful street art, industrial pipes, wet asphalt reflections, edgy streetwear lifestyle",
     ],
     office: [
         "American home office with standing desk, ergonomic chair, dual monitors, motivational poster, small American flag on desk",
@@ -675,6 +680,7 @@ const LIFESTYLE_MAP: Record<string, string> = {
     '节日送礼': 'holiday gifting moment',
     '派对庆祝': 'party celebration',
     '下午茶/咖啡': 'cafe lifestyle',
+    '网红穿搭': 'fashion influencer aesthetic',
     '车内场景': 'automotive interior lifestyle',
     '无（纯产品图）': '',
 };
@@ -803,6 +809,7 @@ function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
         "节日送礼": "American holiday gifting moment, living room, wrapped gift setting, warm family atmosphere",
         "派对庆祝": "birthday party, celebration decorations, balloons, cake, excited group energy",
         "下午茶/咖啡": "cozy American cafe, latte art, pastry, window seat, warm afternoon light",
+        "网红穿搭": "urban street photography, modern brutalist architecture, glass building reflections, rooftop with city skyline, or high-end minimalist outdoor plaza",
         "车内场景": "inside a car, road trip vibes, drive-through, parking lot, casual automotive setting",
     };
 
@@ -911,15 +918,18 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone — NOT a professional studio shot.",
             "Characteristics of authentic buyer photos: slightly imperfect composition, natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment with visible personal surroundings, natural ambient lighting (not studio-lit), casual and spontaneous feel.",
             "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
-            "Incorporate one of these authentic social media visual logics: " +
+            input.productType === 'apparel' ? 
+            "Incorporate one of these authentic social media visual logics specifically for apparel: " +
             "1) Minimalist Chic: emphasis on clean color blocks, premium fabric textures like ribbed or satin, and minimalist backgrounds (stone walls, clean corners). " +
             "2) American Retro/Y2K: baby tees, cargo elements, industrial backgrounds (parking lots, street corners). " +
             "3) Effortless Loungewear: relaxed co-ord sets, lifestyle props like coffee cups, cozy home or cafe settings. " +
-            "4) Vacation Baddie: asymmetric cuts, high skin exposure, sun-drenched settings like beaches or bright rooms with hard shadows.",
+            "4) Vacation Baddie: asymmetric cuts, high skin exposure, sun-drenched settings like beaches or bright rooms with hard shadows. " +
+            "Include real influencer photography scenarios such as OOTD mirror selfies with phone covering the face, walking on a crosswalk with motion blur, casual fitting room snaps, or leaning against a street pole." : "",
             "Include realistic everyday details: a half-drunk coffee cup, phone charger on the table, slightly messy but lived-in space, personal items in the background.",
             "The scene must vary dramatically between images — alternate between different apartment styles, street corners, parking lots, beaches, and backyards. Each buyer photo should feel like it's from a completely different person's life.",
             "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
-        ].join(' '),
+            "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' or overly airbrushed skin, NO perfectly symmetrical doll-like poses, and NO artificial studio lighting. Introduce slight film grain and natural lens imperfections to break the 'AI look'."
+        ].filter(Boolean).join(' '),
         story: [
             `This is a premium high-end cinematic brand story visual for the product: "${productTitleContext}".`,
             "The image must match the premium quality of Amazon A+ Content banners, with 21:9 aspect ratio tension.",
@@ -1002,10 +1012,13 @@ export function buildSceneGenerationNegativePrompt(input: {
         styleVariant?.negativePromptAdd || "",
         "CGI",
         "3D render",
+        "AI generated",
+        "midjourney aesthetic",
         "cartoon",
         "anime",
         "plastic texture",
         "waxy skin",
+        "airbrushed skin",
         "mannequin pose",
         "unnatural hands",
         "extra fingers",
