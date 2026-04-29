@@ -746,10 +746,10 @@ const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
 
 const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
     main: "Amazon secondary image style, clear subject hierarchy, product-first composition, clean but realistic background, strong click-through appeal",
-    aplus: "premium A+ storytelling visual, wider environment context, richer spatial layering, elevated brand atmosphere",
+    aplus: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, but very clean, minimalist, and uncluttered environment",
     social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
     story: "premium cinematic A+ brand story visual, clean high-end spatial storytelling, refined atmospheric depth, high commercial conversion aesthetic",
-    asset: "premium 2:3 vertical marketing visual, clean and focused brand asset, high-conversion vertical content, editorial product-lifestyle quality",
+    asset: "real American lifestyle buyer-show content, clean and focused brand asset, natural social-media realism, but very clean, minimalist, and uncluttered environment",
 };
 
 const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
@@ -885,18 +885,30 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     // Product title context — used to anchor all image content to the listing
     const productTitleContext = [input.productName, input.productCategory, input.sellingPoints].filter(Boolean).join(' — ');
 
+    let customLighting = ["social", "aplus", "asset"].includes(input.boardType)
+        ? "natural ambient lighting, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo (can be natural window light or outdoor sunlight as appropriate)"
+        : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look";
+    let customComposition = SCENE_LENS_MAP[input.boardType];
+    let customQuality = ["social", "aplus", "asset"].includes(input.boardType) ? "FILM" : "EDITORIAL";
+
+    if (input.productType === 'plush') {
+        customLighting = "soft diffused natural light from the window, low contrast soft tone, light ratio 1:2, color temperature 5400K, low saturation warm natural color palette, warm healing daily feeling";
+        if (input.boardType === 'aplus') {
+            customComposition = "45-degree high-angle full shot, clear presentation of the product and scene, 35mm lens, premium editorial banner composition";
+        } else if (input.boardType === 'main') {
+            customComposition = "eye-level interactive shot or close-up detail shot, shallow depth of field, blurred background, 50mm standard lens";
+        }
+        customQuality = "hyper-detailed fluffy plush texture, natural and transparent baby skin (if people present), 8K, high resolution, film-like texture";
+    }
+
     const basePrompt = buildGoldenFormula({
         subject,
         action: input.copyIntent || "show the product naturally in use while preserving exact identity",
         environment,
         style,
-        lighting: input.boardType === "social"
-            ? "natural ambient lighting, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo (can be natural window light or outdoor sunlight as appropriate)"
-            : input.boardType === "aplus"
-                    ? "premium cinematic lighting, clean layered highlights, volumetric light beams, epic atmospheric depth, refined brand atmosphere, high-end commercial color grading"
-                    : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look",
-        composition: SCENE_LENS_MAP[input.boardType],
-        qualityBooster: (input.boardType === "social") ? "FILM" : "EDITORIAL",
+        lighting: customLighting,
+        composition: customComposition,
+        qualityBooster: customQuality,
     });
 
     // Board-type specific instructions
@@ -909,10 +921,15 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         ].join(' '),
         aplus: [
             `This is an Amazon A+ detail page banner for the product: "${productTitleContext}".`,
-            "The image must tell a lifestyle story that connects the product to the buyer's aspirational life.",
-            "Create a cinematic, editorial atmosphere that elevates the brand perception.",
-            "Vary the scene composition, furniture choices, color accent pieces, and ambient decorations between each generated image. No two A+ banners should look like the same room.",
-        ].join(' '),
+            "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone, providing authentic social-media lifestyle realism.",
+            "Characteristics of authentic buyer photos: natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment, natural ambient lighting, casual and spontaneous feel.",
+            "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
+            input.productType === 'apparel' ? 
+            "Incorporate one of these authentic social media visual logics specifically for apparel: 1) Minimalist Chic: clean color blocks, minimalist backgrounds. 2) American Retro/Y2K: industrial backgrounds. 3) Effortless Loungewear: cozy clean home or cafe settings. 4) Vacation Baddie: sun-drenched settings." : "",
+            "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
+            "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
+            "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' skin, NO symmetrical poses, and NO studio lighting. Introduce slight film grain to break the 'AI look'."
+        ].filter(Boolean).join(' '),
         social: [
             `This is a real buyer-show / social media UGC content image for the product: "${productTitleContext}".`,
             "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone — NOT a professional studio shot.",
@@ -941,11 +958,15 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         ].join(' '),
         asset: [
             `This is a premium 2:3 vertical Brand Asset Card for the product: "${productTitleContext}".`,
-            "Focus on high-conversion vertical content that captures the product's essence for mobile marketing.",
-            "Use a refined, editorial portrait composition that feels clean and professional.",
-            "Ensure the background is stylishly supportive but never distracting from the main brand asset.",
-            "Vary the scene interior and decorations between generations — no two asset cards should look like the same room.",
-        ].join(' '),
+            "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone, providing authentic social-media lifestyle realism.",
+            "Characteristics of authentic buyer photos: natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment, natural ambient lighting, casual and spontaneous feel.",
+            "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
+            input.productType === 'apparel' ? 
+            "Incorporate one of these authentic social media visual logics specifically for apparel: 1) Minimalist Chic: clean color blocks, minimalist backgrounds. 2) American Retro/Y2K: industrial backgrounds. 3) Effortless Loungewear: cozy clean home or cafe settings. 4) Vacation Baddie: sun-drenched settings." : "",
+            "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
+            "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
+            "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' skin, NO symmetrical poses, and NO studio lighting. Introduce slight film grain to break the 'AI look'."
+        ].filter(Boolean).join(' '),
     };
 
     // Randomization directive to ensure diversity
@@ -959,9 +980,14 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     // Build realistic interaction prompt for physical believability
     const realismPrompt = buildRealisticInteractionPrompt(input);
 
+    const plushSpecificGuide = input.productType === 'plush' 
+        ? "SCENE RULES FOR PLUSH: Use real North American middle-class home scenes (e.g., kids bedroom, living room sofa, fluffy rug, window bay, or clean outdoor lawn). Keep background clean and uncluttered. MAX 3 props total. Emphasize a warm, healing, and natural lifestyle narrative without stiff posing. If children are present, show natural interaction (hugging, looking at toy)." 
+        : "";
+
     return [
         "Create an ultra realistic commercial lifestyle photograph grounded in real everyday American life.",
         boardInstructions[input.boardType],
+        plushSpecificGuide,
         randomizationDirective,
         "All people, styling, interiors, props, neighborhoods, and visual cues must feel authentic to the United States market.",
         "Use ethnically believable real American people and natural candid behavior, never generic mannequin-like subjects.",
@@ -978,7 +1004,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         input.extraNotes ? `Additional execution notes: ${input.extraNotes}.` : "",
         basePrompt,
         "STRICT PRODUCT FIDELITY: The reference product images are the absolute source of truth. You must maintain the exact structure, color, texture, and identity of the product without any deviation.",
-        input.boardType === 'social'
+        ["social", "aplus", "asset"].includes(input.boardType)
             ? "Make this look like a real buyer's phone photo shared on social media — authentic, casual, unpolished but appealing. NOT a professional photo."
             : "Make the image look like a premium real photo shot by a top-tier Amazon ecommerce art director, following high-end A+ content standards.",
     ].filter(Boolean).join(" ");
@@ -1005,9 +1031,10 @@ export function buildSceneGenerationNegativePrompt(input: {
     }
     // --- End Style Pack Logic ---
 
-    const scene = input.boardType === "social" ? "portrait" : "product";
-    const style = input.boardType === "social" ? "film" : "cinematic";
+    const scene = ["social", "aplus", "asset"].includes(input.boardType) ? "portrait" : "product";
+    const style = ["social", "aplus", "asset"].includes(input.boardType) ? "film" : "cinematic";
     const extra = [
+        ["aplus", "asset"].includes(input.boardType) ? "cluttered background, busy scene, complex environment, distracting elements, too many props, flashy colors" : "",
         stylePackData?.negativePromptGlobal || "",
         styleVariant?.negativePromptAdd || "",
         "CGI",
@@ -1062,7 +1089,7 @@ export function buildSceneGenerationNegativePrompt(input: {
         "changed trim details",
         "altered silhouette",
         "inaccurate product identity",
-        input.productType === "plush" ? "toy-like hard fabric, synthetic fake fur, stiff plush body, incorrect embroidery, wrong plush pile length, flattened stuffing volume, changed facial embroidery" : "",
+        input.productType === "plush" ? "toy-like hard fabric, synthetic fake fur, stiff plush body, incorrect embroidery, wrong plush pile length, flattened stuffing volume, changed facial embroidery, hard direct light, strong flash, harsh shadows, overexposure, high saturation, neon colors, fluorescent colors, cold gray color cast, stiff posing, cluttered background, too many props" : "",
         input.productType === "apparel" ? "wrong garment structure, melted fabric, impossible folds, broken seams, incorrect fit, changed fabric weight, altered print placement, altered embroidery placement, recolored garment panels" : "",
         input.productType === "general" ? "changed hardware finish, altered edge construction, replaced accessories, changed material gloss" : "",
         input.avoidElements || "",
