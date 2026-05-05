@@ -1,6 +1,6 @@
 # 🎯 XcAI AI Studio
 
-> **Venture Lightly** —— 为 SKYSPER 品牌打造的一站式电商视觉与数据分析智能工作台。
+> **Venture Lightly** —— 为 XC 品牌打造的一站式电商视觉与数据分析智能工作台。
 
 <div align="center">
   <img src="https://i.ibb.co/cckL40vf/1.jpg" width="100%" alt="SKYSPER AI Studio Banner" />
@@ -8,7 +8,7 @@
 
 ## 📖 项目简介
 
-SKYSPER AI Studio 是一个集成化智能系统，专为跨境电商（特别是 Amazon 平台）设计。它结合了 Google Gemini Pro 的多模态能力，打通了从**市场数据分析**到**品牌视觉落地**的全链路流程。
+XC AI Studio 是一个集成化智能系统，专为跨境电商（特别是 Amazon 平台）设计。它结合了 Google Gemini Pro 的多模态能力，打通了从**市场数据分析**到**品牌视觉落地**的全链路流程。
 
 项目旨在通过 AI 技术赋能品牌运营，将“数据洞察”与“创意生产”深度结合，实现高效、标准化的品牌资产构建。
 
