@@ -295,6 +295,8 @@ const PoseFissionTab: React.FC = () => {
   const [productImages, setProductImages] = useState<string[]>([]);
   const [accessoryImages, setAccessoryImages] = useState<string[]>([]);
   const [modelOutfitImages, setModelOutfitImages] = useState<string[]>([]);
+  const [sceneImages, setSceneImages] = useState<string[]>([]);
+  const [scenePrompt, setScenePrompt] = useState<string>('');
 
   const [bodyInfo, setBodyInfo] = useState('');
   const [specificFeatures, setSpecificFeatures] = useState('');
@@ -342,11 +344,12 @@ const PoseFissionTab: React.FC = () => {
   };
 
   // --- Drag and Drop States ---
-  const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory'|'outfit', idx: number} | null>(null);
+  const [draggedIdx, setDraggedIdx] = useState<{type: 'model'|'product'|'accessory'|'outfit'|'scene', idx: number} | null>(null);
   const [isDragOverModel, setIsDragOverModel] = useState(false);
   const [isDragOverProduct, setIsDragOverProduct] = useState(false);
   const [isDragOverAccessory, setIsDragOverAccessory] = useState(false);
   const [isDragOverOutfit, setIsDragOverOutfit] = useState(false);
+  const [isDragOverScene, setIsDragOverScene] = useState(false);
 
   const processFiles = (files: File[], setter: React.Dispatch<React.SetStateAction<string[]>>, maxLimit: number, currentList: string[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));
@@ -366,20 +369,22 @@ const PoseFissionTab: React.FC = () => {
   };
 
   // --- Upload Drop Area Handlers ---
-  const handleDragOverArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory' | 'outfit') => {
+  const handleDragOverArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory' | 'outfit' | 'scene') => {
     e.preventDefault();
     if (type === 'model') setIsDragOverModel(true);
     if (type === 'product') setIsDragOverProduct(true);
     if (type === 'accessory') setIsDragOverAccessory(true);
     if (type === 'outfit') setIsDragOverOutfit(true);
+    if (type === 'scene') setIsDragOverScene(true);
   };
-  const handleDragLeaveArea = (type: 'model' | 'product' | 'accessory' | 'outfit') => {
+  const handleDragLeaveArea = (type: 'model' | 'product' | 'accessory' | 'outfit' | 'scene') => {
     if (type === 'model') setIsDragOverModel(false);
     if (type === 'product') setIsDragOverProduct(false);
     if (type === 'accessory') setIsDragOverAccessory(false);
     if (type === 'outfit') setIsDragOverOutfit(false);
+    if (type === 'scene') setIsDragOverScene(false);
   };
-  const handleDropArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory' | 'outfit', setter: React.Dispatch<React.SetStateAction<string[]>>, maxLimit: number, currentList: string[]) => {
+  const handleDropArea = (e: React.DragEvent, type: 'model' | 'product' | 'accessory' | 'outfit' | 'scene', setter: React.Dispatch<React.SetStateAction<string[]>>, maxLimit: number, currentList: string[]) => {
     e.preventDefault();
     handleDragLeaveArea(type);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -388,13 +393,13 @@ const PoseFissionTab: React.FC = () => {
   };
 
   // --- Reorder Sorting Handlers ---
-  const handleDragStartItem = (e: React.DragEvent, type: 'model'|'product'|'accessory'|'outfit', idx: number) => {
+  const handleDragStartItem = (e: React.DragEvent, type: 'model'|'product'|'accessory'|'outfit'|'scene', idx: number) => {
     setDraggedIdx({ type, idx });
     e.dataTransfer.effectAllowed = 'move';
     setTimeout(() => { (e.target as HTMLElement).classList.add('opacity-30'); }, 0);
   };
 
-  const handleDragEnterItem = (e: React.DragEvent, type: 'model'|'product'|'accessory'|'outfit', targetIdx: number) => {
+  const handleDragEnterItem = (e: React.DragEvent, type: 'model'|'product'|'accessory'|'outfit'|'scene', targetIdx: number) => {
     e.preventDefault();
     if (!draggedIdx || draggedIdx.type !== type || draggedIdx.idx === targetIdx) return;
     
@@ -414,6 +419,13 @@ const PoseFissionTab: React.FC = () => {
        });
     } else if (type === 'outfit') {
        setModelOutfitImages(prev => {
+         const newList = [...prev];
+         const [draggedImg] = newList.splice(draggedIdx.idx, 1);
+         newList.splice(targetIdx, 0, draggedImg);
+         return newList;
+       });
+     } else if (type === 'scene') {
+       setSceneImages(prev => {
          const newList = [...prev];
          const [draggedImg] = newList.splice(draggedIdx.idx, 1);
          newList.splice(targetIdx, 0, draggedImg);
@@ -457,7 +469,7 @@ const PoseFissionTab: React.FC = () => {
     setStatusMessage(isMainPreset ? "正在分析参考图并锁定主图角度..." : "正在由 AI 视觉大脑分析产品细节与规划姿势...");
     
     try {
-      const apiImages = [...productImages, ...modelOutfitImages, ...modelImages, ...accessoryImages].map(imgUrl => {
+      const apiImages = [...productImages, ...modelOutfitImages, ...modelImages, ...accessoryImages, ...sceneImages].map(imgUrl => {
          const match = imgUrl.match(/^data:(image\/[a-zA-Z]*);base64,(.*)$/);
          if (match) {
            return { mimeType: match[1], base64: match[2] };
@@ -477,11 +489,13 @@ const PoseFissionTab: React.FC = () => {
       const productCount = productImages.length;
       const outfitCount = modelOutfitImages.length;
       const accessoryCount = accessoryImages.length;
+      const sceneCount = sceneImages.length;
 
       const productStartIdx = 1;
       const outfitStartIdx = productCount + 1;
       const modelStartIdx = productCount + outfitCount + 1;
       const accessoryStartIdx = productCount + outfitCount + modelCount + 1;
+      const sceneStartIdx = productCount + outfitCount + modelCount + accessoryCount + 1;
 
       const productIdxRange = productCount > 0
         ? `Image ${productStartIdx}${productCount > 1 ? ` to Image ${productCount}` : ""}`
@@ -497,6 +511,10 @@ const PoseFissionTab: React.FC = () => {
 
       const accessoryIdxRange = accessoryCount > 0
         ? `Image ${accessoryStartIdx}${accessoryCount > 1 ? ` to Image ${accessoryStartIdx + accessoryCount - 1}` : ""}`
+        : "None";
+
+      const sceneIdxRange = sceneCount > 0
+        ? `Image ${sceneStartIdx}${sceneCount > 1 ? ` to Image ${sceneStartIdx + sceneCount - 1}` : ""}`
         : "None";
 
       const wardrobeLock = `[WARDROBE WHITELIST / SOURCE OUTFIT REMOVAL]:
@@ -525,6 +543,10 @@ const PoseFissionTab: React.FC = () => {
 - Do not copy the outfit-effect model's identity, background, lighting, or unrelated garments.`
         : `[OUTFIT EFFECT LOCK]: No dedicated outfit-effect reference was provided. Infer the final wearing result from the product images and user notes.`;
 
+      const sceneLock = sceneCount > 0 || scenePrompt
+        ? `[SCENE & BACKGROUND]: ${sceneCount > 0 ? `Match the environment, lighting, and general background vibe from ${sceneIdxRange}. CRITICAL: If there are any people or models visible in the scene reference images (${sceneIdxRange}), you MUST IGNORE THEM. Treat the scene reference as an empty environment. Do NOT copy the identity, pose, or clothing of any person from the scene reference images.` : ''} ${scenePrompt ? `Additional scene requirements: ${scenePrompt}.` : ''}`
+        : `[SCENE & BACKGROUND]: PURE WHITE (#FFFFFF), clean studio lighting, minimal shadows.`;
+
       const baseNegativePrompt = [
         "original outfit",
         "keep original clothes",
@@ -545,6 +567,9 @@ const PoseFissionTab: React.FC = () => {
         "wrong layering",
         "wrong tuck",
         "wrong drape",
+        "multiple people",
+        "extra people",
+        "people in background"
       ].join(", ");
 
       if (isMainPreset) {
@@ -617,7 +642,7 @@ ${wardrobeLock}
 [VISUAL ANALYSIS]:
 - Product Detail: ${analysis.product_description}
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
-- Output background: PURE WHITE (#FFFFFF), clean studio lighting, minimal shadows.
+${sceneLock}
 
 [STRICT NEGATIVE RULES]:
 - NO grid, NO collage, NO multi-panel layout.
@@ -772,7 +797,7 @@ ${gridRules}
 - ABSOLUTELY NO standalone product shots (NO shoes/bags/accessories only).
 - DO NOT ZOOM IN ON FACE. Focus on showing the WHOLE garment and fit.
 - Full-body or 3/4 shots are preferred to showcase the product.
-- Background: PURE WHITE (#FFFFFF). NO shadows.
+${sceneLock}
 - Each model must fit perfectly within their mathematically divided grid cell, maintaining 100% accurate human body proportions (no stretching/squashing).
 - **CRITICAL**: This rule applies to both 16:9 (horizontal) and 9:16 (vertical) layouts. Consistency is mandatory across all ${totalPoses} cells.
 [OUTPUT]: Generate a single ${isHorizontal ? '3:2' : '9:16'} image containing the requested grid pattern.`;
@@ -1046,6 +1071,58 @@ ${gridRules}
               )}
             </div>
           </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
+              <span>场景参考图（可选）</span>
+              <span className="text-[10px] font-normal text-pastel-muted">最多3张 ({sceneImages.length}/3)</span>
+            </h3>
+            <div 
+              className={`flex gap-2 flex-wrap min-h-[5rem] p-2 -m-2 rounded-xl border-2 transition-all ${isDragOverScene ? 'border-dashed border-pastel-highlight bg-pastel-highlight/5' : 'border-transparent'}`}
+              onDragOver={(e) => handleDragOverArea(e, 'scene')}
+              onDragLeave={() => handleDragLeaveArea('scene')}
+              onDrop={(e) => handleDropArea(e, 'scene', setSceneImages, 3, sceneImages)}
+            >
+              {sceneImages.map((img, idx) => (
+                <div 
+                  key={idx} 
+                  draggable
+                  onDragStart={(e) => handleDragStartItem(e, 'scene', idx)}
+                  onDragEnter={(e) => handleDragEnterItem(e, 'scene', idx)}
+                  onDragEnd={handleDragEndItem}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="relative w-20 h-20 rounded-lg overflow-hidden border border-pastel-border shadow-sm group cursor-move hover:ring-2 hover:ring-pastel-highlight/50 transition-all"
+                >
+                  <img src={img} alt="preview" className="w-full h-full object-cover pointer-events-none" />
+                  <button
+                    onClick={() => removeImage(idx, setSceneImages)}
+                    className="absolute z-10 top-1 right-1 bg-black/50 p-1 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-black/70"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {sceneImages.length < 3 && (
+                <label className="relative w-20 h-20 rounded-lg border-2 border-dashed border-pastel-border hover:border-pastel-highlight hover:bg-pastel-highlight/5 flex flex-col items-center justify-center text-pastel-muted transition-all cursor-pointer overflow-hidden group">
+                  <input type="file" multiple className="hidden" onChange={(e) => { if(e.target.files) processFiles(Array.from(e.target.files), setSceneImages, 3, sceneImages); e.target.value = ''; }} accept="image/*" />
+                  <Upload className="w-5 h-5 group-hover:text-pastel-highlight" />
+                  <span className="text-[10px] mt-1 group-hover:text-pastel-highlight">拖拽或点击</span>
+                </label>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted mb-2">场景描述提示词（可选）</h3>
+            <input 
+              type="text" 
+              placeholder="例如：阳光明媚的海滩、现代简约咖啡厅、复古街道..." 
+              value={scenePrompt}
+              onChange={(e) => setScenePrompt(e.target.value)}
+              className="w-full bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 transition-all"
+            />
+          </div>
+
 
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted mb-2">模特三维信息</h3>
