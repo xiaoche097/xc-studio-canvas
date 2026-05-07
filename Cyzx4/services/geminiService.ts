@@ -74,9 +74,10 @@ export const analyzeDollModification = async (
    - **Surgical (Boxes provided)**: ONLY the areas inside the boxes should be modified. EVERYTHING else is "FROZEN".
    - **Global (No boxes provided)**: You may refine the entire image (lighting, texture, quality). HOWEVER, you must maintain 100% of the original objects' positions, counts, poses, and basic shapes from Image 1. DO NOT add or remove objects.
 2. **STRICT REFERENCE ALIGNMENT**: Extract visual attributes (texture, lighting, color depth, material feel) from the REFERENCE IMAGES (Images 2+). Apply these attributes to the modified areas or the entire image.
-3. **NO NEW OBJECTS**: Absolutely NO hallucination of additional dolls, props, or background details not present in Image 1.
-4. **LAYOUT PRESERVATION**: The final image must be a 1:1 structural match to Image 1. If Image 1 has a doll on the left, the final image must have that same doll on the left, just refined.
-5. **ENGINEERED PROMPT FORMAT**: The prompt must be a detailed description of the ENTIRE FINAL IMAGE, but it must use language like "Keeping everything else identical to Image 1, modify ONLY the [area] to look like [reference description]".
+3. **COLOR CONSISTENCY (CRITICAL)**: Maintain strict color consistency with Image 1. You MUST match the exact color tone, skin hue, lighting atmosphere, and white balance of the source image. Do not apply "neutral" correction if it deviates from the original's artistic intent or warm/cool bias. Ensure the modified areas blend seamlessly with the original color profile.
+4. **NO NEW OBJECTS**: Absolutely NO hallucination of additional dolls, props, or background details not present in Image 1.
+5. **LAYOUT PRESERVATION**: The final image must be a 1:1 structural match to Image 1. If Image 1 has a doll on the left, the final image must have that same doll on the left, just refined.
+6. **ENGINEERED PROMPT FORMAT**: The prompt must be a detailed description of the ENTIRE FINAL IMAGE, but it must use language like "Keeping everything else identical to Image 1, modify ONLY the [area] to look like [reference description]".
 
 **SOURCE IMAGE**: Image 1.
 **REFERENCE IMAGES**: ${refImages.length > 0 ? `Images 2-${refImages.length + 1} are style/effect references.` : 'None provided.'}
@@ -648,8 +649,18 @@ export const generateImageToImage = async (
   } else if (targetModel === 'nanobananapro' || targetModel === 'pro') {
     targetModel = "gemini-3-pro-image-preview";
   }
+
+  // Handle gpt-image-2 resolution constraints
+  if (targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all') {
+    if (resolution === '1K') {
+      targetModel = 'gpt-image-2-all';
+    } else {
+      targetModel = 'gpt-image-2';
+    }
+  }
+
   const isGptModel = targetModel.toLowerCase().includes('gpt');
-  const isGptImage2 = targetModel === 'gpt-image-2';
+  const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {

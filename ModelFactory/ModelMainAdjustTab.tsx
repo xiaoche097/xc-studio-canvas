@@ -14,6 +14,7 @@ const ANGLE_TEMPLATES = {
 **核心指令：执行视角重建。**
 **视角转换**：请忽略参考图的原始角度。将模特重建至【左前方 45 度视角（3/4 front-left）】，呈现自然站姿。
 **身份与服装保持**：必须 100% 保持 Image 1 中模特的面部特征、发型、肤色、身材比例、服装款式与颜色。
+**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
   },
   B: {
@@ -23,6 +24,7 @@ const ANGLE_TEMPLATES = {
 **核心指令：强制回正视角。**
 **视角转换**：请忽略参考图的原始偏转角度，将模特重建至【正前方平视视角（Front View）】，自然站姿面对镜头。
 **身份与服装保持**：必须 100% 保持 Image 1 中模特的面部特征、发型、肤色、身材比例、服装款式与颜色。
+**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
   },
   C: {
@@ -32,6 +34,7 @@ const ANGLE_TEMPLATES = {
 **核心指令：执行视角重建。**
 **视角转换**：请忽略参考图的原始角度，将模特重建至【右前方 45 度视角（3/4 front-right）】，呈现自然侧身站姿。
 **身份与服装保持**：必须 100% 保持 Image 1 中模特的面部特征、发型、肤色、身材比例、服装款式与颜色。
+**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
   },
   D: {
@@ -41,6 +44,7 @@ const ANGLE_TEMPLATES = {
 **核心指令：视角 90 度转动。**
 **视角转换**：请基于 Image 1 的模特身份重构一个【正侧面视角（Side Profile）】，模特自然侧身站立。
 **身份与服装保持**：必须 100% 保持 Image 1 中模特的面部特征、发型、肤色、身材比例、服装款式与颜色。
+**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，真实皮肤质感。`
   },
   E: {
@@ -50,6 +54,7 @@ const ANGLE_TEMPLATES = {
 **核心指令：视角 180 度大转弯。**
 **视角转换**：请基于 Image 1 的模特身份重构一个【正背面视角（Back View）】，展示服装背面效果。
 **身份与服装保持**：必须 100% 保持 Image 1 中的发色、身材比例、服装款式与颜色。
+**色彩一致性**：保持与 Image 1 一致。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度。`
   },
   RETOUCH: {
@@ -57,14 +62,15 @@ const ANGLE_TEMPLATES = {
     label: 'Retouch & Lock',
     prompt: `你现在是一名顶级的电商模特摄影修图师。
 **核心指令：商业级主图精修。**
-**角度锁定**：严格保持 Image 1 的相机角度、模特姿势、构图与裁切范围完全一致。
+**角度锁定**：严格保持 Image 1 的相机角度、模特姿势、构构与裁切范围完全一致。
 **精修要求**：清理皮肤瑕疵，优化服装褶皱，增强面料质感，提升整体画质与锐度。
+**色彩一致性**：严格保持与 Image 1 完全一致的色彩基调、肤色表现和光影饱和度。严禁自行改变色温。
 **身份保持**：必须 100% 保持模特身份。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，商业大片质感。`
   }
 };
 
-const GLOBAL_NEGATIVE_PROMPT = `deformed anatomy, distorted face, different person, extra limbs, bad lighting, text, watermark, plastic skin, cartoon, illustration, low resolution, blurry, messy background, colorful background`;
+const GLOBAL_NEGATIVE_PROMPT = `deformed anatomy, distorted face, different person, extra limbs, bad lighting, text, watermark, plastic skin, cartoon, illustration, low resolution, blurry, messy background, colorful background, color shift, color mismatch, inconsistent lighting`;
 
 const ModelMainAdjustTab: React.FC = () => {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
