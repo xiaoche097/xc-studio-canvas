@@ -529,7 +529,9 @@ const PoseFissionTab: React.FC = () => {
 - If the PRIMARY PRODUCT is sleeveless / strapless / cropped / open-back, the result must keep that exact exposed structure with no extra fabric added underneath.`;
 
       const identityLock = modelCount > 0
-        ? `[IDENTITY LOCK]: CRITICAL: The model MUST be the EXACT SAME person as shown in the model identity reference images (${modelIdxRange}). Zero identity drift.
+        ? `[STRICT IDENTITY LOCK - CRITICAL]: 
+- The generated model MUST have the EXACT SAME FACE, facial features, and ethnicity as the person shown in the model identity reference images (${modelIdxRange}).
+- Zero identity drift is allowed. Do NOT generate a random or different face. If reference images show a specific person, you must replicate their facial structure perfectly.
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
 - Model Traits (User Input): ${specificFeatures || "None"}`
         : `[MODEL CREATION]: No dedicated model identity references were provided.
@@ -621,8 +623,10 @@ const PoseFissionTab: React.FC = () => {
 
 ${identityLock}
 ${outfitEffectLock}
-[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the reference images.
-- Build/Measurements (User Input): ${bodyInfo || "Use the reference images."}
+[STRICT BODY DIMENSIONS LOCK]: 
+- You MUST perfectly replicate the model's exact body build, height, BWH (bust-waist-hip) measurements, and body proportions shown in the reference images.
+- The model's body shape must not change or look like a different person.
+- Build/Measurements (User Input): ${bodyInfo || "Strictly match the reference images."}
 - Detail Prompt (User Input): ${detailPrompt || "None"}
 
 [PRIMARY PRODUCT (NON-NEGOTIABLE)]:
@@ -770,8 +774,10 @@ ${sceneLock}
 
       const prompt = `${promptPrefix}${poseFramingLock}${identityLock}
 ${outfitEffectLock}
-[BODY DIMENSIONS]: Match the model's build, height, and proportions exactly as shown in the reference images.
-- Build/Measurements (User Input): ${bodyInfo || "Use the reference images."}
+[STRICT BODY DIMENSIONS LOCK]: 
+- You MUST perfectly replicate the model's exact body build, height, BWH (bust-waist-hip) measurements, and body proportions shown in the reference images.
+- The model's body shape must not change or look like a different person.
+- Build/Measurements (User Input): ${bodyInfo || "Strictly match the reference images."}
 - Detail Prompt (User Input): ${detailPrompt || "None"}
 
 [PRIMARY PRODUCT (NON-NEGOTIABLE)]:
