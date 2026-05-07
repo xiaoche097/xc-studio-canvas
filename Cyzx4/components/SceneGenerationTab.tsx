@@ -311,9 +311,10 @@ const SceneGenerationTab: React.FC = () => {
       if (removed) URL.revokeObjectURL(removed.preview);
       return next;
     });
-    // If no images left, clear analysis
+    // If no images left, clear analysis and form
     if (uploadedImages.length <= 1) {
       setAnalysisResult(null);
+      setForm(initialForm);
     }
   };
 
@@ -1100,14 +1101,28 @@ const SceneGenerationTab: React.FC = () => {
             <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
               <button
                 onClick={() => setShowAdvanced(prev => !prev)}
-                className="w-full flex items-center justify-between"
+                className="w-full flex items-center justify-between group"
               >
                 <div className="flex items-center gap-2">
                   <ScanSearch className="w-4 h-4 text-pastel-highlight" />
                   <h3 className="font-semibold text-pastel-text text-sm">高级设置</h3>
                   <span className="text-[10px] text-pastel-muted">（手动覆盖 AI 推断 / 模型选择）</span>
                 </div>
-                {showAdvanced ? <ChevronUp className="w-4 h-4 text-pastel-muted" /> : <ChevronDown className="w-4 h-4 text-pastel-muted" />}
+                <div className="flex items-center gap-3">
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm('确定要清空所有高级设置和 AI 分析结果吗？')) {
+                        setForm(initialForm);
+                        setAnalysisResult(null);
+                      }
+                    }}
+                    className="text-[11px] text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    清空全部设置
+                  </div>
+                  {showAdvanced ? <ChevronUp className="w-4 h-4 text-pastel-muted" /> : <ChevronDown className="w-4 h-4 text-pastel-muted" />}
+                </div>
               </button>
               {showAdvanced && (
                 <div className="mt-4 space-y-4">

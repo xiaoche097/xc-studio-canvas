@@ -17,6 +17,8 @@ import { ProjectGalleryModal } from './ProjectGalleryModal';
 import { RecentProjects } from './RecentProjects';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { storageService, Project } from '../services/storageService';
+import { AgentSettingsModal } from './AgentSettingsModal';
+import { Bot, Sparkles } from 'lucide-react';
 
 import { WorkflowStep } from '../types';
 import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
@@ -26,94 +28,29 @@ interface AgentHomeProps {
 }
 
 export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
-  useEffect(() => {
-    // 1. Define Config
-    (window as any).difyChatbotConfig = {
-      token: 'hsdP9g5aPU0ea9qO',
-      inputs: {},
-      systemVariables: {},
-      userVariables: {},
-    };
-
-    // 2. Create Script
-    const script = document.createElement('script');
-    script.src = "https://udify.app/embed.min.js";
-    script.id = "hsdP9g5aPU0ea9qO";
-    script.defer = true;
-    document.body.appendChild(script);
-
-    // 3. Create Styles
-    const style = document.createElement('style');
-    style.id = "dify-custom-style";
-    style.innerHTML = `
-      #dify-chatbot-bubble-button {
-        background-color: #ED6D46 !important;
-        box-shadow: 0 4px 20px rgba(237, 109, 70, 0.4) !important;
-        width: 60px !important;
-        height: 60px !important;
-        border-radius: 50% !important;
-        z-index: 2147483647 !important;
-        bottom: 24px !important;
-        right: 24px !important;
-        padding: 0 !important;
-        margin: 0 !important;
-      }
-      /* Hide default icon */
-      #dify-chatbot-bubble-button svg {
-        display: none !important;
-      }
-      /* Add Text "SKYSPER" - Absolute Centering */
-      #dify-chatbot-bubble-button::after {
-        content: 'XcAIAGENT';
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        font-family: 'Noto Sans SC', sans-serif !important;
-        color: white !important;
-        font-size: 10px !important;
-        font-weight: 900 !important;
-        letter-spacing: 0.5px !important;
-        white-space: nowrap !important;
-        pointer-events: none !important;
-      }
-      #dify-chatbot-bubble-window {
-        width: 24rem !important;
-        height: 40rem !important;
-        z-index: 2147483646 !important;
-        bottom: 100px !important;
-      }
-    `;
-    document.head.appendChild(style);
-
-    // Cleanup
-    return () => {
-      document.body.removeChild(script);
-      document.head.removeChild(style);
-      // Remove the elements created by the script script if possible, though strict cleanup might fail if script hasn't fully loaded. 
-      // The Dify script usually appends #dify-chatbot-bubble-button to body. We should check and remove.
-      const bubble = document.getElementById('dify-chatbot-bubble-button');
-      if (bubble) bubble.remove();
-      const windowEl = document.getElementById('dify-chatbot-bubble-window');
-      if (windowEl) windowEl.remove();
-    };
-  }, []);
-
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-pro'); // Default to 2.5 Pro
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash'); // Default to 3.1 Flash
+  
+  const [agentName, setAgentName] = useState('XcAI 首席电商视觉策划师');
 
-  // ... inside the JSX ...
-  { selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash-lite-preview' ? 'Gemini 3.1 Flash Lite' : 'Gemini 2.5 Pro' }
-  // ...
-  <button
-    onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
-    className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-2.5-pro' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
-  >
-    Gemini 2.5 Pro
-    {selectedModel === 'gemini-2.5-pro' && <span className="text-xs">✓</span>}
-  </button>
+  useEffect(() => {
+    // Read agent name from localStorage
+    const savedName = localStorage.getItem('agentName');
+    if (savedName) setAgentName(savedName);
+
+    // Listen to settings update
+    const handleSettingsUpdate = () => {
+      const newName = localStorage.getItem('agentName');
+      if (newName) setAgentName(newName);
+    };
+    window.addEventListener('agent-settings-updated', handleSettingsUpdate);
+    return () => window.removeEventListener('agent-settings-updated', handleSettingsUpdate);
+  }, []);
+
+
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [showTryOnModal, setShowTryOnModal] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   // Video Modal removed for direct access
@@ -319,13 +256,21 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                 ))}
 
                 {/* Model Selector */}
-                <div className="relative">
+                <div className="relative flex items-center gap-2">
                   <button
                     onClick={() => setShowModelMenu(!showModelMenu)}
                     className="px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5"
                   >
                     <SettingsIcon />
-                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash-lite-preview' ? 'Gemini 3.1 Flash Lite' : 'Gemini 2.5 Pro'}
+                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash' ? 'Gemini 3.1 Flash' : 'Gemini 2.5 Pro'}
+                  </button>
+
+                  <button
+                    onClick={() => setShowAgentSettings(true)}
+                    className="p-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-400 hover:text-brand-orange transition-all border border-gray-100 dark:border-white/5"
+                    title="智能体设置"
+                  >
+                    <SettingsIcon />
                   </button>
 
                   {showModelMenu && (
@@ -339,11 +284,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                       </button>
                       <div className="h-px bg-gray-100 dark:bg-white/5"></div>
                       <button
-                        onClick={() => { setSelectedModel('gemini-3.1-flash-lite-preview'); setShowModelMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3.1-flash-lite-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
+                        onClick={() => { setSelectedModel('gemini-3.1-flash'); setShowModelMenu(false); }}
+                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3.1-flash' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
                       >
-                        Gemini 3.1 Flash Lite
-                        {selectedModel === 'gemini-3.1-flash-lite-preview' && <span className="text-xs">✓</span>}
+                        Gemini 3.1 Flash
+                        {selectedModel === 'gemini-3.1-flash' && <span className="text-xs">✓</span>}
                       </button>
                       <div className="h-px bg-gray-100 dark:bg-white/5"></div>
                       <button
@@ -450,6 +395,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             // For MVP, window reload or let logic handle it next mount
             window.location.reload();
           }}
+        />
+
+        <AgentSettingsModal 
+          isOpen={showAgentSettings}
+          onClose={() => setShowAgentSettings(false)}
         />
       </div>
     </div>

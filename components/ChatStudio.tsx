@@ -145,7 +145,20 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
     setWorkflowStep(step);
     setIsTyping(true);
 
-    const systemPrompt = AGENT_PROMPTS[step]?.systemPrompt || "";
+    let systemPrompt = AGENT_PROMPTS[step]?.systemPrompt || "";
+    
+    // Inject Custom Agent Settings
+    const customRole = localStorage.getItem('agentRole');
+    const customCaps = localStorage.getItem('agentCapabilities');
+    if (customRole || customCaps) {
+      const customConfig = `
+【智能体全局设定】
+${customRole ? `角色设定：\n${customRole}\n` : ''}
+${customCaps ? `核心能力与指令：\n${customCaps}\n` : ''}
+-----------------------
+`;
+      systemPrompt = customConfig + systemPrompt;
+    }
 
     const aiMsgId = Date.now().toString();
     const newAiMsg: Message = {
