@@ -272,7 +272,7 @@ const DollMainRetouchTab: React.FC = () => {
 
     try {
       // Import here to avoid early hydration issues if any
-      const { generateImageToImage, analyzeDollModification } = await import('../Cyzx4/services/geminiService');
+      const { generateImageToImage, analyzeDollModification, analyzeReferenceEffect } = await import('../Cyzx4/services/geminiService');
       
       const compressedImage = await compressImage(sourceFile, 2048, 0.96);
       const inputImages = [{ base64: compressedImage.base64, mimeType: compressedImage.mime }];
@@ -302,7 +302,8 @@ const DollMainRetouchTab: React.FC = () => {
       // [NEW] Agentic Pre-analysis for Precision Locality
       // ==========================================
       if (refInputImages.length > 0) {
-        setStatusMessage('🌍 Agent 正在解析局部调整指令...');
+        if (editorBoxes.length > 0) {
+          setStatusMessage('🌍 Agent 正在解析局部调整指令...');
         // Execute Vision Pre-processing
         const analysis = await analyzeDollModification(
           { base64: compressedImage.base64, mimeType: compressedImage.mime },
@@ -344,6 +345,15 @@ const DollMainRetouchTab: React.FC = () => {
            if (analysis.reasoning) {
              console.log("Agent Reasoning:", analysis.reasoning);
            }
+          }
+        } else {
+          setStatusMessage('🌍 Agent 正在深度分析目标效果图质感...');
+          const styleAnalysis = await analyzeReferenceEffect(refInputImages);
+          
+          if (styleAnalysis && styleAnalysis.extracted_style) {
+             console.log("Agent Style Analysis:", styleAnalysis.extracted_style);
+             prompt += `\n\n=== STRICT TARGET STYLE ENFORCEMENT (CRITICAL) ===\nYou MUST apply the following visual style, lighting setup, color palette, and material texture extracted from the reference images (Images 2+) to the product in Image 1:\n\n"${styleAnalysis.extracted_style}"\n\nEnsure the final output has EXACTLY this atmosphere, color tone, and texture level while strictly maintaining Image 1's geometry.`;
+          }
         }
       }
       

@@ -300,6 +300,8 @@ export interface SceneGenerationPromptInput {
     /** Style pack selection */
     stylePackId?: string;
     styleVariantId?: string;
+    cameraDevice?: string;
+    shotType?: string;
 }
 
 // ==================== Realism Physics Rules ====================
@@ -899,6 +901,35 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             customComposition = "eye-level interactive shot or close-up detail shot, shallow depth of field, blurred background, 50mm standard lens";
         }
         customQuality = "hyper-detailed fluffy plush texture, natural and transparent baby skin (if people present), 8K, high resolution, film-like texture";
+    }
+
+
+    // --- Device & Shot Type Modifiers ---
+    if (input.cameraDevice && input.cameraDevice !== 'auto') {
+        const cameraMap: Record<string, string> = {
+            'iphone': 'iPhone raw photo, unedited smartphone snap, authentic candid look, shot on iPhone 15 Pro, mobile photography',
+            'fuji': 'Fujifilm color profile, 35mm film photography, vintage grain, rich colors, nostalgic film aesthetics, classic Chrome recipe',
+            'canon': 'Canon EOS 5D Mark IV, beautiful skin tones, soft background bokeh, professional photography, 85mm f/1.2 L lens',
+            'sony': 'Sony A7R IV, razor sharp details, high dynamic range, hyper-realistic, GM lens clarity, commercial grade',
+            'polaroid': 'Polaroid instant camera, retro instant film look, washed out colors, heavy flash, vintage polaroid aesthetics, polaroid border'
+        };
+        const devPrompt = cameraMap[input.cameraDevice];
+        if (devPrompt) {
+            customQuality = devPrompt + ', ' + customQuality;
+        }
+    }
+
+    if (input.shotType && input.shotType !== 'auto') {
+        const shotMap: Record<string, string> = {
+            'wide': 'wide angle shot, establishing shot, showing full environment and context, 24mm wide angle',
+            'medium': 'medium shot, upper body visible, showing both subject and background context, 50mm normal lens',
+            'close': 'close-up shot, tight framing, intimate feeling, focusing on the product and subject expression, 85mm portrait lens',
+            'macro': 'macro detail shot, extreme close-up focusing on textures, material details, and stitches, 100mm macro lens'
+        };
+        const shotPrompt = shotMap[input.shotType];
+        if (shotPrompt) {
+            customComposition = shotPrompt + ', ' + customComposition;
+        }
     }
 
     const basePrompt = buildGoldenFormula({

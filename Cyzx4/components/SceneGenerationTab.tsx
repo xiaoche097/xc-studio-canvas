@@ -75,6 +75,8 @@ interface SceneFormState {
   extraNotes: string;
   interactionHint: string;
   sizeCategory: 'tiny' | 'small' | 'medium' | 'large' | 'wearable';
+  cameraDevice: string;
+  shotType: string;
 }
 
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -524,6 +526,8 @@ const SceneGenerationTab: React.FC = () => {
       sizeCategory: form.sizeCategory,
       stylePackId: selectedStylePack?.stylePackName,
       styleVariantId: selectedStyleVariant?.id,
+      cameraDevice: form.cameraDevice,
+      shotType: form.shotType,
     });
   };
 
@@ -913,7 +917,71 @@ const SceneGenerationTab: React.FC = () => {
               })()}
             </div>
 
+
+            {/* Camera / Device Selection */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-purple-500 text-lg">📷</span>
+                <h3 className="font-semibold text-pastel-text text-sm">设备预设 (Camera / Device)</h3>
+                <span className="text-[10px] text-purple-500 font-medium bg-purple-50 px-1.5 py-0.5 rounded">影响质感色调</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {[
+                  { value: 'auto', label: '智能推荐', desc: '根据场景匹配' },
+                  { value: 'iphone', label: 'iPhone 实拍', desc: '手机真实抓拍感' },
+                  { value: 'fuji', label: '富士胶片', desc: '复古色调颗粒' },
+                  { value: 'canon', label: '单反人像', desc: '唯美肤色虚化' },
+                  { value: 'sony', label: '微单高清', desc: '极致高清锐度' },
+                  { value: 'polaroid', label: '拍立得', desc: '拍立得一次成像' },
+                ].map(cam => (
+                  <button
+                    key={cam.value}
+                    onClick={() => updateForm('cameraDevice', cam.value)}
+                    className={`flex flex-col items-start p-2 rounded-lg border text-left transition-all ${
+                      form.cameraDevice === cam.value
+                        ? 'bg-purple-50 border-purple-300 text-purple-700 shadow-sm'
+                        : 'bg-white border-pastel-border text-pastel-muted hover:border-purple-200 hover:bg-purple-50/30'
+                    }`}
+                  >
+                    <span className="text-sm font-medium">{cam.label}</span>
+                    <span className="text-[10px] opacity-70 mt-0.5">{cam.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Shot Type Selection */}
+            <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-blue-500 text-lg">🖼️</span>
+                <h3 className="font-semibold text-pastel-text text-sm">画面景别 (Shot Type)</h3>
+                <span className="text-[10px] text-blue-500 font-medium bg-blue-50 px-1.5 py-0.5 rounded">影响构图远近</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'auto', label: '智能推荐' },
+                  { value: 'wide', label: '远景环境' },
+                  { value: 'medium', label: '中景半身' },
+                  { value: 'close', label: '近景特写' },
+                  { value: 'macro', label: '微距细节' },
+                ].map(shot => (
+                  <button
+                    key={shot.value}
+                    onClick={() => updateForm('shotType', shot.value)}
+                    className={`px-3 py-2 rounded-lg text-sm transition-all border ${
+                      form.shotType === shot.value
+                        ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium shadow-sm'
+                        : 'bg-white border-pastel-border text-pastel-muted hover:border-blue-200 hover:bg-blue-50/30'
+                    }`}
+                  >
+                    {shot.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Brand Style Packs */}
+
             <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
                     <Sparkles className="w-4 h-4 text-purple-500" />

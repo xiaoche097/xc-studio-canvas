@@ -127,6 +127,41 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
   }
 };
 
+export const analyzeReferenceEffect = async (
+  refImages: { base64: string; mimeType: string }[]
+) => {
+  const ai = getAiClient();
+  const analysisPrompt = `
+**ROLE**: Top-tier E-commerce Photography Visual Analyst.
+
+**TASK**: Analyze the provided reference image(s) (which represent the TARGET effect) and extract their exact visual style, color palette, lighting setup, and material texture.
+
+**OUTPUT FORMAT (MANDATORY JSON)**:
+{
+  "extracted_style": "A concise but highly descriptive paragraph detailing the exact lighting (e.g., soft studio lighting, harsh directional light), color tone/temperature (e.g., warm amber hues, cool cinematic blue), contrast level, and material texture (e.g., sleek matte, plush fluffy, glossy) seen in the reference images. Use strong, image-generation keywords."
+}
+`;
+
+  try {
+    const parts: any[] = refImages.map(img => ({
+      inlineData: { mimeType: img.mimeType, data: img.base64 }
+    }));
+    parts.push({ text: analysisPrompt });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite-preview",
+      contents: { parts }
+    });
+
+    let text = response.text || "{}";
+    text = text.replace(/\`\`\`json/g, "").replace(/\`\`\`/g, "").trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Reference analysis failed", error);
+    return null;
+  }
+};
+
 
 export const analyzeProductImage = async (
   imageBase64: string,
