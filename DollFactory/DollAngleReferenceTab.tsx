@@ -34,9 +34,11 @@ const DollAngleReferenceTab: React.FC = () => {
   const [resultImages, setResultImages] = useState<string[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   
-  const [selectedModel, setSelectedModel] = useState('gpt-image-2');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [detailDescription, setDetailDescription] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   
   // To handle global paste events
   useEffect(() => {
@@ -116,53 +118,50 @@ const DollAngleReferenceTab: React.FC = () => {
     setStatusMessage('准备数据并分发并发请求...');
 
     try {
-      // Combine all references. 
-      // The prompt will instruct the model how to interpret them based on their count.
-      const allReferences = [
-        ...productImages.map(img => ({ base64: img.base64!, mimeType: img.mimeType! })),
-        ...angleImages.map(img => ({ base64: img.base64!, mimeType: img.mimeType! }))
-      ];
-
-      const prompt = `[DOLL ANGLE & POSTURE TRANSFORMATION]
+      const productRefs = productImages.map(img => ({ base64: img.base64!, mimeType: img.mimeType! }));
       
+      // Each generation task will correspond to EXACTLY ONE angle image
+      setStatusMessage(`正在为您并行转换 ${angleImages.length} 组视角 (1:1 匹配中)...`);
+
+      const generationTasks = angleImages.map((angleImg, idx) => {
+        const refsForThisTask = [
+          ...productRefs,
+          { base64: angleImg.base64!, mimeType: angleImg.mimeType! }
+        ];
+
+        const prompt = `[DOLL ANGLE & POSTURE TRANSFORMATION]
+        
 ${STRUCTURE_LOCK}
-NOTE: The first ${productImages.length} images are the PRODUCT REFERENCES.
+NOTE: The first ${productRefs.length} images are the PRODUCT REFERENCES.
 
 ${ANGLE_INSTRUCTION}
-NOTE: The remaining ${angleImages.length} images are the ANGLE REFERENCES.
+CRITICAL: The LAST image provided is the MANDATORY TARGET ANGLE/POSE REFERENCE. 
+You MUST match the camera perspective, toy orientation, and posture shown in that reference image with 100% precision. 
+
+[ADDITIONAL DETAILS]:
+${detailDescription || 'None provided. Focus entirely on structural consistency and angle matching.'}
 
 [STYLE]: ${ECOMMERCE_STYLE}
 
 [EXECUTION DIRECTIVE]:
-Generate a photorealistic image of the EXACT toy from the product references, but viewed from the exact angle and posture shown in the angle references.
+Generate a photorealistic image of the EXACT toy from the product references.
+MANDATORY: Position the toy in the EXACT same angle, tilt, and 3D pose as shown in the LAST reference image.
 Do NOT blend the toys together. The product reference is the absolute source of truth for the physical design.
 `;
 
-      const negPrompt = 'redesign, different toy, different proportions, extra parts, missing parts, different silhouette, bad anatomy, warped, deformed, watermark, text, dirty background, multiple toys';
-
-      // The user wants up to 10 parallel generations. 
-      // We will generate as many variants as there are angle images (max 10), or just default to 10.
-      // Let's do 1 generation task per angle image to give 1:1 mapping, or if they just want 10 random variants, we do 10.
-      // "支持10张图同时并行" implies creating 10 parallel API calls.
-      const tasksCount = Math.max(angleImages.length, 4); // At least 4, up to 10 (since angleImages max is 10)
-      const maxTasks = Math.min(tasksCount, 10);
-      
-      setStatusMessage(`正在并行为您生成 ${maxTasks} 组视角方案 (可能需要30-60秒)...`);
-
-      const generationTasks = Array(maxTasks).fill(null).map(() => 
-        generateImageToImage(
-          allReferences,
+        return generateImageToImage(
+          refsForThisTask,
           prompt,
           {
             aspectRatio: outputAspectRatio,
             resolution: resolution,
             modelId: selectedModel,
-            negativePrompt: negPrompt,
+            negativePrompt: 'redesign, different toy, different proportions, extra parts, missing parts, different silhouette, bad anatomy, warped, deformed, watermark, text, dirty background, multiple toys',
             workflowHint: 'doll-modification',
             sampleCount: 1
           }
-        )
-      );
+        );
+      });
 
       const allResults = await Promise.allSettled(generationTasks);
       
@@ -349,9 +348,22 @@ Do NOT blend the toys together. The product reference is the absolute source of 
                onChange={(e) => setResolution(e.target.value as ImageResolution)}
                className="w-full bg-slate-50 border border-gray-200 rounded-xl py-2 px-3 text-xs font-medium outline-none focus:border-[#F5B27A] mt-2"
              >
-               <option value={ImageResolution.RES_2K}>2K 高清画质</option>
                <option value={ImageResolution.RES_4K}>4K 超清画质 (细节更优)</option>
              </select>
+          </div>
+
+          {/* Detail Description Area */}
+          <div className="space-y-3">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+              补充细节描述 (可选)
+            </label>
+            <textarea
+              value={detailDescription}
+              onChange={(e) => setDetailDescription(e.target.value)}
+              placeholder="例如：玩偶是坐着的，头稍微向左偏，或者描述一些图片中不明显的特征..."
+              className="w-full bg-slate-50 border border-gray-200 rounded-xl py-3 px-4 text-xs font-medium outline-none focus:border-purple-300 min-h-[100px] resize-none transition-all"
+            />
+            <p className="text-[10px] text-slate-400">文字描述可以辅助 AI 更好地理解您想要的角度和细节特征。</p>
           </div>
         </div>
 
@@ -420,14 +432,22 @@ Do NOT blend the toys together. The product reference is the absolute source of 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                {resultImages.map((img, idx) => (
                  <div key={idx} className="bg-white rounded-3xl p-3 border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col">
-                    <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-50 mb-3 border border-gray-100">
+                    <div 
+                      className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-50 mb-3 border border-gray-100 cursor-zoom-in"
+                      onClick={() => setPreviewUrl(img)}
+                    >
                       <img src={img} className="w-full h-full object-contain" alt={`Result ${idx}`} />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 gap-3">
                          <button 
-                           onClick={() => downloadImage(img, idx)}
-                           className="bg-white text-slate-800 p-3 rounded-full shadow-xl hover:scale-110 active:scale-95 transition-all"
+                           onClick={(e) => { e.stopPropagation(); downloadImage(img, idx); }}
+                           className="bg-white text-slate-800 p-2.5 rounded-full shadow-xl hover:scale-110 active:scale-95 transition-all"
                          >
                            <Download className="w-5 h-5" />
+                         </button>
+                         <button 
+                           className="bg-white text-slate-800 p-2.5 rounded-full shadow-xl hover:scale-110 active:scale-95 transition-all"
+                         >
+                           <Zap className="w-5 h-5 text-[#F5B27A]" />
                          </button>
                       </div>
                     </div>
@@ -440,6 +460,36 @@ Do NOT blend the toys together. The product reference is the absolute source of 
           </div>
         )}
       </div>
+
+      {/* Preview Modal */}
+      {previewUrl && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 md:p-12 cursor-zoom-out"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <div className="relative max-w-full max-h-full flex items-center justify-center animate-in zoom-in-95 duration-300">
+            <img 
+              src={previewUrl} 
+              className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl" 
+              alt="Preview" 
+            />
+            <button 
+              onClick={() => setPreviewUrl(null)}
+              className="absolute -top-12 right-0 text-white hover:text-[#F5B27A] transition-colors"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-4">
+               <button 
+                 onClick={(e) => { e.stopPropagation(); downloadImage(previewUrl, 0); }}
+                 className="px-6 py-2 bg-white text-slate-800 rounded-full font-bold text-sm flex items-center gap-2 hover:bg-[#F5B27A] hover:text-white transition-all shadow-xl"
+               >
+                 <Download className="w-4 h-4" /> 下载此图
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
