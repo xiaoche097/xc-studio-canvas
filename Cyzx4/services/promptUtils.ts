@@ -737,7 +737,7 @@ function getRandomSceneVariation(sceneDirection: string): string {
 }
 
 const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
-    main: "shot on 50mm standard lens, commercial ecommerce hero shot, crisp centered composition, clean depth separation",
+    main: "shot on 85mm portrait lens, premium 1:1 square composition, focused product-lifestyle hero shot, high-end editorial clarity",
     aplus: "shot on 35mm lens, premium editorial banner composition, layered storytelling scene, cinematic commercial framing",
     social: "shot on 85mm portrait lens, candid handheld lifestyle framing, authentic buyer-show perspective",
     story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, far-left subject placement, negative space on right, deep depth of field, epic spatial storytelling",
@@ -745,7 +745,7 @@ const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
 };
 
 const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
-    main: "Amazon secondary image style, clear subject hierarchy, product-first composition, clean but realistic background, strong click-through appeal",
+    main: "real American lifestyle buyer-show content, clean and focused brand asset, natural social-media realism, but very clean, minimalist, and uncluttered environment",
     aplus: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, but very clean, minimalist, and uncluttered environment",
     social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
     story: "premium cinematic A+ brand story visual, clean high-end spatial storytelling, refined atmospheric depth, high commercial conversion aesthetic",
@@ -885,11 +885,11 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     // Product title context — used to anchor all image content to the listing
     const productTitleContext = [input.productName, input.productCategory, input.sellingPoints].filter(Boolean).join(' — ');
 
-    let customLighting = ["social", "aplus", "asset"].includes(input.boardType)
+    let customLighting = ["main", "social", "aplus", "asset"].includes(input.boardType)
         ? "natural ambient lighting, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo (can be natural window light or outdoor sunlight as appropriate)"
         : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look";
     let customComposition = SCENE_LENS_MAP[input.boardType];
-    let customQuality = ["social", "aplus", "asset"].includes(input.boardType) ? "FILM" : "EDITORIAL";
+    let customQuality = ["main", "social", "aplus", "asset"].includes(input.boardType) ? "FILM" : "EDITORIAL";
 
     if (input.productType === 'plush') {
         customLighting = "soft diffused natural light from the window, low contrast soft tone, light ratio 1:2, color temperature 5400K, low saturation warm natural color palette, warm healing daily feeling";
@@ -914,11 +914,16 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     // Board-type specific instructions
     const boardInstructions: Record<SceneGenerationBoardType, string> = {
         main: [
-            `This is an Amazon secondary listing image for the product: "${productTitleContext}".`,
-            "The image must visually communicate the product's primary selling points to drive click-through.",
-            "Use a clean, uncluttered scene that keeps the product as the visual hero.",
-            "Scene furniture, decorations, and props should vary between generations — do NOT repeat the same sofa, same rug, or same wall art. Randomize the interior styling while keeping the overall feel premium and cohesive.",
-        ].join(' '),
+            `This is an Amazon secondary listing image (1:1 square) for the product: "${productTitleContext}".`,
+            "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone, providing authentic social-media lifestyle realism.",
+            "Characteristics of authentic buyer photos: natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment, natural ambient lighting, casual and spontaneous feel.",
+            "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
+            input.productType === 'apparel' ? 
+            "Incorporate one of these authentic social media visual logics specifically for apparel: 1) Minimalist Chic: clean color blocks, minimalist backgrounds. 2) American Retro/Y2K: industrial backgrounds. 3) Effortless Loungewear: cozy clean home or cafe settings. 4) Vacation Baddie: sun-drenched settings." : "",
+            "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
+            "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
+            "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' skin, NO symmetrical poses, and NO studio lighting. Introduce slight film grain to break the 'AI look'."
+        ].filter(Boolean).join(' '),
         aplus: [
             `This is an Amazon A+ detail page banner for the product: "${productTitleContext}".`,
             "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone, providing authentic social-media lifestyle realism.",
@@ -1004,7 +1009,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         input.extraNotes ? `Additional execution notes: ${input.extraNotes}.` : "",
         basePrompt,
         "STRICT PRODUCT FIDELITY: The reference product images are the absolute source of truth. You must maintain the exact structure, color, texture, and identity of the product without any deviation.",
-        ["social", "aplus", "asset"].includes(input.boardType)
+        ["main", "social", "aplus", "asset"].includes(input.boardType)
             ? "Make this look like a real buyer's phone photo shared on social media — authentic, casual, unpolished but appealing. NOT a professional photo."
             : "Make the image look like a premium real photo shot by a top-tier Amazon ecommerce art director, following high-end A+ content standards.",
     ].filter(Boolean).join(" ");
@@ -1031,10 +1036,10 @@ export function buildSceneGenerationNegativePrompt(input: {
     }
     // --- End Style Pack Logic ---
 
-    const scene = ["social", "aplus", "asset"].includes(input.boardType) ? "portrait" : "product";
-    const style = ["social", "aplus", "asset"].includes(input.boardType) ? "film" : "cinematic";
+    const scene = ["main", "social", "aplus", "asset"].includes(input.boardType) ? "portrait" : "product";
+    const style = ["main", "social", "aplus", "asset"].includes(input.boardType) ? "film" : "cinematic";
     const extra = [
-        ["aplus", "asset"].includes(input.boardType) ? "cluttered background, busy scene, complex environment, distracting elements, too many props, flashy colors" : "",
+        ["main", "aplus", "asset"].includes(input.boardType) ? "cluttered background, busy scene, complex environment, distracting elements, too many props, flashy colors" : "",
         stylePackData?.negativePromptGlobal || "",
         styleVariant?.negativePromptAdd || "",
         "CGI",
