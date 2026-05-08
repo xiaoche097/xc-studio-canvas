@@ -120,6 +120,8 @@ const initialForm: SceneFormState = {
   extraNotes: '',
   interactionHint: '',
   sizeCategory: 'medium',
+  cameraDevice: '默认',
+  shotType: '默认',
 };
 
 const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspectRatio: AspectRatio; icon: string }> = {
@@ -1257,13 +1259,12 @@ const SceneGenerationTab: React.FC = () => {
                       <label className="text-xs text-pastel-muted mb-1 block">批量生成</label>
                       <select
                         value={form.batchCount}
-                        onChange={(e) => updateForm('batchCount', e.target.value)}
+                        onChange={(e) => updateForm('batchCount', Number(e.target.value))}
                         className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                       >
-                        <option value={1}>1 张</option>
-                        <option value={2}>2 张（并行）</option>
-                        <option value={3}>3 张（并行）</option>
-                        <option value={4}>4 张（并行）</option>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                          <option key={num} value={num}>{num} 张{num > 1 ? '（并行）' : ''}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1363,9 +1364,22 @@ const SceneGenerationTab: React.FC = () => {
 
             {/* Generated Results */}
             <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm min-h-[520px] flex flex-col">
-              <div className="flex items-center gap-2 mb-3">
-                <ImageIcon className="w-4 h-4 text-pastel-highlight" />
-                <h3 className="font-semibold text-pastel-text text-sm">生成结果</h3>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-pastel-highlight" />
+                  <h3 className="font-semibold text-pastel-text text-sm">生成结果</h3>
+                </div>
+                {generatedImages.length > 0 && !isGenerating && (
+                  <button
+                    onClick={() => {
+                      generatedImages.forEach((img, idx) => handleDownload(img, idx));
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 border border-purple-100 rounded-lg text-xs font-medium hover:bg-purple-100 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    全部下载
+                  </button>
+                )}
               </div>
 
               {isGenerating ? (
