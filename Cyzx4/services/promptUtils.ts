@@ -528,26 +528,26 @@ export function buildRealisticInteractionPrompt(input: SceneGenerationPromptInpu
         parts.push(REALISM_PHYSICS_RULES[sizeCategory]);
     }
 
-    // 2. Specific interaction hint from AI analysis
-    if (input.interactionHint) {
-        parts.push(`Specific interaction: ${input.interactionHint}.`);
+    const isNoModel = input.modelPersonaPreset === '无模特（纯产品）';
+    if (isNoModel) {
+        parts.push("The product must sit naturally on a surface or environment, respecting gravity and contact shadows. NO HANDS, NO PEOPLE, AND NO BODY PARTS.");
+    } else {
+        if (input.interactionHint) {
+            parts.push(`Specific interaction: ${input.interactionHint}.`);
+        }
+        const actionPool = NATURAL_ACTION_POOL[input.productType] || NATURAL_ACTION_POOL.general;
+        const randomAction = actionPool[Math.floor(Math.random() * actionPool.length)];
+        parts.push(`Suggested natural action: ${randomAction}.`);
+        parts.push(
+            "CRITICAL REALISM RULES: " +
+            "All objects must obey gravity — nothing floats without support. " +
+            "Hands holding items must show anatomically correct finger placement with natural grip pressure. " +
+            "Contact surfaces must show realistic compression (cushions indent where sat upon, fabric creases where gripped). " +
+            "The product's scale relative to the human body must be physically accurate and consistent throughout the image. " +
+            "Perspective and foreshortening must be consistent — no size inconsistencies between foreground and background. " +
+            "Shadows must be cast in a consistent direction and match the lighting source."
+        );
     }
-
-    // 3. Pick a random natural action for variety
-    const actionPool = NATURAL_ACTION_POOL[input.productType] || NATURAL_ACTION_POOL.general;
-    const randomAction = actionPool[Math.floor(Math.random() * actionPool.length)];
-    parts.push(`Suggested natural action: ${randomAction}.`);
-
-    // 4. Universal realism anchors
-    parts.push(
-        "CRITICAL REALISM RULES: " +
-        "All objects must obey gravity — nothing floats without support. " +
-        "Hands holding items must show anatomically correct finger placement with natural grip pressure. " +
-        "Contact surfaces must show realistic compression (cushions indent where sat upon, fabric creases where gripped). " +
-        "The product's scale relative to the human body must be physically accurate and consistent throughout the image. " +
-        "Perspective and foreshortening must be consistent — no size inconsistencies between foreground and background. " +
-        "Shadows must be cast in a consistent direction and match the lighting source."
-    );
 
     return parts.join(" ");
 }
@@ -785,6 +785,10 @@ function buildMaterialLockPrompt(input: SceneGenerationPromptInput) {
 }
 
 function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
+    if (input.modelPersonaPreset === '无模特（纯产品）') {
+        return "ABSOLUTELY NO PEOPLE. NO MODELS. NO HANDS. NO BODY PARTS. ONLY THE PRODUCT IN THE SCENE.";
+    }
+
     const personaParts = [
         input.modelPersonaPreset ? (PERSONA_PRESET_MAP[input.modelPersonaPreset] || input.modelPersonaPreset) : "",
         input.modelEthnicity ? (ETHNICITY_MAP[input.modelEthnicity] || input.modelEthnicity) : "ethnically believable American",
@@ -894,7 +898,12 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     let customQuality = ["main", "social", "aplus", "asset"].includes(input.boardType) ? "FILM" : "EDITORIAL";
 
     if (input.productType === 'plush') {
-        customLighting = "soft diffused natural light from the window, low contrast soft tone, light ratio 1:2, color temperature 5400K, low saturation warm natural color palette, warm healing daily feeling";
+        const isCommercialStyle = /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.sceneDirection || '') || /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.extraNotes || '') || /马卡龙|糖果|商业/.test(input.colorStyle || '');
+        if (isCommercialStyle) {
+            customLighting = "commercial studio lighting, bright and clean, carefully arranged set design, premium photography style, balanced light";
+        } else {
+            customLighting = "soft diffused natural light from the window, low contrast soft tone, light ratio 1:2, color temperature 5400K, low saturation warm natural color palette, warm healing daily feeling";
+        }
         if (input.boardType === 'aplus') {
             customComposition = "45-degree high-angle full shot, clear presentation of the product and scene, 35mm lens, premium editorial banner composition";
         } else if (input.boardType === 'main') {
@@ -1020,7 +1029,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         ? "SCENE RULES FOR PLUSH: Use real North American middle-class home scenes (e.g., kids bedroom, living room sofa, fluffy rug, window bay, or clean outdoor lawn). Keep background clean and uncluttered. MAX 3 props total. Emphasize a warm, healing, and natural lifestyle narrative without stiff posing. If children are present, show natural interaction (hugging, looking at toy)." 
         : "";
 
-    return [
+    let finalPromptParts = [
         "Create an ultra realistic commercial lifestyle photograph grounded in real everyday American life.",
         boardInstructions[input.boardType],
         plushSpecificGuide,
@@ -1043,7 +1052,31 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         ["main", "social", "aplus", "asset"].includes(input.boardType)
             ? "Make this look like a real buyer's phone photo shared on social media — authentic, casual, unpolished but appealing. NOT a professional photo."
             : "Make the image look like a premium real photo shot by a top-tier Amazon ecommerce art director, following high-end A+ content standards.",
-    ].filter(Boolean).join(" ");
+    ].filter(Boolean);
+
+    const isNoModel = input.modelPersonaPreset === '无模特（纯产品）';
+    if (isNoModel) {
+        finalPromptParts = finalPromptParts.map(part => {
+            return part.split('. ').filter(sentence => {
+                const lower = sentence.toLowerCase();
+                return !lower.includes('person') && !lower.includes('people') && !lower.includes('human') && !lower.includes('customer') && !lower.includes('model') && !lower.includes('children');
+            }).join('. ');
+        });
+        finalPromptParts.push("CRITICAL DIRECTIVE: ABSOLUTELY NO PEOPLE, NO HANDS, NO BODY PARTS. ONLY THE PRODUCT IN THE SCENE.");
+    }
+
+    const isCommercialStyle2 = /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.sceneDirection || '') || /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.extraNotes || '') || /马卡龙|糖果|商业/.test(input.colorStyle || '');
+    if (isCommercialStyle2) {
+        finalPromptParts = finalPromptParts.map(part => {
+            return part.split('. ').filter(sentence => {
+                const lower = sentence.toLowerCase();
+                return !lower.includes('buyer') && !lower.includes('not a professional') && !lower.includes('casual') && !lower.includes('everyday life') && !lower.includes('home scenes') && !lower.includes('middle-class home') && !lower.includes('social media');
+            }).join('. ');
+        });
+        finalPromptParts.push("CRITICAL DIRECTIVE: This MUST look like a premium commercial studio setup or carefully arranged photography with perfect lighting, curated set design, and high-aesthetic color palette. NOT a casual home photo.");
+    }
+
+    return finalPromptParts.filter(Boolean).join(" ");
 }
 
 export function buildSceneGenerationNegativePrompt(input: {
