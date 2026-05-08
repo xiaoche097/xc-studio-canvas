@@ -3,10 +3,11 @@ import DollMainAdjustTab from './DollMainAdjustTab';
 import DollMainRetouchTab from './DollMainRetouchTab';
 import DollDesignOptimizeTab from './DollDesignOptimizeTab';
 import DollAnglePresetsTab from './DollAnglePresetsTab';
+import DollAngleReferenceTab from './DollAngleReferenceTab';
 import SettingsTab from '../Cyzx4/components/SettingsTab';
 import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2, Camera } from 'lucide-react';
 
-type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'design-optimize' | 'angle-presets' | 'settings';
+type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'design-optimize' | 'angle-presets' | 'angle-reference' | 'settings';
 
 const DollFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DollFactoryMode>('main-adjust');
@@ -48,6 +49,12 @@ const DollFactoryApp: React.FC = () => {
               label="玩偶设计优化"
             />
             <NavButton
+              active={activeTab === 'angle-reference'}
+              onClick={() => setActiveTab('angle-reference')}
+              icon={<Sparkles className="w-5 h-5" />}
+              label="角度参考"
+            />
+            <NavButton
               active={activeTab === 'angle-presets'}
               onClick={() => setActiveTab('angle-presets')}
               icon={<Camera className="w-5 h-5" />}
@@ -73,6 +80,7 @@ const DollFactoryApp: React.FC = () => {
             {activeTab === 'main-adjust' && "玩偶主图调整"}
             {activeTab === 'main-retouch' && "参考图精修"}
             {activeTab === 'design-optimize' && "玩偶设计优化"}
+            {activeTab === 'angle-reference' && "角度参考"}
             {activeTab === 'angle-presets' && "可爱角度转变"}
             {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
@@ -88,6 +96,9 @@ const DollFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'design-optimize' ? 'block' : 'none', height: '100%' }}>
               <DollDesignOptimizeTab />
+            </div>
+            <div style={{ display: activeTab === 'angle-reference' ? 'block' : 'none', height: '100%' }}>
+              <DollAngleReferenceTab />
             </div>
             <div style={{ display: activeTab === 'angle-presets' ? 'block' : 'none', height: '100%' }}>
               <DollAnglePresetsTab />
