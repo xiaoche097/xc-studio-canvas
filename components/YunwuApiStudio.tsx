@@ -20,7 +20,8 @@ import {
     CheckCircle2,
     X,
     Upload,
-    Trash2
+    Trash2,
+    Settings
 } from 'lucide-react';
 
 // ==================== 配置常量 ====================
@@ -182,7 +183,7 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
     const [inputText, setInputText] = useState('');
     const [uploadedImages, setUploadedImages] = useState<{ base64: string; mimeType: string; preview: string }[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
-    const [currentTab, setCurrentTab] = useState<'config' | 'chat'>('config');
+    const [currentTab, setCurrentTab] = useState<'config' | 'chat'>('chat');
 
     // 复制状态
     const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -414,9 +415,22 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
             <main className="max-w-6xl mx-auto p-4">
                 {currentTab === 'config' ? (
                     /* ==================== 配置面板 ==================== */
-                    <div className="max-w-2xl mx-auto space-y-6 py-8">
+                    <div className="max-w-2xl mx-auto w-full space-y-8 pb-10">
+                        {/* 集中管理提示 */}
+                        <div className="bg-orange-500/10 border border-orange-500/20 rounded-2xl p-6 flex items-start gap-4">
+                            <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center shrink-0">
+                                <Settings className="text-orange-500" />
+                            </div>
+                            <div className="space-y-1">
+                                <h4 className="text-orange-600 dark:text-orange-400 font-bold text-sm">统一配置管理</h4>
+                                <p className="text-xs text-orange-700/70 dark:text-orange-300/70 leading-relaxed">
+                                    我们现在支持在首页设置中统一管理所有 API 提供商。您可以直接在那里配置 API Key，配置将自动同步到此工作站。
+                                </p>
+                            </div>
+                        </div>
+
                         {/* 配置卡片 */}
-                        <div className="bg-white dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-gray-200 dark:border-white/10 p-8 shadow-xl">
+                        <div className="bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-3xl p-8 shadow-xl">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="p-3 bg-gradient-to-br from-brand-orange to-orange-500 rounded-xl">
                                     <Key className="w-6 h-6 text-white" />

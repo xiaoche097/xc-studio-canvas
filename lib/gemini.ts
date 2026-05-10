@@ -9,10 +9,13 @@ if (!apiKey) {
 class GeminiClient {
   private genAI: GoogleGenerativeAI;
   private textModel: GenerativeModel;
-  // private imageModel: GenerativeModel; 
+  private baseUrl: string;
 
   constructor() {
     const storedKey = localStorage.getItem('user_gemini_api_key');
+    const storedUrl = localStorage.getItem('user_gemini_base_url') || "https://generativelanguage.googleapis.com";
+    
+    this.baseUrl = storedUrl;
     this.genAI = new GoogleGenerativeAI(storedKey || apiKey || "");
 
     this.textModel = this.genAI.getGenerativeModel({
@@ -20,7 +23,10 @@ class GeminiClient {
     });
   }
 
-  updateApiKey(newKey: string) {
+  updateApiKey(newKey: string, newUrl?: string) {
+    if (newUrl) {
+      this.baseUrl = newUrl;
+    }
     this.genAI = new GoogleGenerativeAI(newKey);
     this.textModel = this.genAI.getGenerativeModel({
       model: import.meta.env.VITE_GEMINI_MODEL || "gemini-3-pro-preview"
@@ -137,7 +143,8 @@ class GeminiClient {
     }
 
     const imageModel = import.meta.env.VITE_GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${activeKey}`;
+    const cleanBaseUrl = this.baseUrl.replace(/\/$/, ""); // Remove trailing slash
+    const url = `${cleanBaseUrl}/v1beta/models/${imageModel}:generateContent?key=${activeKey}`;
 
     // Helper to build configuration
     const buildConfig = (isAdvanced: boolean) => {

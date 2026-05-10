@@ -17,7 +17,6 @@ import { ProjectGalleryModal } from './ProjectGalleryModal';
 import { RecentProjects } from './RecentProjects';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { storageService, Project } from '../services/storageService';
-import { AgentSettingsModal } from './AgentSettingsModal';
 import { Bot, Sparkles } from 'lucide-react';
 
 import { WorkflowStep } from '../types';
@@ -25,9 +24,10 @@ import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
 interface AgentHomeProps {
   onStart: (text: string, image: string | string[] | null, model: string, step?: number) => void;
+  onOpenSettings: (tab: 'api' | 'agent') => void;
 }
 
-export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
+export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash'); // Default to 3.1 Flash
@@ -50,7 +50,6 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
 
   const [showModelMenu, setShowModelMenu] = useState(false);
-  const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [showTryOnModal, setShowTryOnModal] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   // Video Modal removed for direct access
@@ -266,7 +265,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                   </button>
 
                   <button
-                    onClick={() => setShowAgentSettings(true)}
+                    onClick={() => onOpenSettings('agent')}
                     className="p-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-400 hover:text-brand-orange transition-all border border-gray-100 dark:border-white/5"
                     title="智能体设置"
                   >
@@ -395,11 +394,6 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
             // For MVP, window reload or let logic handle it next mount
             window.location.reload();
           }}
-        />
-
-        <AgentSettingsModal 
-          isOpen={showAgentSettings}
-          onClose={() => setShowAgentSettings(false)}
         />
       </div>
     </div>

@@ -32,13 +32,13 @@ const App: React.FC = () => {
   });
   const [isDark, setIsDark] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'api' | 'agent'>('api');
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   // Theme Initialization
   useEffect(() => {
     setMounted(true);
-    // ... same code ...
     // Check localStorage or system preference
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -134,23 +134,29 @@ const App: React.FC = () => {
 
     if (view === 'home') {
       return (
-        <AgentHome onStart={(text, img, model, step) => {
-          if (step === 12) {
-            setView('video');
-          } else if (step === 14 || step === 17) {
-            setView('doll-factory');
-          } else if (step === 15) {
-            setView('ai-video');
-          } else if (step === 16) {
-            setView('model-factory');
-          } else if (text.startsWith('/creative')) {
-            setView('creative');
-          } else if (Array.isArray(img)) {
-            handleStartAgent(text, img, model, step);
-          } else {
-            handleStartAgent(text, img ? [img] : [], model, step);
-          }
-        }} />
+        <AgentHome 
+          onStart={(text, img, model, step) => {
+            if (step === 12) {
+              setView('video');
+            } else if (step === 14 || step === 17) {
+              setView('doll-factory');
+            } else if (step === 15) {
+              setView('ai-video');
+            } else if (step === 16) {
+              setView('model-factory');
+            } else if (text.startsWith('/creative')) {
+              setView('creative');
+            } else if (Array.isArray(img)) {
+              handleStartAgent(text, img, model, step);
+            } else {
+              handleStartAgent(text, img ? [img] : [], model, step);
+            }
+          }} 
+          onOpenSettings={(tab) => {
+            setSettingsTab(tab);
+            setIsSettingsOpen(true);
+          }}
+        />
       );
     }
 
@@ -192,9 +198,12 @@ const App: React.FC = () => {
 
         {/* Settings Button */}
         <button
-          onClick={() => setIsSettingsOpen(true)}
-          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20"
-          aria-label="Settings"
+          onClick={() => {
+            setSettingsTab('api');
+            setIsSettingsOpen(true);
+          }}
+          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
+          title="设置"
         >
           <SettingsIcon className="w-5 h-5" />
         </button>
@@ -209,10 +218,17 @@ const App: React.FC = () => {
         </button>
       </div>
 
-
-      <Suspense fallback={<LoadingScreen />}>
-        {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />}
-        {isGalleryOpen && <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />}
+      <Suspense fallback={null}>
+        {isSettingsOpen && (
+          <SettingsModal 
+            isOpen={isSettingsOpen} 
+            onClose={() => setIsSettingsOpen(false)} 
+            initialTab={settingsTab}
+          />
+        )}
+        {isGalleryOpen && (
+          <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />
+        )}
         {renderActiveView()}
       </Suspense>
     </div>
