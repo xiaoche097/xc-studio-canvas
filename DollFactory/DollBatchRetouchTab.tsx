@@ -1,0 +1,604 @@
+import React, { useState, useRef } from 'react';
+import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Trash2, CheckCircle2, AlertCircle, Bot } from 'lucide-react';
+import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { AspectRatio, ImageResolution } from '../Cyzx4/types';
+
+// --- Prompt Templates ---
+const BATCH_RETOUCH_PROMPT = `[ROLE] You are a top-tier e-commerce product retouching expert.
+[TASK] Professionally retouch this product photo (product photo retouch).
+[ABSOLUTE CONSTRAINT - GEOMETRY LOCK]
+- DO NOT change camera angle, lens height, focal length (same pose, same camera angle, same geometry)
+- DO NOT change the subject's orientation, pose, composition or cropping
+- DO NOT change the product's design, proportions, or any part positions
+- ONLY modify: lighting, color, sharpness, background, material texture, cleanup
+
+[REFINEMENT TARGETS]
+- Background: MANDATORY PURE WHITE (#FFFFFF). Remove ALL floor, table, desk, wood grain, or environment textures. The product should appear floating on a perfectly clean, infinite white space.
+- Lighting: Soft even studio lighting, high-key, clean highlights
+- Texture: Enhance material texture clarity (plush fiber more visible but natural, not greasy, not over-sharpened)
+- Color: Natural color correction, smooth brightness transitions
+- Shadow: ONLY a very subtle, soft contact shadow directly under the product base. No long shadows, no shadows hitting a 'floor' surface.
+- Cleanup: Remove noise, dust, dirt, color cast, aliasing, fringing, lens flare, compression artifacts
+- Output: Premium e-commerce hero image quality, clean, crisp, authentic, PURE WHITE BACKGROUND.`;
+
+const INTENSITY_CONFIG = {
+  conservative: {
+    name: '保守', desc: '仅提升清晰度和光影',
+    suffix: '\n[INTENSITY: CONSERVATIVE] Only do minor enhancement, keep 90%+ of original color and atmosphere.'
+  },
+  standard: {
+    name: '标准', desc: '全面对齐参考图风格',
+    suffix: ''
+  },
+  aggressive: {
+    name: '激进', desc: '最大程度靠近参考图效果',
+    suffix: '\n[INTENSITY: AGGRESSIVE] Boldly align with reference image style. Allow significant adjustments.'
+  }
+};
+
+interface RetouchResult {
+  sourceUrl: string;
+  resultUrl: string | null;
+  status: 'pending' | 'processing' | 'done' | 'error';
+  error?: string;
+}
+
+const DollBatchRetouchTab: React.FC = () => {
+  const [sources, setSources] = useState<{file: File, url: string}[]>([]);
+  const [refs, setRefs] = useState<{file: File, url: string}[]>([]);
+  const [results, setResults] = useState<RetouchResult[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [guidance, setGuidance] = useState('');
+  const [intensity, setIntensity] = useState<keyof typeof INTENSITY_CONFIG>('standard');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    return localStorage.getItem('yunwu_default_model') || 'gemini-3-pro-image-preview';
+  });
+  const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<{
+    material: string;
+    focus: string;
+    intensity_rec: keyof typeof INTENSITY_CONFIG;
+    prompt_enhancement: string;
+  } | null>(null);
+
+  const sourceInputRef = useRef<HTMLInputElement>(null);
+  const refInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSourceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newSources = files.slice(0, 10 - sources.length).map(file => ({
+      file,
+      url: URL.createObjectURL(file)
+    }));
+    setSources(prev => [...prev, ...newSources]);
+    e.target.value = '';
+  };
+
+  const handleRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newRefs = files.slice(0, 3 - refs.length).map(file => ({
+      file,
+      url: URL.createObjectURL(file)
+    }));
+    setRefs(prev => [...prev, ...newRefs]);
+    e.target.value = '';
+  };
+
+  const handleSourceDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length > 0) {
+      const newSources = imageFiles.slice(0, 10 - sources.length).map(file => ({
+        file,
+        url: URL.createObjectURL(file)
+      }));
+      setSources(prev => [...prev, ...newSources]);
+    }
+  };
+
+  const handleRefDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length > 0) {
+      const newRefs = imageFiles.slice(0, 3 - refs.length).map(file => ({
+        file,
+        url: URL.createObjectURL(file)
+      }));
+      setRefs(prev => [...prev, ...newRefs]);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const files = items
+      .filter(i => i.type.startsWith('image/'))
+      .map(i => i.getAsFile())
+      .filter((f): f is File => f !== null);
+
+    if (files.length > 0) {
+      // By default, paste into source list
+      const newSources = files.slice(0, 10 - sources.length).map(file => ({
+        file,
+        url: URL.createObjectURL(file)
+      }));
+      setSources(prev => [...prev, ...newSources]);
+    }
+  };
+
+  const removeSource = (index: number) => {
+    setSources(prev => {
+      const updated = [...prev];
+      URL.revokeObjectURL(updated[index].url);
+      updated.splice(index, 1);
+      return updated;
+    });
+  };
+
+  const removeRef = (index: number) => {
+    setRefs(prev => {
+      const updated = [...prev];
+      URL.revokeObjectURL(updated[index].url);
+      updated.splice(index, 1);
+      return updated;
+    });
+  };
+
+  const handleAiAnalysis = async () => {
+    if (sources.length === 0) return;
+    setIsAnalyzing(true);
+    try {
+      const { generateText } = await import('../Cyzx4/services/geminiService');
+      const sample = await compressImage(sources[0].file, 1024, 0.9);
+      
+      const analysisPrompt = `Analyze this product image for commercial retouching. 
+      Respond ONLY in JSON format:
+      {
+        "material": "short description of material",
+        "focus": "key focus area for retouching (e.g. fur texture, edge cleanup)",
+        "intensity_rec": "conservative" | "standard" | "aggressive",
+        "prompt_enhancement": "specific technical keywords for this product"
+      }
+      Focus on being an expert photo retoucher.`;
+
+      const response = await generateText(
+        [{ base64: sample.base64, mimeType: sample.mime }],
+        analysisPrompt
+      );
+
+      // Extract JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[0]);
+        setAnalysisResult(data);
+        setIntensity(data.intensity_rec);
+      }
+    } catch (err) {
+      console.error('Analysis failed:', err);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const downloadAll = async () => {
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].resultUrl) {
+        const a = document.createElement('a');
+        a.href = results[i].resultUrl!;
+        a.download = `batch-retouch-${i + 1}-${Date.now()}.png`;
+        a.click();
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+  };
+
+  const handleBatchGenerate = async () => {
+    if (sources.length === 0) return alert('请上传至少一张原图');
+    
+    setIsGenerating(true);
+    setProgress(0);
+    setResults(sources.map(s => ({ sourceUrl: s.url, resultUrl: null, status: 'pending' })));
+
+    try {
+      const { generateImageToImage, analyzeReferenceEffect } = await import('../Cyzx4/services/geminiService');
+      
+      let styleContext = '';
+      if (refs.length > 0) {
+        setStatusMessage('正在分析参考图风格...');
+        const refCompressed = await Promise.all(refs.map(r => compressImage(r.file, 2048, 0.96)));
+        const styleAnalysis = await analyzeReferenceEffect(refCompressed.map(c => ({ base64: c.base64, mimeType: c.mime })));
+        if (styleAnalysis?.extracted_style) {
+          styleContext = `\n\n=== TARGET STYLE ===\n${styleAnalysis.extracted_style}`;
+        }
+      }
+
+      for (let i = 0; i < sources.length; i++) {
+        setStatusMessage(`正在处理第 ${i + 1}/${sources.length} 张图片...`);
+        setResults(prev => {
+          const next = [...prev];
+          next[i].status = 'processing';
+          return next;
+        });
+
+        const source = sources[i];
+        const compressed = await compressImage(source.file, 2048, 0.96);
+        
+        let finalPrompt = BATCH_RETOUCH_PROMPT;
+        finalPrompt += INTENSITY_CONFIG[intensity].suffix;
+        if (styleContext) finalPrompt += styleContext;
+        if (analysisResult) {
+          finalPrompt += `\n\n[AI AGENT ANALYSIS]:\n- Material: ${analysisResult.material}\n- Focus: ${analysisResult.focus}\n- Style Keywords: ${analysisResult.prompt_enhancement}`;
+        }
+        if (guidance.trim()) finalPrompt += `\n\n[USER REQUEST]: ${guidance.trim()}`;
+
+        const result = await generateImageToImage(
+          [{ base64: compressed.base64, mimeType: compressed.mime }],
+          finalPrompt,
+          {
+            aspectRatio,
+            resolution,
+            modelId: selectedModel,
+            negativePrompt: "floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges",
+            workflowHint: 'reference-refinement' as any
+          }
+        );
+
+        if (result && result.length > 0) {
+          setResults(prev => {
+            const next = [...prev];
+            next[i].resultUrl = result[0];
+            next[i].status = 'done';
+            return next;
+          });
+        } else {
+          throw new Error('生成失败');
+        }
+        
+        setProgress(Math.round(((i + 1) / sources.length) * 100));
+      }
+      setStatusMessage('批量精修全部完成！');
+    } catch (err) {
+      console.error(err);
+      setStatusMessage('发生错误，处理已停止');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <div 
+      className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text overflow-hidden"
+      onPaste={handlePaste}
+    >
+      {/* Sidebar Controls */}
+      <div className="w-full md:w-1/3 lg:w-[400px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
+        <div className="p-5 space-y-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-pastel-highlight">
+              <Sparkles className="h-4 w-4" />
+              <span className="text-xs font-black uppercase tracking-wider">Batch Retouch</span>
+            </div>
+            <h3 className="text-xl font-black text-pastel-text">批量精修</h3>
+            <p className="text-[10px] leading-5 text-pastel-muted italic">
+              上传多张底图进行批量商业级精修。AI 保持产品角度与结构不变，仅提升材质质感与光影。
+            </p>
+          </div>
+
+          {/* Source Upload */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold flex justify-between">
+              <span>原图上传 ({sources.length}/10)</span>
+              <span className="text-[10px] text-pastel-muted">最多10张</span>
+            </h3>
+            <div 
+              className="grid grid-cols-5 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleSourceDrop}
+            >
+              {sources.map((src, idx) => (
+                <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden bg-white group">
+                  <img src={src.url} className="w-full h-full object-cover" />
+                  <button onClick={() => removeSource(idx)} className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+              ))}
+              {sources.length < 10 && (
+                <button 
+                  onClick={() => sourceInputRef.current?.click()}
+                  className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex flex-col items-center justify-center hover:border-pastel-highlight transition-colors bg-white/50"
+                >
+                  <Upload className="w-4 h-4 text-pastel-muted" />
+                  <span className="text-[8px] mt-1">添加</span>
+                </button>
+              )}
+            </div>
+            <input type="file" multiple hidden ref={sourceInputRef} onChange={handleSourceUpload} accept="image/*" />
+            
+            {sources.length > 0 && !analysisResult && (
+              <button 
+                onClick={handleAiAnalysis}
+                disabled={isAnalyzing}
+                className="w-full py-2.5 bg-pastel-highlight/5 border border-dashed border-pastel-highlight/30 rounded-xl flex items-center justify-center gap-2 text-pastel-highlight hover:bg-pastel-highlight/10 transition-all group"
+              >
+                {isAnalyzing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Bot className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                )}
+                <span className="text-[10px] font-black uppercase">智能 AI 分析产品特征</span>
+              </button>
+            )}
+
+            {analysisResult && (
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
+                  <Bot className="w-8 h-8 text-indigo-500" />
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 rounded-md bg-indigo-500 text-white">
+                    <Sparkles className="w-3 h-3" />
+                  </div>
+                  <span className="text-[10px] font-black text-indigo-600 uppercase">Agent 诊断报告</span>
+                  <button onClick={() => setAnalysisResult(null)} className="ml-auto text-gray-400 hover:text-gray-600">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-bold text-gray-500">产品材质</span>
+                    <span className="text-[10px] font-black text-gray-800">{analysisResult.material}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-bold text-gray-500">精修重点</span>
+                    <span className="text-[10px] font-black text-gray-800">{analysisResult.focus}</span>
+                  </div>
+                  <div className="pt-2 mt-2 border-t border-indigo-500/10">
+                    <p className="text-[9px] text-indigo-600 font-medium leading-relaxed italic">
+                      "建议使用 {INTENSITY_CONFIG[analysisResult.intensity_rec].name} 模式，重点还原材质质感..."
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Ref Upload */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold flex justify-between">
+              <span>参考标准图 ({refs.length}/3)</span>
+              <span className="text-[10px] text-pastel-muted">提取风格</span>
+            </h3>
+            <div 
+              className="grid grid-cols-3 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleRefDrop}
+            >
+              {refs.map((ref, idx) => (
+                <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden bg-white group">
+                  <img src={ref.url} className="w-full h-full object-cover" />
+                  <button onClick={() => removeRef(idx)} className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+              ))}
+              {refs.length < 3 && (
+                <button 
+                  onClick={() => refInputRef.current?.click()}
+                  className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex flex-col items-center justify-center hover:border-pastel-highlight transition-colors bg-white/50"
+                >
+                  <Sparkles className="w-4 h-4 text-pastel-muted" />
+                  <span className="text-[8px] mt-1">参考图</span>
+                </button>
+              )}
+            </div>
+            <input type="file" multiple hidden ref={refInputRef} onChange={handleRefUpload} accept="image/*" />
+          </div>
+
+          {/* Settings */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-pastel-muted uppercase">精修强度</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.entries(INTENSITY_CONFIG) as [keyof typeof INTENSITY_CONFIG, any][]).map(([key, item]) => (
+                  <button
+                    key={key}
+                    onClick={() => setIntensity(key)}
+                    className={`px-2 py-2 rounded-xl border text-[10px] font-bold transition-all ${intensity === key ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight' : 'border-pastel-border bg-white text-pastel-muted'}`}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold text-pastel-muted uppercase">输出画幅</h3>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[AspectRatio.SQUARE, AspectRatio.PORTRAIT_3_4, AspectRatio.PORTRAIT_4_5, AspectRatio.PORTRAIT_2_3, AspectRatio.PORTRAIT_9_16].map(ar => (
+                    <button
+                      key={ar}
+                      onClick={() => setAspectRatio(ar)}
+                      className={`py-1.5 rounded-lg border text-[9px] font-bold transition-all ${aspectRatio === ar ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight' : 'border-pastel-border bg-white text-pastel-muted'}`}
+                    >
+                      {ar}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold text-pastel-muted uppercase">分辨率</h3>
+                <select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-white border border-pastel-border rounded-xl py-2 px-3 text-[10px] font-bold outline-none">
+                  <option value={ImageResolution.RES_2K}>2K 高清</option>
+                  <option value={ImageResolution.RES_4K}>4K 极致</option>
+                </select>
+              </div>
+
+              {/* Styled Model Selection */}
+              <div className="bg-white p-4 rounded-2xl border border-pastel-border shadow-sm space-y-3">
+                <div className="flex items-center gap-2 text-pastel-text">
+                  <Cpu className="w-4 h-4 text-pastel-muted" />
+                  <span className="text-xs font-bold">模型选择</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                      className={`py-2.5 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'border-pastel-highlight bg-pastel-highlight/5 text-pastel-highlight' : 'border-pastel-border text-pastel-muted'}`}
+                    >
+                      3.1 Flash (极速)
+                    </button>
+                    <button
+                      onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
+                      className={`py-2.5 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gemini-3-pro-image-preview' ? 'border-pastel-highlight bg-pastel-highlight/5 text-pastel-highlight' : 'border-pastel-border text-pastel-muted'}`}
+                    >
+                      3.0 Pro (推荐)
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setSelectedModel('gpt-image-2')}
+                    className={`w-full py-2.5 rounded-xl border text-[10px] font-bold transition-all ${selectedModel === 'gpt-image-2' ? 'border-pastel-highlight bg-pastel-highlight/5 text-pastel-highlight' : 'border-pastel-border text-pastel-muted'}`}
+                  >
+                    Imagen 2.0 (写实精修)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-pastel-muted uppercase">补充需求</h3>
+              <textarea 
+                value={guidance} 
+                onChange={e => setGuidance(e.target.value)} 
+                placeholder="例如：提升毛发蓬松度，保持配色一致..."
+                className="w-full bg-white border border-pastel-border rounded-xl p-3 text-[10px] outline-none h-20 resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Generate Button */}
+        <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10">
+          <button
+            onClick={handleBatchGenerate}
+            disabled={isGenerating || sources.length === 0}
+            className="w-full py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 active:scale-[0.98] transition-all"
+          >
+            {isGenerating ? (
+              <><Loader2 className="w-5 h-5 animate-spin" /> {progress}% 处理中</>
+            ) : (
+              <><Zap className="w-5 h-5" /> 开始批量精修</>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-auto p-8 relative flex flex-col">
+        {results.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-pastel-muted opacity-40">
+            <div className="w-20 h-20 rounded-full border-4 border-dashed border-pastel-border flex items-center justify-center mb-4">
+              <ImageIcon className="w-10 h-10" />
+            </div>
+            <p className="text-lg font-bold">待处理任务列表</p>
+            <p className="text-sm">上传原图并点击左侧按钮开始批量精修</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-black text-pastel-text">精修进度</h2>
+                <div className="px-3 py-1 rounded-full bg-pastel-highlight/10 text-pastel-highlight text-xs font-bold">
+                  {results.filter(r => r.status === 'done').length} / {results.length} 完成
+                </div>
+              </div>
+              <button 
+                onClick={downloadAll}
+                disabled={results.filter(r => r.status === 'done').length === 0}
+                className="flex items-center gap-2 px-6 py-2 rounded-xl bg-white border border-pastel-border text-sm font-bold hover:bg-pastel-bg transition-colors disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" /> 批量下载
+              </button>
+            </div>
+
+            {/* Grid Display */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {results.map((res, idx) => (
+                <div key={idx} className="bg-white rounded-3xl border border-pastel-border shadow-sm overflow-hidden flex flex-col">
+                  <div className="flex-1 relative bg-slate-50 flex items-center justify-center p-4">
+                    <div className="grid grid-cols-2 gap-2 w-full h-full">
+                      <div className="relative rounded-xl overflow-hidden border border-pastel-border/50">
+                        <img src={res.sourceUrl} className="w-full h-full object-cover" />
+                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/50 text-white text-[8px] font-bold">原图</div>
+                      </div>
+                      <div className="relative rounded-xl overflow-hidden border border-pastel-border shadow-md bg-white flex items-center justify-center">
+                        {res.status === 'processing' ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <Loader2 className="w-6 h-6 animate-spin text-pastel-highlight" />
+                            <span className="text-[8px] font-bold text-pastel-highlight">生成中...</span>
+                          </div>
+                        ) : res.resultUrl ? (
+                          <>
+                            <img src={res.resultUrl} className="w-full h-full object-cover" />
+                            <button 
+                              onClick={() => setPreview({ src: res.resultUrl!, title: `精修结果 #${idx + 1}` })}
+                              className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-all"
+                            >
+                              <Maximize2 className="w-5 h-5 text-white" />
+                            </button>
+                            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-pastel-highlight text-white text-[8px] font-bold shadow-sm">精修图</div>
+                          </>
+                        ) : res.status === 'error' ? (
+                          <div className="flex flex-col items-center text-red-500">
+                            <AlertCircle className="w-6 h-6" />
+                            <span className="text-[8px] font-bold">错误</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center text-pastel-muted/50">
+                            <ImageIcon className="w-6 h-6" />
+                            <span className="text-[8px] font-bold">等待队列</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-5 py-3 border-t border-pastel-border/50 flex justify-between items-center bg-white/80">
+                    <span className="text-xs font-bold text-pastel-muted"># {idx + 1} 任务</span>
+                    {res.status === 'done' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Preview Modal */}
+      {preview && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/75 p-6 backdrop-blur-md" onClick={() => setPreview(null)}>
+          <div className="relative w-full max-w-4xl bg-white rounded-[40px] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-pastel-border flex items-center justify-between">
+              <h3 className="text-xl font-black text-pastel-text">{preview.title}</h3>
+              <button onClick={() => setPreview(null)} className="p-2 hover:bg-pastel-bg rounded-full transition-colors">
+                <X className="w-6 h-6 text-pastel-text" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto bg-slate-50 p-8 flex items-center justify-center">
+              <img src={preview.src} className="max-w-full max-h-[70vh] object-contain shadow-xl rounded-lg" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default DollBatchRetouchTab;

@@ -17,6 +17,7 @@ import { ProjectGalleryModal } from './ProjectGalleryModal';
 import { RecentProjects } from './RecentProjects';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { storageService, Project } from '../services/storageService';
+import { UnifiedSettingsModal } from './UnifiedSettingsModal';
 import { Bot, Sparkles } from 'lucide-react';
 
 import { WorkflowStep } from '../types';
@@ -24,10 +25,9 @@ import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
 interface AgentHomeProps {
   onStart: (text: string, image: string | string[] | null, model: string, step?: number) => void;
-  onOpenSettings: (tab: 'api' | 'agent') => void;
 }
 
-export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings }) => {
+export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash'); // Default to 3.1 Flash
@@ -50,14 +50,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
 
 
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [showUnifiedSettings, setShowUnifiedSettings] = useState(false);
+  const [initialSettingsTab, setInitialSettingsTab] = useState<'model' | 'agent'>('model');
   const [showTryOnModal, setShowTryOnModal] = useState(false);
   const [showMarketingModal, setShowMarketingModal] = useState(false);
   // Video Modal removed for direct access
   const [showBackgroundModal, setShowBackgroundModal] = useState(false);
   const [showTranslateModal, setShowTranslateModal] = useState(false);
   const [selectedRecentProject, setSelectedRecentProject] = useState<Project | null>(null);
-
-  // ... (handleImageUpload and removeImage are unchanged)
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -202,10 +202,6 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
       <div className="fixed top-0 left-0 w-full h-full opacity-40 dark:opacity-20 pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
       <div className="fixed -top-[20%] right-[10%] w-[800px] h-[800px] bg-brand-orange/5 blur-[120px] rounded-full pointer-events-none"></div>
 
-      {/* Duplicate background elements removed, and fixed positioning applied */}
-
-      {/* History Button Moved to App.tsx */}
-
       <div className="w-full max-w-6xl z-10 flex flex-col items-center gap-10">
         <div className="text-center animate-fade-in">
           <h1 className="text-4xl md:text-5xl font-black tracking-tight text-gray-900 dark:text-white mb-2">
@@ -257,48 +253,26 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
                 {/* Model Selector */}
                 <div className="relative flex items-center gap-2">
                   <button
-                    onClick={() => setShowModelMenu(!showModelMenu)}
+                    onClick={() => {
+                      setInitialSettingsTab('model');
+                      setShowUnifiedSettings(true);
+                    }}
                     className="px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5"
                   >
                     <SettingsIcon />
-                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash' ? 'Gemini 3.1 Flash' : 'Gemini 2.5 Pro'}
+                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash' ? 'Gemini 3.1 Flash' : selectedModel === 'gpt-image-2' ? 'Imagen 2.0' : 'Gemini 2.5 Pro'}
                   </button>
 
                   <button
-                    onClick={() => onOpenSettings('agent')}
+                    onClick={() => {
+                      setInitialSettingsTab('agent');
+                      setShowUnifiedSettings(true);
+                    }}
                     className="p-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 dark:text-gray-400 hover:text-brand-orange transition-all border border-gray-100 dark:border-white/5"
                     title="智能体设置"
                   >
                     <SettingsIcon />
                   </button>
-
-                  {showModelMenu && (
-                    <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-xl border border-gray-200 dark:border-white/10 overflow-hidden z-20 animate-in fade-in slide-in-from-top-2">
-                      <button
-                        onClick={() => { setSelectedModel('gemini-3-pro-preview'); setShowModelMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3-pro-preview' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
-                      >
-                        Gemini 3 Pro
-                        {selectedModel === 'gemini-3-pro-preview' && <span className="text-xs">✓</span>}
-                      </button>
-                      <div className="h-px bg-gray-100 dark:bg-white/5"></div>
-                      <button
-                        onClick={() => { setSelectedModel('gemini-3.1-flash'); setShowModelMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-3.1-flash' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
-                      >
-                        Gemini 3.1 Flash
-                        {selectedModel === 'gemini-3.1-flash' && <span className="text-xs">✓</span>}
-                      </button>
-                      <div className="h-px bg-gray-100 dark:bg-white/5"></div>
-                      <button
-                        onClick={() => { setSelectedModel('gemini-2.5-pro'); setShowModelMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-white/5 flex items-center justify-between ${selectedModel === 'gemini-2.5-pro' ? 'text-brand-orange bg-brand-orange/5' : 'text-gray-700 dark:text-gray-300'}`}
-                      >
-                        Gemini 2.5 Pro
-                        {selectedModel === 'gemini-2.5-pro' && <span className="text-xs">✓</span>}
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -313,7 +287,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
           </div>
         </div>
 
-        {/* ... Feature Cards Grid ... */}
+        {/* Feature Cards Grid */}
         <div className="w-full max-w-5xl grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 animate-slide-up [animation-delay:150ms]">
           {FEATURE_CARDS.map((card, idx) => (
             <div
@@ -351,7 +325,10 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
         <div className="w-full max-w-6xl animate-slide-up [animation-delay:200ms]">
           <RecentProjects
             onSelectProject={(p) => setSelectedRecentProject(p)}
-            onViewAll={() => window.dispatchEvent(new CustomEvent('open-history'))}
+            onOpenSettings={(tab) => {
+              setInitialSettingsTab(tab);
+              setShowUnifiedSettings(true);
+            }}
           />
         </div>
 
@@ -373,16 +350,11 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
           onConfirm={handleBackgroundConfirm}
         />
 
-
-
         <TranslateModal
           isOpen={showTranslateModal}
           onClose={() => setShowTranslateModal(false)}
           onConfirm={handleTranslateConfirm}
         />
-
-
-        {/* Gallery Modal removed from here */}
 
         <ProjectDetailModal
           project={selectedRecentProject}
@@ -390,10 +362,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
           onDelete={async (id) => {
             await storageService.deleteProject(id);
             setSelectedRecentProject(null);
-            // Ideally trigger refresh of RecentProjects
-            // For MVP, window reload or let logic handle it next mount
             window.location.reload();
           }}
+        />
+
+        <UnifiedSettingsModal 
+          isOpen={showUnifiedSettings}
+          onClose={() => setShowUnifiedSettings(false)}
+          initialTab={initialSettingsTab}
         />
       </div>
     </div>

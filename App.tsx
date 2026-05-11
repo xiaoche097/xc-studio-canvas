@@ -2,9 +2,10 @@ import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { AgentHome } from './components/AgentHome';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { History, Cloud } from 'lucide-react';
+import { gemini } from './lib/gemini';
 
 const ChatStudio = lazy(() => import('./components/ChatStudio').then((module) => ({ default: module.ChatStudio })));
-const SettingsModal = lazy(() => import('./components/SettingsModal').then((module) => ({ default: module.SettingsModal })));
+import { UnifiedSettingsModal } from './components/UnifiedSettingsModal';
 const ProjectGalleryModal = lazy(() => import('./components/ProjectGalleryModal').then((module) => ({ default: module.ProjectGalleryModal })));
 const VideoStationApp = lazy(() => import('./XcAISTUDIO-main/App').then((module) => ({ default: module.App })));
 const DollFactoryApp = lazy(() => import('./DollFactory/App'));
@@ -32,7 +33,6 @@ const App: React.FC = () => {
   });
   const [isDark, setIsDark] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'api' | 'agent'>('api');
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -41,8 +41,7 @@ const App: React.FC = () => {
     setMounted(true);
     // Check localStorage or system preference
     const savedTheme = localStorage.getItem('theme');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
+    
     if (savedTheme === 'light') {
       setIsDark(false);
       document.documentElement.classList.remove('dark');
@@ -50,8 +49,19 @@ const App: React.FC = () => {
 
     // Listen for History Open Event
     const handleOpenHistory = () => setIsGalleryOpen(true);
+    
+    const handleApiUpdate = () => {
+      const stored = localStorage.getItem('user_gemini_api_key');
+      if (stored) gemini.updateApiKey(stored);
+    };
+
     window.addEventListener('open-history', handleOpenHistory);
-    return () => window.removeEventListener('open-history', handleOpenHistory);
+    window.addEventListener('api-settings-updated', handleApiUpdate);
+
+    return () => {
+      window.removeEventListener('open-history', handleOpenHistory);
+      window.removeEventListener('api-settings-updated', handleApiUpdate);
+    };
   }, []);
 
   const toggleTheme = () => {
@@ -152,10 +162,6 @@ const App: React.FC = () => {
               handleStartAgent(text, img ? [img] : [], model, step);
             }
           }} 
-          onOpenSettings={(tab) => {
-            setSettingsTab(tab);
-            setIsSettingsOpen(true);
-          }}
         />
       );
     }
@@ -199,7 +205,6 @@ const App: React.FC = () => {
         {/* Settings Button */}
         <button
           onClick={() => {
-            setSettingsTab('api');
             setIsSettingsOpen(true);
           }}
           className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
@@ -218,17 +223,9 @@ const App: React.FC = () => {
         </button>
       </div>
 
-      <Suspense fallback={null}>
-        {isSettingsOpen && (
-          <SettingsModal 
-            isOpen={isSettingsOpen} 
-            onClose={() => setIsSettingsOpen(false)} 
-            initialTab={settingsTab}
-          />
-        )}
-        {isGalleryOpen && (
-          <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />
-        )}
+      <Suspense fallback={<LoadingScreen />}>
+        {isSettingsOpen && <UnifiedSettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />}
+        {isGalleryOpen && <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />}
         {renderActiveView()}
       </Suspense>
     </div>

@@ -4,10 +4,11 @@ import DollMainRetouchTab from './DollMainRetouchTab';
 import DollDesignOptimizeTab from './DollDesignOptimizeTab';
 import DollAnglePresetsTab from './DollAnglePresetsTab';
 import DollAngleReferenceTab from './DollAngleReferenceTab';
+import DollBatchRetouchTab from './DollBatchRetouchTab';
 import SettingsTab from '../Cyzx4/components/SettingsTab';
-import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2, Camera } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2, Camera, Zap } from 'lucide-react';
 
-type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'design-optimize' | 'angle-presets' | 'angle-reference' | 'settings';
+type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'batch-retouch' | 'design-optimize' | 'angle-presets' | 'angle-reference' | 'settings';
 
 const DollFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DollFactoryMode>('main-adjust');
@@ -41,6 +42,12 @@ const DollFactoryApp: React.FC = () => {
               onClick={() => setActiveTab('main-retouch')}
               icon={<Sparkles className="w-5 h-5" />}
               label="参考图精修"
+            />
+            <NavButton
+              active={activeTab === 'batch-retouch'}
+              onClick={() => setActiveTab('batch-retouch')}
+              icon={<Zap className="w-5 h-5" />}
+              label="批量精修"
             />
             <NavButton
               active={activeTab === 'design-optimize'}
@@ -79,6 +86,7 @@ const DollFactoryApp: React.FC = () => {
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === 'main-adjust' && "玩偶主图调整"}
             {activeTab === 'main-retouch' && "参考图精修"}
+            {activeTab === 'batch-retouch' && "批量精修"}
             {activeTab === 'design-optimize' && "玩偶设计优化"}
             {activeTab === 'angle-reference' && "角度参考"}
             {activeTab === 'angle-presets' && "可爱角度转变"}
@@ -93,6 +101,9 @@ const DollFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'main-retouch' ? 'block' : 'none', height: '100%' }}>
               <DollMainRetouchTab />
+            </div>
+            <div style={{ display: activeTab === 'batch-retouch' ? 'block' : 'none', height: '100%' }}>
+              <DollBatchRetouchTab />
             </div>
             <div style={{ display: activeTab === 'design-optimize' ? 'block' : 'none', height: '100%' }}>
               <DollDesignOptimizeTab />

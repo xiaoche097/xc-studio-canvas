@@ -162,6 +162,33 @@ export const analyzeReferenceEffect = async (
   }
 };
 
+/**
+ * 通用文本/图像分析生成函数
+ */
+export const generateText = async (
+  images: { base64: string; mimeType: string }[],
+  prompt: string,
+  modelId: string = "gemini-3.1-flash-lite-preview"
+): Promise<string> => {
+  const ai = getAiClient();
+  try {
+    const parts: any[] = images.map(img => ({
+      inlineData: { mimeType: img.mimeType, data: img.base64 }
+    }));
+    parts.push({ text: prompt });
+
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: { parts }
+    });
+
+    return response.text || "";
+  } catch (error) {
+    console.error("Generate text failed", error);
+    throw error;
+  }
+};
+
 
 export const analyzeProductImage = async (
   imageBase64: string,
