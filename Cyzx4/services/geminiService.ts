@@ -1026,8 +1026,13 @@ ${forcedPrompt}`;
 
                   : workflowHint === 'doll-retouching'
                     ? `
-        **ROLE**: Senior Ecommerce Product Post-Processing Specialist.
-        **TASK**: High-Fidelity Product Retouching & Perspective Locking.
+        **ROLE**: Senior Ecommerce Product Retouching Specialist.
+        **TASK**: High-Fidelity Product Retouching on PURE WHITE BACKGROUND.
+        **PROTOCOL**:
+        1. **BACKGROUND**: The background MUST be perfectly PURE WHITE (#FFFFFF). No exceptions.
+        2. **SURFACE REMOVAL**: You MUST identify and REMOVE any table, floor, or surface the product is sitting on. The product should appear as if it is floating in a clean studio void.
+        3. **GEOMETRY LOCK**: Maintain 100% of the product's structure, pose, and proportions from Image 1. HOWEVER, do NOT keep the environment/background from Image 1.
+        4. **SHADOW**: Only a very soft, minimal ambient occlusion shadow under the product. No long or directional shadows.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

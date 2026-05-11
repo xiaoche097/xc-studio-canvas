@@ -4,22 +4,26 @@ import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 
 // --- Prompt Templates ---
-const BATCH_RETOUCH_PROMPT = `[ROLE] You are a top-tier e-commerce product retouching expert.
-[TASK] Professionally retouch this product photo (product photo retouch).
+const BATCH_RETOUCH_PROMPT = `[ROLE] You are a world-class e-commerce product retouching expert specialized in pure white background photography.
+[TASK] Professionally retouch this product photo for a clean, high-end e-commerce look.
 [ABSOLUTE CONSTRAINT - GEOMETRY LOCK]
 - DO NOT change camera angle, lens height, focal length (same pose, same camera angle, same geometry)
 - DO NOT change the subject's orientation, pose, composition or cropping
 - DO NOT change the product's design, proportions, or any part positions
 - ONLY modify: lighting, color, sharpness, background, material texture, cleanup
 
+[BACKGROUND & ENVIRONMENT - CRITICAL]
+- Background: MANDATORY PURE WHITE (#FFFFFF). 
+- REMOVAL: You MUST delete ALL environment details. Remove all floor, table, desk, wooden surfaces, horizon lines, wall textures, or studio props.
+- FLOATING EFFECT: The product should appear as if it is floating in a perfectly clean, infinite white void. No ground plane should be visible.
+- SHADOW: ONLY a very subtle, soft contact shadow directly under the product base (Ambient Occlusion). NO long shadows, NO shadows hitting a 'floor' surface.
+
 [REFINEMENT TARGETS]
-- Background: MANDATORY PURE WHITE (#FFFFFF). Remove ALL floor, table, desk, wood grain, or environment textures. The product should appear floating on a perfectly clean, infinite white space.
-- Lighting: Soft even studio lighting, high-key, clean highlights
-- Texture: Enhance material texture clarity (plush fiber more visible but natural, not greasy, not over-sharpened)
-- Color: Natural color correction, smooth brightness transitions
-- Shadow: ONLY a very subtle, soft contact shadow directly under the product base. No long shadows, no shadows hitting a 'floor' surface.
-- Cleanup: Remove noise, dust, dirt, color cast, aliasing, fringing, lens flare, compression artifacts
-- Output: Premium e-commerce hero image quality, clean, crisp, authentic, PURE WHITE BACKGROUND.`;
+- Lighting: Soft even studio lighting, high-key, clean highlights.
+- Texture: Enhance material texture clarity (plush fiber more visible but natural, not greasy).
+- Color: Natural color correction, vibrant but realistic.
+- Cleanup: Remove noise, dust, dirt, color cast, and any distracting elements from the original background.
+- Output: Premium e-commerce hero image quality, crisp, authentic, 100% PURE WHITE BACKGROUND.`;
 
 const INTENSITY_CONFIG = {
   conservative: {
@@ -251,8 +255,8 @@ const DollBatchRetouchTab: React.FC = () => {
             aspectRatio,
             resolution,
             modelId: selectedModel,
-            negativePrompt: "floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges",
-            workflowHint: 'reference-refinement' as any
+            negativePrompt: "floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges, horizon line, ground plane, furniture, studio equipment, reflection on floor",
+            workflowHint: 'doll-retouching' as any
           }
         );
 
