@@ -69,6 +69,13 @@ const DollBatchRetouchTab: React.FC = () => {
   const sourceInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-trigger analysis when first source image is uploaded
+  useEffect(() => {
+    if (sources.length > 0 && !analysisResult && !isAnalyzing) {
+      handleAiAnalysis();
+    }
+  }, [sources.length]);
+
   const handleSourceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     const newSources = files.slice(0, 10 - sources.length).map(file => ({
@@ -321,19 +328,11 @@ const DollBatchRetouchTab: React.FC = () => {
             </div>
             <input type="file" multiple hidden ref={sourceInputRef} onChange={handleSourceUpload} accept="image/*" />
             
-            {sources.length > 0 && !analysisResult && (
-              <button 
-                onClick={handleAiAnalysis}
-                disabled={isAnalyzing}
-                className="w-full py-2.5 bg-pastel-highlight/5 border border-dashed border-pastel-highlight/30 rounded-xl flex items-center justify-center gap-2 text-pastel-highlight hover:bg-pastel-highlight/10 transition-all group"
-              >
-                {isAnalyzing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Bot className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                )}
-                <span className="text-[10px] font-black uppercase">智能 AI 分析产品特征</span>
-              </button>
+            {sources.length > 0 && isAnalyzing && !analysisResult && (
+              <div className="w-full py-2.5 bg-indigo-50 dark:bg-indigo-500/10 border border-dashed border-indigo-200 dark:border-indigo-500/30 rounded-xl flex items-center justify-center gap-2 text-indigo-600 dark:text-indigo-400 animate-pulse">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-[10px] font-black uppercase tracking-wider">Agent 正在分析产品特征...</span>
+              </div>
             )}
 
             {analysisResult && (
