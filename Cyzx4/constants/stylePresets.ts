@@ -119,5 +119,15 @@ export const STYLE_PRESETS: StylePreset[] = [
         prompt: 'Pure faceless 3D mannequin render, blank smooth head, zero clothing, zero prints.',
         promptWithRef: 'Create a "Pure Blank Mannequin" 3D character.\n**Image 1 (Body Source)**: Provides only the human body proportions and scale. **STRICTLY IGNORE** everything else: no face, no eyes, no mouth, no hair, no clothing, no sunflower print, no graphics.\n**Image 2 (Style & Pose)**: Provides the 3D smooth plastic material, the EXACT pose, and the EXACT framing.\n**TASK**: Generate a **FACELESS** and **BLANK** 3D mannequin in Image 2\'s pose. The head must be a smooth, featureless anatomical shape (no eyes/nose/mouth). The body must be 100% clean with no clothing and no tattoos or prints. Use Image 1 only to determine the mannequin\'s height and body thickness.',
         negativePrompt: 'human face, eyes, nose, mouth, lips, hair, clothing, shirt, pants, sunflower, print, logo, graphic, text, tattoo, realistic skin, photography.'
+    },
+    {
+        id: 'white-background-production',
+        name: '白底图制作',
+        category: '电商',
+        previewUrl: '/styles/studio.png',
+        description: '将图片转成白底图，产品的光感和质感不变，只是换成棚拍白底，背景色值为 #FFFFFF。',
+        prompt: '将图片转成场景图：Professional e-commerce studio photography of the product on a PURE WHITE background #FFFFFF. High-key studio lighting, clean edges, crisp details, soft contact shadow only. Maintain the exact lighting, texture, and material feel of the original product. No environment, no props, no distracting background.',
+        promptWithRef: '将图片转成场景图：Professional e-commerce studio retouching on a PURE WHITE background #FFFFFF. Use the reference image for product identity. Maintain the product\'s original lighting, shadows, and textures perfectly. Replace the current background with a clean, infinite white studio background. Ensure sharp focus and high resolution.',
+        negativePrompt: 'floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges, horizon line, ground plane, furniture, studio equipment, reflection on floor'
     }
 ];

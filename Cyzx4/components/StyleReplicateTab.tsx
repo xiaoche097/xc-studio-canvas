@@ -317,33 +317,26 @@ const StyleReplicateTab: React.FC = () => {
                 return prev + 1;
             });
             setProgress(prev => Math.min(prev + 12, 95));
-        }, 1500); // 1.5s per step = 12s total (approx generation time)
+        }, 1200); // Slightly faster for parallel
 
         try {
-            const allResults: string[] = [];
-
-            // In batch mode, if multiple styles, we might want to generate result for each style?
-            // Or just use the first one? 
-            // The prompt "Batch replication" implies applying different styles or batch producing.
-            // If user uploads multiple styles in batch mode, let's assuming we generate 1 image per style 
-            // unless generateCount > style count.
-
-            // Actually, simplest implementation for now:
-            // Loop through each style reference and generate 'generateCount' images for it.
-
             const stylesToProcess = styleReferences;
+            
+            if (tabMode === 'batch') {
+                setBatchStatus(`正在并行处理 ${stylesToProcess.length} 个风格...`);
+            }
 
-            for (const [index, styleRef] of stylesToProcess.entries()) {
-                if (!styleRef.base64) continue;
-
-                // Sync CoT for Batch Mode
-                if (stylesToProcess.length > 1) {
-                    setBatchStatus(`批量处理进度: ${index + 1}/${stylesToProcess.length}`);
-                    setCurrentStep(0); // Reset animation cycle for new item
-                }
+            // Create promises for parallel execution
+            const generationPromises = stylesToProcess.map(async (styleRef, index) => {
+                if (!styleRef.base64) return [];
 
                 try {
-                    console.log(`[Batch] Processing Style ${index + 1}/${stylesToProcess.length}...`);
+                    console.log(`[Parallel] Starting Style ${index + 1}/${stylesToProcess.length}...`);
+                    
+                    // In batch mode, we do 1 per style as per user request "automatic quantity"
+                    // In single mode, we use the user-selected generateCount
+                    const countPerStyle = tabMode === 'batch' ? 1 : generateCount;
+
                     const results = await generateStyleReplication(
                         { base64: styleRef.base64, mime: styleRef.mime || 'image/png' },
                         productImages.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
@@ -351,19 +344,21 @@ const StyleReplicateTab: React.FC = () => {
                         {
                             aspectRatio,
                             resolution,
-                            count: generateCount,
+                            count: countPerStyle,
                             model: selectedModel,
                             retouch: isRetouchEnabled
                         }
                     );
-                    allResults.push(...results);
+                    return results;
                 } catch (err) {
-                    console.error(`[Batch] Failed to process Style ${index + 1}:`, err);
-                    const friendlyError = getErrorMessage(err);
-                    console.warn(`[Batch] 友好提示: ${friendlyError}`);
-                    // Do not stop the loop, continue to next style
+                    console.error(`[Parallel] Failed to process Style ${index + 1}:`, err);
+                    return [];
                 }
-            }
+            });
+
+            // Wait for all generations to complete in parallel
+            const resultsArray = await Promise.all(generationPromises);
+            const allResults = resultsArray.flat();
 
             if (allResults.length === 0) {
                 throw new Error("批量生成完全失败。请检查您的输入内容和网络连接后重试。");
@@ -732,16 +727,25 @@ const StyleReplicateTab: React.FC = () => {
 
                                 {/* Generate Count */}
                                 <div>
-                                    <label className="text-xs text-pastel-muted mb-1 block">生成数量</label>
-                                    <select
-                                        value={generateCount}
-                                        onChange={(e) => setGenerateCount(Number(e.target.value))}
-                                        className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
-                                    >
-                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-                                            <option key={num} value={num}>{num} 张</option>
-                                        ))}
-                                    </select>
+                                    <label className="text-xs text-pastel-muted mb-1 block">
+                                        {tabMode === 'batch' ? '批量生成数量' : '生成数量'}
+                                    </label>
+                                    {tabMode === 'batch' ? (
+                                        <div className="w-full bg-gray-50 border border-pastel-border rounded-lg px-3 py-2 text-sm text-pastel-muted flex items-center justify-between">
+                                            <span>{styleReferences.length} 张</span>
+                                            <span className="text-[10px] bg-pastel-highlight/10 text-pastel-highlight px-1.5 py-0.5 rounded">自动匹配</span>
+                                        </div>
+                                    ) : (
+                                        <select
+                                            value={generateCount}
+                                            onChange={(e) => setGenerateCount(Number(e.target.value))}
+                                            className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
+                                        >
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                                                <option key={num} value={num}>{num} 张</option>
+                                            ))}
+                                        </select>
+                                    )}
                                 </div>
 
                                 {/* Turbo Mode */}
@@ -806,12 +810,12 @@ const StyleReplicateTab: React.FC = () => {
                                 {isLoading ? (
                                     <>
                                         <Loader2 className="w-5 h-5 animate-spin" />
-                                        正在生成中...
+                                        正在并行生成中...
                                     </>
                                 ) : (
                                     <>
                                         <Sparkles className="w-5 h-5" />
-                                        生成 {generateCount} 张详情图
+                                        生成 {tabMode === 'batch' ? styleReferences.length : generateCount} 张详情图
                                     </>
                                 )}
                             </button>
