@@ -511,9 +511,7 @@ export const generateMarketingImage = async (
     const arHint = getAspectRatioHint(aspectRatio);
     const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
     
-    const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
-      ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
-      : prompt;
+    const forcedPrompt = `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} --ar ${aspectRatio}`; 
 
     // Dynamic quality suffix from Nano Banana Skills
     const qualitySuffix = `, ${QUALITY_BOOSTERS.EDITORIAL}`;
@@ -748,7 +746,7 @@ export const generateImageToImage = async (
   
   // Use a more aggressive "Command" style for the prompt to bypass model laziness
   // UPDATED: Only use this for Gemini/Nano models. GPT models should have a cleaner prompt to avoid parameter conflict.
-  const forcedPrompt = (!isGptModel && ((aspectRatio && aspectRatio !== '1:1') || resolutionHint))
+  const forcedPrompt = (!isGptModel)
     ? `--ar ${aspectRatio} [QUALITY: ${resolution}] (${arHint}) ${resolutionHint}, ${prompt.trim()}` 
     : prompt.trim();
 
@@ -1247,8 +1245,9 @@ export const generateInpainting = async (
   const resolution = options.resolution || "2K";
   const resolutionHint = resolution === '4K' ? '8K UHD, ultra-high resolution, extremely detailed, masterwork' : resolution === '2K' ? '4K resolution, high definition, sharp focus' : '';
   const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
-    ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
-    : prompt;
+    ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} --ar ${aspectRatio}` 
+    : `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} --ar ${aspectRatio}`; 
+
 
   const isGptImage2 = targetModel === 'gpt-image-2';
 
@@ -2800,8 +2799,8 @@ You MUST process the input through these 8 distinct phases:
 - **Quality**: ${QUALITY_BOOSTERS.PRODUCT}
 
 **OUTPUT**:
-- Generate **ONE** high-fidelity image that looks like a finished commercial advertisement.
-- Do NOT output text. Just the final image.
+Generate the requested image(s). DO NOT output any text. 
+REQUIRED ASPECT RATIO: ${aspectRatio} --ar ${aspectRatio}
 `;
 
   // DEBUG: Log the customPrompt value
@@ -3031,6 +3030,7 @@ ${userPrompt ? `**USER INSTRUCTION**: "${userPrompt}"` : '**DEFAULT**: Replace t
 **QUALITY STANDARD**: ${QUALITY_BOOSTERS.PRODUCT}
 Professional commercial photography quality. The result must be indistinguishable from a real photograph.
 
+**ASPECT RATIO**: ${aspectRatio} --ar ${aspectRatio}
 **OUTPUT**: Generate ONE high-fidelity image. Do NOT output any text, only the final image.
 `;
 
