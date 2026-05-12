@@ -1,472 +1,608 @@
-import React, { useState, useRef } from 'react';
-import { Upload, X, Wand2, Sparkles, AlertCircle, Loader2, Layout, Sun, Image as ImageIcon, CheckCircle2, ChevronDown } from 'lucide-react';
-import { analyzeAndMergePrompts, generateCleanImage, blobToBase64 } from '../services/geminiService';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { 
+    Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
+    Layout, Sun, Image as ImageIcon, CheckCircle2, 
+    ChevronDown, Package, Store, Ruler, MessageSquare, 
+    Zap, RefreshCw, ZoomIn, Download, Brain, Layers,
+    Camera, UserCircle, Cpu, ChevronUp, Edit3, Settings,
+    FileText, Smartphone, Film, Eye, Maximize, Scan, Target
+} from 'lucide-react';
+import { generateImageToImage, blobToBase64 } from '../services/geminiService';
+import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
 import { getErrorMessage } from '../utils/apiHelpers';
-import { AspectRatio } from '../types';
+import { AspectRatio, ImageResolution } from '../types';
+import { useImagePaste } from '../hooks/useImagePaste';
+import { storageService } from '../../services/storageService';
+import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 
-type IntensityMode = 'conservative' | 'balanced' | 'aggressive';
+interface UploadedImage {
+    file: File;
+    preview: string;
+    base64?: string;
+    mime?: string;
+}
 
-const ImageCleanTab: React.FC = () => {
-    const [selectedImage, setSelectedImage] = useState<string | null>(null);
-    const [userInstruction, setUserInstruction] = useState('');
-    const [intensity, setIntensity] = useState<IntensityMode>('balanced');
+interface HeroFormState {
+    productName: string;
+    productCategory: string;
+    sellingPoints: string;
+    avoidElements: string;
+    extraNotes: string;
+    personaTemplate: string;
+}
+
+const PERSONA_PRESETS = [
+    '美国都市女性', '美国职场女性', '美国瑜伽/健身女性', '美国居家主妇', 
+    '美国都市男性', '美国运动型男性', '美国户外冒险男性',
+    '美国年轻情侣', '美国郊区家庭', '美国校园学生', '无模特（纯产品）'
+];
+
+const CAMERA_DEVICES = [
+    { id: '智能推荐', label: '智能推荐', desc: '根据场景匹配', icon: <Brain className="w-4 h-4" /> },
+    { id: 'iPhone 实拍', label: 'iPhone 实拍', desc: '手机真实抓拍感', icon: <Smartphone className="w-4 h-4" /> },
+    { id: '富士胶片', label: '富士胶片', desc: '复古色调颗粒', icon: <Film className="w-4 h-4" /> },
+    { id: '单反人像', label: '单反人像', desc: '唯美肤色虚化', icon: <Camera className="w-4 h-4" /> },
+    { id: '微单高清', label: '微单高清', desc: '极致高清锐度', icon: <Target className="w-4 h-4" /> },
+    { id: '拍立得', label: '拍立得', desc: '拍立得一次成像', icon: <Zap className="w-4 h-4" /> }
+];
+
+const SHOT_TYPES = [
+    { id: '智能推荐', label: '智能推荐' },
+    { id: '远景环境', label: '远景环境' },
+    { id: '中景半身', label: '中景半身' },
+    { id: '近景特写', label: '近景特写' },
+    { id: '微距细节', label: '微距细节' }
+];
+
+const ACTION_TAGS = ['自然站姿', '街拍走路', '坐姿休闲', '侧身回头', '转身展示背面', '手扶墨镜', '插兜造型'];
+const SCENE_TAGS = ['纯白棚拍', '城市街头', '咖啡店', '海边度假', '居家客厅', '现代简约', '复古花园'];
+
+const COT_STEPS = [
+    { id: 1, label: "视觉语义解析", desc: "正在分析产品材质与剪裁特征...", icon: "🔍" },
+    { id: 2, label: "AI Agent 策略制定", desc: "正在根据产品卖点规划生成策略...", icon: "🧠" },
+    { id: 3, label: "构图与景别对齐", desc: "正在设置相机参数与景别...", icon: "📸" },
+    { id: 4, label: "模特动作复刻", desc: "正在同步参考图中的姿态特征...", icon: "👤" },
+    { id: 5, label: "光影物理映射", desc: "正在计算环境光与织物反射...", icon: "💡" },
+    { id: 6, label: "高保真渲染", desc: "正在生成 8K 级超清纹理细节...", icon: "🖌️" },
+    { id: 7, label: "商业级调色", desc: "正在注入电商高转化色彩基因...", icon: "🌈" },
+];
+
+const HeroImageTab: React.FC = () => {
+    // Selection states
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+    const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
+    const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+    const [generateCount, setGenerateCount] = useState(1);
+    const [showAdvanced, setShowAdvanced] = useState(true);
+    
+    // Photo controls
+    const [cameraDevice, setCameraDevice] = useState('智能推荐');
+    const [shotType, setShotType] = useState('智能推荐');
+    
+    // Image states
+    const [productImages, setProductImages] = useState<UploadedImage[]>([]);
+    const [actionReference, setActionReference] = useState<UploadedImage | null>(null);
+    const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
+    const [userPrompt, setUserPrompt] = useState('');
+    
+    // Form
+    const [form, setForm] = useState<HeroFormState>({
+        productName: '',
+        productCategory: '',
+        sellingPoints: '',
+        avoidElements: '',
+        extraNotes: '',
+        personaTemplate: '美国都市女性'
+    });
+
+    // Status states
+    const [isLoading, setIsLoading] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [analysisResult, setAnalysisResult] = useState('');
+    const [analysisResult, setAnalysisResult] = useState<SceneAnalysisResult | null>(null);
+    const [currentStep, setCurrentStep] = useState(0);
+    const [progress, setProgress] = useState(0);
     const [generatedImages, setGeneratedImages] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [isDragging, setIsDragging] = useState(false);
+    const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+    
+    // Refs
+    const productInputRef = useRef<HTMLInputElement>(null);
+    const actionInputRef = useRef<HTMLInputElement>(null);
+    const sceneInputRef = useRef<HTMLInputElement>(null);
+    const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | null>(null);
+    const [isDragging, setIsDragging] = useState<string | null>(null);
 
-    // New Options
-    const [generateCount, setGenerateCount] = useState<number>(1);
-    const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('1K');
-    const [aspectRatio, setAspectRatio] = useState<AspectRatio | 'auto'>('auto');
-    const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
-
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const processFile = async (file: File) => {
-        try {
+    // Image processing
+    const processFiles = async (files: File[]) => {
+        const results: UploadedImage[] = [];
+        for (const file of files) {
+            if (!file.type.startsWith('image/')) continue;
             const base64 = await blobToBase64(file);
-            const dataUri = `data:${file.type};base64,${base64}`;
-
-            // Get dimensions
-            const img = new Image();
-            img.onload = () => {
-                setImageDimensions({ width: img.naturalWidth, height: img.naturalHeight });
-            };
-            img.src = dataUri;
-
-            setSelectedImage(dataUri);
-            setGeneratedImages([]);
-            setAnalysisResult('');
-            setError(null);
-        } catch (err) {
-            setError("图片处理失败，请重试");
+            results.push({
+                file,
+                preview: URL.createObjectURL(file),
+                base64: base64 as string,
+                mime: file.type
+            });
         }
+        return results;
     };
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-    };
-
-    const handleDrop = async (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) {
-            processFile(file);
-        }
-    };
-
-    const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        processFile(file);
-    };
-
-    const handleRemoveImage = () => {
-        setSelectedImage(null);
-        setImageDimensions(null);
-        setGeneratedImages([]);
-        setAnalysisResult('');
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-
-    const handleAnalyzeAndGenerate = async () => {
-        if (!selectedImage) return;
-
+    const handleProductUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
+        const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
+        const processed = await processFiles(files);
+        setProductImages(prev => [...prev, ...processed].slice(0, 4));
         setError(null);
+    };
+
+    const handleActionUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
+        const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
+        const processed = await processFiles(files);
+        if (processed.length > 0) setActionReference(processed[0]);
+        setError(null);
+    };
+
+    const handleSceneUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
+        const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
+        const processed = await processFiles(files);
+        setSceneReferences(prev => [...prev, ...processed].slice(0, 3));
+        setError(null);
+    };
+
+    // Drag and Drop Logic
+    const handleDragOver = (e: React.DragEvent, slot: string) => {
+        e.preventDefault();
+        setIsDragging(slot);
+    };
+
+    const handleDragLeave = () => {
+        setIsDragging(null);
+    };
+
+    const handleDrop = async (e: React.DragEvent, slot: 'product' | 'action' | 'scene') => {
+        e.preventDefault();
+        setIsDragging(null);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+        
+        if (slot === 'product') handleProductUpload(files);
+        else if (slot === 'action') handleActionUpload(files);
+        else if (slot === 'scene') handleSceneUpload(files);
+    };
+
+    // Paste handler
+    useImagePaste(async (files) => {
+        if (files.length === 0) return;
+        if (hoveredSlot === 'action') handleActionUpload(files);
+        else if (hoveredSlot === 'scene') handleSceneUpload(files);
+        else handleProductUpload(files);
+        setError(null);
+    });
+
+    const runAIAnalysis = async () => {
+        if (productImages.length === 0) return;
         setIsAnalyzing(true);
-        setGeneratedImages([]);
-
+        setError(null);
         try {
-            // Step 1: Analyze
-            // API expects raw base64, frontend uses data URI
-            const base64Parts = selectedImage.split(',');
-            const rawBase64 = base64Parts.length > 1 ? base64Parts[1] : base64Parts[0];
-
-            let finalPrompt = analysisResult;
-            if (!finalPrompt) {
-                finalPrompt = await analyzeAndMergePrompts(rawBase64, userInstruction, intensity);
-                setAnalysisResult(finalPrompt);
-            }
-            setIsAnalyzing(false);
-
-            // Determine Aspect Ratio
-            let finalAspectRatio = aspectRatio;
-            if (aspectRatio === 'auto' && imageDimensions) {
-                const ratio = imageDimensions.width / imageDimensions.height;
-                const ratios = [
-                    { r: 1, val: AspectRatio.SQUARE },
-                    { r: 4 / 3, val: AspectRatio.LANDSCAPE_4_3 },
-                    { r: 3 / 4, val: AspectRatio.PORTRAIT_3_4 },
-                    { r: 16 / 9, val: AspectRatio.LANDSCAPE_16_9 },
-                    { r: 9 / 16, val: AspectRatio.PORTRAIT_9_16 },
-                    { r: 21 / 9, val: AspectRatio.LANDSCAPE_21_9 },
-                ];
-                // Find closest
-                const closest = ratios.reduce((prev, curr) => {
-                    return (Math.abs(curr.r - ratio) < Math.abs(prev.r - ratio) ? curr : prev);
-                });
-                finalAspectRatio = closest.val;
-            } else if (aspectRatio === 'auto') {
-                finalAspectRatio = AspectRatio.SQUARE; // Fallback
-            }
-
-            // Step 2: Generate
-            setIsGenerating(true);
-            const results = await generateCleanImage(finalPrompt, rawBase64, intensity, {
-                count: generateCount,
-                resolution: resolution,
-                aspectRatio: finalAspectRatio as AspectRatio
+            const images = productImages.map(img => ({ base64: img.base64!, mimeType: img.mime! }));
+            const result = await analyzeProductForScene(images, userPrompt, 'main');
+            setAnalysisResult(result);
+            setForm({
+                productName: result.productName || '',
+                productCategory: result.productCategory || '',
+                sellingPoints: result.sellingPoints || '',
+                avoidElements: '',
+                extraNotes: '',
+                personaTemplate: result.modelPersonaPreset || '美国都市女性'
             });
-
-            // Add prefix to all images
-            const validImages = results.map(b64 => `data:image/jpeg;base64,${b64}`);
-            setGeneratedImages(validImages);
-
         } catch (err) {
-            setError(getErrorMessage(err));
+            setError("AI 分析失败");
         } finally {
             setIsAnalyzing(false);
-            setIsGenerating(false);
         }
     };
 
-    const handleRegenerate = async () => {
-        if (!analysisResult || !selectedImage) return;
-        setError(null);
-        setIsGenerating(true);
-        try {
-            const base64Parts = selectedImage.split(',');
-            const rawBase64 = base64Parts.length > 1 ? base64Parts[1] : base64Parts[0];
+    const handleGenerate = async () => {
+        if (productImages.length === 0) {
+            setError('请上传产品图素材');
+            return;
+        }
 
-            const results = await generateCleanImage(analysisResult, rawBase64, intensity, {
-                count: generateCount,
-                resolution: resolution
-            });
-            const validImages = results.map(b64 => `data:image/jpeg;base64,${b64}`);
-            setGeneratedImages(validImages);
+        setIsLoading(true);
+        setError(null);
+        setGeneratedImages([]);
+        
+        setCurrentStep(0);
+        setProgress(0);
+        const stepInterval = setInterval(() => {
+            setCurrentStep(prev => (prev < COT_STEPS.length - 1 ? prev + 1 : prev));
+            setProgress(prev => Math.min(prev + 12, 95));
+        }, 1200);
+
+        try {
+            const inputImages = [
+                ...productImages.map(img => ({ base64: img.base64!, mimeType: img.mime! })),
+            ];
+            
+            if (actionReference) inputImages.push({ base64: actionReference.base64!, mimeType: actionReference.mime! });
+            sceneReferences.forEach(img => inputImages.push({ base64: img.base64!, mimeType: img.mime! }));
+
+            const photoStrategy = `相机预设: ${cameraDevice} | 景别: ${shotType}`;
+            const sceneStrategy = sceneReferences.length > 0 ? "根据参考图复刻背景场景" : (userPrompt || "摄影棚拍摄背景 (Studio lighting, minimal background)");
+
+            const strategy = [
+                `产品：${form.productName}`,
+                `人群：${form.personaTemplate}`,
+                `场景：${sceneStrategy}`,
+                photoStrategy,
+                actionReference ? `动作：复刻姿态参考图` : `动作：智能匹配姿态`,
+                `画质：${QUALITY_BOOSTERS.EDITORIAL}`
+            ].join(' | ');
+
+            const basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
+            
+            const prompt = `
+            # AGENT STRATEGY: ${strategy}
+            # MISSION: Professional fashion hero image.
+            
+            ${actionReference ? `# POSE: STRICTLY replicate the human pose from the image after product images.` : ''}
+            ${sceneReferences.length > 0 ? `# SCENE: Match the background environment and lighting from the scene reference images.` : '# SCENE: Studio professional background, clean, minimalist, studio lighting.'}
+            
+            # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional studio camera, high-end optics'}
+            # SHOT: ${shotType !== '智能推荐' ? shotType : 'Ideal commercial framing'}
+            
+            # DESCRIPTION: ${basePrompt}
+            # FINAL OUTPUT: High-conversion, clean, realistic image.
+            `;
+
+            const batchPromises = Array.from({ length: generateCount }, () => 
+                generateImageToImage(inputImages, prompt, {
+                    aspectRatio,
+                    resolution,
+                    modelId: selectedModel,
+                    workflowHint: actionReference ? 'pose-transfer' : 'scene-product-lock'
+                })
+            );
+
+            const batchResults = await Promise.all(batchPromises);
+            setGeneratedImages(batchResults.flat());
+
         } catch (err) {
             setError(getErrorMessage(err));
         } finally {
-            setIsGenerating(false);
+            clearInterval(stepInterval);
+            setIsLoading(false);
+            setProgress(100);
         }
+    };
+
+    const handleDownload = (img: string, idx: number) => {
+        const link = document.createElement('a');
+        link.href = img;
+        link.download = `hero-${Date.now()}-${idx}.png`;
+        link.click();
     };
 
     return (
-        <div className="flex flex-col h-full bg-pastel-bg text-pastel-text overflow-hidden font-sans">
-            <div className="flex-1 overflow-y-auto p-4 md:p-8">
-                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
+        <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white custom-scrollbar">
+            {/* Header */}
+            <div className="text-center py-6 px-4">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-pastel-border rounded-full text-xs text-pastel-muted mb-2 shadow-sm">
+                    <Brain className="w-3.5 h-3.5 text-purple-500" />
+                    AI Agent 服装主图专家
+                </div>
+                <h1 className="text-2xl font-bold text-pastel-text">智能主图生成 (Hero Image)</h1>
+            </div>
 
-                    {/* Left Column: Configuration (4 cols) */}
-                    <div className="lg:col-span-4 flex flex-col gap-6">
-
-                        {/* 1. Image Upload Card */}
-                        <div className="bg-pastel-card rounded-2xl p-6 shadow-sm border border-pastel-border transition-all hover:shadow-md">
-                            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-pastel-text">
-                                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-                                    <Upload className="w-5 h-5 text-pastel-highlight" />
-                                </div>
-                                1. 上传参考图
-                            </h3>
-
-                            {!selectedImage ? (
-                                <div
-                                    onClick={() => fileInputRef.current?.click()}
-                                    onDragOver={handleDragOver}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={handleDrop}
-                                    className={`border-2 border-dashed rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer transition-all bg-pastel-bg/50 group ${isDragging
-                                        ? 'border-pastel-highlight bg-orange-50 dark:bg-orange-900/20 scale-[1.02]'
-                                        : 'border-pastel-border hover:border-pastel-highlight'
-                                        }`}
-                                >
-                                    <div className="p-4 bg-white dark:bg-white/5 rounded-full mb-3 group-hover:scale-110 transition-transform shadow-sm">
-                                        <ImageIcon className={`w-8 h-8 ${isDragging ? 'text-pastel-highlight' : 'text-pastel-muted group-hover:text-pastel-highlight'}`} />
-                                    </div>
-                                    <p className={`text-sm font-medium ${isDragging ? 'text-pastel-highlight' : 'text-pastel-muted group-hover:text-pastel-text'}`}>
-                                        {isDragging ? '松开以上传图片' : '点击或拖拽上传图片'}
-                                    </p>
-                                    <p className="text-xs text-pastel-muted/70 mt-1">支持 JPG, PNG (最大 10MB)</p>
-                                </div>
-                            ) : (
-                                <div className="relative group rounded-xl overflow-hidden h-48 bg-black/5 flex items-center justify-center border border-pastel-border">
-                                    <img src={selectedImage} alt="Reference" className="max-h-full max-w-full object-contain" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <button
-                                            onClick={handleRemoveImage}
-                                            className="p-2 bg-white/20 backdrop-blur-md text-white rounded-full hover:bg-red-500/80 transition-colors"
-                                        >
-                                            <X className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handleImageUpload}
-                            />
+            <div className="max-w-7xl mx-auto px-4 pb-12">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* LEFT COLUMN */}
+                    <div className="space-y-4">
+                        
+                        {/* 1. Ratio */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Layout className="w-4 h-4 text-pastel-highlight" />
+                                <h3 className="font-bold text-pastel-text text-sm">画幅比例</h3>
+                            </div>
+                            <div className="grid grid-cols-5 gap-2">
+                                {[
+                                    { id: AspectRatio.SQUARE, label: '1:1', icon: '正方形' },
+                                    { id: AspectRatio.PORTRAIT_2_3, label: '2:3', icon: '主图' },
+                                    { id: AspectRatio.PORTRAIT_3_4, label: '3:4', icon: '详情' },
+                                    { id: AspectRatio.PORTRAIT_9_16, label: '9:16', icon: '竖屏' },
+                                    { id: AspectRatio.LANDSCAPE_16_9, label: '16:9', icon: '横幅' },
+                                ].map((item) => (
+                                    <button key={item.id} onClick={() => setAspectRatio(item.id)} className={`flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${aspectRatio === item.id ? 'bg-orange-50 border-pastel-highlight ring-1 ring-orange-100 text-pastel-highlight' : 'bg-pastel-bg/30 border-pastel-border text-pastel-muted hover:border-orange-200'}`}>
+                                        <span className="text-[11px] font-bold">{item.label}</span>
+                                        <span className="text-[9px] opacity-60">{item.icon}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        {/* 2. Instruction & Intensity Card */}
-                        <div className="bg-pastel-card rounded-2xl p-6 shadow-sm border border-pastel-border flex-1 flex flex-col gap-5 transition-all hover:shadow-md">
-                            <h3 className="text-lg font-bold flex items-center gap-2 text-pastel-text">
-                                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-                                    <Sparkles className="w-5 h-5 text-pastel-highlight" />
-                                </div>
-                                2. 风格与设置
-                            </h3>
-
-                            <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-pastel-text">
-                                    洗图指令 (Prompt)
-                                </label>
-                                <textarea
-                                    value={userInstruction}
-                                    onChange={(e) => setUserInstruction(e.target.value)}
-                                    placeholder="例如：改为极简风格，白色背景，柔和光影..."
-                                    className="w-full h-32 px-4 py-3 bg-pastel-bg border border-pastel-border rounded-xl focus:ring-2 focus:ring-pastel-highlight/50 focus:border-pastel-highlight outline-none resize-none transition-all text-sm placeholder:text-pastel-muted/60"
-                                />
+                        {/* 2. Product Assets */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Package className="w-4 h-4 text-pastel-highlight" />
+                                <h3 className="font-bold text-pastel-text text-sm">产品素材图</h3>
                             </div>
-
-                            <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-pastel-text">
-                                    重绘强度 (Intensity)
-                                </label>
-                                <div className="grid grid-cols-1 gap-2">
-                                    {[
-                                        { id: 'conservative', label: '保守模式', desc: '微调优化，保留80%原图细节', val: '30%' },
-                                        { id: 'balanced', label: '平衡模式', desc: '风格迁移，保留核心构图', val: '60%' },
-                                        { id: 'aggressive', label: '激进模式', desc: '概念重塑，仅保留主体轮廓', val: '90%' }
-                                    ].map((mode) => (
-                                        <button
-                                            key={mode.id}
-                                            onClick={() => setIntensity(mode.id as IntensityMode)}
-                                            className={`relative flex items-center p-3 rounded-xl border transition-all text-left group ${intensity === mode.id
-                                                ? 'bg-orange-50 dark:bg-orange-900/20 border-pastel-highlight ring-1 ring-pastel-highlight'
-                                                : 'bg-pastel-bg/50 border-pastel-border hover:bg-pastel-bg hover:border-pastel-muted/50'
-                                                }`}
-                                        >
-                                            <div className={`w-4 h-4 rounded-full border-2 mr-3 flex items-center justify-center ${intensity === mode.id ? 'border-pastel-highlight' : 'border-pastel-muted/50'
-                                                }`}>
-                                                {intensity === mode.id && <div className="w-2 h-2 rounded-full bg-pastel-highlight" />}
+                            <div 
+                                onClick={() => productInputRef.current?.click()} 
+                                onMouseEnter={() => setHoveredSlot('product')} 
+                                onMouseLeave={() => setHoveredSlot(null)}
+                                onDragOver={(e) => handleDragOver(e, 'product')}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, 'product')}
+                                className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all ${
+                                    isDragging === 'product' || hoveredSlot === 'product'
+                                    ? 'border-pastel-highlight bg-pastel-bg/30' 
+                                    : 'border-pastel-border'
+                                }`}
+                            >
+                                <input ref={productInputRef} type="file" multiple className="hidden" onChange={handleProductUpload} accept="image/*" />
+                                {productImages.length > 0 ? (
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {productImages.map((img, idx) => (
+                                            <div key={idx} className="relative group/item">
+                                                <img src={img.preview} className="w-full h-20 object-cover rounded-lg border border-pastel-border" alt="product" />
+                                                <button onClick={(e) => { e.stopPropagation(); setProductImages(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
                                             </div>
-                                            <div className="flex-1">
-                                                <div className={`text-sm font-bold ${intensity === mode.id ? 'text-pastel-highlight' : 'text-pastel-text'}`}>
-                                                    {mode.label}
-                                                </div>
-                                                <div className="text-xs text-pastel-muted mt-0.5">{mode.desc}</div>
-                                            </div>
-                                            <div className={`text-xs font-bold px-2 py-1 rounded-md ${intensity === mode.id ? 'bg-pastel-highlight text-white' : 'bg-pastel-border text-pastel-muted'
-                                                }`}>
-                                                {mode.val}
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-
-
-                            <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-pastel-text">
-                                    画幅比例 (Aspect Ratio)
-                                </label>
-                                <div className="relative">
-                                    <select
-                                        value={aspectRatio}
-                                        onChange={(e) => setAspectRatio(e.target.value as AspectRatio | 'auto')}
-                                        className="w-full text-sm px-4 py-3 border border-pastel-border rounded-xl bg-pastel-bg outline-none focus:ring-2 focus:ring-pastel-highlight/50 appearance-none cursor-pointer hover:border-pastel-highlight transition-colors"
-                                    >
-                                        <option value="auto">⚡ 自动识别 (Auto)</option>
-                                        <option value="1:1">1:1 方形</option>
-                                        <option value="4:3">4:3 横向</option>
-                                        <option value="3:4">3:4 竖向</option>
-                                        <option value="16:9">16:9 宽屏</option>
-                                        <option value="9:16">9:16 竖屏</option>
-                                        <option value="21:9">21:9 电影级宽屏</option>
-                                    </select>
-                                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-pastel-muted pointer-events-none" />
-                                </div>
-                            </div>
-
-                            <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-pastel-text">
-                                    生成数量 (Count)
-                                </label>
-                                <div className="flex gap-2 p-1 bg-pastel-bg/50 rounded-xl border border-pastel-border">
-                                    {[1, 2, 3, 4].map((num) => (
-                                        <button
-                                            key={num}
-                                            onClick={() => setGenerateCount(num)}
-                                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${generateCount === num
-                                                ? 'bg-white shadow text-pastel-highlight'
-                                                : 'text-pastel-muted hover:text-pastel-text'
-                                                }`}
-                                        >
-                                            {num}张
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="space-y-3">
-                                <label className="block text-sm font-semibold text-pastel-text">
-                                    分辨率 (Resolution)
-                                </label>
-                                <div className="flex gap-2 p-1 bg-pastel-bg/50 rounded-xl border border-pastel-border">
-                                    {['1K', '2K', '4K'].map((res) => (
-                                        <button
-                                            key={res}
-                                            onClick={() => setResolution(res as any)}
-                                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${resolution === res
-                                                ? 'bg-white shadow text-pastel-highlight'
-                                                : 'text-pastel-muted hover:text-pastel-text'
-                                                }`}
-                                        >
-                                            {res}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="mt-auto pt-4">
-                                <button
-                                    onClick={handleAnalyzeAndGenerate}
-                                    disabled={!selectedImage || isAnalyzing || isGenerating}
-                                    className={`w-full py-4 rounded-xl font-bold text-white shadow-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 ${!selectedImage || isAnalyzing || isGenerating
-                                        ? 'bg-slate-300 dark:bg-white/10 cursor-not-allowed text-slate-500'
-                                        : 'bg-gradient-to-r from-[#ED6D46] to-[#F09275] shadow-orange-500/30'
-                                        }`}
-                                >
-                                    {isAnalyzing ? (
-                                        <>
-                                            <Loader2 className="w-5 h-5 animate-spin" />
-                                            正在分析画面结构...
-                                        </>
-                                    ) : isGenerating ? (
-                                        <>
-                                            <Loader2 className="w-5 h-5 animate-spin" />
-                                            正在极速绘图中...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Wand2 className="w-5 h-5" />
-                                            开始智能洗图
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-
-                            {error && (
-                                <div className="mt-2 p-3 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 text-red-600 dark:text-red-400 text-sm rounded-xl flex items-start gap-2">
-                                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                                    {error}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Right Column: Results (8 cols) */}
-                    <div className="lg:col-span-8 flex flex-col gap-6 h-full">
-
-                        {/* 3. Analysis Result */}
-                        <div className="bg-pastel-card rounded-2xl p-6 shadow-sm border border-pastel-border transition-all hover:shadow-md">
-                            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-pastel-text">
-                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                                    <Layout className="w-5 h-5 text-blue-500" />
-                                </div>
-                                3. AI 视觉分析 (Prompt Engineer)
-                            </h3>
-                            <div className="relative">
-                                <textarea
-                                    value={analysisResult}
-                                    onChange={(e) => setAnalysisResult(e.target.value)}
-                                    placeholder="AI 智能分析后的结构化提示词将显示在这里，您可以手动修改以精准控制生成结果..."
-                                    className="w-full h-32 px-4 py-3 bg-pastel-bg border border-pastel-border rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none resize-none transition-all text-sm font-mono leading-relaxed"
-                                />
-                                {analysisResult && !isGenerating && (
-                                    <div className="absolute bottom-3 right-3">
-                                        <button
-                                            onClick={handleRegenerate}
-                                            className="text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg transition-colors shadow-sm flex items-center gap-1.5"
-                                        >
-                                            <Sparkles className="w-3 h-3" />
-                                            基于当前提示词重绘
-                                        </button>
+                                        ))}
+                                        {productImages.length < 4 && <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted"><Upload className="w-4 h-4" /></div>}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-4">
+                                        <Upload className="w-8 h-8 mx-auto mb-1 text-pastel-muted" />
+                                        <p className="text-xs font-medium text-pastel-text">点击或拖拽产品图片</p>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {/* 4. Generated Image */}
-                        <div className="bg-pastel-card rounded-2xl p-6 shadow-sm border border-pastel-border flex-1 flex flex-col min-h-[500px] transition-all hover:shadow-md">
-                            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-pastel-text">
-                                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                                    <Sun className="w-5 h-5 text-green-500" />
+                        {/* 3. Specialized References (Pose & Scene) */}
+                        <div className="grid grid-cols-2 gap-4">
+                            {/* Pose */}
+                            <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Zap className="w-4 h-4 text-purple-500" />
+                                    <h3 className="font-bold text-pastel-text text-xs text-nowrap">动作参考图</h3>
                                 </div>
-                                4. 生成结果 {generatedImages.length > 0 && <span className="text-xs font-normal text-pastel-muted ml-2">({generatedImages.length} 张)</span>}
-                            </h3>
+                                <div 
+                                    onClick={() => actionInputRef.current?.click()} 
+                                    onMouseEnter={() => setHoveredSlot('action')} 
+                                    onMouseLeave={() => setHoveredSlot(null)}
+                                    onDragOver={(e) => handleDragOver(e, 'action')}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, 'action')}
+                                    className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all ${
+                                        isDragging === 'action' || hoveredSlot === 'action'
+                                        ? 'border-purple-300 bg-purple-50/20' 
+                                        : 'border-pastel-border'
+                                    }`}
+                                >
+                                    <input ref={actionInputRef} type="file" className="hidden" onChange={handleActionUpload} accept="image/*" />
+                                    {actionReference ? (
+                                        <div className="relative group/action">
+                                            <img src={actionReference.preview} className="w-full h-32 object-cover rounded-lg border-2 border-purple-200" alt="action" />
+                                            <button onClick={(e) => { e.stopPropagation(); setActionReference(null); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-4">
+                                            <Wand2 className="w-6 h-6 mx-auto mb-1 text-purple-300" />
+                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            {/* Scene */}
+                            <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Sun className="w-4 h-4 text-orange-500" />
+                                    <h3 className="font-bold text-pastel-text text-xs text-nowrap">场景参考图</h3>
+                                </div>
+                                <div 
+                                    onClick={() => sceneInputRef.current?.click()} 
+                                    onMouseEnter={() => setHoveredSlot('scene')} 
+                                    onMouseLeave={() => setHoveredSlot(null)}
+                                    onDragOver={(e) => handleDragOver(e, 'scene')}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, 'scene')}
+                                    className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all ${
+                                        isDragging === 'scene' || hoveredSlot === 'scene'
+                                        ? 'border-orange-300 bg-orange-50/20' 
+                                        : 'border-pastel-border'
+                                    }`}
+                                >
+                                    <input ref={sceneInputRef} type="file" multiple className="hidden" onChange={handleSceneUpload} accept="image/*" />
+                                    {sceneReferences.length > 0 ? (
+                                        <div className="grid grid-cols-3 gap-1">
+                                            {sceneReferences.map((img, idx) => (
+                                                <div key={idx} className="relative group/scene">
+                                                    <img src={img.preview} className="w-full h-12 object-cover rounded border border-orange-200" alt="scene" />
+                                                    <button onClick={(e) => { e.stopPropagation(); setSceneReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"><X className="w-2 h-2" /></button>
+                                                </div>
+                                            ))}
+                                            {sceneReferences.length < 3 && <div className="w-full h-12 border border-dashed border-orange-200 rounded flex items-center justify-center"><Upload className="w-3 h-3 text-orange-300" /></div>}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-4">
+                                            <ImageIcon className="w-6 h-6 mx-auto mb-1 text-orange-300" />
+                                            <p className="text-[10px] text-orange-600 font-medium">复刻背景与光影</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
 
-                            <div className="flex-1 bg-pastel-bg rounded-xl overflow-hidden border-2 border-dashed border-pastel-border relative group min-h-[400px]">
-                                {generatedImages.length > 0 ? (
-                                    <div className={`w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] p-4 overflow-y-auto grid gap-4 ${generatedImages.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
-                                        }`}>
-                                        {generatedImages.map((imgSrc, idx) => (
-                                            <div key={idx} className="relative group/image rounded-xl overflow-hidden shadow-lg border border-white/20 transition-transform hover:scale-[1.01]">
-                                                <img src={imgSrc} alt={`Generated ${idx + 1}`} className="w-full h-auto object-cover" />
-                                                <div className="absolute top-2 right-2 opacity-0 group-hover/image:opacity-100 transition-opacity">
-                                                    <a
-                                                        href={imgSrc}
-                                                        download={`skysper-clean-${Date.now()}-${idx}.jpg`}
-                                                        className="p-2 bg-white/90 backdrop-blur text-slate-800 rounded-lg shadow-lg hover:bg-white font-medium text-xs flex items-center gap-1"
-                                                    >
-                                                        下载
-                                                    </a>
+                        {/* 4. One-line Scene Hint */}
+                        <div className="bg-white rounded-xl border border-pastel-border p-4 shadow-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                                <MessageSquare className="w-4 h-4 text-pastel-highlight" />
+                                <h3 className="font-semibold text-pastel-text text-sm">补充说明</h3>
+                            </div>
+                            <div className="flex gap-2">
+                                <input value={userPrompt} onChange={(e) => setUserPrompt(e.target.value)} placeholder="例如：在纽约时尚街头走秀..." className="flex-1 bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none" />
+                                <button onClick={runAIAnalysis} disabled={isAnalyzing || productImages.length === 0} className="px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:bg-gray-200 whitespace-nowrap">
+                                    {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : 'AI 分析'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 5. Camera & Shot Type */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm space-y-6">
+                            {/* Device Section */}
+                            <div>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Camera className="w-4 h-4 text-pastel-highlight" />
+                                    <h3 className="font-bold text-pastel-text text-sm">设备预设 (Camera / Device)</h3>
+                                    <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">影响质感色调</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    {CAMERA_DEVICES.map(dev => (
+                                        <button 
+                                            key={dev.id}
+                                            onClick={() => setCameraDevice(dev.id)}
+                                            className={`flex flex-col items-start p-3 rounded-xl border transition-all text-left ${
+                                                cameraDevice === dev.id 
+                                                ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-100' 
+                                                : 'bg-white border-pastel-border hover:border-purple-200'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className={cameraDevice === dev.id ? 'text-purple-600' : 'text-pastel-muted'}>{dev.icon}</span>
+                                                <span className={`text-[11px] font-bold ${cameraDevice === dev.id ? 'text-purple-700' : 'text-pastel-text'}`}>{dev.label}</span>
+                                            </div>
+                                            <span className="text-[9px] text-pastel-muted leading-tight">{dev.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Shot Type Section */}
+                            <div>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Maximize className="w-4 h-4 text-pastel-highlight" />
+                                    <h3 className="font-bold text-pastel-text text-sm">画面景别 (Shot Type)</h3>
+                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">影响构图远近</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {SHOT_TYPES.map(type => (
+                                        <button 
+                                            key={type.id}
+                                            onClick={() => setShotType(type.id)}
+                                            className={`px-4 py-2 rounded-xl border text-[11px] font-bold transition-all ${
+                                                shotType === type.id 
+                                                ? 'bg-blue-50 border-blue-400 text-blue-700 ring-1 ring-blue-100' 
+                                                : 'bg-white border-pastel-border text-pastel-muted hover:border-blue-200'
+                                            }`}
+                                        >
+                                            {type.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 6. Advanced Settings */}
+                        <div className="bg-white rounded-2xl border border-pastel-border shadow-sm overflow-hidden">
+                            <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between p-4 border-b border-pastel-border hover:bg-pastel-bg/30">
+                                <div className="flex items-center gap-2">
+                                    <Settings className="w-4 h-4 text-pastel-highlight" />
+                                    <h3 className="font-bold text-pastel-text text-sm">高级参数与手动覆盖</h3>
+                                </div>
+                                {showAdvanced ? <ChevronUp className="w-4 h-4 text-pastel-muted" /> : <ChevronDown className="w-4 h-4 text-pastel-muted" />}
+                            </button>
+
+                            {showAdvanced && (
+                                <div className="p-4 space-y-4">
+                                    {/* Model Selector */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {[
+                                            { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', desc: '3.1 Flash' },
+                                            { id: 'gemini-3-pro-image-preview', name: 'Banana Pro', desc: '3 Pro' },
+                                            { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Ultra' }
+                                        ].map(m => (
+                                            <button key={m.id} onClick={() => setSelectedModel(m.id)} className={`py-2 rounded-lg border text-center transition-all ${selectedModel === m.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'bg-white border-pastel-border text-pastel-muted text-[10px]'}`}>
+                                                <div className="font-bold text-[11px]">{m.name}</div>
+                                                <div className="opacity-60">{m.desc}</div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {/* Form */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">产品名称</label><input value={form.productName} onChange={e => setForm({...form, productName: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs" placeholder="AI 推断" /></div>
+                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">品类</label><input value={form.productCategory} onChange={e => setForm({...form, productCategory: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs" placeholder="AI 推断" /></div>
+                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">人群</label><select value={form.personaTemplate} onChange={e => setForm({...form, personaTemplate: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs">{PERSONA_PRESETS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">卖点</label><input value={form.sellingPoints} onChange={e => setForm({...form, sellingPoints: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs" placeholder="AI 推断" /></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">清晰度</label><select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select></div>
+                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">批量</label><select value={generateCount} onChange={e => setGenerateCount(Number(e.target.value))} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value={1}>1张</option><option value={2}>2张</option><option value={4}>4张</option></select></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <button onClick={handleGenerate} disabled={isLoading || productImages.length === 0} className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
+                            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                            {isLoading ? 'Agent 正在绘制...' : '一键生成高品质主图'}
+                        </button>
+                    </div>
+
+                    {/* RIGHT COLUMN */}
+                    <div className="flex flex-col gap-4">
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm flex-1 flex flex-col relative min-h-[500px]">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Sun className="w-5 h-5 text-orange-500" />
+                                <h3 className="font-bold text-pastel-text text-lg">生成结果</h3>
+                            </div>
+                            <div className="flex-1 bg-pastel-bg/50 rounded-2xl border-2 border-dashed border-pastel-border flex flex-col items-center justify-center relative">
+                                {isLoading ? (
+                                    <div className="w-full max-w-sm text-center space-y-6">
+                                        <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-xl mx-auto border">{COT_STEPS[currentStep].icon}</div>
+                                        <div className="space-y-1">
+                                            <h4 className="font-bold text-pastel-text">{COT_STEPS[currentStep].label}</h4>
+                                            <p className="text-[10px] text-pastel-muted">{COT_STEPS[currentStep].desc}</p>
+                                        </div>
+                                        <div className="w-full bg-white rounded-full h-1.5 shadow-inner"><div className="h-full bg-orange-400 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} /></div>
+                                    </div>
+                                ) : generatedImages.length > 0 ? (
+                                    <div className={`w-full h-full p-4 overflow-y-auto grid gap-4 ${generatedImages.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                        {generatedImages.map((img, idx) => (
+                                            <div key={idx} className="relative group rounded-xl overflow-hidden shadow-lg border border-white">
+                                                <img src={img} className="w-full h-auto" alt="res" />
+                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                                    <button onClick={() => setSelectedPreview(img)} className="p-2 bg-white/20 rounded-full text-white"><ZoomIn className="w-5 h-5" /></button>
+                                                    <button onClick={() => handleDownload(img, idx)} className="p-2 bg-white/20 rounded-full text-white"><Download className="w-5 h-5" /></button>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
-                                ) : isGenerating ? (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-white/50 backdrop-blur-sm z-10 transition-all">
-                                        <div className="relative">
-                                            <div className="w-16 h-16 border-4 border-pastel-bg rounded-full border-t-pastel-highlight animate-spin"></div>
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <Sparkles className="w-6 h-6 text-pastel-highlight animate-pulse" />
-                                            </div>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-pastel-text font-bold text-lg">正在生成高清图像...</p>
-                                            <p className="text-pastel-muted text-sm mt-1">Gemini Pro 正在通过像素级重绘优化您的图片</p>
-                                        </div>
-                                    </div>
                                 ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                                        <div className="w-20 h-20 bg-pastel-bg rounded-full flex items-center justify-center mx-auto mb-4">
-                                            <ImageIcon className="w-8 h-8 text-pastel-border" />
-                                        </div>
-                                        <p className="text-pastel-muted font-medium">生成结果将显示在这里</p>
+                                    <div className="text-center p-8 space-y-4">
+                                        <ImageIcon className="w-12 h-12 text-pastel-border mx-auto" />
+                                        <p className="text-xs text-pastel-muted">上传素材并设置相机景别，让 Agent 为您创作高质量主图</p>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
+
+            {/* Preview Modal */}
+            {selectedPreview && (
+                <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4" onClick={() => setSelectedPreview(null)}>
+                    <div className="relative max-w-5xl max-h-[90vh] bg-white rounded-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <img src={selectedPreview} className="max-h-[85vh] w-auto object-contain" alt="p" />
+                        <button onClick={() => setSelectedPreview(null)} className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full"><X className="w-6 h-6" /></button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
-export default ImageCleanTab;
+export default HeroImageTab;

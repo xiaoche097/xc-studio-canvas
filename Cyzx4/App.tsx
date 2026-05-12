@@ -94,7 +94,7 @@ const App: React.FC = () => {
             active={activeTab === AppMode.IMAGE_CLEAN}
             onClick={() => setActiveTab(AppMode.IMAGE_CLEAN)}
             icon={<Sparkles className="w-5 h-5" />}
-            label="AI 洗图"
+            label="主图生成"
           />
           <NavButton
             active={activeTab === AppMode.RATIO_QUERY}
@@ -125,7 +125,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
-            {activeTab === AppMode.IMAGE_CLEAN && "AI 洗图 (Image Clean)"}
+            {activeTab === AppMode.IMAGE_CLEAN && "主图生成 (Hero Image)"}
             {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
           </h1>
