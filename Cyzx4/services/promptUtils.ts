@@ -14,36 +14,36 @@ import { STYLE_PACKS } from './stylePacks';
 /** Universal quality keywords that improve output fidelity */
 export const QUALITY_BOOSTERS = {
     /** For photorealistic/photography outputs */
-    PHOTOGRAPHY: "high resolution, 8K, ultra HD, professional photography, sharp focus, photorealistic, highly detailed, studio quality",
+    PHOTOGRAPHY: "high resolution, 8K, ultra HD, professional photography, sharp focus, photorealistic, highly detailed, studio quality, extremely detailed skin texture, realistic skin pores visible, natural skin highlight, subsurface scattering, beauty dish lighting",
 
     /** For product/commercial photography */
-    PRODUCT: "commercial photography, product shot, e-commerce quality, clean and professional, high resolution, sharp focus, studio lighting",
+    PRODUCT: "commercial photography, product shot, e-commerce quality, clean and professional, high resolution, sharp focus, studio lighting, crisp product details, professional color grading",
 
     /** For illustration/art outputs */
     ILLUSTRATION: "professional illustration, highly detailed, intricate details, sharp lines, vibrant colors, gallery quality",
 
     /** For editorial/fashion photography */
-    EDITORIAL: "editorial quality, magazine cover worthy, professional photography, award-winning, cinematic, highly detailed",
+    EDITORIAL: "editorial quality, magazine cover worthy, professional photography, award-winning, cinematic, highly detailed, impeccable commercial skin texture, fine skin details, natural micro-pores, high-end beauty photography aesthetic, 85mm lens portrait",
 
     /** For film/analog photography */
-    FILM: "analog film photography, Kodak Portra 400, film grain, natural light, cinematic, highly detailed texture, editorial aesthetic, photorealistic",
+    FILM: "analog film photography, Kodak Portra 400, film grain, natural light, cinematic, highly detailed skin texture, organic pores, editorial aesthetic, photorealistic",
 
     /** Minimal set for editing/retouching (avoid over-constraining) */
-    RETOUCHING: "high resolution, seamless edit, professional retouching quality, sharp details, natural blending",
+    RETOUCHING: "high resolution, seamless edit, professional retouching quality, sharp details, natural blending, preserved skin texture",
 } as const;
 
 // ==================== Negative Prompts ====================
 
 /** Base negative prompt — always include */
-const NEGATIVE_BASE = "blurry, out of focus, low resolution, pixelated, low quality, bad quality, watermark, logo, text, signature, jpeg artifacts, distorted, deformed";
+const NEGATIVE_BASE = "blurry, out of focus, low resolution, pixelated, low quality, bad quality, watermark, logo, text, signature, jpeg artifacts, distorted, deformed, plastic skin, over-smoothed skin, airbrushed skin, unnatural skin texture, CGI look, 3D render";
 
 /** Scene-specific negative prompts */
 const NEGATIVE_SCENE: Record<string, string> = {
-    portrait: "bad anatomy, extra limbs, deformed face, bad proportions, extra fingers, missing fingers, disfigured, ugly face",
+    portrait: "bad anatomy, extra limbs, deformed face, bad proportions, extra fingers, missing fingers, disfigured, ugly face, plastic face, smooth face, porcelain skin",
     product: "cluttered background, distracting elements, uneven lighting, shadows on product, fingerprints, dust, scratches",
     landscape: "people, man-made structures, power lines, trash, flat lighting",
     illustration: "photorealistic, 3D render, photograph, blurry, sketchy outlines",
-    editorial: "casual, messy, stock photo feel, fake smiles, uncomfortable poses",
+    editorial: "casual, messy, stock photo feel, fake smiles, uncomfortable poses, artificial skin, over-retouched",
     automotive: "wrong brand elements, generic car interior, CGI look, 3D render, plastic texture",
     inpainting: "visible seam, color mismatch, edge artifacts, blending errors, inconsistent lighting",
     outpainting: "visible seam, mismatched lighting, color shift, discontinuous patterns, abrupt edges",
@@ -51,10 +51,10 @@ const NEGATIVE_SCENE: Record<string, string> = {
 
 /** Style conflict negative prompts */
 const NEGATIVE_STYLE: Record<string, string> = {
-    realistic: "cartoon, anime, illustrated, abstract, CGI, 3D render",
+    realistic: "cartoon, anime, illustrated, abstract, CGI, 3D render, smooth plastic skin",
     minimalist: "cluttered, busy, excessive details, chaotic",
     cinematic: "flat lighting, boring composition, amateur, snapshot",
-    film: "digital render, smooth skin, CGI, plastic, artificial lighting, 3D render",
+    film: "digital render, smooth skin, CGI, plastic skin, artificial lighting, 3D render",
 };
 
 /** Specific negative prompts for perspective and angle issues (legacy, kept for backward compat) */
