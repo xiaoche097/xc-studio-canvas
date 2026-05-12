@@ -13,7 +13,6 @@ import { ModelTryOnModal } from './ModelTryOnModal';
 import { MarketingModal } from './MarketingModal';
 import { BackgroundModal } from './BackgroundModal';
 import { TranslateModal } from './TranslateModal';
-import { ProjectGalleryModal } from './ProjectGalleryModal';
 import { RecentProjects } from './RecentProjects';
 import { ProjectDetailModal } from './ProjectDetailModal';
 import { storageService, Project } from '../services/storageService';
@@ -325,6 +324,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
         <div className="w-full max-w-6xl animate-slide-up [animation-delay:200ms]">
           <RecentProjects
             onSelectProject={(p) => setSelectedRecentProject(p)}
+            onViewAll={() => window.dispatchEvent(new CustomEvent('open-history'))}
             onOpenSettings={(tab) => {
               setInitialSettingsTab(tab);
               setShowUnifiedSettings(true);

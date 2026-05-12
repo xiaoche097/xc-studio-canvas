@@ -302,6 +302,11 @@ export function getErrorMessage(error: any): string {
         return `🚫 模型访问受限\n${errorMsg}`;
     }
 
+    // 后端负载错误 (New)
+    if (errorMsg.includes('system_cpu_overloaded') || errorMsg.includes('model is overloaded')) {
+        return '🚀 模型后端繁忙\n当前使用的 API 节点负载过高，建议在“高级参数”中尝试更换模型（如 Banana Pro 或 GPT Image 2）。';
+    }
+
     // API Key 相关错误
     if (errorStatus === 403 || errorMsg.includes('403') || errorMsg.includes('permission') || errorMsg.includes('API key')) {
         return '❌ API Key 未配置或已过期\n请到设置中检查您的 API Key 配置';

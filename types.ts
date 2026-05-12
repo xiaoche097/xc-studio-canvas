@@ -30,7 +30,8 @@ export enum WorkflowStep {
   AMAZON_SELECTION = 14,
   STORYBOARD_CREATION = 15,
   MODEL_FACTORY = 16,
-  DOLL_FACTORY = 17
+  DOLL_FACTORY = 17,
+  VISUAL_PLANNING_AGENT = 18
 }
 
 // 生产选择类型

@@ -5,10 +5,11 @@ import { ArrowRight, Clock } from 'lucide-react';
 
 interface RecentProjectsProps {
     onSelectProject: (project: Project) => void;
-    onViewAll: () => void;
+    onViewAll?: () => void;
+    onOpenSettings?: (tab: 'model' | 'agent') => void;
 }
 
-export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject, onViewAll }) => {
+export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject, onViewAll, onOpenSettings }) => {
     const [recentProjects, setRecentProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -37,7 +38,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject,
                     最近项目
                 </h2>
                 <button
-                    onClick={onViewAll}
+                    onClick={() => onViewAll?.()}
                     className="text-sm text-gray-500 hover:text-brand-orange flex items-center gap-1 transition-colors group"
                 >
                     查看全部 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

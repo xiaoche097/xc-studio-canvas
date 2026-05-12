@@ -34,11 +34,10 @@ const DEFAULT_BASE_URL = 'https://yunwu.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
 const AVAILABLE_MODELS = [
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '推荐', type: 'text' },
-  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '快速响应模型', badge: '快速', type: 'text' },
-  { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image', description: '图片生成模型', badge: '图像', type: 'image' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '提示词润色同款模型', badge: '稳定', type: 'text' },
-  { id: 'gpt-image-2', name: 'Imagen 2.0', description: '极致写实商业精修', badge: 'New', type: 'image' },
+  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '快速响应模型', badge: '推荐', type: 'text' },
+  { id: 'gpt-5.5', name: 'GPT-5.5 Global', description: '顶尖逻辑推理模型', badge: 'New', type: 'text' },
+  { id: 'claude-opus-4-7id', name: 'Claude 4 Opus', description: '深度语义理解模型', badge: '专业', type: 'text' },
+  { id: 'gpt-image-2', name: 'Imagen 2.0', description: '极致写实商业精修', badge: '图像', type: 'image' },
 ];
 
 // ==================== API 客户端 (用于测试连接) ====================

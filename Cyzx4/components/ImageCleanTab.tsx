@@ -57,6 +57,14 @@ const SHOT_TYPES = [
 const ACTION_TAGS = ['自然站姿', '街拍走路', '坐姿休闲', '侧身回头', '转身展示背面', '手扶墨镜', '插兜造型'];
 const SCENE_TAGS = ['纯白棚拍', '城市街头', '咖啡店', '海边度假', '居家客厅', '现代简约', '复古花园'];
 
+const PLATFORM_STYLES = [
+    { id: 'amazon', label: 'Amazon', icon: '🅰️', desc: '纯白背景 / 极简', prompt: 'Amazon professional main image, pure white background (#FFFFFF), high clarity, centered composition, clean edges, professional studio photography.' },
+    { id: 'shein', label: 'SHEIN', icon: '👗', desc: '潮流街拍 / 灵动', prompt: 'SHEIN trendy lifestyle photography, bright natural lighting, youthful vibe, fashionable outdoor or minimalist indoor setting, high-end editorial.' },
+    { id: 'temu', label: 'Temu', icon: '🧡', desc: '高饱和 / 抓眼', prompt: 'Temu commercial style, high contrast, vibrant colors, sharp focus, attention-grabbing composition, clean modern commercial setting.' },
+    { id: 'tmall', label: '天猫淘宝', icon: '🐈', desc: '高级感 / 质感', prompt: 'Tmall/Taobao premium luxury photography, sophisticated soft lighting, elegant composition, rich textures, high-end commercial studio aesthetic.' },
+    { id: 'shopify', label: '独立站', icon: '🛒', desc: '品牌感 / 极简', prompt: 'Minimalist brand photography for independent stores, artistic lighting, soft shadows, clean aesthetic, high-end lifestyle atmosphere.' }
+];
+
 const COT_STEPS = [
     { id: 1, label: "视觉语义解析", desc: "正在分析产品材质与剪裁特征...", icon: "🔍" },
     { id: 2, label: "AI Agent 策略制定", desc: "正在根据产品卖点规划生成策略...", icon: "🧠" },
@@ -70,7 +78,7 @@ const COT_STEPS = [
 const HeroImageTab: React.FC = () => {
     // Selection states
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
-    const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
+    const [selectedModel, setSelectedModel] = useState<string>("gemini-3-pro-image-preview");
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
@@ -78,11 +86,14 @@ const HeroImageTab: React.FC = () => {
     // Photo controls
     const [cameraDevice, setCameraDevice] = useState('智能推荐');
     const [shotType, setShotType] = useState('智能推荐');
+    const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
     
     // Image states
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
     const [actionReference, setActionReference] = useState<UploadedImage | null>(null);
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
+    const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
+    const [measurements, setMeasurements] = useState({ bust: '', waist: '', hips: '' });
     const [userPrompt, setUserPrompt] = useState('');
     
     // Form
@@ -109,7 +120,8 @@ const HeroImageTab: React.FC = () => {
     const productInputRef = useRef<HTMLInputElement>(null);
     const actionInputRef = useRef<HTMLInputElement>(null);
     const sceneInputRef = useRef<HTMLInputElement>(null);
-    const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | null>(null);
+    const modelInputRef = useRef<HTMLInputElement>(null);
+    const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | 'model' | null>(null);
     const [isDragging, setIsDragging] = useState<string | null>(null);
 
     // Image processing
@@ -149,6 +161,13 @@ const HeroImageTab: React.FC = () => {
         setError(null);
     };
 
+    const handleModelUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
+        const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
+        const processed = await processFiles(files);
+        if (processed.length > 0) setModelReference(processed[0]);
+        setError(null);
+    };
+
     // Drag and Drop Logic
     const handleDragOver = (e: React.DragEvent, slot: string) => {
         e.preventDefault();
@@ -159,7 +178,7 @@ const HeroImageTab: React.FC = () => {
         setIsDragging(null);
     };
 
-    const handleDrop = async (e: React.DragEvent, slot: 'product' | 'action' | 'scene') => {
+    const handleDrop = async (e: React.DragEvent, slot: 'product' | 'action' | 'scene' | 'model') => {
         e.preventDefault();
         setIsDragging(null);
         const files = Array.from(e.dataTransfer.files);
@@ -168,6 +187,7 @@ const HeroImageTab: React.FC = () => {
         if (slot === 'product') handleProductUpload(files);
         else if (slot === 'action') handleActionUpload(files);
         else if (slot === 'scene') handleSceneUpload(files);
+        else if (slot === 'model') handleModelUpload(files);
     };
 
     // Paste handler
@@ -175,6 +195,7 @@ const HeroImageTab: React.FC = () => {
         if (files.length === 0) return;
         if (hoveredSlot === 'action') handleActionUpload(files);
         else if (hoveredSlot === 'scene') handleSceneUpload(files);
+        else if (hoveredSlot === 'model') handleModelUpload(files);
         else handleProductUpload(files);
         setError(null);
     });
@@ -225,7 +246,12 @@ const HeroImageTab: React.FC = () => {
             ];
             
             if (actionReference) inputImages.push({ base64: actionReference.base64!, mimeType: actionReference.mime! });
+            if (modelReference) inputImages.push({ base64: modelReference.base64!, mimeType: modelReference.mime! });
             sceneReferences.forEach(img => inputImages.push({ base64: img.base64!, mimeType: img.mime! }));
+
+            const measurementStr = (measurements.bust || measurements.waist || measurements.hips) 
+                ? `Model Measurements: Bust ${measurements.bust || 'N/A'}, Waist ${measurements.waist || 'N/A'}, Hips ${measurements.hips || 'N/A'}.` 
+                : "";
 
             const photoStrategy = `相机预设: ${cameraDevice} | 景别: ${shotType}`;
             const sceneStrategy = sceneReferences.length > 0 ? "根据参考图复刻背景场景" : (userPrompt || "摄影棚拍摄背景 (Studio lighting, minimal background)");
@@ -241,18 +267,23 @@ const HeroImageTab: React.FC = () => {
 
             const basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
             
+            const platformPrompt = selectedPlatform ? PLATFORM_STYLES.find(p => p.id === selectedPlatform)?.prompt : "";
+
             const prompt = `
             # AGENT STRATEGY: ${strategy}
-            # MISSION: Professional fashion hero image.
+            # MISSION: Professional commercial product photography.
             
+            ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
+            ${modelReference ? `# MODEL IDENTITY: REPLICATE the facial features and identity from the model reference image.` : ''}
+            ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             ${actionReference ? `# POSE: STRICTLY replicate the human pose from the image after product images.` : ''}
-            ${sceneReferences.length > 0 ? `# SCENE: Match the background environment and lighting from the scene reference images.` : '# SCENE: Studio professional background, clean, minimalist, studio lighting.'}
+            ${sceneReferences.length > 0 ? `# SCENE: Replicate background and lighting from reference images.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
-            # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional studio camera, high-end optics'}
-            # SHOT: ${shotType !== '智能推荐' ? shotType : 'Ideal commercial framing'}
+            # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
+            # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
             
             # DESCRIPTION: ${basePrompt}
-            # FINAL OUTPUT: High-conversion, clean, realistic image.
+            # FINAL OUTPUT: High-fidelity, commercial-grade asset.
             `;
 
             const batchPromises = Array.from({ length: generateCount }, () => 
@@ -260,7 +291,8 @@ const HeroImageTab: React.FC = () => {
                     aspectRatio,
                     resolution,
                     modelId: selectedModel,
-                    workflowHint: actionReference ? 'pose-transfer' : 'scene-product-lock'
+                    hasModelRef: !!modelReference,
+                    workflowHint: actionReference ? 'pose-transfer' : (modelReference ? 'face-lock' : 'scene-product-lock')
                 })
             );
 
@@ -317,6 +349,28 @@ const HeroImageTab: React.FC = () => {
                                     <button key={item.id} onClick={() => setAspectRatio(item.id)} className={`flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${aspectRatio === item.id ? 'bg-orange-50 border-pastel-highlight ring-1 ring-orange-100 text-pastel-highlight' : 'bg-pastel-bg/30 border-pastel-border text-pastel-muted hover:border-orange-200'}`}>
                                         <span className="text-[11px] font-bold">{item.label}</span>
                                         <span className="text-[9px] opacity-60">{item.icon}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 1.1 Platform Styles */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Store className="w-4 h-4 text-pastel-highlight" />
+                                <h3 className="font-bold text-pastel-text text-sm">投放平台风格</h3>
+                                <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">适配各平台视觉基因</span>
+                            </div>
+                            <div className="grid grid-cols-5 gap-2">
+                                {PLATFORM_STYLES.map((platform) => (
+                                    <button 
+                                        key={platform.id} 
+                                        onClick={() => setSelectedPlatform(selectedPlatform === platform.id ? null : platform.id)} 
+                                        className={`flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${selectedPlatform === platform.id ? 'bg-orange-50 border-pastel-highlight ring-1 ring-orange-100' : 'bg-pastel-bg/30 border-pastel-border hover:border-orange-200'}`}
+                                    >
+                                        <span className="text-lg mb-1">{platform.icon}</span>
+                                        <span className={`text-[10px] font-bold ${selectedPlatform === platform.id ? 'text-pastel-highlight' : 'text-pastel-text'}`}>{platform.label}</span>
+                                        <span className="text-[8px] text-pastel-muted scale-90 whitespace-nowrap">{platform.desc.split(' / ')[0]}</span>
                                     </button>
                                 ))}
                             </div>
@@ -432,6 +486,77 @@ const HeroImageTab: React.FC = () => {
                                             <p className="text-[10px] text-orange-600 font-medium">复刻背景与光影</p>
                                         </div>
                                     )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3.1 Model Identity Locking (Face & Body) */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <UserCircle className="w-4 h-4 text-blue-500" />
+                                    <h3 className="font-bold text-pastel-text text-sm">模特身份固定 (Face & Body)</h3>
+                                </div>
+                                <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">固定长相与身材比例</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div 
+                                    onClick={() => modelInputRef.current?.click()} 
+                                    onMouseEnter={() => setHoveredSlot('model')} 
+                                    onMouseLeave={() => setHoveredSlot(null)}
+                                    onDragOver={(e) => handleDragOver(e, 'model')}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, 'model')}
+                                    className={`relative col-span-1 border-2 border-dashed rounded-xl p-3 cursor-pointer transition-all ${
+                                        isDragging === 'model' || hoveredSlot === 'model'
+                                        ? 'border-blue-300 bg-blue-50/20' 
+                                        : 'border-pastel-border'
+                                    }`}
+                                >
+                                    <input ref={modelInputRef} type="file" className="hidden" onChange={handleModelUpload} accept="image/*" />
+                                    {modelReference ? (
+                                        <div className="relative group/model">
+                                            <img src={modelReference.preview} className="w-full h-24 object-cover rounded-lg border-2 border-blue-200" alt="model" />
+                                            <button onClick={(e) => { e.stopPropagation(); setModelReference(null); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X className="w-2 h-2" /></button>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-2">
+                                            <UserCircle className="w-6 h-6 mx-auto mb-1 text-blue-300" />
+                                            <p className="text-[9px] text-blue-600 font-medium">指定长相</p>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="col-span-2 grid grid-cols-1 gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">胸围</span>
+                                        <input 
+                                            type="text" 
+                                            value={measurements.bust} 
+                                            onChange={e => setMeasurements({...measurements, bust: e.target.value})}
+                                            placeholder="如 88cm" 
+                                            className="flex-1 bg-pastel-bg border border-pastel-border rounded-lg px-2 py-1.5 text-[10px]" 
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">腰围</span>
+                                        <input 
+                                            type="text" 
+                                            value={measurements.waist} 
+                                            onChange={e => setMeasurements({...measurements, waist: e.target.value})}
+                                            placeholder="如 60cm" 
+                                            className="flex-1 bg-pastel-bg border border-pastel-border rounded-lg px-2 py-1.5 text-[10px]" 
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">臀围</span>
+                                        <input 
+                                            type="text" 
+                                            value={measurements.hips} 
+                                            onChange={e => setMeasurements({...measurements, hips: e.target.value})}
+                                            placeholder="如 90cm" 
+                                            className="flex-1 bg-pastel-bg border border-pastel-border rounded-lg px-2 py-1.5 text-[10px]" 
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -554,36 +679,48 @@ const HeroImageTab: React.FC = () => {
                     {/* RIGHT COLUMN */}
                     <div className="flex flex-col gap-4">
                         <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm flex-1 flex flex-col relative min-h-[500px]">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Sun className="w-5 h-5 text-orange-500" />
-                                <h3 className="font-bold text-pastel-text text-lg">生成结果</h3>
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <Sun className="w-5 h-5 text-orange-500" />
+                                    <h3 className="font-bold text-pastel-text text-lg">生成结果</h3>
+                                </div>
+                                {error && (
+                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-medium border border-red-100 animate-fade-in">
+                                        <AlertCircle className="w-3 h-3" />
+                                        {error}
+                                    </div>
+                                )}
                             </div>
-                            <div className="flex-1 bg-pastel-bg/50 rounded-2xl border-2 border-dashed border-pastel-border flex flex-col items-center justify-center relative">
+                            <div className="flex-1 bg-pastel-bg/50 rounded-2xl border-2 border-dashed border-pastel-border flex flex-col relative overflow-hidden">
                                 {isLoading ? (
-                                    <div className="w-full max-w-sm text-center space-y-6">
-                                        <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-xl mx-auto border">{COT_STEPS[currentStep].icon}</div>
-                                        <div className="space-y-1">
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center space-y-6 z-10 bg-white/80 backdrop-blur-sm">
+                                        <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-xl border animate-pulse">{COT_STEPS[currentStep].icon}</div>
+                                        <div className="text-center">
                                             <h4 className="font-bold text-pastel-text">{COT_STEPS[currentStep].label}</h4>
                                             <p className="text-[10px] text-pastel-muted">{COT_STEPS[currentStep].desc}</p>
                                         </div>
-                                        <div className="w-full bg-white rounded-full h-1.5 shadow-inner"><div className="h-full bg-orange-400 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} /></div>
+                                        <div className="w-full max-w-xs bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="h-full bg-orange-400 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} /></div>
                                     </div>
                                 ) : generatedImages.length > 0 ? (
-                                    <div className={`w-full h-full p-4 overflow-y-auto grid gap-4 ${generatedImages.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                    <div className={`w-full h-full p-6 overflow-y-auto grid gap-6 content-start ${generatedImages.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                         {generatedImages.map((img, idx) => (
-                                            <div key={idx} className="relative group rounded-xl overflow-hidden shadow-lg border border-white">
-                                                <img src={img} className="w-full h-auto" alt="res" />
-                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                                    <button onClick={() => setSelectedPreview(img)} className="p-2 bg-white/20 rounded-full text-white"><ZoomIn className="w-5 h-5" /></button>
-                                                    <button onClick={() => handleDownload(img, idx)} className="p-2 bg-white/20 rounded-full text-white"><Download className="w-5 h-5" /></button>
+                                            <div key={idx} className="relative group rounded-2xl overflow-hidden shadow-2xl border border-white bg-white">
+                                                <div className="aspect-auto min-h-[200px] flex items-center justify-center">
+                                                    <img src={img} className="w-full h-auto object-contain" alt="res" />
+                                                </div>
+                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 backdrop-blur-[2px]">
+                                                    <button onClick={() => setSelectedPreview(img)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform"><ZoomIn className="w-6 h-6" /></button>
+                                                    <button onClick={() => handleDownload(img, idx)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform"><Download className="w-6 h-6" /></button>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-center p-8 space-y-4">
-                                        <ImageIcon className="w-12 h-12 text-pastel-border mx-auto" />
-                                        <p className="text-xs text-pastel-muted">上传素材并设置相机景别，让 Agent 为您创作高质量主图</p>
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
+                                        <div className="w-16 h-16 rounded-full bg-pastel-bg flex items-center justify-center">
+                                            <ImageIcon className="w-8 h-8 text-pastel-border" />
+                                        </div>
+                                        <p className="text-sm text-pastel-muted max-w-[240px]">上传素材并设置参数，Agent 将为您创作商业级主图资产</p>
                                     </div>
                                 )}
                             </div>

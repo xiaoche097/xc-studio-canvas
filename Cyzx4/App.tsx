@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppMode } from './types';
-import DirectorTab from './components/DirectorTab';
+import { PlanningAgentTab } from './components/PlanningAgentTab';
 import HDUpscaleTab from './components/HDUpscaleTab';
 import AspectRatioTab from './components/AspectRatioTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
@@ -133,7 +133,7 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-auto p-0 relative">
           <div className="h-full w-full">
-            {activeTab === AppMode.PLANNING && <DirectorTab onImageGenerated={handleImageGenerated} />}
+            {activeTab === AppMode.PLANNING && <PlanningAgentTab onImageGenerated={handleImageGenerated} />}
 
             {/* Persist SeatCoverTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.SEAT_COVER ? 'block' : 'none', height: '100%' }}>

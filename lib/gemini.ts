@@ -1,81 +1,43 @@
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
-
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-if (!apiKey) {
-  console.error("Missing VITE_GEMINI_API_KEY in environment variables");
-}
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getApiConfig } from "../Cyzx4/utils/apiHelpers";
 
 class GeminiClient {
-  private genAI: GoogleGenerativeAI;
-  private textModel: GenerativeModel;
-  private baseUrl: string;
-
-  constructor() {
-    const storedKey = localStorage.getItem('user_gemini_api_key');
-    const storedUrl = localStorage.getItem('user_gemini_base_url') || "https://generativelanguage.googleapis.com";
-    
-    this.baseUrl = storedUrl;
-    this.genAI = new GoogleGenerativeAI(storedKey || apiKey || "");
-
-    this.textModel = this.genAI.getGenerativeModel({
-      model: import.meta.env.VITE_GEMINI_MODEL || "gemini-3-pro-preview"
-    });
-  }
-
-  updateApiKey(newKey: string, newUrl?: string) {
-    if (newUrl) {
-      this.baseUrl = newUrl;
-    }
-    this.genAI = new GoogleGenerativeAI(newKey);
-    this.textModel = this.genAI.getGenerativeModel({
-      model: import.meta.env.VITE_GEMINI_MODEL || "gemini-3-pro-preview"
-    });
+  private getClient() {
+    const config = getApiConfig();
+    // The official SDK doesn't always handle custom base URLs well for proxies in the constructor.
+    return new GoogleGenerativeAI(config.apiKey);
   }
 
   async generateContentStream(
     prompt: string,
     images: string[] = [],
-    history: { role: string; parts: ({ text: string } | { inlineData: any })[] }[] = [],
+    history: { role: string; parts: any[] }[] = [],
     systemInstruction?: string,
     modelName?: string
   ) {
-    const selectedModelName = modelName || import.meta.env.VITE_GEMINI_MODEL || "gemini-3-pro-preview";
+    const config = getApiConfig();
+    const selectedModelName = modelName || "gemini-1.5-flash";
+    
+    // For Proxies (Plato/Yunwu), the SDK might fail if it hardcodes the Google URL.
+    // However, if the user has configured it in Settings, we should honor it.
+    
+    const genAI = new GoogleGenerativeAI(config.apiKey);
+    
+    // Some versions of @google/generative-ai support baseUrl in the second argument of getGenerativeModel
+    // If not, we might need a manual fetch implementation for proxies.
+    const model = genAI.getGenerativeModel({
+      model: selectedModelName,
+      systemInstruction: systemInstruction,
+    }, { 
+        baseUrl: config.baseUrl?.replace(/\/$/, "") // Pass base URL if present
+    } as any);
 
-    const model = systemInstruction
-      ? this.genAI.getGenerativeModel({
-        model: selectedModelName,
-        systemInstruction: systemInstruction,
-        generationConfig: {
-          maxOutputTokens: 8192,
-          temperature: 0.7,
-          topP: 0.8,
-          topK: 40,
-        }
-      })
-      : this.genAI.getGenerativeModel({
-        model: selectedModelName,
-        generationConfig: {
-          maxOutputTokens: 8192,
-          temperature: 0.7,
-          topP: 0.8,
-          topK: 40,
-        }
-      });
-
-    // Start a chat session with history
-    const chatSession = model.startChat({
-      history: history
-    });
-
-    // Construct current message parts
-    const currentMessageParts: any[] = [{ text: prompt }];
-
+    // Prepare parts
+    const parts: any[] = [{ text: prompt }];
     for (const imgData of images) {
-      // Expecting data:image/png;base64,.....
       const match = imgData.match(/^data:(image\/\w+);base64,(.+)$/);
       if (match) {
-        currentMessageParts.push({
+        parts.push({
           inlineData: {
             mimeType: match[1],
             data: match[2]
@@ -84,41 +46,32 @@ class GeminiClient {
       }
     }
 
-    return chatSession.sendMessageStream(currentMessageParts);
-  }
+    // Prepare history parts correctly
+    const chatHistory = history.map(h => ({
+        role: h.role === 'ai' ? 'model' : 'user',
+        parts: h.parts.map(p => {
+            if (typeof p === 'string') return { text: p };
+            return p;
+        })
+    }));
 
-  async generateImagePreview(prompt: string) {
-    // In a client-side demo, we can't easily call a secure image API if it requires different auth.
-    // For now we simulate or use the text model to describe the image.
-    // Or if the user really has "gemini-3-pro-image-preview" accessible via same key:
-    /*
-    const model = this.genAI.getGenerativeModel({ 
-       model: import.meta.env.VITE_GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview" 
+    const chat = model.startChat({
+      history: chatHistory,
     });
-    */
-    // For safety in this demo step, let's return a mock or description.
-    return { url: "https://placehold.co/600x400?text=Gemini+Preview+" + encodeURIComponent(prompt.slice(0, 10)) };
+
+    return chat.sendMessageStream(parts);
   }
 
-  /**
-   * Generates an image using the native Gemini 3 Pro Image Preview model.
-   * STRICTLY uses 'gemini-3-pro-image-preview' as requested.
-   */
   async generateImage(prompt: string, referenceImages: string[] = [], options: { aspectRatio?: string; resolution?: string } = {}): Promise<string> {
-    console.log(`Generating image. Prompt len: ${prompt.length}. User Images: ${referenceImages.length}. Aspect: ${options.aspectRatio}. Res: ${options.resolution}`);
+    const config = getApiConfig();
+    const activeKey = config.apiKey;
+    const baseUrl = (config.baseUrl || "https://generativelanguage.googleapis.com").replace(/\/$/, "");
 
-    // If getApiKey is not exposed (private), use our stored one or import.meta.env
-    const activeKey = localStorage.getItem('user_gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
-
-    if (!activeKey) throw new Error("API Key not found for Image Generation");
-
-    // Enhance prompt with aspect ratio (always good for guidance)
     let finalPrompt = prompt;
     if (options.aspectRatio) {
       finalPrompt = `Aspect Ratio ${options.aspectRatio}. ${finalPrompt}`;
     }
 
-    // Construct Multimedia Content
     const contents = [
       {
         parts: [
@@ -127,7 +80,6 @@ class GeminiClient {
       }
     ];
 
-    // Add Reference Images if any
     if (referenceImages && referenceImages.length > 0) {
       for (const imgData of referenceImages) {
         const match = imgData.match(/^data:(image\/\w+);base64,(.+)$/);
@@ -142,94 +94,41 @@ class GeminiClient {
       }
     }
 
-    const imageModel = import.meta.env.VITE_GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
-    const cleanBaseUrl = this.baseUrl.replace(/\/$/, ""); // Remove trailing slash
-    const url = `${cleanBaseUrl}/v1beta/models/${imageModel}:generateContent?key=${activeKey}`;
+    const imageModel = "gemini-3-pro-image-preview"; // Default for image gen
+    const url = `${baseUrl}/v1beta/models/${imageModel}:generateContent?key=${activeKey}`;
 
-    // Helper to build configuration
-    const buildConfig = (isAdvanced: boolean) => {
-      const config: any = {
-        responseModalities: ["IMAGE"],
-        candidateCount: 1
-      };
-
-      if (isAdvanced) {
-        const imageConfig: any = {};
-        // Aspect Ratio
-        if (options.aspectRatio) {
-          imageConfig.aspectRatio = options.aspectRatio;
-        }
-        // Resolution (Image Size) - STRICT Uppercase
-        if (options.resolution) {
-          const validSizes = ["1K", "2K", "4K"];
-          const upperRes = options.resolution.toUpperCase();
-          if (validSizes.includes(upperRes)) {
-            imageConfig.imageSize = upperRes;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: contents,
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+          candidateCount: 1,
+          imageConfig: {
+              aspectRatio: options.aspectRatio,
+              imageSize: options.resolution || "1K"
           }
         }
+      })
+    });
 
-        // Only attach imageConfig if it has properties
-        if (Object.keys(imageConfig).length > 0) {
-          config.imageConfig = imageConfig;
-        }
-      }
-      return config;
-    };
-
-    const makeRequest = async (config: any) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: contents,
-          generationConfig: config,
-          safetySettings: [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" }
-          ]
-        })
-      });
-      if (!response.ok) {
-        const txt = await response.text();
-        throw new Error(`API Error ${response.status}: ${txt}`);
-      }
-      return response.json();
-    };
-
-    let data;
-    try {
-      // 1. Attempt with Advanced Config
-      const advancedConfig = buildConfig(true);
-      console.log(`Attempting Generation with Model ${imageModel} & Config:`, JSON.stringify(advancedConfig));
-      data = await makeRequest(advancedConfig);
-    } catch (e: any) {
-      console.warn("Advanced Image Gen Config failed, attempting fallback to basic config...", e.message);
-
-      // 2. Fallback Mechanism: Retry with minimal config (no imageConfig)
-      // This handles cases where 2K/4K/AspectRatio might be rejected or model is busy
-      const basicConfig = buildConfig(false);
-      data = await makeRequest(basicConfig);
+    if (!response.ok) {
+      const txt = await response.text();
+      throw new Error(`API Error ${response.status}: ${txt}`);
     }
 
-    // Process Response
-    console.log("Gemini Image Gen Response:", data);
+    const data = await response.json();
     const candidate = data.candidates?.[0];
-    if (!candidate) throw new Error("No candidates returned. Response: " + JSON.stringify(data));
+    if (!candidate) throw new Error("No image candidates returned");
 
-    if (candidate.finishReason !== "STOP" && candidate.finishReason !== undefined) {
-      throw new Error(`Generation stopped: ${candidate.finishReason}.`);
-    }
-
-    const imagePart = candidate.content?.parts?.find((p: any) => p.inline_data || p.inlineData || p.image_data);
+    const imagePart = candidate.content?.parts?.find((p: any) => p.inline_data || p.inlineData);
     if (imagePart) {
       const dataObj = imagePart.inline_data || imagePart.inlineData;
-      const mimeType = dataObj.mime_type || dataObj.mimeType || 'image/png';
-      return `data:${mimeType};base64,${dataObj.data}`;
+      return `data:${dataObj.mime_type || 'image/png'};base64,${dataObj.data}`;
     }
 
-    throw new Error("No image data found in response.");
+    throw new Error("No image data found in response");
   }
 }
 
