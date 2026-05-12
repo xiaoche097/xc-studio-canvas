@@ -650,9 +650,9 @@ const HeroImageTab: React.FC = () => {
                                     {/* Model Selector */}
                                     <div className="grid grid-cols-3 gap-2">
                                         {[
-                                            { id: 'nano-banana', name: 'Banana 2', desc: '3.1 Flash' },
-                                            { id: 'nano-banana-pro', name: 'Banana Pro', desc: '3.0 Pro' },
-                                            { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Ultra Quality' }
+                                            { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', desc: '3.1 Flash' },
+                                            { id: 'gemini-3-pro-image-preview', name: 'Banana Pro', desc: '3 Pro' },
+                                            { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Ultra' }
                                         ].map(m => (
                                             <button key={m.id} onClick={() => setSelectedModel(m.id)} className={`py-2 rounded-lg border text-center transition-all ${selectedModel === m.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'bg-white border-pastel-border text-pastel-muted text-[10px]'}`}>
                                                 <div className="font-bold text-[11px]">{m.name}</div>

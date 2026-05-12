@@ -105,34 +105,21 @@ class GeminiClient {
 
     console.log(`[ImageGen] Using Model: ${imageModel}, URL: ${url}`);
 
-    // Build the request body with both camelCase and snake_case for proxy compatibility
-    const requestBody: any = {
-        contents: contents,
-        generationConfig: {
-            // Both TEXT and IMAGE modalities - some proxies require both
-            responseModalities: ["TEXT", "IMAGE"],
-            response_modalities: ["TEXT", "IMAGE"],
-            candidateCount: 1,
-        }
-    };
-
-    // Add image-specific config if aspect ratio is set
-    if (options.aspectRatio) {
-        requestBody.generationConfig.imageConfig = {
-            aspectRatio: options.aspectRatio,
-            aspect_ratio: options.aspectRatio,
-        };
-        requestBody.generationConfig.image_generation_config = {
-            aspect_ratio: options.aspectRatio,
-        };
-    }
-
-    console.log("[ImageGen] Request Body:", JSON.stringify(requestBody, null, 2));
-
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({
+        contents: contents,
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+          candidateCount: 1,
+          imageConfig: {
+              aspectRatio: options.aspectRatio,
+              aspect_ratio: options.aspectRatio,
+              imageSize: options.resolution || "1K"
+          }
+        }
+      })
     });
 
     if (!response.ok) {
@@ -149,79 +136,33 @@ class GeminiClient {
     console.log("[ImageGen] Full API Response:", JSON.stringify(data, null, 2));
 
     const candidate = data.candidates?.[0];
-    console.log("[ImageGen] Top-level keys in response:", Object.keys(data));
-    if (data.candidates) console.log("[ImageGen] Candidate keys:", Object.keys(data.candidates[0]));
-    if (candidate?.content) console.log("[ImageGen] Content keys:", Object.keys(candidate.content));
-    
-    // Recursive search for image data in the entire response
-    const findImageData = (obj: any, depth = 0): string | null => {
-        if (!obj || typeof obj !== 'object' || depth > 5) return null;
-        
-        // Check standard and common proxy keys
-        const keys = [
-            'inline_data', 'inlineData', 'image_data', 'image_url', 'image', 
-            'url', 'file_data', 'fileData', 'data', 'predictions', 'results',
-            'base64', 'content', 'parts', 'b64_json', 'image_b64'
-        ];
-        for (const key of keys) {
-            const val = obj[key];
-            if (val) {
-                if (typeof val === 'string') {
-                    const trimmed = val.trim();
-                    if (trimmed.startsWith('data:image')) return trimmed;
-                    if (trimmed.startsWith('http')) return trimmed;
-                    if (trimmed.length > 500 && /^[A-Za-z0-9+/=]+$/.test(trimmed.substring(0, 100))) {
-                        return `data:image/png;base64,${trimmed}`;
-                    }
-                } else if (val.data || val.base64 || val.url) {
-                    const nested = val.data || val.base64 || val.url;
-                    if (typeof nested === 'string') {
-                        if (nested.startsWith('http')) return nested;
-                        return nested.startsWith('data:') ? nested : `data:image/png;base64,${nested}`;
-                    }
-                }
-            }
-        }
-        
-        // 2. Check text fields for embedded image URLs (proxy returns URLs in text)
-        if (obj.text && typeof obj.text === 'string') {
-            const text = obj.text.trim();
-            
-            // First check: pure base64 data
-            if (text.startsWith('data:image')) return text;
-            if (text.length > 500 && /^[A-Za-z0-9+/=]+$/.test(text.substring(0, 100))) {
-                return `data:image/png;base64,${text}`;
-            }
-            
-            // Second check: extract image URLs from text (proxy embeds URLs in markdown or plain text)
-            const urlMatch = text.match(/https?:\/\/[^\s\)\"\']+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s\)\"\']*)?/i);
-            if (urlMatch) {
-                console.log("[ImageGen] Found image URL in text:", urlMatch[0]);
-                return urlMatch[0];
-            }
-        }
-        
-        // 3. Recurse into arrays and objects
-        for (const k in obj) {
-            if (obj[k] && typeof obj[k] === 'object') {
-                const found = findImageData(obj[k], depth + 1);
-                if (found) return found;
-            }
-        }
-        
-        return null;
-    };
+    if (!candidate) throw new Error("No image candidates returned by the model.");
 
-    const imageResult = findImageData(data, 0);
-    if (imageResult) return imageResult;
+    // Handle different response formats (Official vs Proxy variations)
+    // 1. Standard inlineData/inline_data
+    // 2. Some proxies return p.image_url or p.image
+    // 3. Some return p.file_data
+    const imagePart = candidate.content?.parts?.find((p: any) => 
+        p.inline_data || p.inlineData || p.image_data || p.image || p.file_data || p.fileData
+    );
 
-    // Final fallback: check for any text-based error messages in parts
-    const firstPartText = candidate?.content?.parts?.[0]?.text;
-    if (firstPartText && firstPartText.length < 500) {
-        console.warn("[ImageGen] Potential error text found in response:", firstPartText);
+    if (imagePart) {
+      const dataObj = imagePart.inline_data || imagePart.inlineData || imagePart.image_data || imagePart.image || imagePart.file_data || imagePart.fileData;
+      
+      // If dataObj is a string (e.g. some proxies return data directly in image field)
+      if (typeof dataObj === 'string') {
+          return dataObj.startsWith('data:') ? dataObj : `data:image/png;base64,${dataObj}`;
+      }
+
+      const mimeType = dataObj.mime_type || dataObj.mimeType || dataObj.mime_type || 'image/png';
+      const base64Data = dataObj.data || dataObj.base64 || dataObj.image_data;
+      
+      if (base64Data) {
+          return base64Data.startsWith('data:') ? base64Data : `data:${mimeType};base64,${base64Data}`;
+      }
     }
 
-    throw new Error(`无法从 API 响应中提取图像数据。原因: ${candidate?.finishReason || 'UNKNOWN'}。${firstPartText ? `模型回复: "${firstPartText.substring(0, 100)}..."` : '未找到任何有效内容。'}`);
+    throw new Error("Candidate returned but no base64 image data found in parts. Check console for full response structure.");
   }
 }
 

@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Image as ImageIcon, Sparkles, Loader2, User, Bot, Plus, Search, Trash2, History, Wand2, ChevronDown, Check, Download, ZoomIn, X } from 'lucide-react';
+import { Send, Image as ImageIcon, Sparkles, Loader2, User, Bot, Plus, Search, Trash2, History, Wand2, ChevronDown, Check } from 'lucide-react';
 import { gemini } from '../../lib/gemini';
 import { WorkflowStep } from '../../types';
 import { AGENT_PROMPTS } from '../../data/agentPrompts';
 import { useImagePaste } from '../hooks/useImagePaste';
-import { generateMarketingImage } from '../services/geminiService';
 
 interface Message {
     id: string;
@@ -20,20 +19,11 @@ interface Message {
     };
 }
 
-interface Session {
-    id: string;
-    title: string;
-    messages: Message[];
-    timestamp: number;
-}
-
 interface PlanningAgentTabProps {
     onImageGenerated?: (url: string) => void;
 }
 
 export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGenerated }) => {
-    const [sessions, setSessions] = useState<Session[]>([]);
-    const [currentSessionId, setCurrentSessionId] = useState<string>(() => Date.now().toString());
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [images, setImages] = useState<string[]>([]);
@@ -44,7 +34,6 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
     const [selectedImageModel, setSelectedImageModel] = useState('gpt-image-2');
     const [showModelMenu, setShowModelMenu] = useState(false);
     const [showImageModelMenu, setShowImageModelMenu] = useState(false);
-    const [lightboxImage, setLightboxImage] = useState<string | null>(null);
     
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,72 +45,12 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
     ];
 
     const imageModels = [
-        { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Ultra Quality' },
-        { id: 'nano-banana-pro', name: 'Banana Pro', desc: '3.0 Pro' },
-        { id: 'nano-banana', name: 'Banana 2', desc: '3.1 Flash' }
+        { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实' },
+        { id: 'nanobanana2', name: 'Banana 2.0', desc: '创意高质' },
+        { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影' }
     ];
 
     const systemPrompt = AGENT_PROMPTS[WorkflowStep.VISUAL_PLANNING_AGENT].systemPrompt;
-
-    // Load sessions from localStorage on mount
-    useEffect(() => {
-        const savedSessions = localStorage.getItem('visual_planning_sessions');
-        const savedCurrentId = localStorage.getItem('visual_planning_current_id');
-        
-        if (savedSessions) {
-            try {
-                const parsed = JSON.parse(savedSessions);
-                if (Array.isArray(parsed)) {
-                    setSessions(parsed);
-                    if (savedCurrentId) {
-                        setCurrentSessionId(savedCurrentId);
-                        const current = parsed.find((s: Session) => s.id === savedCurrentId);
-                        if (current) setMessages(current.messages);
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to load saved sessions", e);
-            }
-        }
-    }, []);
-
-    // Save sessions and sync current session (Strip images to save space)
-    useEffect(() => {
-        try {
-            if (sessions.length > 0) {
-                const sessionsToSave = sessions.map(s => ({
-                    ...s,
-                    messages: s.messages.map(m => ({ ...m, images: undefined }))
-                }));
-                localStorage.setItem('visual_planning_sessions', JSON.stringify(sessionsToSave));
-            }
-            localStorage.setItem('visual_planning_current_id', currentSessionId);
-        } catch (e) {
-            console.error("Failed to save sessions to localStorage", e);
-        }
-    }, [sessions, currentSessionId]);
-
-    // Update current session in sessions array when messages change
-    // Debounce this update slightly or only update on specific events if needed
-    useEffect(() => {
-        if (messages.length > 0) {
-            const timer = setTimeout(() => {
-                setSessions(prev => {
-                    const existing = prev.find(s => s.id === currentSessionId);
-                    const title = messages[0]?.content?.slice(0, 30) || (messages[0]?.images ? "图片分析会话" : "新策划方案");
-                    
-                    if (existing) {
-                        // Only update if content actually changed to avoid unnecessary re-renders
-                        if (JSON.stringify(existing.messages) === JSON.stringify(messages)) return prev;
-                        return prev.map(s => s.id === currentSessionId ? { ...s, messages, title } : s);
-                    } else {
-                        return [{ id: currentSessionId, title, messages, timestamp: Date.now() }, ...prev];
-                    }
-                });
-            }, 500); // 500ms debounce
-            return () => clearTimeout(timer);
-        }
-    }, [messages, currentSessionId]);
 
     // Paste Support
     useImagePaste((files) => {
@@ -144,25 +73,10 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
         setIsDragging(false);
     };
 
-    const deleteSession = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation();
-        setSessions(prev => prev.filter(s => s.id !== id));
-        if (currentSessionId === id) {
-            const nextId = Date.now().toString();
-            setCurrentSessionId(nextId);
-            setMessages([]);
-        }
-    };
 
-    const switchSession = (id: string) => {
-        setCurrentSessionId(id);
-        const session = sessions.find(s => s.id === id);
-        if (session) {
-            setMessages(session.messages);
-        } else {
-            setMessages([]);
-        }
-    };
+    useEffect(() => {
+        // Initial state is empty as requested by user
+    }, []);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -280,110 +194,15 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
         });
     };
 
-    const downloadImage = (imageUrl: string, filename: string) => {
-        const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = filename;
-        
-        // For base64 data URLs, we can download directly
-        if (imageUrl.startsWith('data:')) {
-            link.click();
-        } else {
-            // For external URLs, fetch and convert to blob
-            fetch(imageUrl)
-                .then(res => res.blob())
-                .then(blob => {
-                    const blobUrl = URL.createObjectURL(blob);
-                    link.href = blobUrl;
-                    link.click();
-                    URL.revokeObjectURL(blobUrl);
-                })
-                .catch(() => {
-                    // Fallback: open in new tab
-                    window.open(imageUrl, '_blank');
-                });
-        }
-    };
-
     const handleGenerateImage = async (promptData: any) => {
         setIsGeneratingImage(true);
         try {
             const refImages = messages.flatMap(m => m.images || []);
-            const imageCount = promptData.count || 1; // Default 1, respect user request
-            console.log(`[PlanningAgent] Generating ${imageCount} image(s) with prompt:`, promptData.prompt);
-            console.log("[PlanningAgent] Reference images count:", refImages.length);
-            console.log("[PlanningAgent] Model:", promptData.model || selectedImageModel);
-
-            // Convert data URLs to {base64, mimeType} format
-            let productRef: { base64: string; mimeType: string } | undefined;
-            if (refImages.length > 0) {
-                const match = refImages[0].match(/^data:(image\/\w+);base64,(.+)$/);
-                if (match) {
-                    productRef = { mimeType: match[1], base64: match[2] };
-                }
-            }
-
-            let modelRef: { base64: string; mimeType: string } | undefined;
-            if (refImages.length > 1) {
-                const match = refImages[1].match(/^data:(image\/\w+);base64,(.+)$/);
-                if (match) {
-                    modelRef = { mimeType: match[1], base64: match[2] };
-                }
-            }
-
-            const modelId = promptData.model || selectedImageModel;
-            const aspectRatio = promptData.aspect_ratio || '1:1';
-
-            // Progress message
-            const progressMsg: Message = {
-                id: `progress-${Date.now()}`,
-                role: 'ai',
-                content: `⏳ 正在使用 ${modelId} 生成 ${imageCount} 张图像 (${aspectRatio}, 4K)...`,
-                timestamp: Date.now()
-            };
-            setMessages(prev => [...prev, progressMsg]);
-
-            const generateOne = () => generateMarketingImage(
-                promptData.prompt,
-                aspectRatio as any,
-                '4K' as any,
-                productRef,
-                modelRef,
-                modelId
-            );
-
-            // Generate the requested number of images in parallel
-            const tasks = Array.from({ length: imageCount }, () => generateOne());
-            const results = await Promise.allSettled(tasks);
-
-            const allImages: string[] = [];
-            results.forEach((result, idx) => {
-                if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
-                    allImages.push(...result.value);
-                } else if (result.status === 'rejected') {
-                    console.error(`Image ${idx + 1} failed:`, result.reason);
-                }
+            const result = await gemini.generateImage(promptData.prompt, refImages, {
+                aspectRatio: promptData.aspect_ratio || '3:4',
+                model: promptData.model || selectedImageModel
             });
-
-            // Remove progress message
-            setMessages(prev => prev.filter(m => m.id !== progressMsg.id));
-
-            if (allImages.length > 0) {
-                allImages.forEach(img => {
-                    if (onImageGenerated) onImageGenerated(img);
-                });
-
-                const imgMsg: Message = {
-                    id: Date.now().toString(),
-                    role: 'ai',
-                    content: `✅ 成功生成 ${allImages.length} 张图像！(${aspectRatio}, 4K) 点击图片可放大查看`,
-                    images: allImages,
-                    timestamp: Date.now()
-                };
-                setMessages(prev => [...prev, imgMsg]);
-            } else {
-                alert('图像生成失败，请检查控制台日志或更换模型重试。');
-            }
+            if (onImageGenerated) onImageGenerated(result);
         } catch (error) {
             console.error("Image Generation Error:", error);
             const errorMsg = error instanceof Error ? error.message : String(error);
@@ -430,13 +249,7 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
             <aside className="w-64 bg-[#F9F9F9] dark:bg-[#000000] hidden lg:flex flex-col border-r border-gray-200 dark:border-white/5 transition-all">
                 <div className="p-3">
                     <button 
-                        onClick={() => { 
-                            const nextId = Date.now().toString();
-                            setCurrentSessionId(nextId);
-                            setMessages([]);
-                            setImages([]);
-                            setInput('');
-                        }}
+                        onClick={() => { setMessages([]); }}
                         className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-white/10 transition-colors group"
                     >
                         <div className="flex items-center gap-3">
@@ -445,41 +258,17 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                             </div>
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-200">新对话</span>
                         </div>
+                        <Search className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 custom-scrollbar">
                     <div className="px-3 py-2 text-[11px] font-bold text-gray-400 uppercase tracking-wider">最近对话</div>
                     
-                    {sessions.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-10 px-4 text-center opacity-40">
-                            <History className="w-8 h-8 mb-2 text-gray-400" />
-                            <p className="text-[10px] text-gray-500">暂无历史对话</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-1">
-                            {sessions.map(session => (
-                                <button
-                                    key={session.id}
-                                    onClick={() => switchSession(session.id)}
-                                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all group ${
-                                        currentSessionId === session.id 
-                                        ? 'bg-gray-200 dark:bg-white/10 text-gray-900 dark:text-white' 
-                                        : 'hover:bg-gray-100 dark:hover:bg-white/5 text-gray-600 dark:text-gray-400'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                        <History className="w-3.5 h-3.5 flex-shrink-0 opacity-50" />
-                                        <span className="text-[12px] font-medium truncate">{session.title}</span>
-                                    </div>
-                                    <Trash2 
-                                        className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity text-red-500" 
-                                        onClick={(e) => deleteSession(e, session.id)}
-                                    />
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    <div className="flex flex-col items-center justify-center py-10 px-4 text-center opacity-40">
+                        <History className="w-8 h-8 mb-2 text-gray-400" />
+                        <p className="text-[10px] text-gray-500">暂无历史对话</p>
+                    </div>
                 </div>
             </aside>
 
@@ -531,31 +320,10 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                 </div>
                                                 
                                                 {msg.images && msg.images.length > 0 && (
-                                                    <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: `repeat(${Math.min(msg.images.length, 3)}, 1fr)` }}>
+                                                    <div className="flex gap-2 mt-3 flex-wrap">
                                                         {msg.images.map((img, i) => (
                                                             <div key={i} className="relative group/img overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 shadow-sm">
-                                                                <img 
-                                                                    src={img} 
-                                                                    className="w-full aspect-square object-cover bg-white dark:bg-transparent cursor-pointer hover:scale-105 transition-transform duration-300" 
-                                                                    alt={`Generated ${i + 1}`}
-                                                                    onClick={() => setLightboxImage(img)}
-                                                                />
-                                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover/img:opacity-100 transition-opacity flex justify-end gap-2">
-                                                                    <button 
-                                                                        onClick={(e) => { e.stopPropagation(); setLightboxImage(img); }}
-                                                                        className="p-1.5 rounded-lg bg-white/20 backdrop-blur-sm text-white hover:bg-white/30 transition-colors"
-                                                                        title="放大查看"
-                                                                    >
-                                                                        <ZoomIn className="w-4 h-4" />
-                                                                    </button>
-                                                                    <button 
-                                                                        onClick={(e) => { e.stopPropagation(); downloadImage(img, `visual-plan-${Date.now()}-${i + 1}.png`); }}
-                                                                        className="p-1.5 rounded-lg bg-white/20 backdrop-blur-sm text-white hover:bg-white/30 transition-colors"
-                                                                        title="下载图片"
-                                                                    >
-                                                                        <Download className="w-4 h-4" />
-                                                                    </button>
-                                                                </div>
+                                                                <img src={img} className="max-w-[300px] max-h-[300px] object-contain bg-white dark:bg-transparent" alt="Upload" />
                                                             </div>
                                                         ))}
                                                     </div>
@@ -575,10 +343,7 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                             <span className="text-[11px] font-bold uppercase tracking-wider">视觉策划方案已就绪</span>
                                                         </div>
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-[10px] text-pastel-highlight font-bold px-2 py-0.5 rounded-full bg-pastel-highlight/10 border border-pastel-highlight/20">{msg.proposedPrompt.aspect_ratio || '1:1'}</span>
-                                                            {msg.proposedPrompt.count && msg.proposedPrompt.count > 1 && (
-                                                                <span className="text-[10px] text-gray-400 px-2 py-0.5 rounded-full bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10">{msg.proposedPrompt.count}张</span>
-                                                            )}
+                                                            <span className="text-[10px] text-gray-400 px-2 py-0.5 rounded-full bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10">{msg.proposedPrompt.aspect_ratio}</span>
                                                         </div>
                                                     </div>
                                                     
@@ -592,9 +357,9 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                         <p className="text-[10px] text-gray-400 font-medium px-1">请选择生成模型：</p>
                                                         <div className="flex flex-col gap-2">
                                                             {[
-                                                                { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Ultra Quality', color: 'bg-black dark:bg-white text-white dark:text-black' },
-                                                                { id: 'nano-banana-pro', name: 'Banana Pro', desc: '3.0 Pro', color: 'bg-pastel-highlight text-white' },
-                                                                { id: 'nano-banana', name: 'Banana 2', desc: '3.1 Flash', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' }
+                                                                { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实 · 商业级质感', color: 'bg-black dark:bg-white text-white dark:text-black' },
+                                                                { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影 · 真实光影', color: 'bg-pastel-highlight text-white' },
+                                                                { id: 'nanobanana2', name: 'Banana 2.0', desc: '极速生成 · 创意构图', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' }
                                                             ].map(m => (
                                                                 <button
                                                                     key={m.id}
@@ -802,49 +567,6 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                 onChange={handleImageUpload} 
                 accept="image/*" 
             />
-
-            {/* Lightbox Overlay */}
-            <AnimatePresence>
-                {lightboxImage && (
-                    <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-                        onClick={() => setLightboxImage(null)}
-                    >
-                        <motion.div 
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.8, opacity: 0 }}
-                            className="relative max-w-[90vw] max-h-[90vh]"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <img 
-                                src={lightboxImage} 
-                                className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" 
-                                alt="Full size preview" 
-                            />
-                            <div className="absolute top-4 right-4 flex gap-2">
-                                <button
-                                    onClick={() => downloadImage(lightboxImage, `visual-plan-${Date.now()}.png`)}
-                                    className="p-2.5 rounded-full bg-white/10 backdrop-blur-md text-white hover:bg-white/20 transition-colors border border-white/20"
-                                    title="下载图片"
-                                >
-                                    <Download className="w-5 h-5" />
-                                </button>
-                                <button
-                                    onClick={() => setLightboxImage(null)}
-                                    className="p-2.5 rounded-full bg-white/10 backdrop-blur-md text-white hover:bg-white/20 transition-colors border border-white/20"
-                                    title="关闭"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </div>
     );
 };
