@@ -31,7 +31,9 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
     const [isGeneratingImage, setIsGeneratingImage] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite-preview');
+    const [selectedImageModel, setSelectedImageModel] = useState('gpt-image-2');
     const [showModelMenu, setShowModelMenu] = useState(false);
+    const [showImageModelMenu, setShowImageModelMenu] = useState(false);
     
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,14 +44,21 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
         { id: 'claude-opus-4-7id', name: 'Claude 4 Opus', desc: '深度文案策划' }
     ];
 
+    const imageModels = [
+        { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实' },
+        { id: 'nanobanana2', name: 'Banana 2.0', desc: '创意高质' },
+        { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影' }
+    ];
+
     const systemPrompt = AGENT_PROMPTS[WorkflowStep.VISUAL_PLANNING_AGENT].systemPrompt;
 
     // Paste Support
     useImagePaste((files) => {
-        files.forEach(file => {
+        const remainingSlot = 10 - images.length;
+        files.slice(0, remainingSlot).forEach(file => {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setImages(prev => [...prev, reader.result as string]);
+                setImages(prev => [...prev, reader.result as string].slice(0, 10));
             };
             reader.readAsDataURL(file);
         });
@@ -64,33 +73,9 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
         setIsDragging(false);
     };
 
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        if (e.dataTransfer.files) {
-            Array.from(e.dataTransfer.files).forEach(file => {
-                if (file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        setImages(prev => [...prev, reader.result as string]);
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
-        }
-    };
 
     useEffect(() => {
-        // Initial greeting
-        if (messages.length === 0) {
-            const greeting: Message = {
-                id: 'greeting',
-                role: 'ai',
-                content: "你好！我是你的**视觉策划专家**。🚀\n\n为了帮你制定最精准的视觉方案，请提供以下信息：\n1. **产品图**（请上传）\n2. **涉及平台**（如 Amazon, TikTok, Shopify）\n3. **核心卖点**\n4. **产品属性**（材质、尺寸等）\n\n你可以一次性发送给我，或者分步提供。",
-                timestamp: Date.now()
-            };
-            setMessages([greeting]);
-        }
+        // Initial state is empty as requested by user
     }, []);
 
     useEffect(() => {
@@ -178,10 +163,13 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
-            Array.from(e.target.files).forEach(file => {
+            const newFiles = Array.from(e.target.files);
+            const remainingSlot = 10 - images.length;
+            
+            newFiles.slice(0, remainingSlot).forEach(file => {
                 const reader = new FileReader();
                 reader.onloadend = () => {
-                    setImages(prev => [...prev, reader.result as string]);
+                    setImages(prev => [...prev, reader.result as string].slice(0, 10));
                 };
                 reader.readAsDataURL(file);
             });
@@ -189,17 +177,36 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        const remainingSlot = 10 - images.length;
+
+        files.slice(0, remainingSlot).forEach(file => {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setImages(prev => [...prev, reader.result as string].slice(0, 10));
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    };
+
     const handleGenerateImage = async (promptData: any) => {
         setIsGeneratingImage(true);
         try {
             const refImages = messages.flatMap(m => m.images || []);
             const result = await gemini.generateImage(promptData.prompt, refImages, {
-                aspectRatio: promptData.aspect_ratio || '1:1'
+                aspectRatio: promptData.aspect_ratio || '3:4',
+                model: promptData.model || selectedImageModel
             });
             if (onImageGenerated) onImageGenerated(result);
         } catch (error) {
             console.error("Image Generation Error:", error);
-            alert("图像生成失败: " + (error instanceof Error ? error.message : String(error)));
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            alert("图像生成失败: " + errorMsg);
         } finally {
             setIsGeneratingImage(false);
         }
@@ -212,21 +219,28 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* Drag Overlay */}
+            {/* Drag Overlay - Refined & Less Obtrusive */}
             <AnimatePresence>
                 {isDragging && (
                     <motion.div 
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="absolute inset-0 z-50 bg-pastel-highlight/10 backdrop-blur-sm flex items-center justify-center pointer-events-none"
+                        className="absolute inset-0 z-50 bg-black/5 dark:bg-black/20 backdrop-blur-[2px] flex items-center justify-center pointer-events-none p-6"
                     >
-                        <div className="p-8 rounded-3xl border-4 border-dashed border-pastel-highlight bg-white/90 dark:bg-[#121212]/90 flex flex-col items-center gap-4 scale-110 shadow-2xl">
-                            <div className="w-16 h-16 rounded-full bg-pastel-highlight/20 flex items-center justify-center text-pastel-highlight">
-                                <Plus className="w-8 h-8" />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="max-w-md w-full p-10 rounded-[40px] border-2 border-dashed border-pastel-highlight/50 bg-white/95 dark:bg-[#1A1A1A]/95 flex flex-col items-center gap-5 shadow-2xl ring-1 ring-black/5"
+                        >
+                            <div className="w-20 h-20 rounded-full bg-pastel-highlight/10 flex items-center justify-center text-pastel-highlight">
+                                <Plus className="w-10 h-10" />
                             </div>
-                            <p className="text-xl font-bold text-pastel-highlight">松手上传图片到对话</p>
-                        </div>
+                            <div className="text-center">
+                                <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-1">松手上传图片</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">最多可支持 10 张产品图进行视觉分析</p>
+                            </div>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -265,7 +279,7 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                     className="flex-1 overflow-y-auto custom-scrollbar"
                 >
                     <div className="max-w-3xl mx-auto px-4 py-8 md:py-12 space-y-8">
-                        {messages.length <= 1 && (
+                        {messages.length === 0 && (
                             <motion.div 
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
@@ -320,26 +334,50 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                 <motion.div 
                                                     initial={{ scale: 0.95, opacity: 0 }}
                                                     animate={{ scale: 1, opacity: 1 }}
-                                                    className="w-full max-w-sm mt-2 bg-white dark:bg-[#1A1A1A] border border-pastel-highlight/20 rounded-2xl p-4 shadow-lg overflow-hidden relative"
+                                                    className="w-full max-w-md mt-2 bg-white dark:bg-[#1A1A1A] border border-pastel-highlight/20 rounded-2xl p-5 shadow-lg overflow-hidden relative"
                                                 >
-                                                    <div className="absolute top-0 left-0 w-1 h-full bg-pastel-highlight opacity-50"></div>
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <div className="flex items-center gap-1.5 text-pastel-highlight">
-                                                            <Sparkles className="w-3.5 h-3.5" />
-                                                            <span className="text-[10px] font-bold uppercase">AI 视觉策略建议</span>
+                                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-pastel-highlight opacity-40"></div>
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <div className="flex items-center gap-2 text-pastel-highlight">
+                                                            <Sparkles className="w-4 h-4" />
+                                                            <span className="text-[11px] font-bold uppercase tracking-wider">视觉策划方案已就绪</span>
                                                         </div>
-                                                        <span className="text-[10px] text-gray-400 px-1.5 py-0.5 rounded bg-gray-50 dark:bg-white/5">{msg.proposedPrompt.aspect_ratio}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] text-gray-400 px-2 py-0.5 rounded-full bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10">{msg.proposedPrompt.aspect_ratio}</span>
+                                                        </div>
                                                     </div>
-                                                    <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-3 line-clamp-2 italic">
-                                                        "{msg.proposedPrompt.prompt}"
-                                                    </p>
-                                                    <button
-                                                        onClick={() => handleGenerateImage(msg.proposedPrompt)}
-                                                        disabled={isGeneratingImage}
-                                                        className="w-full py-2 bg-gradient-to-r from-pastel-highlight to-pink-500 text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
-                                                    >
-                                                        {isGeneratingImage ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Wand2 className="w-3.5 h-3.5" /> 生成对应视觉图</>}
-                                                    </button>
+                                                    
+                                                    <div className="bg-gray-50 dark:bg-black/20 rounded-xl p-3 mb-4 border border-gray-100 dark:border-white/5">
+                                                        <p className="text-[12px] text-gray-600 dark:text-gray-300 leading-relaxed italic">
+                                                            "{msg.proposedPrompt.prompt}"
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 gap-2">
+                                                        <p className="text-[10px] text-gray-400 font-medium px-1">请选择生成模型：</p>
+                                                        <div className="flex flex-col gap-2">
+                                                            {[
+                                                                { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实 · 商业级质感', color: 'bg-black dark:bg-white text-white dark:text-black' },
+                                                                { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影 · 真实光影', color: 'bg-pastel-highlight text-white' },
+                                                                { id: 'nanobanana2', name: 'Banana 2.0', desc: '极速生成 · 创意构图', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' }
+                                                            ].map(m => (
+                                                                <button
+                                                                    key={m.id}
+                                                                    onClick={() => handleGenerateImage({ ...msg.proposedPrompt, model: m.id })}
+                                                                    disabled={isGeneratingImage}
+                                                                    className={`w-full group relative overflow-hidden px-4 py-2.5 rounded-xl text-left transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 ${m.color}`}
+                                                                >
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-[11px] font-bold">{m.name}</span>
+                                                                            <span className="text-[9px] opacity-70">{m.desc}</span>
+                                                                        </div>
+                                                                        {isGeneratingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100" />}
+                                                                    </div>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
                                                 </motion.div>
                                             )}
                                         </div>
@@ -418,11 +456,13 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                         rows={1}
                                     />
 
-                                    <div className="flex items-center gap-1">
-                                        <div className="relative mr-1">
+                                    <div className="flex items-center gap-1 mb-2">
+                                        {/* Text Model Switcher */}
+                                        <div className="relative">
                                             <button 
                                                 onClick={() => setShowModelMenu(!showModelMenu)}
-                                                className="p-2 text-gray-500 hover:text-pastel-highlight transition-all"
+                                                className={`p-2 transition-all rounded-xl ${showModelMenu ? 'text-pastel-highlight bg-white/10' : 'text-gray-500 hover:text-pastel-highlight'}`}
+                                                title="切换对话模型"
                                             >
                                                 <Bot className="w-5 h-5" />
                                             </button>
@@ -436,6 +476,7 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                             exit={{ opacity: 0, y: 10, scale: 0.9 }}
                                                             className="absolute bottom-full right-0 mb-4 w-44 bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 rounded-2xl shadow-2xl z-50 p-1.5"
                                                         >
+                                                            <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-white/5 mb-1">对话模型</div>
                                                             {models.map(m => (
                                                                 <button
                                                                     key={m.id}
@@ -444,8 +485,52 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                                         selectedModel === m.id ? 'bg-pastel-highlight/10 text-pastel-highlight' : 'hover:bg-gray-50 dark:hover:bg-white/5 text-gray-600 dark:text-gray-400'
                                                                     }`}
                                                                 >
-                                                                    <div className="text-[10px] font-bold">{m.name}</div>
+                                                                    <div className="flex flex-col">
+                                                                        <div className="text-[10px] font-bold">{m.name}</div>
+                                                                        <div className="text-[8px] opacity-60">{m.desc}</div>
+                                                                    </div>
                                                                     {selectedModel === m.id && <Check className="w-3 h-3" />}
+                                                                </button>
+                                                            ))}
+                                                        </motion.div>
+                                                    </>
+                                                )}
+                                            </AnimatePresence>
+                                        </div>
+
+                                        {/* Image Model Switcher */}
+                                        <div className="relative mr-1">
+                                            <button 
+                                                onClick={() => setShowImageModelMenu(!showImageModelMenu)}
+                                                className={`p-2 transition-all rounded-xl ${showImageModelMenu ? 'text-pastel-highlight bg-white/10' : 'text-gray-500 hover:text-pastel-highlight'}`}
+                                                title="切换绘图模型"
+                                            >
+                                                <ImageIcon className="w-5 h-5" />
+                                            </button>
+                                            <AnimatePresence>
+                                                {showImageModelMenu && (
+                                                    <>
+                                                        <div className="fixed inset-0 z-40" onClick={() => setShowImageModelMenu(false)}></div>
+                                                        <motion.div 
+                                                            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                                                            className="absolute bottom-full right-0 mb-4 w-44 bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 rounded-2xl shadow-2xl z-50 p-1.5"
+                                                        >
+                                                            <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-white/5 mb-1">绘图模型</div>
+                                                            {imageModels.map(m => (
+                                                                <button
+                                                                    key={m.id}
+                                                                    onClick={() => { setSelectedImageModel(m.id); setShowImageModelMenu(false); }}
+                                                                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left transition-all ${
+                                                                        selectedImageModel === m.id ? 'bg-pastel-highlight/10 text-pastel-highlight' : 'hover:bg-gray-50 dark:hover:bg-white/5 text-gray-600 dark:text-gray-400'
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex flex-col">
+                                                                        <div className="text-[10px] font-bold">{m.name}</div>
+                                                                        <div className="text-[8px] opacity-60">{m.desc}</div>
+                                                                    </div>
+                                                                    {selectedImageModel === m.id && <Check className="w-3 h-3" />}
                                                                 </button>
                                                             ))}
                                                         </motion.div>
@@ -456,9 +541,9 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
 
                                         <button
                                             onClick={handleSend}
-                                            disabled={!input.trim() && images.length === 0 || isTyping}
+                                            disabled={(!input.trim() && images.length === 0) || isTyping}
                                             className={`p-2 rounded-full transition-all flex items-center justify-center ${
-                                                !input.trim() && images.length === 0 ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : 'bg-black dark:bg-white text-white dark:text-black hover:scale-105 active:scale-95'
+                                                (!input.trim() && images.length === 0) ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' : 'bg-black dark:bg-white text-white dark:text-black hover:scale-105 active:scale-95'
                                             }`}
                                         >
                                             <Send className="w-4 h-4" />

@@ -38,6 +38,8 @@ const AVAILABLE_MODELS = [
   { id: 'gpt-5.5', name: 'GPT-5.5 Global', description: '顶尖逻辑推理模型', badge: 'New', type: 'text' },
   { id: 'claude-opus-4-7id', name: 'Claude 4 Opus', description: '深度语义理解模型', badge: '专业', type: 'text' },
   { id: 'gpt-image-2', name: 'Imagen 2.0', description: '极致写实商业精修', badge: '图像', type: 'image' },
+  { id: 'nanobanana2', name: 'Banana 2.0', description: '高品质商业创意模型', badge: 'New', type: 'image' },
+  { id: 'nanobananapro', name: 'Banana Pro', description: '专业级摄影写实模型', badge: 'Pro', type: 'image' },
 ];
 
 // ==================== API 客户端 (用于测试连接) ====================
