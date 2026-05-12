@@ -711,11 +711,13 @@ export const generateImageToImage = async (
   const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
   // 1. Determine Target Model FIRST (Critical for specialized prompt logic)
-  let targetModel = options.modelId || "gemini-3-pro-image-preview";
-  if (targetModel === 'nanobanana2' || targetModel === 'standard') {
-    targetModel = "gemini-3.1-flash-image-preview";
-  } else if (targetModel === 'nanobananapro' || targetModel === 'pro') {
-    targetModel = "gemini-3-pro-image-preview";
+  let targetModel = options.modelId || "nano-banana-pro";
+  
+  // Standardize mapping for Plato/Yunwu proxies
+  if (targetModel === 'nanobanana2' || targetModel === 'nano-banana' || targetModel === 'standard' || targetModel === 'gemini-3.1-flash-image-preview') {
+    targetModel = "nano-banana";
+  } else if (targetModel === 'nanobananapro' || targetModel === 'nano-banana-pro' || targetModel === 'pro' || targetModel === 'gemini-3-pro-image-preview') {
+    targetModel = "nano-banana-pro";
   }
 
   // Handle gpt-image-2 resolution constraints

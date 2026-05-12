@@ -358,8 +358,8 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                         <div className="flex flex-col gap-2">
                                                             {[
                                                                 { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实 · 商业级质感', color: 'bg-black dark:bg-white text-white dark:text-black' },
-                                                                { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影 · 真实光影', color: 'bg-pastel-highlight text-white' },
-                                                                { id: 'nanobanana2', name: 'Banana 2.0', desc: '极速生成 · 创意构图', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' }
+                                                                { id: 'nano-banana-pro', name: 'Banana Pro', desc: '专业摄影 · 真实光影', color: 'bg-pastel-highlight text-white' },
+                                                                { id: 'nano-banana', name: 'Banana 2.0', desc: '极速生成 · 创意构图', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' }
                                                             ].map(m => (
                                                                 <button
                                                                     key={m.id}
