@@ -532,14 +532,20 @@ export const generateMarketingImage = async (
       **Scene Description**: ${forcedPrompt} ${qualitySuffix}
       
       CRITICAL INSTRUCTIONS:
-      1. You MUST use the facial features of the person in Image 2.
-      2. The model (Image 2) should be interacting with the Product (Image 1) in a CANDID way (not stiff).
-      3. The Product (Image 1) must be preserved exactly as shown.
+      1. PRODUCT CONSISTENCY (MANDATORY): Image 1 is the [Product Reference] and the PIXEL-LEVEL SOURCE OF TRUTH. You MUST preserve its geometry, texture, cut, and every visual detail with 100% FIDELITY. Do NOT allow any deformation or stylistic drift for the product.
+      2. MODEL IDENTITY: You MUST use the facial features and identity of the person in Image 2.
+      3. INTERACTION: The model (Image 2) should be wearing or interacting with the Product (Image 1) in a CANDID way (not stiff).
       4. STYLE: Cinematic, editorial, photorealistic with natural textures.
+      5. PRIORITY: If there is a conflict between the prompt and the product's original appearance, the product's original appearance (Image 1) ALWAYS takes precedence.
       `;
     } else if (referenceImage) {
       // Single Image Scenario
-      finalPrompt = `Create a high quality editorial photograph based on the provided product reference. Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}`;
+      finalPrompt = `
+      [STRICT PRODUCT CONSISTENCY PROTOCOL]
+      Image 1 is the absolute reference for the product. Preserve its structure and texture exactly. 
+      Create a high quality editorial photograph based on this product reference. 
+      Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}
+      `;
     } else {
       // Text Only Scenario
       finalPrompt = `Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}`;
@@ -784,10 +790,14 @@ ${forcedPrompt}`;
         } else if (workflowHint) {
           gptPrompt = `[ROLE: Professional Fashion AI Artist]
 [TASK: Generate a new image based on reference images and the prompt below]
+[CRITICAL: PRODUCT CONSISTENCY]
+The physical product from the first reference image MUST be preserved with 100% fidelity. Do NOT modify its design, color, or texture. The product is the anchor; only the scene, model identity (if Image 2 provided), and pose (if Image 3 provided) should change.
+
 [INSTRUCTIONS]
-- Maintain the exact pose and composition of the reference image.
+- Maintain the exact product structure from the first reference image.
 - Apply changes precisely as described in the user prompt.
 - Output MUST have aspect ratio ${aspectRatio}.
+- NO product deformation allowed.
 
 ${gptRatioHint}
 ${forcedPrompt}`;

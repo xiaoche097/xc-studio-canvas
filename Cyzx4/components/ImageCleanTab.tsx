@@ -271,19 +271,21 @@ const HeroImageTab: React.FC = () => {
 
             const prompt = `
             # AGENT STRATEGY: ${strategy}
-            # MISSION: Professional commercial product photography.
+            # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
+            
+            # CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]. You MUST preserve its structure, texture, cut, and pattern EXACTLY. Do NOT allow any stylistic drift. The product in the output must be 100% identical to the source product asset.
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
             ${modelReference ? `# MODEL IDENTITY: REPLICATE the facial features and identity from the model reference image.` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReference ? `# POSE: STRICTLY replicate the human pose from the image after product images.` : ''}
+            ${actionReference ? `# POSE: Replicate the human pose from the pose reference image while KEEPING the product structure locked.` : ''}
             ${sceneReferences.length > 0 ? `# SCENE: Replicate background and lighting from reference images.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
             
             # DESCRIPTION: ${basePrompt}
-            # FINAL OUTPUT: High-fidelity, commercial-grade asset.
+            # FINAL OUTPUT: High-fidelity, commercial-grade asset with strict geometric locking for the product.
             `;
 
             const batchPromises = Array.from({ length: generateCount }, () => 
@@ -379,8 +381,11 @@ const HeroImageTab: React.FC = () => {
                         {/* 2. Product Assets */}
                         <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
                             <div className="flex items-center gap-2 mb-3">
-                                <Package className="w-4 h-4 text-pastel-highlight" />
                                 <h3 className="font-bold text-pastel-text text-sm">产品素材图</h3>
+                                <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-100 flex items-center gap-1 animate-pulse">
+                                    <CheckCircle2 className="w-2.5 h-2.5" />
+                                    产品一致性已锁定
+                                </span>
                             </div>
                             <div 
                                 onClick={() => productInputRef.current?.click()} 
