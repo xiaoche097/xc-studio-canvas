@@ -138,31 +138,51 @@ class GeminiClient {
     const candidate = data.candidates?.[0];
     if (!candidate) throw new Error("No image candidates returned by the model.");
 
+    // Check for safety blocks
+    if (candidate.finishReason === 'SAFETY') {
+      throw new Error("图像生成被安全过滤器拦截 (Safety Filter Blocked). 请尝试调整提示词。");
+    }
+
     // Handle different response formats (Official vs Proxy variations)
     // 1. Standard inlineData/inline_data
     // 2. Some proxies return p.image_url or p.image
-    // 3. Some return p.file_data
+    // 3. Some return p.file_data or even just p.text for base64
     const imagePart = candidate.content?.parts?.find((p: any) => 
-        p.inline_data || p.inlineData || p.image_data || p.image || p.file_data || p.fileData
+        p.inline_data || p.inlineData || p.image_data || p.image || p.file_data || p.fileData || 
+        (p.text && (p.text.length > 100 || p.text.startsWith('data:image')))
     );
 
     if (imagePart) {
-      const dataObj = imagePart.inline_data || imagePart.inlineData || imagePart.image_data || imagePart.image || imagePart.file_data || imagePart.fileData;
+      const dataObj = imagePart.inline_data || imagePart.inlineData || imagePart.image_data || imagePart.image || imagePart.file_data || imagePart.fileData || imagePart.text;
       
-      // If dataObj is a string (e.g. some proxies return data directly in image field)
+      // If dataObj is a string (e.g. some proxies return data directly or in text field)
       if (typeof dataObj === 'string') {
-          return dataObj.startsWith('data:') ? dataObj : `data:image/png;base64,${dataObj}`;
+          const cleanStr = dataObj.trim();
+          if (cleanStr.startsWith('http')) return cleanStr; // Return URL directly
+          return cleanStr.startsWith('data:') ? cleanStr : `data:image/png;base64,${cleanStr}`;
       }
 
-      const mimeType = dataObj.mime_type || dataObj.mimeType || dataObj.mime_type || 'image/png';
-      const base64Data = dataObj.data || dataObj.base64 || dataObj.image_data;
+      const mimeType = dataObj.mime_type || dataObj.mimeType || 'image/png';
+      const base64Data = dataObj.data || dataObj.base64 || dataObj.image_data || dataObj.url;
       
       if (base64Data) {
+          if (typeof base64Data === 'string' && base64Data.startsWith('http')) return base64Data;
           return base64Data.startsWith('data:') ? base64Data : `data:${mimeType};base64,${base64Data}`;
       }
     }
 
-    throw new Error("Candidate returned but no base64 image data found in parts. Check console for full response structure.");
+    // Fallback: search ALL parts for anything that looks like an image or large string
+    for (const part of (candidate.content?.parts || [])) {
+        if (part.text && part.text.length > 100) {
+            const text = part.text.trim();
+            if (text.startsWith('data:image')) return text;
+            if (/^[A-Za-z0-9+/=]+$/.test(text.substring(0, 100))) {
+                return `data:image/png;base64,${text}`;
+            }
+        }
+    }
+
+    throw new Error(`Candidate returned (Reason: ${candidate.finishReason}) but no image data found. Check console for structure.`);
   }
 }
 
