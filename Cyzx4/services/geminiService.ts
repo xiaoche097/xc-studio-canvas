@@ -544,11 +544,11 @@ export const generateMarketingImage = async (
       [STRICT PRODUCT CONSISTENCY PROTOCOL]
       Image 1 is the absolute reference for the product. Preserve its structure and texture exactly. 
       Create a high quality editorial photograph based on this product reference. 
-      Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}
+      Aspect Ratio: ${aspectRatio}. ${forcedPrompt} ${qualitySuffix}
       `;
     } else {
       // Text Only Scenario
-      finalPrompt = `Aspect Ratio: ${aspectRatio}. ${prompt} ${qualitySuffix}`;
+      finalPrompt = `Aspect Ratio: ${aspectRatio}. ${forcedPrompt} ${qualitySuffix}`;
     }
 
     parts.push({ text: finalPrompt });
