@@ -469,7 +469,7 @@ export const generateMarketingImage = async (
   resolution: ImageResolution,
   referenceImage?: { base64: string; mimeType: string }, // Product
   modelReferenceImage?: { base64: string; mimeType: string }, // Model Face
-  modelId: string = 'gemini-3-pro-image-preview',
+  modelId: string = 'gemini-3.1-flash-image-preview',
 ) => {
   const ai = getAiClient();
   try {
@@ -711,7 +711,7 @@ export const generateImageToImage = async (
   const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
   // 1. Determine Target Model FIRST (Critical for specialized prompt logic)
-  let targetModel = options.modelId || "gemini-3-pro-image-preview";
+  let targetModel = options.modelId || "gemini-3.1-flash-image-preview";
   if (targetModel === 'nanobanana2' || targetModel === 'standard') {
     targetModel = "gemini-3.1-flash-image-preview";
   } else if (targetModel === 'nanobananapro' || targetModel === 'pro') {
@@ -982,7 +982,10 @@ ${forcedPrompt}`;
             : workflowHint === 'pose-transfer'
               ? `
         **ROLE**: Senior fashion retoucher specializing in pose-and-framing transfer.
-        **TASK**: Re-stage the person and outfit from Image 3 into the EXACT pose, angle, and framing blueprint of Image 1 and 2.
+        **TASK**: Re-stage the person and outfit from the subsequent reference images into the EXACT pose, angle, and framing blueprint provided in Image 1 and 2.
+        **IMAGE MAPPING**:
+        - Image 1 & 2: POSE & COMPOSITION ANCHOR.
+        - Image 3 & beyond: PRODUCT DETAILS & MODEL IDENTITY.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
@@ -1049,7 +1052,10 @@ ${forcedPrompt}`;
                   : workflowHint === 'scene-product-lock'
                     ? `
         **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
-        **TASK**: Place the reference product into a realistic lifestyle scene.
+        **TASK**: Place the reference product(s) from the subsequent images into the realistic lifestyle scene/composition provided in Image 1.
+        **IMAGE MAPPING**:
+        - Image 1: SCENE & COMPOSITION ANCHOR.
+        - Image 2 & beyond: PRODUCT DETAILS.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
@@ -1102,8 +1108,8 @@ ${forcedPrompt}`;
       }
       */
 
-      // Calculate dynamic timeout: 4K/2K generation is slow, 180s. Others 120s.
-      const generationTimeout = (options.resolution === ImageResolution.RES_4K || options.resolution === ImageResolution.RES_2K) ? 180000 : 120000;
+      // Calculate dynamic timeout: 4K/2K generation is slow, 300s. Others 180s.
+      const generationTimeout = (options.resolution === ImageResolution.RES_4K || options.resolution === ImageResolution.RES_2K) ? 300000 : 180000;
 
       // Map resolution to explicit dimensions for proxy compatibility
       const getDimensions = (ar: string, res: string) => {
@@ -1228,7 +1234,7 @@ export const generateInpainting = async (
   const initialConfig = getApiConfig();
   const maxRetries = Math.min(initialConfig.keyCount, 3);
 
-  let targetModel = options.modelId || "gemini-3-pro-image-preview";
+  let targetModel = options.modelId || "gemini-3.1-flash-image-preview";
   
   const aspectRatio = options.aspectRatio || AspectRatio.SQUARE;
   const getAspectRatioHint = (ar: string) => {
@@ -1632,7 +1638,7 @@ export const generateSeatCoverFit = async (
   resolution: ImageResolution,
   customRequest?: string, // NEW: User Custom Request
   visualGuide?: { base64: string; mime: string }, // NEW: Optional Visual Guide
-  modelId: string = 'gemini-3-pro-image-preview'
+  modelId: string = 'gemini-3.1-flash-image-preview'
 ) => {
   const ai = getAiClient();
   try {
@@ -2185,7 +2191,7 @@ export const inpaintImage = async (
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
+      model: "gemini-3.1-flash-image-preview",
       contents: {
         parts: parts,
       },
@@ -2281,7 +2287,7 @@ export const editGeneratedImage = async (
     parts.push({ text: enhancedEditPrompt });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
+      model: "gemini-3.1-flash-image-preview",
       contents: {
         parts: parts,
       },
@@ -2754,7 +2760,7 @@ export const generateStyleReplication = async (
   } = {}
 ): Promise<string[]> => {
   const ai = getAiClient();
-  const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3-pro-image-preview", retouch = false } = options;
+  const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", retouch = false } = options;
 
   // Build the prompt for style replication
   const productCount = productImages.length;
@@ -2940,7 +2946,7 @@ export const generateProductSwap = async (
   const ai = getAiClient();
   const aspectRatio = options.aspectRatio || AspectRatio.LANDSCAPE_4_3;
   const resolution = options.resolution || "2K";
-  const model = options.model || "gemini-3-pro-image-preview";
+  const model = options.model || "gemini-3.1-flash-image-preview";
   const productCount = productImages.length;
 
   // ============ PROMPT ENGINE (Nano Banana Golden Formula) ============
@@ -3306,7 +3312,7 @@ export const generateColorMap = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
+      model: "gemini-3.1-flash-image-preview",
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -3365,7 +3371,7 @@ export const generateLineArt = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
+      model: "gemini-3.1-flash-image-preview",
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -3453,7 +3459,7 @@ export const generateHDUpscale = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
+      model: "gemini-3.1-flash-image-preview",
       contents: { parts: parts },
       config: {
         temperature: 0.15, // Extremely low for maximum fidelity
@@ -3646,7 +3652,7 @@ export const generateCleanImage = async (
   } = {}
 ): Promise<string[]> => {
   const ai = getAiClient();
-  const modelName = 'gemini-3-pro-image-preview';
+  const modelName = 'gemini-3.1-flash-image-preview';
   const { count = 1, resolution = '1K', aspectRatio = AspectRatio.SQUARE } = options;
 
   // Nano Banana Skills: Enhanced Prefixes for Control

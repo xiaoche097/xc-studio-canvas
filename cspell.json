@@ -91,7 +91,14 @@
     "desaturated",
     "oversharpen",
     "Agentic",
-    "oversaturation"
+    "oversaturation",
+    "pinkhover",
+    "shein",
+    "temu",
+    "tmall",
+    "taobao",
+    "editref",
+    "pillarbox"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

@@ -69,7 +69,7 @@ const StyleReplicateTab: React.FC = () => {
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
 
     // Config states
-    const [selectedModel, setSelectedModel] = useState<string>("gemini-3-pro-image-preview");
+    const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
 
     // 当切换到 gpt-image-2 时，自动修正不兼容的参数
     useEffect(() => {

@@ -135,7 +135,7 @@ const SeatCoverTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
 
-  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
   // 当切换到 gpt-image-2 时，自动修正不兼容的参数
   useEffect(() => {

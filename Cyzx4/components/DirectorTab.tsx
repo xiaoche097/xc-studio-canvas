@@ -94,7 +94,7 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
   const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
   const [inpaintPrompt, setInpaintPrompt] = useState('');
   const [isInpainting, setIsInpainting] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-image-preview');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
 
   // 当切换到 gpt-image-2 时，自动修正不兼容的参数
   useEffect(() => {

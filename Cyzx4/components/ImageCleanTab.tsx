@@ -7,7 +7,7 @@ import {
     Camera, UserCircle, Cpu, ChevronUp, Edit3, Settings,
     FileText, Smartphone, Film, Eye, Maximize, Scan, Target
 } from 'lucide-react';
-import { generateImageToImage, blobToBase64 } from '../services/geminiService';
+import { generateImageToImage, blobToBase64, compressImage } from '../services/geminiService';
 import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
@@ -78,7 +78,7 @@ const COT_STEPS = [
 const HeroImageTab: React.FC = () => {
     // Selection states
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
-    const [selectedModel, setSelectedModel] = useState<string>("gemini-3-pro-image-preview");
+    const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
@@ -129,12 +129,13 @@ const HeroImageTab: React.FC = () => {
         const results: UploadedImage[] = [];
         for (const file of files) {
             if (!file.type.startsWith('image/')) continue;
-            const base64 = await blobToBase64(file);
+            // 使用压缩逻辑减小负载，避免 4K/2K 超时
+            const { base64, mime } = await compressImage(file, 2048, 0.9);
             results.push({
                 file,
                 preview: URL.createObjectURL(file),
-                base64: base64 as string,
-                mime: file.type
+                base64: base64,
+                mime: mime
             });
         }
         return results;
@@ -241,13 +242,34 @@ const HeroImageTab: React.FC = () => {
         }, 1200);
 
         try {
-            const inputImages = [
-                ...productImages.map(img => ({ base64: img.base64!, mimeType: img.mime! })),
-            ];
+            // 构建图片序列：将姿势/场景参考图排在首位作为“构图锚点”
+            const inputImages: { base64: string; mimeType: string }[] = [];
             
-            if (actionReference) inputImages.push({ base64: actionReference.base64!, mimeType: actionReference.mime! });
-            if (modelReference) inputImages.push({ base64: modelReference.base64!, mimeType: modelReference.mime! });
-            sceneReferences.forEach(img => inputImages.push({ base64: img.base64!, mimeType: img.mime! }));
+            // 1. 优先添加构图锚点 (Action > Scene)
+            if (actionReference) {
+                inputImages.push({ base64: actionReference.base64!, mimeType: actionReference.mime! });
+            } else if (sceneReferences.length > 0) {
+                inputImages.push({ base64: sceneReferences[0].base64!, mimeType: sceneReferences[0].mime! });
+            }
+            
+            // 2. 添加产品图
+            productImages.forEach(img => {
+                // 避免重复添加 (如果产品图恰好也在锚点中)
+                if (actionReference?.base64 !== img.base64) {
+                    inputImages.push({ base64: img.base64!, mimeType: img.mime! });
+                }
+            });
+            
+            // 3. 添加剩余参考图 (Model, 其他 Scene)
+            if (modelReference) {
+                inputImages.push({ base64: modelReference.base64!, mimeType: modelReference.mime! });
+            }
+            
+            sceneReferences.forEach((img, idx) => {
+                // 如果第一张场景图已经被用作锚点，则跳过
+                if (idx === 0 && !actionReference) return;
+                inputImages.push({ base64: img.base64!, mimeType: img.mime! });
+            });
 
             const measurementStr = (measurements.bust || measurements.waist || measurements.hips) 
                 ? `Model Measurements: Bust ${measurements.bust || 'N/A'}, Waist ${measurements.waist || 'N/A'}, Hips ${measurements.hips || 'N/A'}.` 
