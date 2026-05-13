@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+
 import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Trash2, CheckCircle2, AlertCircle, Bot } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
@@ -48,10 +49,11 @@ interface RetouchResult {
 }
 
 const DollBatchRetouchTab: React.FC = () => {
-  const [sources, setSources] = useState<{file: File, url: string}[]>([]);
-  const [refs, setRefs] = useState<{file: File, url: string}[]>([]);
+  const [sources, setSources] = useState<{file: File, url: string, base64: string, mime: string}[]>([]);
+  const [refs, setRefs] = useState<{file: File, url: string, base64: string, mime: string}[]>([]);
   const [results, setResults] = useState<RetouchResult[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
   const [guidance, setGuidance] = useState('');
@@ -80,66 +82,149 @@ const DollBatchRetouchTab: React.FC = () => {
     }
   }, [sources.length]);
 
-  const handleSourceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSourceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const newSources = files.slice(0, 10 - sources.length).map(file => ({
-      file,
-      url: URL.createObjectURL(file)
-    }));
-    setSources(prev => [...prev, ...newSources]);
-    e.target.value = '';
-  };
+    const nextFiles = files.slice(0, 10 - sources.length);
+    if (nextFiles.length === 0) return;
 
-  const handleRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    const newRefs = files.slice(0, 3 - refs.length).map(file => ({
-      file,
-      url: URL.createObjectURL(file)
-    }));
-    setRefs(prev => [...prev, ...newRefs]);
-    e.target.value = '';
-  };
-
-  const handleSourceDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter(f => f.type.startsWith('image/'));
-    if (imageFiles.length > 0) {
-      const newSources = imageFiles.slice(0, 10 - sources.length).map(file => ({
-        file,
-        url: URL.createObjectURL(file)
+    setIsProcessingImages(true);
+    try {
+      const processed = await Promise.all(nextFiles.map(async file => {
+        const compressed = await compressImage(file, 2048, 0.9);
+        const res = await fetch(`data:${compressed.mime};base64,${compressed.base64}`);
+        const blob = await res.blob();
+        const compressedFile = new File([blob], file.name, { type: compressed.mime });
+        return {
+          file: compressedFile,
+          url: URL.createObjectURL(compressedFile),
+          base64: compressed.base64,
+          mime: compressed.mime
+        };
       }));
-      setSources(prev => [...prev, ...newSources]);
+      setSources(prev => [...prev, ...processed]);
+    } catch (err) {
+      console.error('Source upload processing failed:', err);
+    } finally {
+      setIsProcessingImages(false);
+      e.target.value = '';
     }
   };
 
-  const handleRefDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter(f => f.type.startsWith('image/'));
-    if (imageFiles.length > 0) {
-      const newRefs = imageFiles.slice(0, 3 - refs.length).map(file => ({
-        file,
-        url: URL.createObjectURL(file)
+  const handleRefUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const nextFiles = files.slice(0, 3 - refs.length);
+    if (nextFiles.length === 0) return;
+
+    setIsProcessingImages(true);
+    try {
+      const processed = await Promise.all(nextFiles.map(async file => {
+        const compressed = await compressImage(file, 2048, 0.9);
+        const res = await fetch(`data:${compressed.mime};base64,${compressed.base64}`);
+        const blob = await res.blob();
+        const compressedFile = new File([blob], file.name, { type: compressed.mime });
+        return {
+          file: compressedFile,
+          url: URL.createObjectURL(compressedFile),
+          base64: compressed.base64,
+          mime: compressed.mime
+        };
       }));
-      setRefs(prev => [...prev, ...newRefs]);
+      setRefs(prev => [...prev, ...processed]);
+    } catch (err) {
+      console.error('Ref upload processing failed:', err);
+    } finally {
+      setIsProcessingImages(false);
+      e.target.value = '';
     }
   };
 
-  const handlePaste = (e: React.ClipboardEvent) => {
+  const handleSourceDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    const nextFiles = imageFiles.slice(0, 10 - sources.length);
+    if (nextFiles.length === 0) return;
+
+    setIsProcessingImages(true);
+    try {
+      const processed = await Promise.all(nextFiles.map(async file => {
+        const compressed = await compressImage(file, 2048, 0.9);
+        const res = await fetch(`data:${compressed.mime};base64,${compressed.base64}`);
+        const blob = await res.blob();
+        const compressedFile = new File([blob], file.name, { type: compressed.mime });
+        return {
+          file: compressedFile,
+          url: URL.createObjectURL(compressedFile),
+          base64: compressed.base64,
+          mime: compressed.mime
+        };
+      }));
+      setSources(prev => [...prev, ...processed]);
+    } catch (err) {
+      console.error('Source drop processing failed:', err);
+    } finally {
+      setIsProcessingImages(false);
+    }
+  };
+
+  const handleRefDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    const nextFiles = imageFiles.slice(0, 3 - refs.length);
+    if (nextFiles.length === 0) return;
+
+    setIsProcessingImages(true);
+    try {
+      const processed = await Promise.all(nextFiles.map(async file => {
+        const compressed = await compressImage(file, 2048, 0.9);
+        const res = await fetch(`data:${compressed.mime};base64,${compressed.base64}`);
+        const blob = await res.blob();
+        const compressedFile = new File([blob], file.name, { type: compressed.mime });
+        return {
+          file: compressedFile,
+          url: URL.createObjectURL(compressedFile),
+          base64: compressed.base64,
+          mime: compressed.mime
+        };
+      }));
+      setRefs(prev => [...prev, ...processed]);
+    } catch (err) {
+      console.error('Ref drop processing failed:', err);
+    } finally {
+      setIsProcessingImages(false);
+    }
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items);
     const files = items
       .filter(i => i.type.startsWith('image/'))
       .map(i => i.getAsFile())
       .filter((f): f is File => f !== null);
 
-    if (files.length > 0) {
-      // By default, paste into source list
-      const newSources = files.slice(0, 10 - sources.length).map(file => ({
-        file,
-        url: URL.createObjectURL(file)
+    const nextFiles = files.slice(0, 10 - sources.length);
+    if (nextFiles.length === 0) return;
+
+    setIsProcessingImages(true);
+    try {
+      const processed = await Promise.all(nextFiles.map(async file => {
+        const compressed = await compressImage(file, 2048, 0.9);
+        const res = await fetch(`data:${compressed.mime};base64,${compressed.base64}`);
+        const blob = await res.blob();
+        const compressedFile = new File([blob], file.name, { type: compressed.mime });
+        return {
+          file: compressedFile,
+          url: URL.createObjectURL(compressedFile),
+          base64: compressed.base64,
+          mime: compressed.mime
+        };
       }));
-      setSources(prev => [...prev, ...newSources]);
+      setSources(prev => [...prev, ...processed]);
+    } catch (err) {
+      console.error('Paste processing failed:', err);
+    } finally {
+      setIsProcessingImages(false);
     }
   };
 
@@ -166,7 +251,7 @@ const DollBatchRetouchTab: React.FC = () => {
     setIsAnalyzing(true);
     try {
       const { generateText } = await import('../Cyzx4/services/geminiService');
-      const sample = await compressImage(sources[0].file, 1024, 0.9);
+      const sample = sources[0];
       
       const analysisPrompt = `Analyze this product image for commercial retouching. 
       Respond ONLY in JSON format:
@@ -222,8 +307,7 @@ const DollBatchRetouchTab: React.FC = () => {
       let styleContext = '';
       if (refs.length > 0) {
         setStatusMessage('正在分析参考图风格...');
-        const refCompressed = await Promise.all(refs.map(r => compressImage(r.file, 2048, 0.96)));
-        const styleAnalysis = await analyzeReferenceEffect(refCompressed.map(c => ({ base64: c.base64, mimeType: c.mime })));
+        const styleAnalysis = await analyzeReferenceEffect(refs.map(r => ({ base64: r.base64, mimeType: r.mime })));
         if (styleAnalysis?.extracted_style) {
           styleContext = `\n\n=== TARGET STYLE ===\n${styleAnalysis.extracted_style}`;
         }
@@ -238,7 +322,7 @@ const DollBatchRetouchTab: React.FC = () => {
         });
 
         const source = sources[i];
-        const compressed = await compressImage(source.file, 2048, 0.96);
+        const compressed = { base64: source.base64, mime: source.mime };
         
         let finalPrompt = BATCH_RETOUCH_PROMPT;
         finalPrompt += INTENSITY_CONFIG[intensity].suffix;
@@ -312,22 +396,31 @@ const DollBatchRetouchTab: React.FC = () => {
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleSourceDrop}
             >
-              {sources.map((src, idx) => (
-                <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden bg-white group">
-                  <img src={src.url} className="w-full h-full object-cover" />
-                  <button onClick={() => removeSource(idx)} className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Trash2 className="w-4 h-4 text-white" />
-                  </button>
+              {isProcessingImages ? (
+                <div className="col-span-5 aspect-[5/1] rounded-lg border-2 border-dashed border-pastel-highlight flex items-center justify-center bg-pastel-highlight/5 gap-2 animate-pulse">
+                  <Loader2 className="w-4 h-4 animate-spin text-pastel-highlight" />
+                  <span className="text-[10px] text-pastel-highlight font-black uppercase">正在优化图片...</span>
                 </div>
-              ))}
-              {sources.length < 10 && (
-                <button 
-                  onClick={() => sourceInputRef.current?.click()}
-                  className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex flex-col items-center justify-center hover:border-pastel-highlight transition-colors bg-white/50"
-                >
-                  <Upload className="w-4 h-4 text-pastel-muted" />
-                  <span className="text-[8px] mt-1">添加</span>
-                </button>
+              ) : (
+                <>
+                  {sources.map((src, idx) => (
+                    <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden bg-white group">
+                      <img src={src.url} className="w-full h-full object-cover" />
+                      <button onClick={() => removeSource(idx)} className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Trash2 className="w-4 h-4 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                  {sources.length < 10 && (
+                    <button 
+                      onClick={() => sourceInputRef.current?.click()}
+                      className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex flex-col items-center justify-center hover:border-pastel-highlight transition-colors bg-white/50"
+                    >
+                      <Upload className="w-4 h-4 text-pastel-muted" />
+                      <span className="text-[8px] mt-1">添加</span>
+                    </button>
+                  )}
+                </>
               )}
             </div>
             <input type="file" multiple hidden ref={sourceInputRef} onChange={handleSourceUpload} accept="image/*" />

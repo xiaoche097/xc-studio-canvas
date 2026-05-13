@@ -20,6 +20,8 @@ interface ImageItem {
   id: string;
   file: File;
   url: string;
+  base64: string;
+  mime: string;
   diagnosis?: DiagnosisResult;
   status: 'pending' | 'diagnosing' | 'diagnosed' | 'generating' | 'done' | 'error';
   error?: string;
@@ -37,6 +39,7 @@ const DollDesignOptimizeTab: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [isProcessingImages, setIsProcessingImages] = useState(false);
   
   // State for sequential processing
   const [globalStatus, setGlobalStatus] = useState('');
@@ -44,25 +47,42 @@ const DollDesignOptimizeTab: React.FC = () => {
   const MAX_IMAGES = 3;
 
   // Handlers
-  const handleFiles = (files: File[]) => {
+  const handleFiles = async (files: File[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));
     const remainingCount = MAX_IMAGES - images.length;
     const filesToAdd = validFiles.slice(0, remainingCount);
 
-    if (filesToAdd.length > 0) {
-      const newItems: ImageItem[] = filesToAdd.map(f => ({
-        id: Math.random().toString(36).substr(2, 9),
-        file: f,
-        url: URL.createObjectURL(f),
-        status: 'pending'
+    if (filesToAdd.length === 0) return;
+
+    setIsProcessingImages(true);
+    try {
+      const processed = await Promise.all(filesToAdd.map(async f => {
+        const compressed = await compressImage(f, 2048, 0.9);
+        const res = await fetch(`data:${compressed.mime};base64,${compressed.base64}`);
+        const blob = await res.blob();
+        const compressedFile = new File([blob], f.name, { type: compressed.mime });
+        
+        return {
+          id: Math.random().toString(36).substr(2, 9),
+          file: compressedFile,
+          url: URL.createObjectURL(compressedFile),
+          base64: compressed.base64,
+          mime: compressed.mime,
+          status: 'pending' as const
+        };
       }));
+
       setImages(prev => {
-        const next = [...prev, ...newItems];
+        const next = [...prev, ...processed];
         if (!selectedImageId && next.length > 0) {
           setSelectedImageId(next[0].id);
         }
         return next;
       });
+    } catch (err) {
+      console.error('File processing failed:', err);
+    } finally {
+      setIsProcessingImages(false);
     }
   };
 
@@ -105,7 +125,6 @@ const DollDesignOptimizeTab: React.FC = () => {
       setSelectedImageId(img.id);
       
       try {
-        const compressed = await compressImage(img.file, 1024, 0.8);
         const ai = getAiClient();
         
         const stylePrompt = userStyle 
@@ -178,7 +197,7 @@ ${stylePrompt}
         const response = await ai.models.generateContent({
           model: thinkingModel,
           contents: { parts: [
-            { inlineData: { mimeType: compressed.mime, data: compressed.base64 } },
+            { inlineData: { mimeType: img.mime, data: img.base64 } },
             { text: prompt }
           ] }
         });
@@ -217,7 +236,7 @@ ${stylePrompt}
       setSelectedImageId(img.id);
       
       try {
-        const compressed = await compressImage(img.file, 2048, 0.96);
+        const compressed = { base64: img.base64, mime: img.mime };
         const diag = img.diagnosis!;
         
         const styleContext = userStyle 
@@ -300,42 +319,51 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
             </div>
             
             <div className="grid grid-cols-3 gap-3">
-              {images.map((img, i) => (
-                <div 
-                  key={img.id}
-                  onClick={() => setSelectedImageId(img.id)}
-                  className={`relative aspect-square rounded-xl border-2 overflow-hidden cursor-pointer transition-all ${selectedImageId === img.id ? 'border-[#F5B27A] shadow-md ring-2 ring-[#F5B27A]/20' : 'border-gray-200 hover:border-gray-300'}`}
-                >
-                  <img src={img.url} className="w-full h-full object-cover" alt="upload" />
-                  <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">
-                    图{i+1}
-                  </div>
-                  <button 
-                    onClick={(e) => removeImage(img.id, e)}
-                    className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-red-500 transition-colors backdrop-blur-sm"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                  
-                  {/* Status Indicator */}
-                  {img.status !== 'pending' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200">
-                      <div className={`h-full ${img.status === 'done' ? 'bg-green-500' : img.status === 'error' ? 'bg-red-500' : 'bg-[#F5B27A] animate-pulse'} w-full`}></div>
-                    </div>
-                  )}
+              {isProcessingImages ? (
+                <div className="col-span-3 aspect-[3/1] rounded-xl border-2 border-dashed border-[#F5B27A]/50 bg-[#F5B27A]/5 flex items-center justify-center gap-3 animate-pulse">
+                   <Loader2 className="w-5 h-5 animate-spin text-[#F5B27A]" />
+                   <span className="text-xs font-bold text-[#F5B27A] uppercase tracking-wider">正在深度优化图片...</span>
                 </div>
-              ))}
-              
-              {images.length < MAX_IMAGES && (
-                <label 
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={handleDrop}
-                  className="relative flex flex-col items-center justify-center aspect-square rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-[#F5B27A]/5 hover:border-[#F5B27A]/50 transition-all cursor-pointer group"
-                >
-                  <input type="file" className="hidden" onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))} accept="image/*" multiple />
-                  <Upload className="w-5 h-5 text-gray-400 group-hover:text-[#F5B27A] transition-colors mb-1.5" />
-                  <span className="text-[10px] font-medium text-gray-500">点击/拖拽</span>
-                </label>
+              ) : (
+                <>
+                  {images.map((img, i) => (
+                    <div 
+                      key={img.id}
+                      onClick={() => setSelectedImageId(img.id)}
+                      className={`relative aspect-square rounded-xl border-2 overflow-hidden cursor-pointer transition-all ${selectedImageId === img.id ? 'border-[#F5B27A] shadow-md ring-2 ring-[#F5B27A]/20' : 'border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <img src={img.url} className="w-full h-full object-cover" alt="upload" />
+                      <div className="absolute top-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">
+                        图{i+1}
+                      </div>
+                      <button 
+                        onClick={(e) => removeImage(img.id, e)}
+                        className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-red-500 transition-colors backdrop-blur-sm"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      
+                      {/* Status Indicator */}
+                      {img.status !== 'pending' && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200">
+                          <div className={`h-full ${img.status === 'done' ? 'bg-green-500' : img.status === 'error' ? 'bg-red-500' : 'bg-[#F5B27A] animate-pulse'} w-full`}></div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {images.length < MAX_IMAGES && (
+                    <label 
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={handleDrop}
+                      className="relative flex flex-col items-center justify-center aspect-square rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-[#F5B27A]/5 hover:border-[#F5B27A]/50 transition-all cursor-pointer group"
+                    >
+                      <input type="file" className="hidden" onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))} accept="image/*" multiple />
+                      <Upload className="w-5 h-5 text-gray-400 group-hover:text-[#F5B27A] transition-colors mb-1.5" />
+                      <span className="text-[10px] font-medium text-gray-500">点击/拖拽</span>
+                    </label>
+                  )}
+                </>
               )}
             </div>
             

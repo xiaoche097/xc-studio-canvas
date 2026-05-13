@@ -11,7 +11,7 @@ import {
 } from '../services/promptUtils';
 import { STYLE_PACKS, StylePack, StyleVariant } from '../services/stylePacks';
 import { analyzeProductForScene, SceneAnalysisResult, analyzeReferenceScene } from '../services/sceneAnalyzer';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, compressImage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
