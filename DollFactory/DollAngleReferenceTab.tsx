@@ -12,16 +12,16 @@ interface ImageItem {
   mimeType?: string;
 }
 
-const STRUCTURE_LOCK = `[STRICT PRODUCT STRUCTURAL LOCK]:
-The first set of images are the EXACT PRODUCT REFERENCES. 
-You MUST preserve the physical appearance, geometry, proportions, eyes, mouth, fur texture, and specific design details 100%. 
-NO REDESIGN. NO DEFORMATION. NO CHANGING OF THE TOY'S IDENTITY.
+const STRUCTURE_LOCK = `[STRICT PRODUCT IDENTITY LOCK]:
+The first set of images are the PRODUCT REFERENCES (Identity & Appearance). 
+You MUST preserve the physical appearance, color, textures, eyes, mouth, and specific design details 100%. 
+However, you MUST ignore the orientation/angle of these references and strictly apply the angle from the target reference below.
 `;
 
-const ANGLE_INSTRUCTION = `[TARGET ANGLE & POSE]:
-The second set of images are the ANGLE/POSE REFERENCES.
-Extract the camera angle, perspective, and the toy's physical pose/posture from these references.
-Apply this angle and posture to the product.
+const ANGLE_INSTRUCTION = `[MANDATORY ANGLE & VIEWPOINT MAPPING]:
+The last image is the ANGLE/POSTURE REFERENCE (Spatial Orientation).
+Analyze the 3D orientation, tilt, rotation, and camera viewpoint of the subject in this reference.
+CRITICAL: Map the product's identity onto this EXACT 3D orientation. The result must have the same silhouette and perspective as this reference.
 `;
 
 const ECOMMERCE_STYLE = `pure white seamless background, soft even studio lighting, minimal soft shadow directly under the toy, accurate color, sharp focus, high resolution, clean e-commerce product photography.`;
@@ -143,9 +143,9 @@ ${detailDescription || 'None provided. Focus entirely on structural consistency 
 
 [STYLE]: ${ECOMMERCE_STYLE}
 
-[EXECUTION DIRECTIVE]:
-Generate a photorealistic image of the EXACT toy from the product references.
-MANDATORY: Position the toy in the EXACT same angle, tilt, and 3D pose as shown in the LAST reference image.
+MANDATORY: The generated image MUST have the EXACT same 3D orientation, camera angle, and posture as the LAST reference image. 
+Do NOT default to a front-facing view if the reference is angled.
+The silhouette and spatial composition must be identical to the LAST image provided.
 Do NOT blend the toys together. The product reference is the absolute source of truth for the physical design.
 `;
 
