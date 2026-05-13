@@ -331,6 +331,7 @@ const ClothingModificationTab: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isExampleOpen, setIsExampleOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const taskListRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to top when a new task is added
@@ -555,7 +556,7 @@ const ClothingModificationTab: React.FC = () => {
         <div className="max-w-6xl mx-auto space-y-8">
           
           {tasks.length === 0 && (
-            <div className="h-[60vh] flex flex-col items-center justify-center text-slate-200 gap-8 select-none animate-fade-in">
+            <div className="h-[75vh] flex flex-col items-center justify-center text-slate-200 gap-8 select-none animate-fade-in">
                 <div className="bg-white p-10 rounded-[48px] shadow-sm border border-slate-100">
                   <ImageIcon className="w-32 h-32 stroke-[0.3] text-[#ED6D46]/20" />
                 </div>
@@ -616,20 +617,20 @@ const ClothingModificationTab: React.FC = () => {
                      </div>
 
                      {/* Results Area */}
-                     <div className="h-[220px] flex items-center justify-center bg-white rounded-2xl border-2 border-dashed border-slate-50 relative overflow-hidden group/results-container">
+                     <div className="h-[520px] flex items-center justify-center bg-slate-50/30 rounded-2xl border border-slate-100 relative overflow-hidden group/results-container shadow-inner">
                         {task.status === 'refining' || task.status === 'generating' ? (
                            <div className="flex flex-col items-center justify-center gap-4 w-full h-full">
-                              <div className="relative scale-75">
-                                 <Loader2 className="w-10 h-10 text-[#ED6D46] animate-spin stroke-[1.5]" />
+                              <div className="relative scale-100">
+                                 <Loader2 className="w-12 h-12 text-[#ED6D46] animate-spin stroke-[1.5]" />
                                  <div className="absolute inset-0 flex items-center justify-center">
-                                    <Zap className="w-4 h-4 text-orange-400 animate-pulse" />
+                                    <Zap className="w-5 h-5 text-orange-400 animate-pulse" />
                                  </div>
                               </div>
-                              <div className="text-center space-y-1.5">
-                                 <span className="block text-[10px] font-black text-[#ED6D46] tracking-[2.5px] uppercase animate-pulse">
+                              <div className="text-center space-y-2">
+                                 <span className="block text-[12px] font-black text-[#ED6D46] tracking-[4px] uppercase animate-pulse">
                                     {task.status === 'refining' ? 'REFINING' : 'RENDERING'}
                                  </span>
-                                 <span className="block text-[10px] font-bold text-slate-300">智绘创作中，请稍候...</span>
+                                 <span className="block text-xs font-bold text-slate-400">正在为您精心智绘创作，请稍候...</span>
                               </div>
                            </div>
                         ) : task.status === 'error' ? (
@@ -645,17 +646,15 @@ const ClothingModificationTab: React.FC = () => {
                               </div>
                            </div>
                         ) : (
-                           <div className="w-full h-full p-3 overflow-x-auto no-scrollbar scroll-smooth">
-                              <div className="flex gap-4 h-full min-w-full">
+                           <div className="w-full h-full p-4 overflow-x-auto no-scrollbar scroll-smooth">
+                              <div className="flex gap-5 h-full min-w-full items-center">
                                  {task.results.map((url, i) => (
-                                   <div key={i} className="h-full aspect-[3/4] rounded-xl bg-slate-50 border border-slate-100 overflow-hidden relative group/res cursor-pointer shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 shrink-0" onClick={() => setPreviewImage(url)}>
-                                       <img src={url} className="w-full h-full object-cover" />
-                                       <div className="absolute top-2.5 left-2.5 bg-[#ED6D46] text-white text-[7px] font-black px-2 py-0.5 rounded-md z-10 shadow-lg ring-1 ring-white/20">结果 {i + 1}</div>
-                                       <div className="absolute inset-0 bg-gradient-to-t from-[#ED6D46]/40 via-transparent to-transparent opacity-0 group-hover/res:opacity-100 transition-all flex items-center justify-center gap-3">
-                                           <div className="flex gap-2">
-                                              <button onClick={(e) => { e.stopPropagation(); handleDownload(url, i); }} className="w-9 h-9 text-white bg-[#ED6D46] p-2.5 rounded-xl shadow-2xl hover:scale-110 active:scale-90 transition-all flex items-center justify-center"><Download className="w-5 h-5" /></button>
-                                              <button onClick={(e) => { e.stopPropagation(); setPreviewImage(url); }} className="w-9 h-9 text-slate-800 bg-white p-2.5 rounded-xl shadow-2xl hover:scale-110 active:scale-90 transition-all flex items-center justify-center"><Maximize2 className="w-5 h-5 text-[#ED6D46]" /></button>
-                                           </div>
+                                   <div key={i} className="h-full rounded-2xl bg-white border border-slate-100 overflow-hidden relative group/res cursor-pointer shadow-sm hover:shadow-2xl hover:scale-[1.01] transition-all duration-500 shrink-0" onClick={() => setPreviewImage(url)}>
+                                       <img src={url} className="h-full w-auto max-w-none object-contain" />
+                                       <div className="absolute top-3 left-3 bg-[#ED6D46]/90 backdrop-blur-md text-white text-[8px] font-black px-2.5 py-1 rounded-lg z-10 shadow-lg ring-1 ring-white/20">RESULT {i + 1}</div>
+                                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/res:opacity-100 transition-all duration-300 flex items-center justify-center gap-4">
+                                            <button onClick={(e) => { e.stopPropagation(); handleDownload(url, i); }} className="w-12 h-12 text-white bg-[#ED6D46] p-3 rounded-2xl shadow-2xl hover:scale-110 active:scale-95 transition-all flex items-center justify-center"><Download className="w-6 h-6" /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); setPreviewImage(url); }} className="w-12 h-12 text-[#ED6D46] bg-white p-3 rounded-2xl shadow-2xl hover:scale-110 active:scale-95 transition-all flex items-center justify-center"><Maximize2 className="w-6 h-6" /></button>
                                        </div>
                                    </div>
                                  ))}
@@ -709,8 +708,8 @@ const ClothingModificationTab: React.FC = () => {
       </div>
 
       {/* 2. Consolidated Card UI (Bottom Controller) */}
-      <div className="px-8 pb-10 flex flex-col items-center bg-slate-100/90 backdrop-blur-xl border-t border-slate-200/50 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-[50]">
-        <div className="max-w-6xl w-full flex flex-col gap-5 mt-10">
+      <div className="px-8 pb-6 flex flex-col items-center bg-slate-100/90 backdrop-blur-xl border-t border-slate-200/50 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-[50]">
+        <div className="max-w-6xl w-full flex flex-col gap-4 mt-6">
            {/* Hint Row */}
            <div className="flex items-center justify-between w-full animate-slide-up">
               <div className="flex items-center gap-3 bg-orange-50/90 backdrop-blur-xl border border-orange-100/50 px-6 py-2 rounded-full text-[#ED6D46] shadow-sm">
@@ -839,31 +838,50 @@ const ClothingModificationTab: React.FC = () => {
 
       {/* Preview */}
       {previewImage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-md p-10 select-none animate-fade-in" onClick={() => setPreviewImage(null)}>
-            <div className="relative max-w-full max-h-full flex items-center justify-center group" onClick={e => e.stopPropagation()}>
-                <img src={previewImage} className="max-w-full max-h-full object-contain rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.5)]" />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/98 backdrop-blur-xl p-4 md:p-10 select-none animate-fade-in overflow-auto custom-scrollbar" onClick={() => { setPreviewImage(null); setZoomed(false); }}>
+            <div 
+              className={`relative transition-all duration-500 ease-out flex items-center justify-center ${zoomed ? 'min-w-full min-h-full p-[10vh] cursor-zoom-out' : 'w-full h-full cursor-zoom-in'}`} 
+              onClick={e => { e.stopPropagation(); setZoomed(!zoomed); }}
+            >
+                <img 
+                  src={previewImage} 
+                  style={{ 
+                    transform: zoomed ? 'scale(1.5)' : 'scale(1)',
+                    transformOrigin: 'center center'
+                  }}
+                  className="max-w-[90%] max-h-[90%] object-contain rounded-xl shadow-[0_0_120px_rgba(0,0,0,0.8)] transition-all duration-500" 
+                />
                 
                 {/* Float Controls */}
-                <div className="absolute top-6 right-6 flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                <div className="fixed top-8 right-8 flex items-center gap-4 z-[110]" onClick={e => e.stopPropagation()}>
+                    <button 
+                      onClick={() => setZoomed(!zoomed)}
+                      className="bg-white/10 hover:bg-white/25 backdrop-blur-xl text-white p-4 rounded-[20px] transition-all hover:scale-110 border border-white/10 flex items-center gap-2 shadow-2xl"
+                      title={zoomed ? "缩小查看全图" : "放大查看细节"}
+                    >
+                        {zoomed ? <Maximize2 className="w-6 h-6 rotate-45" /> : <Maximize2 className="w-6 h-6" />}
+                    </button>
                     <button 
                       onClick={() => handleDownload(previewImage, 0)}
-                      className="bg-white/10 hover:bg-white/20 backdrop-blur-md text-white p-4 rounded-2xl transition-all hover:scale-110 border border-white/20"
-                      title="下载图片"
+                      className="bg-[#ED6D46] hover:bg-[#f97316] text-white p-4 rounded-[20px] transition-all hover:scale-110 shadow-2xl"
+                      title="下载高清原图"
                     >
                         <Download className="w-6 h-6" />
                     </button>
                     <button 
-                      onClick={() => setPreviewImage(null)}
-                      className="bg-white/10 hover:bg-white/20 backdrop-blur-md text-white p-4 rounded-2xl transition-all hover:scale-110 border border-white/20"
-                      title="关闭预览"
+                      onClick={() => { setPreviewImage(null); setZoomed(false); }}
+                      className="bg-white hover:bg-slate-100 text-slate-800 p-4 rounded-[20px] transition-all hover:scale-110 shadow-2xl"
+                      title="关闭"
                     >
                         <X className="w-6 h-6" />
                     </button>
                 </div>
 
-                <div className="absolute bottom-[-60px] left-1/2 -translate-x-1/2 text-white/40 text-xs font-bold tracking-widest uppercase">
-                    Press anywhere outside to close
-                </div>
+                {!zoomed && (
+                    <div className="absolute bottom-[-50px] left-1/2 -translate-x-1/2 text-white/50 text-[10px] font-black tracking-[4px] uppercase whitespace-nowrap animate-pulse">
+                        Click Image to Zoom / Explore Details
+                    </div>
+                )}
             </div>
         </div>
       )}

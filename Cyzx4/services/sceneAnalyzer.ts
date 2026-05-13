@@ -74,6 +74,8 @@ function buildAnalysisPrompt(userHint: string, boardType: SceneGenerationBoardTy
 
 ${userHint ? `**用户补充说明**: "${userHint}"` : '**用户未提供额外说明**，请完全依赖图片分析。'}
 
+**参考场景图状态**: 如果用户额外上传了“参考场景图”，你必须**优先提取**该图中的环境、构图、光影和人物交互方式，确保生成方案与参考图保持高度一致。你需要详细分析参考图中的背景家具、色调、光源方向和景别。
+
 **分析维度**（你必须推断以下所有字段）：
 
 1. **产品识别** (如果上传了多个不同的产品，请在名称和品类中全部列出)
@@ -141,7 +143,8 @@ ${userHint ? `**用户补充说明**: "${userHint}"` : '**用户未提供额外�
 export async function analyzeProductForScene(
   images: { base64: string; mimeType: string }[],
   userHint: string = '',
-  boardType: SceneGenerationBoardType = 'main'
+  boardType: SceneGenerationBoardType = 'main',
+  referenceSceneImage?: { base64: string; mimeType: string }
 ): Promise<SceneAnalysisResult> {
   const ai = getAiClient();
   
@@ -156,6 +159,16 @@ export async function analyzeProductForScene(
       },
     });
   });
+
+  // Add reference scene image if provided (as the LAST image part)
+  if (referenceSceneImage) {
+    parts.push({
+      inlineData: {
+        mimeType: referenceSceneImage.mimeType,
+        data: referenceSceneImage.base64,
+      },
+    });
+  }
   
   // Add analysis prompt
   parts.push({ text: buildAnalysisPrompt(userHint, boardType) });

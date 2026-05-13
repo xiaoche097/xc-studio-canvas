@@ -351,25 +351,18 @@ const SceneGenerationTab: React.FC = () => {
         }))
       );
       
-      const result = await analyzeProductForScene(images, form.userHint, boardType);
+      const refImgData = referenceSceneImage ? {
+        base64: await blobToBase64(referenceSceneImage.file),
+        mimeType: referenceSceneImage.file.type
+      } : undefined;
       
-      // Update analysis result card, but PROTECT fields if they were already set by a reference image
-      setAnalysisResult(prev => {
-        if (!prev) return result;
-        // If a reference image is present, we keep the scene-specific fields from the previous state
-        const hasRef = !!referenceSceneImage;
-        return {
-          ...result,
-          sceneDirection: hasRef ? prev.sceneDirection : result.sceneDirection,
-          interactionHint: hasRef ? prev.interactionHint : result.interactionHint,
-          colorStyle: hasRef ? prev.colorStyle : result.colorStyle,
-          modelPersonaPreset: hasRef ? prev.modelPersonaPreset : result.modelPersonaPreset,
-        };
-      });
+      const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData);
       
-      // Apply analysis results to form (user overrides and reference-inferred scene info are preserved)
+      // Update analysis result card with the new unified results
+      setAnalysisResult(result);
+      
+      // Apply analysis results to form
       setForm(prev => {
-        const hasRef = !!referenceSceneImage;
         return {
           ...prev,
           productName: prev.productName || result.productName,
@@ -378,11 +371,11 @@ const SceneGenerationTab: React.FC = () => {
           productSize: prev.productSize || result.productSize,
           material: prev.material || result.material,
           sellingPoints: prev.sellingPoints || result.sellingPoints,
-          // If reference image exists, NEVER overwrite these scene fields
-          sceneDirection: hasRef ? prev.sceneDirection : (prev.sceneDirection || result.sceneDirection),
-          interactionHint: hasRef ? prev.interactionHint : result.interactionHint,
-          colorStyle: hasRef ? prev.colorStyle : (prev.colorStyle || result.colorStyle),
-          modelPersonaPreset: hasRef ? prev.modelPersonaPreset : result.modelPersonaPreset,
+          // Now these will reflect the reference image if it was provided
+          sceneDirection: result.sceneDirection,
+          interactionHint: result.interactionHint,
+          colorStyle: result.colorStyle,
+          modelPersonaPreset: result.modelPersonaPreset,
           
           targetAudience: prev.targetAudience || result.targetAudience,
           modelEthnicity: result.modelEthnicity,
@@ -426,17 +419,39 @@ const SceneGenerationTab: React.FC = () => {
         }));
         
         setAnalysisResult(prev => {
-          if (!prev) return null; // Only sync if product analysis has run
-          return { 
-            ...prev, 
+          const baseResult = prev || {
+            productName: '商品',
+            productCategory: '通用产品',
+            productType: 'general',
+            productSize: '',
+            material: '',
+            sellingPoints: '',
             sceneDirection: result.sceneDirection,
-            interactionHint: result.interactionHint || prev.interactionHint,
-            colorStyle: result.colorStyle || prev.colorStyle,
+            targetAudience: '',
+            modelPersonaPreset: result.modelPersonaPreset || '美国都市女性',
+            modelEthnicity: '自动匹配',
+            modelAgeGroup: '20-30岁',
+            modelFamilyStructure: '单人',
+            modelLifestyle: '居家休闲',
+            colorStyle: result.colorStyle || '',
+            usageScenario: '',
+            brandTone: '',
+            interactionHint: result.interactionHint || 'naturally interacting with the product',
+            recommendedCamera: 'iphone',
+            recommendedShotType: 'medium',
+            sizeCategory: 'medium',
+          };
+          return { 
+            ...baseResult, 
+            sceneDirection: result.sceneDirection,
+            interactionHint: result.interactionHint || baseResult.interactionHint,
+            colorStyle: result.colorStyle || baseResult.colorStyle,
             modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
               ? result.modelPersonaPreset 
-              : prev.modelPersonaPreset
+              : baseResult.modelPersonaPreset
           };
         });
+        setShowAnalysisDetail(true);
       }
     } catch (err) {
       console.error('Reference scene analysis failed:', err);
