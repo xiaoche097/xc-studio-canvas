@@ -14,7 +14,7 @@ import SettingsTab from './components/SettingsTab';
 import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AppMode>(AppMode.PLANNING);
+  const [activeTab, setActiveTab] = useState<AppMode>(AppMode.FUSION);
   const [sharedImage, setSharedImage] = useState<string | null>(null);
 
   const handleImageGenerated = (url: string) => {
@@ -39,10 +39,10 @@ const App: React.FC = () => {
           <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 hidden md:block">工作台</div>
 
           <NavButton
-            active={activeTab === AppMode.PLANNING}
-            onClick={() => setActiveTab(AppMode.PLANNING)}
-            icon={<Camera className="w-5 h-5" />}
-            label="视觉策划"
+            active={activeTab === AppMode.FUSION}
+            onClick={() => setActiveTab(AppMode.FUSION)}
+            icon={<Layers className="w-5 h-5" />}
+            label="图像生成"
           />
           <NavButton
             active={activeTab === AppMode.SEAT_COVER}
@@ -57,10 +57,10 @@ const App: React.FC = () => {
             label="产品替换"
           />
           <NavButton
-            active={activeTab === AppMode.FUSION}
-            onClick={() => setActiveTab(AppMode.FUSION)}
-            icon={<Layers className="w-5 h-5" />}
-            label="图像生成"
+            active={activeTab === AppMode.PLANNING}
+            onClick={() => setActiveTab(AppMode.PLANNING)}
+            icon={<Camera className="w-5 h-5" />}
+            label="视觉策划"
           />
           <NavButton
             active={activeTab === AppMode.INPAINTING}

@@ -29,7 +29,14 @@ interface AgentHomeProps {
 export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash'); // Default to 3.1 Flash
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite-preview'); // Default to 3.1 Flash
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  
+  const HOME_MODELS = [
+    { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash', badge: '推荐' },
+    { id: 'gpt-5.5', name: 'GPT-5.5 Global', badge: 'New' },
+    { id: 'claude-opus-4-7', name: 'Claude 4.7 Opus', badge: 'Pro' },
+  ];
   
   const [agentName, setAgentName] = useState('XcAI 首席电商视觉策划师');
 
@@ -251,16 +258,57 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
                 {/* Model Selector */}
                 <div className="relative flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setInitialSettingsTab('model');
-                      setShowUnifiedSettings(true);
-                    }}
-                    className="px-4 py-2 rounded-full bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2 transition-all border border-gray-100 dark:border-white/5"
-                  >
-                    <SettingsIcon />
-                    {selectedModel === 'gemini-3-pro-preview' ? 'Gemini 3 Pro' : selectedModel === 'gemini-3.1-flash' ? 'Gemini 3.1 Flash' : selectedModel === 'gpt-image-2' ? 'Imagen 2.0' : 'Gemini 2.5 Pro'}
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowModelDropdown(!showModelDropdown)}
+                      className={`px-4 py-2 rounded-full transition-all border flex items-center gap-2 text-sm font-medium ${
+                        showModelDropdown 
+                        ? "bg-brand-orange/10 border-brand-orange/30 text-brand-orange shadow-inner" 
+                        : "bg-gray-50 dark:bg-white/5 border-gray-100 dark:border-white/5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10"
+                      }`}
+                    >
+                      <SettingsIcon className={`w-4 h-4 transition-transform duration-300 ${showModelDropdown ? 'rotate-90' : ''}`} />
+                      {HOME_MODELS.find(m => m.id === selectedModel)?.name || 'Gemini 3.1 Flash'}
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {showModelDropdown && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowModelDropdown(false)}></div>
+                        <div className="absolute bottom-full mb-3 left-0 w-64 bg-white dark:bg-[#1A1A1A] rounded-2xl shadow-2xl border border-gray-100 dark:border-white/10 p-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200 backdrop-blur-xl bg-white/90 dark:bg-[#1A1A1A]/90">
+                          <div className="px-3 py-2 mb-1">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 dark:text-gray-500">选择智能模型</p>
+                          </div>
+                          {HOME_MODELS.map((model) => (
+                            <button
+                              key={model.id}
+                              onClick={() => {
+                                setSelectedModel(model.id);
+                                setShowModelDropdown(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${
+                                selectedModel === model.id 
+                                ? 'bg-brand-orange/10 text-brand-orange' 
+                                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-2 h-2 rounded-full ${selectedModel === model.id ? 'bg-brand-orange animate-pulse' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                                <span className="text-sm font-bold">{model.name}</span>
+                              </div>
+                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
+                                model.badge === '推荐' ? 'bg-green-100 text-green-600 dark:bg-green-500/20' :
+                                model.badge === 'New' ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/20' :
+                                'bg-purple-100 text-purple-600 dark:bg-purple-500/20'
+                              }`}>
+                                {model.badge}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
 
                   <button
                     onClick={() => {

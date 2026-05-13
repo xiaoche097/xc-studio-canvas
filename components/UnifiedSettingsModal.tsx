@@ -34,9 +34,9 @@ const DEFAULT_BASE_URL = 'https://yunwu.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
 const AVAILABLE_MODELS = [
-  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '快速响应模型', badge: '推荐', type: 'text' },
+  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash', description: '快速响应模型', badge: '推荐', type: 'text' },
   { id: 'gpt-5.5', name: 'GPT-5.5 Global', description: '顶尖逻辑推理模型', badge: 'New', type: 'text' },
-  { id: 'claude-opus-4-7id', name: 'Claude 4 Opus', description: '深度语义理解模型', badge: '专业', type: 'text' },
+  { id: 'claude-opus-4-7', name: 'Claude 4.7 Opus', description: '深度语义理解模型', badge: '专业', type: 'text' },
   { id: 'gpt-image-2', name: 'Imagen 2.0', description: '极致写实商业精修', badge: '图像', type: 'image' },
   { id: 'nanobanana2', name: 'Banana 2.0', description: '高品质商业创意模型', badge: 'New', type: 'image' },
   { id: 'nanobananapro', name: 'Banana Pro', description: '专业级摄影写实模型', badge: 'Pro', type: 'image' },
