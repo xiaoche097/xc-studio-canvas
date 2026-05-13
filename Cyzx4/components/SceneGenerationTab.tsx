@@ -928,6 +928,7 @@ const SceneGenerationTab: React.FC = () => {
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-purple-500 text-lg">📷</span>
                 <h3 className="font-semibold text-pastel-text text-sm">设备预设 (Camera / Device)</h3>
+                {!!analysisResult && <span className="text-[10px] text-orange-500 font-medium bg-orange-50 px-1.5 py-0.5 rounded animate-pulse">AI 已锁定建议</span>}
                 <span className="text-[10px] text-purple-500 font-medium bg-purple-50 px-1.5 py-0.5 rounded">影响质感色调</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -942,11 +943,12 @@ const SceneGenerationTab: React.FC = () => {
                   <button
                     key={cam.value}
                     onClick={() => updateForm('cameraDevice', cam.value)}
+                    disabled={!!analysisResult}
                     className={`flex flex-col items-start p-2 rounded-lg border text-left transition-all ${
                       form.cameraDevice === cam.value
                         ? 'bg-purple-50 border-purple-300 text-purple-700 shadow-sm'
                         : 'bg-white border-pastel-border text-pastel-muted hover:border-purple-200 hover:bg-purple-50/30'
-                    }`}
+                    } ${!!analysisResult ? 'opacity-60 cursor-not-allowed grayscale-[0.3]' : ''}`}
                   >
                     <span className="text-sm font-medium">{cam.label}</span>
                     <span className="text-[10px] opacity-70 mt-0.5">{cam.desc}</span>
@@ -960,6 +962,7 @@ const SceneGenerationTab: React.FC = () => {
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-blue-500 text-lg">🖼️</span>
                 <h3 className="font-semibold text-pastel-text text-sm">画面景别 (Shot Type)</h3>
+                {!!analysisResult && <span className="text-[10px] text-orange-500 font-medium bg-orange-50 px-1.5 py-0.5 rounded animate-pulse">AI 已锁定建议</span>}
                 <span className="text-[10px] text-blue-500 font-medium bg-blue-50 px-1.5 py-0.5 rounded">影响构图远近</span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -973,11 +976,12 @@ const SceneGenerationTab: React.FC = () => {
                   <button
                     key={shot.value}
                     onClick={() => updateForm('shotType', shot.value)}
+                    disabled={!!analysisResult}
                     className={`px-3 py-2 rounded-lg text-sm transition-all border ${
                       form.shotType === shot.value
                         ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium shadow-sm'
                         : 'bg-white border-pastel-border text-pastel-muted hover:border-blue-200 hover:bg-blue-50/30'
-                    }`}
+                    } ${!!analysisResult ? 'opacity-60 cursor-not-allowed grayscale-[0.3]' : ''}`}
                   >
                     {shot.label}
                   </button>
