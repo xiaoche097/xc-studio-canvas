@@ -278,7 +278,7 @@ const SceneGenerationTab: React.FC = () => {
 
   const addFiles = (files: File[]) => {
     const validFiles = files.filter(file => file.type.startsWith('image/'));
-    const nextFiles = validFiles.slice(0, Math.max(0, 4 - uploadedImages.length));
+    const nextFiles = validFiles.slice(0, Math.max(0, 10 - uploadedImages.length));
     if (nextFiles.length === 0) return;
 
     const mapped = nextFiles.map(file => ({
@@ -286,7 +286,7 @@ const SceneGenerationTab: React.FC = () => {
       preview: URL.createObjectURL(file),
     }));
 
-    setUploadedImages(prev => [...prev, ...mapped].slice(0, 5));
+    setUploadedImages(prev => [...prev, ...mapped].slice(0, 10));
     setError(null);
   };
 
@@ -706,7 +706,7 @@ const SceneGenerationTab: React.FC = () => {
                   className="hidden"
                 />
                 {uploadedImages.length > 0 ? (
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                     {uploadedImages.map((img, index) => (
                       <div key={index} className="relative group/item">
                         <img src={img.preview} alt={`product-${index}`} className="w-full h-20 object-cover rounded-lg border border-pastel-border" />
@@ -721,7 +721,7 @@ const SceneGenerationTab: React.FC = () => {
                         </button>
                       </div>
                     ))}
-                    {uploadedImages.length < 4 && (
+                    {uploadedImages.length < 10 && (
                       <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
                         <Upload className="w-4 h-4" />
                       </div>
@@ -731,7 +731,7 @@ const SceneGenerationTab: React.FC = () => {
                   <div className="text-center py-5">
                     <Upload className="w-7 h-7 mx-auto mb-2 text-pastel-muted" />
                     <p className="text-sm text-pastel-highlight font-medium">上传产品图片</p>
-                    <p className="text-xs text-pastel-muted mt-1">支持拖拽、粘贴，JPG / PNG / WEBP（最多4张）</p>
+                    <p className="text-xs text-pastel-muted mt-1">支持拖拽、粘贴，JPG / PNG / WEBP（最多10张）</p>
                   </div>
                 )}
               </div>
