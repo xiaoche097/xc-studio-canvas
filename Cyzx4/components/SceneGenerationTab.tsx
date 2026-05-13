@@ -392,6 +392,9 @@ const SceneGenerationTab: React.FC = () => {
           usageScenario: prev.usageScenario || result.usageScenario,
           brandTone: prev.brandTone || result.brandTone,
           sizeCategory: result.sizeCategory,
+          // Auto-fill Camera and Shot Type if they are set to 'auto'
+          cameraDevice: prev.cameraDevice === 'auto' ? result.recommendedCamera : prev.cameraDevice,
+          shotType: prev.shotType === 'auto' ? result.recommendedShotType : prev.shotType,
         };
       });
     } catch (err) {

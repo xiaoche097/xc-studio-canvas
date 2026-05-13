@@ -562,24 +562,30 @@ export function buildRealisticInteractionPrompt(input: SceneGenerationPromptInpu
  */
 const SCENE_VARIATION_POOL: Record<string, string[]> = {
     livingroom: [
+        "modern clean living room with a colorful play mat, toy storage bins in pastel colors, a small child-sized armchair, and bright natural light — lively American family room",
         "mid-century modern sofa with tapered legs, abstract gallery wall, terrazzo coffee table, warm Edison bulb floor lamp — classic American mid-century home feel",
-        "deep charcoal sectional sofa, floating wood media console, large American football throw pillow, area rug with bold geometric pattern — suburban American man-cave vibe",
+        "deep charcoal sectional sofa, floating wood media console, area rug with bold geometric pattern — suburban American man-cave vibe",
         "cream boucle sofa with navy accent pillows, shiplap accent wall, lantern-style pendant lights, woven seagrass basket — American coastal farmhouse",
-        "velvet hunter-green chesterfield sofa, built-in bookcase with novels and trophies, brass table lamp, bourbon-colored leather armchair — East Coast library-style living room",
-        "large sectional in warm camel leather, distressed wood coffee table, cowhide area rug, industrial metal shelving with sports memorabilia — American ranch home den",
-        "modern gray sleeper sofa, floating walnut shelves, oversized USA city skyline canvas print, media console with cable box and game controller — urban American apartment",
-        "comfortable navy blue slipcovered sofa, American flag throw blanket, white wainscoting wall, Pottery Barn-style wood side table, family photo wall — classic suburban living room",
-        "wide L-shaped sofa in oatmeal fabric, thick shag carpet, oversized TV mounted above fireplace, mason jar decor — American family great room",
+        "large sectional in warm camel leather, distressed wood coffee table, cowhide area rug, industrial metal shelving — American ranch home den",
+        "modern gray sleeper sofa, floating walnut shelves, oversized USA city skyline canvas print, media console — urban American apartment",
+        "comfortable navy blue slipcovered sofa, white wainscoting wall, Pottery Barn-style wood side table, family photo wall — classic suburban living room",
+        "wide L-shaped sofa in oatmeal fabric, thick shag carpet, oversized TV mounted above fireplace — American family great room",
     ],
     bedroom: [
+        "bright children's bedroom with a colorful rug, low wooden bookshelf filled with picture books, a small activity table, and playful wall stickers — cheerful American kids room",
         "king bed with upholstered headboard in warm greige, bedside tables with charging stations, bedside books, white plantation shutters — American suburban master bedroom",
         "queen bed with navy duvet and white piping, shiplap wall, antique wood dresser, framed vintage map art — American coastal cottage bedroom",
-        "California King platform bed, cable-knit throw, side-by-side nightstands with reading lamps, neutral area rug — modern American bedroom",
-        "farmhouse wooden bed frame in distressed white, patchwork quilt with star pattern, vintage alarm clock, braided oval rug — American country farmhouse bedroom",
+        "California King platform bed, side-by-side nightstands with reading lamps, neutral area rug — modern American bedroom",
+        "farmhouse wooden bed frame in distressed white, vintage alarm clock, braided oval rug — American country farmhouse bedroom",
         "modern walnut bed with floating nightstands, abstract canvas print, blackout linen curtains, succulent on dresser — urban American apartment bedroom",
         "upholstered bed in dusty blush, mirrored dresser, string fairy lights, framed inspirational quote — American teenage girl bedroom",
-        "college dorm-style lofted bed over study desk, string lights, sports team poster, mini fridge — American dorm room",
-        "guest bedroom with white quilt, extra throw pillows, small welcome basket on nightstand, neutral curtains — guest-ready American home bedroom",
+        "college dorm-style lofted bed over study desk, sports team poster, mini fridge — American dorm room",
+    ],
+    kids_room: [
+        "cheerful nursery with a white crib, a soft pastel rocking chair, a woven basket full of toys, and a large sun-drenched window — premium American nursery",
+        "vibrant play room with a low activity table, colorful storage cubes, a chalkboard wall, and a soft foam floor mat — lively American play space",
+        "modern kids bedroom with a twin bed, whimsical animal-themed wall art, a small teepee tent in the corner, and a bright star-patterned rug — playful American child's room",
+        "clean airy bedroom with a low wooden bed, a colorful rainbow wall decal, a small desk with crayons, and a shelf displaying plush toys — bright and lively kids space",
     ],
     kitchen: [
         "white subway tile backsplash, stainless KitchenAid mixer on counter, open wood shelving with American-made ceramic mugs, pendant lights over island — suburban American kitchen",
@@ -594,7 +600,7 @@ const SCENE_VARIATION_POOL: Record<string, string[]> = {
         "wide front porch with white rocking chairs, hanging fern baskets, welcome mat, American suburban house facade",
         "urban rooftop deck in a US city, string lights, potted herbs, skyline view, patio furniture — American rooftop living",
         "large suburban lawn with kids' swing set, garden hose reel, white picket fence, American flag on porch",
-        "lakeside picnic in a US national park, plaid flannel blanket, cooler, Yeti cups, pine trees in background",
+        "lakeside picnic in a US national park, cooler, Yeti cups, pine trees in background",
         "family camping campsite with REI tent, campfire, s'mores setup, camp chairs, Forest Park USA setting",
         "urban street crosswalk with motion-blurred yellow taxi, skyscraper background, modern glass architecture, street-style fashion influencer vibe",
         "minimalist concrete courtyard with a single architectural bench, harsh direct sunlight, high-contrast shadows, premium high-end fashion editorial feel",
@@ -610,7 +616,7 @@ const SCENE_VARIATION_POOL: Record<string, string[]> = {
     ],
     generic: [
         "bright airy American home interior, large picture windows, natural north light, Restoration Hardware-inspired decor",
-        "warm cozy American living space with layered textures, flannel throw, soft amber overhead lighting, family photos",
+        "warm cozy American living space with layered textures, soft amber overhead lighting, family photos",
         "clean contemporary American interior with open-concept layout, neutral warm palette, Wayfair-style furniture",
         "eclectic American lived-in space, gallery wall with family prints, mixed vintage and Target-modern furniture",
         "sun-drenched casual American morning scene, indoor plants, white walls, rustic wood accents, real home feel",
@@ -723,15 +729,21 @@ const PERSONA_PRESET_MAP: Record<string, string> = {
  * Pick a random environment variation to inject diversity.
  * Analyzes sceneDirection for known room types and picks a random detail set.
  */
-function getRandomSceneVariation(sceneDirection: string): string {
+function getRandomSceneVariation(sceneDirection: string, productType?: SceneGenerationProductType): string {
     const lower = (sceneDirection || '').toLowerCase();
     let pool: string[] = SCENE_VARIATION_POOL.generic;
 
-    if (/客厅|living.*room|client.*room/.test(lower)) pool = SCENE_VARIATION_POOL.livingroom;
-    else if (/卧室|卧房|bedroom/.test(lower)) pool = SCENE_VARIATION_POOL.bedroom;
-    else if (/厨房|kitchen/.test(lower)) pool = SCENE_VARIATION_POOL.kitchen;
-    else if (/户外|露营|庞物|庭院|花园|outdoor|backyard|patio|garden|camping/.test(lower)) pool = SCENE_VARIATION_POOL.outdoor;
-    else if (/办公|书房|office|study/.test(lower)) pool = SCENE_VARIATION_POOL.office;
+    if (productType === 'plush') {
+        if (/卧室|卧房|儿童房|bedroom|kids|nursery|child/.test(lower)) pool = SCENE_VARIATION_POOL.kids_room;
+        else if (/客厅|living.*room|play.*room/.test(lower)) pool = [SCENE_VARIATION_POOL.livingroom[0], ...SCENE_VARIATION_POOL.kids_room];
+        else pool = SCENE_VARIATION_POOL.kids_room;
+    } else {
+        if (/客厅|living.*room|client.*room/.test(lower)) pool = SCENE_VARIATION_POOL.livingroom;
+        else if (/卧室|卧房|bedroom/.test(lower)) pool = SCENE_VARIATION_POOL.bedroom;
+        else if (/厨房|kitchen/.test(lower)) pool = SCENE_VARIATION_POOL.kitchen;
+        else if (/户外|露营|庞物|庭院|花园|outdoor|backyard|patio|garden|camping/.test(lower)) pool = SCENE_VARIATION_POOL.outdoor;
+        else if (/办公|书房|office|study/.test(lower)) pool = SCENE_VARIATION_POOL.office;
+    }
 
     // Pick random index
     const idx = Math.floor(Math.random() * pool.length);
@@ -839,7 +851,6 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     let styleVariant: any = null;
 
     if (input.stylePackId && input.styleVariantId) {
-        // stylePackData handled by top-level import
         stylePackData = STYLE_PACKS.find((p: any) => p.stylePackName.includes(input.stylePackId!));
         if (stylePackData) {
             styleVariant = stylePackData.styleVariants.find((v: any) => v.id === input.styleVariantId);
@@ -876,7 +887,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     const hasDetailedDirection = (input.sceneDirection?.length || 0) > 40;
     const sceneVariation = hasDetailedDirection 
         ? "" 
-        : getRandomSceneVariation(input.sceneDirection || input.usageScenario || '');
+        : getRandomSceneVariation(input.sceneDirection || input.usageScenario || '', input.productType);
         
     const environment = [
         input.sceneDirection,
@@ -951,7 +962,6 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         qualityBooster: customQuality,
     });
 
-    // Board-type specific instructions
     const boardInstructions: Record<SceneGenerationBoardType, string> = {
         main: [
             `This is an Amazon secondary listing image (1:1 square) for the product: "${productTitleContext}".`,
@@ -960,7 +970,9 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
             input.productType === 'apparel' ? 
             "Incorporate one of these authentic social media visual logics specifically for apparel: 1) Minimalist Chic: clean color blocks, minimalist backgrounds. 2) American Retro/Y2K: industrial backgrounds. 3) Effortless Loungewear: cozy clean home or cafe settings. 4) Vacation Baddie: sun-drenched settings." : "",
-            "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
+            input.productType === 'plush' 
+            ? "SCENE REQUIREMENT: For toys/plush, create a lively and child-friendly environment. The background should be organized and premium, but feel energetic and cheerful. Avoid excessive clutter, but ensure the scene has 'rendering power' with playful decorations (e.g., toy storage, colorful rugs, bright walls)."
+            : "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
             "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
             "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' skin, NO symmetrical poses, and NO studio lighting. Introduce slight film grain to break the 'AI look'."
         ].filter(Boolean).join(' '),
@@ -971,7 +983,9 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
             input.productType === 'apparel' ? 
             "Incorporate one of these authentic social media visual logics specifically for apparel: 1) Minimalist Chic: clean color blocks, minimalist backgrounds. 2) American Retro/Y2K: industrial backgrounds. 3) Effortless Loungewear: cozy clean home or cafe settings. 4) Vacation Baddie: sun-drenched settings." : "",
-            "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
+            input.productType === 'plush' 
+            ? "SCENE REQUIREMENT: For toys/plush, create a lively and child-friendly environment. The background should be organized and premium, but feel energetic and cheerful. Avoid excessive clutter, but ensure the scene has 'rendering power' with playful decorations (e.g., toy storage, colorful rugs, bright walls)."
+            : "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
             "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
             "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' skin, NO symmetrical poses, and NO studio lighting. Introduce slight film grain to break the 'AI look'."
         ].filter(Boolean).join(' '),
@@ -1026,7 +1040,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     const realismPrompt = buildRealisticInteractionPrompt(input);
 
     const plushSpecificGuide = input.productType === 'plush' 
-        ? "SCENE RULES FOR PLUSH: Use real North American middle-class home scenes (e.g., kids bedroom, living room sofa, fluffy rug, window bay, or clean outdoor lawn). Keep background clean and uncluttered. MAX 3 props total. Emphasize a warm, healing, and natural lifestyle narrative without stiff posing. If children are present, show natural interaction (hugging, looking at toy)." 
+        ? "SCENE RULES FOR PLUSH: Use lively and premium North American home scenes (e.g., cheerful kids bedroom, colorful play room, or sun-drenched family area). The environment must feel child-friendly and energetic with vibrant but tasteful colors. Keep background organized and premium. MAX 3 props total. DO NOT add blankets or throws unless specifically requested. Emphasize a warm, healing, and joyful lifestyle narrative." 
         : "";
 
     let finalPromptParts = [

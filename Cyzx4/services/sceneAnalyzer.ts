@@ -47,6 +47,10 @@ export interface SceneAnalysisResult {
   brandTone: string;
   /** Physical interaction hint for realism */
   interactionHint: string;
+  /** Recommended camera device preset */
+  recommendedCamera: 'auto' | 'iphone' | 'fuji' | 'canon' | 'sony' | 'polaroid';
+  /** Recommended shot type / framing */
+  recommendedShotType: 'auto' | 'wide' | 'medium' | 'close' | 'macro';
   /** Estimated size category for physics rules */
   sizeCategory: 'tiny' | 'small' | 'medium' | 'large' | 'wearable';
 }
@@ -114,12 +118,9 @@ ${userHint ? `**用户补充说明**: "${userHint}"` : '**用户未提供额外�
 
 **推断原则**：
 - **语言红线**：绝对禁止使用“童话感”、“梦幻”、“魔法”、“插画风”等脱离现实的修饰词，必须使用“真实感”、“纪实感”、“生活气息”来描述。
-- 如果是毛绒/玩偶产品 → 优先推荐真实的北美中产家庭亲子场景（如儿童房、客厅沙发、毛绒地毯），必须强调真实质感，禁用“童话”等字眼。
-- 如果是服装产品 → 优先推荐与服装风格匹配的真实生活方式场景（如街头、咖啡馆、通勤路上）。
-- 如果是家居产品 → 优先推荐客厅/卧室居家场景。
-- 如果是食品/饮品 → 优先推荐厨房/餐厅/下午茶场景。
-- 如果产品面向儿童 → 推荐亲子或儿童真实的日常玩耍场景。
-- 场景推荐必须高度贴合真实的美国本土生活方式，具有顶级商业纪实摄影感。
+- 如果是毛绒/玩偶产品 → 优先推荐真实且富有孩童感的北美家庭场景（如色彩活泼的儿童房、游戏区、明亮的客厅角落）。色调应趋向“明亮活泼”或“温馨治愈”，避免过于朴素或深沉的色调。
+- 如果产品面向儿童 → 必须确保场景装饰和家具具有“孩童感”（如可爱的地毯、玩具收纳、明亮的软装），增强产品的渲染力和吸引力。
+- 场景推荐必须高度贴合真实的美国本土生活方式，具有顶级商业纪实摄影感，同时兼顾玩具类产品的活泼氛围。
 
 **OUTPUT FORMAT**: 
 返回纯 JSON 对象，不要用 markdown 代码块包裹。确保所有 string value 用双引号。
@@ -214,6 +215,8 @@ function validateAnalysisResult(raw: any): SceneAnalysisResult {
     usageScenario: raw.usageScenario || '',
     brandTone: raw.brandTone || '',
     interactionHint: raw.interactionHint || 'naturally interacting with the product',
+    recommendedCamera: ['iphone', 'fuji', 'canon', 'sony', 'polaroid'].includes(raw.recommendedCamera) ? raw.recommendedCamera : 'iphone',
+    recommendedShotType: ['wide', 'medium', 'close', 'macro'].includes(raw.recommendedShotType) ? raw.recommendedShotType : 'medium',
     sizeCategory: VALID_SIZE_CATEGORIES.includes(raw.sizeCategory) ? raw.sizeCategory : 'medium',
   };
 }
@@ -237,6 +240,8 @@ function getDefaultAnalysisResult(): SceneAnalysisResult {
     usageScenario: '',
     brandTone: '',
     interactionHint: 'naturally interacting with the product',
+    recommendedCamera: 'iphone',
+    recommendedShotType: 'medium',
     sizeCategory: 'medium',
   };
 }
