@@ -129,24 +129,14 @@ const DollAngleReferenceTab: React.FC = () => {
           { base64: angleImg.base64!, mimeType: angleImg.mimeType! }
         ];
 
-        const prompt = `[DOLL ANGLE & POSTURE TRANSFORMATION]
+        const prompt = `[DOLL POSE & VIEWPOINT TRANSFER]
         
-${STRUCTURE_LOCK}
-NOTE: The first ${productRefs.length} images are the PRODUCT REFERENCES.
-
-${ANGLE_INSTRUCTION}
-CRITICAL: The LAST image provided is the MANDATORY TARGET ANGLE/POSE REFERENCE. 
-You MUST match the camera perspective, toy orientation, and posture shown in that reference image with 100% precision. 
-
-[ADDITIONAL DETAILS]:
-${detailDescription || 'None provided. Focus entirely on structural consistency and angle matching.'}
+[IDENTITY - HIGHEST PRIORITY]: The first ${productRefs.length} images are the ABSOLUTE source of truth. Maintain 100% identity, color, and texture consistency.
+[SINGLE OBJECT RULE]: ONLY the product from the reference images is allowed. NO other toys, NO background dolls, NO extra plushies.
+[POSE]: Replicate the EXACT 3D orientation, camera tilt, and body posture of the LAST reference image.
+[MANDATORY]: The final image MUST have the same silhouette and perspective as the LAST image. 
 
 [STYLE]: ${ECOMMERCE_STYLE}
-
-MANDATORY: The generated image MUST have the EXACT same 3D orientation, camera angle, and posture as the LAST reference image. 
-Do NOT default to a front-facing view if the reference is angled.
-The silhouette and spatial composition must be identical to the LAST image provided.
-Do NOT blend the toys together. The product reference is the absolute source of truth for the physical design.
 `;
 
         return generateImageToImage(
@@ -156,7 +146,7 @@ Do NOT blend the toys together. The product reference is the absolute source of 
             aspectRatio: outputAspectRatio,
             resolution: resolution,
             modelId: selectedModel,
-            negativePrompt: 'redesign, different toy, different proportions, extra parts, missing parts, different silhouette, bad anatomy, warped, deformed, watermark, text, dirty background, multiple toys',
+            negativePrompt: 'other toys, extra dolls, background plushies, second toy, multiple toys, front-facing, looking at camera, standard pose, symmetrical, redesign, different toy, different proportions, warped, deformed',
             workflowHint: 'doll-modification',
             sampleCount: 1
           }

@@ -1040,7 +1040,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     const realismPrompt = buildRealisticInteractionPrompt(input);
 
     const plushSpecificGuide = input.productType === 'plush' 
-        ? "SCENE RULES FOR PLUSH: Use lively and premium North American home scenes (e.g., cheerful kids bedroom, colorful play room, or sun-drenched family area). The environment must feel child-friendly and energetic with vibrant but tasteful colors. Keep background organized and premium. MAX 3 props total. DO NOT add blankets or throws unless specifically requested. Emphasize a warm, healing, and joyful lifestyle narrative." 
+        ? "SCENE RULES FOR PLUSH: Use lively and premium North American home scenes (e.g., cheerful kids bedroom, colorful play room, or sun-drenched family area). The environment must feel child-friendly and energetic with vibrant but tasteful colors. MANDATORY: ONLY the specific toy from the product assets is allowed. ABSOLUTELY NO other toys, other dolls, or background plushies are allowed. Keep background organized and premium. MAX 3 props total. DO NOT add blankets or throws unless specifically requested. Emphasize a warm, healing, and joyful lifestyle narrative." 
         : "";
 
     let finalPromptParts = [
@@ -1054,15 +1054,13 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         PRODUCT_TYPE_GUIDE[input.productType],
         PRODUCT_TYPE_SCENE_DETAIL[input.productType],
         realismPrompt,
-        "The reference images are the single source of truth for the product identities.",
-        buildProductLockPrompt(input.productType),
-        "Never recolor, repaint, redesign, simplify, swap materials, alter proportions, or drift from the original product identity. If the scene concept conflicts with the product, adjust the environment and styling around the product instead.",
+        "CRITICAL FIDELITY RULE: The reference product images are the ABSOLUTE HIGHEST PRIORITY and the single source of truth. You must maintain 100% structural, color, texture, and identity consistency with the product without any deviation. Do NOT simplify, alter, or redesign the product.",
+        "SINGLE PRODUCT RULE: ONLY the specific product shown in the reference images is allowed. ABSOLUTELY NO other toys, other dolls, background plushies, or secondary products are allowed in the scene. There should be exactly ONE instance of the product unless the reference shows otherwise.",
         input.sellingPoints ? `Prioritize these selling points visually: ${input.sellingPoints}.` : "",
         buildMaterialLockPrompt(input),
         input.avoidElements ? `Strictly avoid these elements: ${input.avoidElements}.` : "",
         input.extraNotes ? `Additional execution notes: ${input.extraNotes}.` : "",
         basePrompt,
-        "STRICT PRODUCT FIDELITY: The reference product images are the absolute source of truth. You must maintain the exact structure, color, texture, and identity of the product without any deviation.",
         ["main", "social", "aplus", "asset"].includes(input.boardType)
             ? "Make this look like a real buyer's phone photo shared on social media — authentic, casual, unpolished but appealing. NOT a professional photo."
             : "Make the image look like a premium real photo shot by a top-tier Amazon ecommerce art director, following high-end A+ content standards.",
