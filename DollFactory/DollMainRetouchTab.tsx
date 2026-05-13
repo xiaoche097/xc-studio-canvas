@@ -147,7 +147,7 @@ const DollMainRetouchTab: React.FC = () => {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [guidance, setGuidance] = useState('');
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -394,8 +394,8 @@ const DollMainRetouchTab: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text">
       {/* 左侧控制栏 */}
-      <div className="w-full md:w-1/3 lg:w-[400px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
-        <div className="p-5 flex-1 space-y-6">
+      <div className="w-full md:w-1/3 lg:w-[500px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
+        <div className="p-8 flex-1 space-y-8">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">
               <Sparkles className="h-4 w-4" />
@@ -658,16 +658,16 @@ const DollMainRetouchTab: React.FC = () => {
 
         </div>
 
-        <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10 shadow-sm">
+        <div className="p-8 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10 shadow-sm">
           <button
             onClick={handleGenerate}
             disabled={isGenerating || !sourceFile || refFiles.length === 0}
-            className="w-full py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all hover:brightness-105 active:scale-[0.98]"
+            className="w-full py-5 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-black text-base flex items-center justify-center gap-3 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all hover:brightness-105 active:scale-[0.98]"
           >
             {isGenerating ? (
-              <><Loader2 className="h-5 w-5 animate-spin" /> 正在参考精修中...</>
+              <><Loader2 className="h-6 w-6 animate-spin" /> 正在参考精修中...</>
             ) : (
-              <><Zap className="h-5 w-5" /> 开始参考精修</>
+              <><Zap className="h-6 w-6" /> 开始参考精修</>
             )}
           </button>
         </div>

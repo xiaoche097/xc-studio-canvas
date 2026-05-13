@@ -57,9 +57,9 @@ const DollBatchRetouchTab: React.FC = () => {
   const [guidance, setGuidance] = useState('');
   const [intensity, setIntensity] = useState<keyof typeof INTENSITY_CONFIG>('standard');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    return localStorage.getItem('yunwu_default_model') || 'gemini-3-pro-image-preview';
+    return localStorage.getItem('yunwu_default_model') || 'gemini-3.1-flash-image-preview';
   });
   const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -288,8 +288,8 @@ const DollBatchRetouchTab: React.FC = () => {
       onPaste={handlePaste}
     >
       {/* Sidebar Controls */}
-      <div className="w-full md:w-1/3 lg:w-[400px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
-        <div className="p-5 space-y-6">
+      <div className="w-full md:w-1/3 lg:w-[500px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
+        <div className="p-8 space-y-8">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">
               <Sparkles className="h-4 w-4" />
@@ -303,9 +303,9 @@ const DollBatchRetouchTab: React.FC = () => {
 
           {/* Source Upload */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold flex justify-between">
+            <h3 className="text-sm font-bold flex justify-between text-pastel-text">
               <span>原图上传 ({sources.length}/10)</span>
-              <span className="text-[10px] text-pastel-muted">最多10张</span>
+              <span className="text-xs text-pastel-muted font-normal">最多10张</span>
             </h3>
             <div 
               className="grid grid-cols-5 gap-2"
@@ -439,7 +439,7 @@ const DollBatchRetouchTab: React.FC = () => {
 
               <div className="space-y-2">
                 <h3 className="text-xs font-bold text-pastel-muted uppercase">分辨率</h3>
-                <select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-white border border-pastel-border rounded-xl py-2 px-3 text-[10px] font-bold outline-none">
+                <select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs font-bold outline-none focus:border-pastel-highlight transition-all">
                   <option value={ImageResolution.RES_2K}>2K 高清</option>
                   <option value={ImageResolution.RES_4K}>4K 极致</option>
                 </select>
@@ -482,23 +482,23 @@ const DollBatchRetouchTab: React.FC = () => {
                 value={guidance} 
                 onChange={e => setGuidance(e.target.value)} 
                 placeholder="例如：提升毛发蓬松度，保持配色一致..."
-                className="w-full bg-white border border-pastel-border rounded-xl p-3 text-[10px] outline-none h-20 resize-none"
+                className="w-full bg-white border border-pastel-border rounded-xl p-4 text-xs outline-none h-28 resize-none focus:border-pastel-highlight transition-all"
               />
             </div>
           </div>
         </div>
 
         {/* Generate Button */}
-        <div className="p-5 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10">
+        <div className="p-8 border-t border-pastel-border bg-pastel-card sticky bottom-0 z-10">
           <button
             onClick={handleBatchGenerate}
             disabled={isGenerating || sources.length === 0}
-            className="w-full py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 active:scale-[0.98] transition-all"
+            className="w-full py-5 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-black text-base flex items-center justify-center gap-3 shadow-lg shadow-orange-500/20 disabled:opacity-50 active:scale-[0.98] transition-all"
           >
             {isGenerating ? (
-              <><Loader2 className="w-5 h-5 animate-spin" /> {progress}% 处理中</>
+              <><Loader2 className="w-6 h-6 animate-spin" /> {progress}% 处理中</>
             ) : (
-              <><Zap className="w-5 h-5" /> 开始批量精修</>
+              <><Zap className="w-6 h-6" /> 开始批量精修</>
             )}
           </button>
         </div>

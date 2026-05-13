@@ -36,7 +36,7 @@ const DollAngleReferenceTab: React.FC = () => {
   
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [detailDescription, setDetailDescription] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   
@@ -199,7 +199,7 @@ const DollAngleReferenceTab: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row h-full w-full bg-[#FAFAFA] text-slate-800 font-sans">
       {/* Left Control Panel */}
-      <div className="w-full md:w-[450px] flex flex-col border-r border-gray-200 bg-white overflow-y-auto custom-scrollbar shadow-sm z-10">
+      <div className="w-full md:w-[500px] flex flex-col border-r border-gray-200 bg-white overflow-y-auto custom-scrollbar shadow-sm z-10">
         <div className="p-6 space-y-8 flex-1">
           {/* Header */}
           <div className="space-y-2">

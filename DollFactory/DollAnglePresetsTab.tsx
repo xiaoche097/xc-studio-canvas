@@ -80,7 +80,7 @@ const DollAnglePresetsTab: React.FC = () => {
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [intensity, setIntensity] = useState<'low' | 'medium'>('low'); // low for better consistency
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [variantCount, setVariantCount] = useState(4);
   const [negativeGuidance, setNegativeGuidance] = useState('避免复杂背景、避免暗黑风');
   const [supplementGuidance, setSupplementGuidance] = useState('');
@@ -178,7 +178,7 @@ const DollAnglePresetsTab: React.FC = () => {
   return (
     <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text">
       {/* Sidebar Controls */}
-      <div className="w-full md:w-1/3 lg:w-[420px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
+      <div className="w-full md:w-1/3 lg:w-[500px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
         <div className="p-6 space-y-8 flex-1">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">

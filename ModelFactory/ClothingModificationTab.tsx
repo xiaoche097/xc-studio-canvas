@@ -321,7 +321,7 @@ const ClothingModificationTab: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [selectedModel, setSelectedModel] = useState<'nanobanana2' | 'nanobananapro'>('nanobanana2');
   const [selectedRatio, setSelectedRatio] = useState<AspectRatio | 'auto'>('auto');
-  const [selectedRes, setSelectedRes] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [selectedRes, setSelectedRes] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [generateCount, setGenerateCount] = useState(1);
   
   // UI states

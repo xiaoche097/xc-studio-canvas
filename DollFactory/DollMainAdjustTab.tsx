@@ -91,7 +91,7 @@ const DollMainAdjustTab: React.FC = () => {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [guidance, setGuidance] = useState('');
-  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -327,8 +327,8 @@ const DollMainAdjustTab: React.FC = () => {
 
   return (
     <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text">
-      {/* 左侧控制栏 */}
-      <div className="w-full md:w-1/3 lg:w-[400px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
+      {/* Sidebar Controls */}
+      <div className="w-full md:w-1/3 lg:w-[500px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
         <div className="p-5 flex-1 space-y-6">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-pastel-highlight">
