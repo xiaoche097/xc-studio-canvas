@@ -709,34 +709,34 @@ const ClothingModificationTab: React.FC = () => {
 
       {/* 2. Consolidated Card UI (Bottom Controller) */}
       <div className="px-8 pb-6 flex flex-col items-center bg-slate-100/90 backdrop-blur-xl border-t border-slate-200/50 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-[50]">
-        <div className="max-w-6xl w-full flex flex-col gap-4 mt-6">
+        <div className="max-w-6xl w-full flex flex-col gap-3 mt-6">
            {/* Hint Row */}
            <div className="flex items-center justify-between w-full animate-slide-up">
-              <div className="flex items-center gap-3 bg-orange-50/90 backdrop-blur-xl border border-orange-100/50 px-6 py-2 rounded-full text-[#ED6D46] shadow-sm">
+              <div className="flex items-center gap-3 bg-orange-50/90 backdrop-blur-xl border border-orange-100/50 px-5 py-1.5 rounded-full text-[#ED6D46] shadow-sm">
                  <Info className="w-3.5 h-3.5 text-orange-500" />
-                 <span className="text-[12px] font-bold tracking-tight">可以根据对应改款模式对文案模板进行个性化修改</span>
+                 <span className="text-[11px] font-bold tracking-tight">可以根据对应改款模式对文案模板进行个性化修改</span>
               </div>
               
               <button 
                 onClick={() => setIsExampleOpen(true)}
-                className="flex items-center gap-2.5 bg-white border border-slate-200 hover:border-orange-400 hover:text-[#ED6D46] transition-all rounded-full px-6 py-2 text-xs font-black shadow-sm group active:scale-95"
+                className="flex items-center gap-2 bg-white border border-slate-200 hover:border-orange-400 hover:text-[#ED6D46] transition-all rounded-full px-5 py-1.5 text-[11px] font-black shadow-sm group active:scale-95"
               >
-                  <Sparkles className="w-4 h-4 text-orange-500 group-hover:rotate-12 transition-transform" />
+                  <Sparkles className="w-3.5 h-3.5 text-orange-500 group-hover:rotate-12 transition-transform" />
                   案例模板库
               </button>
            </div>
            
-           <div className="bg-white/95 backdrop-blur-3xl rounded-[32px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.15)] border border-slate-200/60 flex flex-col relative z-20">
+           <div className="bg-white/95 backdrop-blur-3xl rounded-[32px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.15)] border border-slate-200/60 flex flex-col relative z-20 overflow-hidden">
               {/* Tabs */}
-              <div className="flex items-center gap-1 p-2 bg-slate-50/50 border-b border-slate-100 overflow-x-auto no-scrollbar rounded-t-[32px]">
+              <div className="flex items-center gap-1 p-1 bg-slate-50/50 border-b border-slate-100 overflow-x-auto no-scrollbar">
                 {MODES.map(mode => (
                   <button
                     key={mode.id}
                     onClick={() => setActiveMode(mode.id)}
-                    className={`px-8 py-4 text-[13px] font-black transition-all relative shrink-0 ${
+                    className={`px-6 py-2.5 text-[12px] font-black transition-all relative shrink-0 ${
                       activeMode === mode.id 
                         ? 'text-[#ED6D46]' 
-                        : 'text-slate-500 hover:text-slate-800'
+                        : 'text-slate-400 hover:text-slate-800'
                     }`}
                   >
                     {mode.label}
@@ -748,11 +748,11 @@ const ClothingModificationTab: React.FC = () => {
               </div>
 
               {/* Body */}
-              <div className="p-8 flex gap-8">
+              <div className="p-5 flex gap-6">
                 {/* Uploads */}
-                <div className="flex gap-4">
-                  <UploadSlot id={1} label="上传服装图" url={img1Url} onUpload={f => handleUpload(1, f)} onRemove={() => removeImage(1)} />
-                  <UploadSlot id={2} label="上传参考件" url={img2Url} onUpload={f => handleUpload(2, f)} onRemove={() => removeImage(2)} />
+                <div className="flex gap-3">
+                  <UploadSlot id={1} label="主图" url={img1Url} onUpload={f => handleUpload(1, f)} onRemove={() => removeImage(1)} />
+                  <UploadSlot id={2} label="素材" url={img2Url} onUpload={f => handleUpload(2, f)} onRemove={() => removeImage(2)} />
                 </div>
 
                  {/* Prompts Area */}
@@ -760,35 +760,35 @@ const ClothingModificationTab: React.FC = () => {
                      <textarea 
                        value={prompt}
                        onChange={e => setPrompt(e.target.value)}
-                       placeholder="请输入具体改款细节，如：将领口改为圆领，增加品牌刺绣..."
-                       className="w-full h-full min-h-[140px] bg-[#FFF0EB]/30 border border-orange-100 rounded-[24px] p-6 text-[15px] font-black leading-relaxed text-slate-700 placeholder:text-slate-300 focus:outline-none focus:border-orange-200 focus:ring-8 focus:ring-[#FFF0EB]/50 transition-all resize-none shadow-[inset_0_2px_10px_rgba(0,0,0,0.02)] scrollbar-hide"
+                       placeholder="请输入具体改款细节..."
+                       className="w-full h-full min-h-[105px] bg-[#FFF0EB]/30 border border-orange-100 rounded-[20px] p-4 text-[13px] font-bold leading-relaxed text-slate-700 placeholder:text-slate-300 focus:outline-none focus:border-orange-200 focus:ring-4 focus:ring-[#FFF0EB]/50 transition-all resize-none shadow-[inset_0_2px_10px_rgba(0,0,0,0.02)] scrollbar-hide"
                      />
-                     <div className="absolute bottom-4 right-6 flex items-center gap-2 text-[10px] text-orange-300 font-bold tracking-widest uppercase pointer-events-none opacity-50">
-                        <Zap className="w-3 h-3 text-orange-400" />
+                     <div className="absolute bottom-3 right-5 flex items-center gap-2 text-[9px] text-orange-300 font-bold tracking-widest uppercase pointer-events-none opacity-50">
+                        <Zap className="w-2.5 h-2.5 text-orange-400" />
                         AI DESIGN ENGINE
                      </div>
                  </div>
               </div>
 
               {/* Footer */}
-              <div className="px-8 pb-10 flex items-center justify-between">
-                 <div className="flex items-center gap-2 p-2 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-sm hover:border-orange-400 transition-all group relative">
-                    <button onClick={() => setIsConfigOpen(!isConfigOpen)} className="px-6 py-2.5 text-[15px] font-black text-slate-700 hover:text-[#ED6D46] transition-colors tracking-tight">
+              <div className="px-6 pb-6 flex items-center justify-between">
+                 <div className="flex items-center gap-1.5 p-1.5 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-sm hover:border-orange-400 transition-all group relative">
+                    <button onClick={() => setIsConfigOpen(!isConfigOpen)} className="px-4 py-2 text-[13px] font-black text-slate-700 hover:text-[#ED6D46] transition-colors tracking-tight">
                         {selectedModel === 'nanobananapro' ? 'Pro' : '标准'}
                     </button>
-                    <div className="w-px h-6 bg-slate-300 group-hover:bg-orange-300 transition-colors" />
-                    <button onClick={() => setIsConfigOpen(!isConfigOpen)} className="px-6 py-2.5 text-[15px] font-black text-slate-700 hover:text-[#ED6D46] transition-colors tracking-tight">
+                    <div className="w-px h-5 bg-slate-300 group-hover:bg-orange-300 transition-colors" />
+                    <button onClick={() => setIsConfigOpen(!isConfigOpen)} className="px-4 py-2 text-[13px] font-black text-slate-700 hover:text-[#ED6D46] transition-colors tracking-tight">
                         {selectedRatio === 'auto' ? '智能' : selectedRatio}
                     </button>
-                    <div className="w-px h-6 bg-slate-400 group-hover:bg-orange-400 transition-colors" />
-                    <button onClick={() => setIsConfigOpen(!isConfigOpen)} className="flex items-center gap-3 px-6 py-2.5 text-[15px] font-black text-slate-700 hover:text-[#ED6D46] transition-colors tracking-tight">
+                    <div className="w-px h-5 bg-slate-400 group-hover:bg-orange-400 transition-colors" />
+                    <button onClick={() => setIsConfigOpen(!isConfigOpen)} className="flex items-center gap-2 px-4 py-2 text-[13px] font-black text-slate-700 hover:text-[#ED6D46] transition-colors tracking-tight">
                         <span>{selectedRes}</span>
-                        <ChevronRight className={`w-6 h-6 text-slate-500 transition-transform ${isConfigOpen ? 'rotate-[-90deg]' : 'rotate-90'}`} />
+                        <ChevronRight className={`w-4 h-4 text-slate-500 transition-transform ${isConfigOpen ? 'rotate-[-90deg]' : 'rotate-90'}`} />
                     </button>
-                    <div className="w-px h-6 bg-slate-400 group-hover:bg-orange-400 transition-colors" />
-                    <button onClick={() => setGenerateCount(prev => prev >= 4 ? 1 : prev + 1)} className="px-6 py-2.5 text-[15px] font-black text-slate-700 hover:text-[#ED6D46] transition-all flex items-center gap-2 active:scale-95 group/btn">
+                    <div className="w-px h-5 bg-slate-400 group-hover:bg-orange-400 transition-colors" />
+                    <button onClick={() => setGenerateCount(prev => prev >= 4 ? 1 : prev + 1)} className="px-4 py-2 text-[13px] font-black text-slate-700 hover:text-[#ED6D46] transition-all flex items-center gap-2 active:scale-95 group/btn">
                         <span>{generateCount}张</span>
-                        <div className="w-1.5 h-1.5 bg-[#ED6D46] rounded-full group-hover/btn:animate-ping" />
+                        <div className="w-1 h-1 bg-[#ED6D46] rounded-full group-hover/btn:animate-ping" />
                     </button>
                     
                     <ConfigPopover 
@@ -802,20 +802,20 @@ const ClothingModificationTab: React.FC = () => {
                       setSelectedRes={setSelectedRes}
                     />
                  </div>
-  
+   
                  <button 
                   onClick={() => handleGenerate()}
                   disabled={isGenerating || !img1File}
-                  className={`relative group overflow-hidden bg-gradient-to-r from-[#ED6D46] to-[#f97316] text-white px-12 py-5 rounded-[24px] font-black text-[16px] shadow-[0_15px_40px_-10px_rgba(237,109,70,0.5)] hover:shadow-[0_20px_50px_-10px_rgba(237,109,70,0.7)] hover:scale-[1.03] active:scale-[0.97] transition-all disabled:opacity-50 disabled:scale-100 flex items-center gap-3`}
+                  className={`relative group overflow-hidden bg-gradient-to-r from-[#ED6D46] to-[#f97316] text-white px-10 py-3.5 rounded-2xl font-black text-[14px] shadow-[0_10px_30px_-10px_rgba(237,109,70,0.5)] hover:shadow-[0_15px_40px_-10px_rgba(237,109,70,0.7)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 flex items-center gap-2.5`}
                  >
                     {isGenerating ? (
                       <>
-                        <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         <span>正在创作...</span>
                       </>
                     ) : (
                       <>
-                        <Wand2 className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                        <Wand2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
                         <span>开始改款任务</span>
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                       </>
@@ -925,32 +925,32 @@ const UploadSlot: React.FC<{ id: number; label: string; url: string | null; onUp
 
   return (
     <div 
-      className="w-[100px] h-[132px] transition-all duration-300"
+      className="w-[80px] h-[105px] transition-all duration-300"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {url ? (
-        <div className="relative group w-full h-full rounded-2xl border-2 border-[#ED6D46] overflow-hidden bg-slate-50 shadow-sm animate-fade-in">
+        <div className="relative group w-full h-full rounded-xl border-2 border-[#ED6D46] overflow-hidden bg-slate-50 shadow-sm animate-fade-in">
           <img src={url} className="w-full h-full object-contain" />
-          <button onClick={onRemove} className="absolute top-1 right-1 bg-white p-1 rounded-full shadow-lg hover:bg-red-50 transition-colors z-10"><X className="w-3 h-3 text-red-500" /></button>
-          <div className="absolute top-1 left-1 bg-[#ED6D46] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg">图 {id}</div>
+          <button onClick={onRemove} className="absolute top-1 right-1 bg-white p-0.5 rounded-full shadow-lg hover:bg-red-50 transition-colors z-10"><X className="w-2.5 h-2.5 text-red-500" /></button>
+          <div className="absolute top-1 left-1 bg-[#ED6D46] text-white text-[7px] font-black px-1 py-0.5 rounded shadow-lg">图 {id}</div>
         </div>
       ) : (
         <label 
-          className={`flex flex-col items-center justify-center w-full h-full rounded-[24px] border-2 border-dashed transition-all cursor-pointer group/upload ${
+          className={`flex flex-col items-center justify-center w-full h-full rounded-[20px] border-2 border-dashed transition-all cursor-pointer group/upload ${
             isDragOver 
-              ? 'border-orange-500 bg-[#FFF0EB] scale-105 shadow-xl ring-4 ring-orange-500/10' 
-              : 'border-slate-200 bg-slate-50/50 hover:border-orange-400 hover:bg-[#FFF0EB]/20 shadow-sm'
-          }`}
-        >
-          <input type="file" className="hidden" onChange={e => e.target.files?.[0] && onUpload(e.target.files[0])} accept="image/*" />
-          <Plus className={`w-6 h-6 transition-colors ${isDragOver ? 'text-orange-500' : 'text-slate-300 group-hover/upload:text-orange-400'}`} />
-          <span className={`text-[10px] font-black mt-1 transition-colors ${isDragOver ? 'text-orange-600' : 'text-slate-400 group-hover/upload:text-orange-500'}`}>{label}</span>
-        </label>
-      )}
-    </div>
-  );
-};
+               ? 'border-orange-500 bg-[#FFF0EB] scale-105 shadow-xl ring-4 ring-orange-500/10' 
+               : 'border-slate-200 bg-slate-50/50 hover:border-orange-400 hover:bg-[#FFF0EB]/20 shadow-sm'
+           }`}
+         >
+           <input type="file" className="hidden" onChange={e => e.target.files?.[0] && onUpload(e.target.files[0])} accept="image/*" />
+           <Plus className={`w-5 h-5 transition-colors ${isDragOver ? 'text-orange-500' : 'text-slate-300 group-hover/upload:text-orange-400'}`} />
+           <span className={`text-[9px] font-black mt-1 transition-colors ${isDragOver ? 'text-orange-600' : 'text-slate-400 group-hover/upload:text-orange-500'}`}>{label}</span>
+         </label>
+       )}
+     </div>
+   );
+ };
 
 export default ClothingModificationTab;
