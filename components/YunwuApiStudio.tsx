@@ -104,6 +104,8 @@ class YunwuApiClient {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'x-goog-api-key': this.config.apiKey,
+                'Authorization': `Bearer ${this.config.apiKey}`
             },
             body: JSON.stringify(requestBody)
         });
@@ -244,13 +246,22 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
         setTestMessage('正在测试连接...');
 
         try {
+            // 优化：测试时直接使用输入框中的第一个 Key 和 URL，
+            // 模型固定为 gemini-3.1-flash-lite-preview (最便宜/快速)
+            const testModel = 'gemini-3.1-flash-lite-preview';
+            const firstKey = apiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
+
+            if (!firstKey) {
+                throw new Error('请输入有效的 API Key');
+            }
+
             const client = new YunwuApiClient({
                 baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
-                apiKey: apiKey.trim(),
-                defaultModel: selectedModel
+                apiKey: firstKey,
+                defaultModel: testModel
             });
 
-            const success = await client.testConnection(selectedModel);
+            const success = await client.testConnection(testModel);
 
             if (success) {
                 setTestStatus('success');
@@ -448,6 +459,32 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
                                         <Globe className="w-4 h-4 text-brand-orange" />
                                         API Base URL
                                     </label>
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                        <button
+                                            onClick={() => setBaseUrl('https://yunwu.ai')}
+                                            className={`px-3 py-1 text-xs rounded-full border transition-all ${baseUrl === 'https://yunwu.ai' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                                        >
+                                            主站节点
+                                        </button>
+                                        <button
+                                            onClick={() => setBaseUrl('https://api.apiplus.org')}
+                                            className={`px-3 py-1 text-xs rounded-full border transition-all ${baseUrl === 'https://api.apiplus.org' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                                        >
+                                            CF站节点
+                                        </button>
+                                        <button
+                                            onClick={() => setBaseUrl('https://api3.wlai.vip')}
+                                            className={`px-3 py-1 text-xs rounded-full border transition-all ${baseUrl === 'https://api3.wlai.vip' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                                        >
+                                            国内节点
+                                        </button>
+                                        <button
+                                            onClick={() => setBaseUrl('https://api.zhongzhuan.chat')}
+                                            className={`px-3 py-1 text-xs rounded-full border transition-all ${baseUrl === 'https://api.zhongzhuan.chat' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                                        >
+                                            中转节点
+                                        </button>
+                                    </div>
                                     <input
                                         type="text"
                                         value={baseUrl}
@@ -468,45 +505,24 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
                                         <span className="text-red-400 text-xs">*必填</span>
                                     </label>
                                     <div className="relative">
-                                        <input
-                                            type={isKeyVisible ? 'text' : 'password'}
+                                        <textarea
                                             value={apiKey}
                                             onChange={(e) => setApiKey(e.target.value)}
+                                            rows={4}
+                                            style={{ WebkitTextSecurity: isKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
                                             placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-12 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 outline-none transition-all font-mono text-sm"
+                                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 pl-4 pr-12 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 outline-none transition-all font-mono text-sm resize-none"
                                         />
                                         <button
                                             onClick={() => setIsKeyVisible(!isKeyVisible)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/40 hover:text-brand-orange transition-colors"
+                                            className="absolute right-3 top-3 text-gray-400 dark:text-white/40 hover:text-brand-orange transition-colors"
                                         >
                                             {isKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
                                     </div>
-                                </div>
-
-                                {/* 默认模型 */}
-                                <div className="space-y-2">
-                                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-white/80">
-                                        <Zap className="w-4 h-4 text-brand-orange" />
-                                        默认模型
-                                    </label>
-                                    <select
-                                        value={selectedModel}
-                                        onChange={(e) => setSelectedModel(e.target.value)}
-                                        className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl py-3 px-4 text-gray-900 dark:text-white focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 outline-none transition-all text-sm appearance-none cursor-pointer"
-                                        style={{
-                                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                                            backgroundRepeat: 'no-repeat',
-                                            backgroundPosition: 'right 12px center',
-                                            backgroundSize: '16px'
-                                        }}
-                                    >
-                                        {AVAILABLE_MODELS.map((model) => (
-                                            <option key={model.id} value={model.id} className="bg-white dark:bg-slate-800">
-                                                {model.name} - {model.description} {model.badge ? `[${model.badge}]` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <p className="text-[10px] text-gray-500 dark:text-white/40 mt-1">
+                                        支持多 Key 轮询，请使用逗号或换行分隔。
+                                    </p>
                                 </div>
                             </div>
 

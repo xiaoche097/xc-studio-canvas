@@ -53,7 +53,11 @@ const sendTestRequest = async (
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+      'Authorization': `Bearer ${apiKey}`
+    },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: { temperature: 1, maxOutputTokens: 10 }
@@ -131,6 +135,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedYunwuKey) setYunwuApiKey(savedYunwuKey);
     if (savedYunwuUrl) setYunwuBaseUrl(savedYunwuUrl);
     if (savedModel) setSelectedModel(savedModel);
+    else setSelectedModel('gemini-3.1-flash-lite-preview');
     setYunwuEnabled(savedYunwuEnabled !== 'false');
 
     const savedPlatoKey = localStorage.getItem('plato_api_key');
@@ -203,7 +208,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setYunwuTestStatus('testing');
     setYunwuTestMessage('正在测试...');
     try {
-      const res = await sendTestRequest(yunwuBaseUrl || DEFAULT_BASE_URL, key, selectedModel, 'Say OK');
+      // 使用固定模型进行测试，不依赖用户选择的模型
+      const testModel = 'gemini-3.1-flash-lite-preview';
+      const res = await sendTestRequest(yunwuBaseUrl || DEFAULT_BASE_URL, key, testModel, 'Say OK');
       setYunwuTestStatus(res.text ? 'success' : 'error');
       setYunwuTestMessage(res.text ? '✅ 连接成功' : '❌ 无响应');
     } catch (e: any) {
@@ -357,17 +364,19 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Key className="w-3 h-3" /> API Key</label>
                           <div className="relative">
-                            <input
-                              type={isPlatoKeyVisible ? 'text' : 'password'}
+                            <textarea
                               value={platoApiKey}
                               onChange={(e) => setPlatoApiKey(e.target.value)}
-                              placeholder="sk-..."
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-rose-500/20 outline-none"
+                              rows={4}
+                              style={{ WebkitTextSecurity: isPlatoKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-rose-500/20 outline-none font-mono resize-none"
+                              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                             />
-                            <button onClick={() => setIsPlatoKeyVisible(!isPlatoKeyVisible)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <button onClick={() => setIsPlatoKeyVisible(!isPlatoKeyVisible)} className="absolute right-3 top-3 text-gray-400">
                               {isPlatoKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                           </div>
+                          <p className="text-[10px] text-gray-500">支持多 Key 轮询，请使用逗号或换行分隔。</p>
                         </div>
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
@@ -414,17 +423,19 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Key className="w-3 h-3" /> API Key</label>
                           <div className="relative">
-                            <input
-                              type={isNativeKeyVisible ? 'text' : 'password'}
+                            <textarea
                               value={nativeApiKey}
                               onChange={(e) => setNativeApiKey(e.target.value)}
+                              rows={4}
+                              style={{ WebkitTextSecurity: isNativeKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none font-mono resize-none"
                               placeholder="AIzaSy..."
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
                             />
-                            <button onClick={() => setIsNativeKeyVisible(!isNativeKeyVisible)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <button onClick={() => setIsNativeKeyVisible(!isNativeKeyVisible)} className="absolute right-3 top-3 text-gray-400">
                               {isNativeKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                           </div>
+                          <p className="text-[10px] text-gray-500">Google 官方 Key，通常建议仅填一个。</p>
                         </div>
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
@@ -470,6 +481,32 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-gray-500">API Base URL</label>
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            <button
+                              onClick={() => setYunwuBaseUrl('https://yunwu.ai')}
+                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://yunwu.ai' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                            >
+                              主站节点
+                            </button>
+                            <button
+                              onClick={() => setYunwuBaseUrl('https://api.apiplus.org')}
+                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://api.apiplus.org' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                            >
+                              CF站节点
+                            </button>
+                            <button
+                              onClick={() => setYunwuBaseUrl('https://api3.wlai.vip')}
+                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://api3.wlai.vip' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                            >
+                              国内节点
+                            </button>
+                            <button
+                              onClick={() => setYunwuBaseUrl('https://api.zhongzhuan.chat')}
+                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://api.zhongzhuan.chat' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                            >
+                              中转节点
+                            </button>
+                          </div>
                           <input
                             type="text"
                             value={yunwuBaseUrl}
@@ -478,31 +515,23 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500">API Key</label>
+                          <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Key className="w-3 h-3" /> API Key</label>
                           <div className="relative">
-                            <input
-                              type={isYunwuKeyVisible ? 'text' : 'password'}
+                            <textarea
                               value={yunwuApiKey}
                               onChange={(e) => setYunwuApiKey(e.target.value)}
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                              rows={4}
+                              style={{ WebkitTextSecurity: isYunwuKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none font-mono resize-none"
+                              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                             />
-                            <button onClick={() => setIsYunwuKeyVisible(!isYunwuKeyVisible)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <button onClick={() => setIsYunwuKeyVisible(!isYunwuKeyVisible)} className="absolute right-3 top-3 text-gray-400">
                               {isYunwuKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                           </div>
+                          <p className="text-[10px] text-gray-500">支持多 Key 轮询，请使用逗号或换行分隔。</p>
                         </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500">默认模型</label>
-                          <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
-                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
-                          >
-                            {AVAILABLE_MODELS.map(m => (
-                              <option key={m.id} value={m.id}>{m.name} - {m.description}</option>
-                            ))}
-                          </select>
-                        </div>
+                        {/* 默认模型选择已根据用户要求隐藏，保持与柏拉图一致 */}
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
                              {yunwuTestStatus !== 'idle' && (

@@ -63,7 +63,11 @@ const sendToYunwuApi = async (
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+      'Authorization': `Bearer ${apiKey}`
+    },
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
       generationConfig: { temperature: 1, maxOutputTokens: 8192 }
@@ -232,12 +236,19 @@ const SettingsTab: React.FC = () => {
     setTestMessage('正在测试...');
 
     try {
-      // 获取当前轮询选中的 Key 进行测试
-      const config = getApiConfig();
+      // 优化：测试时直接使用输入框中的第一个 Key 和 URL，
+      // 模型固定为 gemini-3.1-flash-lite-preview (最便宜/快速)
+      const testModel = 'gemini-3.1-flash-lite-preview';
+      const firstKey = yunwuApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
+
+      if (!firstKey) {
+        throw new Error('请输入有效的 API Key');
+      }
+
       const result = await sendToYunwuApi(
         yunwuBaseUrl.trim() || DEFAULT_BASE_URL,
-        config.apiKey,
-        selectedModel,
+        firstKey,
+        testModel,
         'Say OK',
         []
       );
@@ -584,6 +595,32 @@ const SettingsTab: React.FC = () => {
                         API Base URL
                         <span className="text-xs font-normal text-pastel-muted">(中转站地址)</span>
                       </label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <button
+                          onClick={() => setYunwuBaseUrl('https://yunwu.ai')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://yunwu.ai' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'}`}
+                        >
+                          主站节点
+                        </button>
+                        <button
+                          onClick={() => setYunwuBaseUrl('https://api.apiplus.org')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api.apiplus.org' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'}`}
+                        >
+                          CF站节点
+                        </button>
+                        <button
+                          onClick={() => setYunwuBaseUrl('https://api3.wlai.vip')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api3.wlai.vip' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'}`}
+                        >
+                          国内节点
+                        </button>
+                        <button
+                          onClick={() => setYunwuBaseUrl('https://api.zhongzhuan.chat')}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api.zhongzhuan.chat' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'}`}
+                        >
+                          中转节点
+                        </button>
+                      </div>
                       <div className="relative">
                         <input
                           type="text"
@@ -593,7 +630,7 @@ const SettingsTab: React.FC = () => {
                           className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm"
                         />
                         <button
-                          onClick={() => { setYunwuBaseUrl(DEFAULT_BASE_URL); setSelectedModel(DEFAULT_MODEL); }}
+                          onClick={() => { setYunwuBaseUrl(DEFAULT_BASE_URL); }}
                           title="重置为默认值"
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-pastel-muted hover:text-purple-500 transition-colors p-1 rounded-lg hover:bg-purple-100"
                         >
@@ -618,7 +655,7 @@ const SettingsTab: React.FC = () => {
                           value={yunwuApiKey}
                           onChange={(e) => setYunwuApiKey(e.target.value)}
                           placeholder="sk-key1,&#10;sk-key2"
-                          rows={3}
+                          rows={4}
                           style={{ WebkitTextSecurity: isYunwuKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
                           className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all font-mono text-sm resize-none"
                         />
@@ -634,31 +671,7 @@ const SettingsTab: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* 默认模型 */}
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
-                        <Zap className="w-4 h-4 text-purple-500" />
-                        默认模型
-                        <span className="text-xs font-normal text-pastel-muted">(Default Model)</span>
-                      </label>
-                      <select
-                        value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value)}
-                        className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-purple-400 focus:ring-2 focus:ring-purple-200 outline-none shadow-sm transition-all text-sm appearance-none cursor-pointer"
-                        style={{
-                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundPosition: 'right 12px center',
-                          backgroundSize: '16px'
-                        }}
-                      >
-                        {AVAILABLE_MODELS.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.name} - {model.description} {model.badge ? `[${model.badge}]` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* 默认模型选择已根据用户要求隐藏，保持与柏拉图一致 */}
                   </div>
 
                   {/* 分隔线 */}
