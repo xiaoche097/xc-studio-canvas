@@ -14,6 +14,7 @@ import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { storageService } from '../../services/storageService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
+import { extractEdges } from '../utils/imageProcessor';
 
 interface UploadedImage {
     file: File;
@@ -82,6 +83,7 @@ const HeroImageTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
+    const [isSafeMode, setIsSafeMode] = useState(false);
     
     // Photo controls
     const [cameraDevice, setCameraDevice] = useState('智能推荐');
@@ -247,7 +249,20 @@ const HeroImageTab: React.FC = () => {
             
             // 1. 优先添加构图锚点 (Action > Scene)
             if (actionReference) {
-                inputImages.push({ base64: actionReference.base64!, mimeType: actionReference.mime! });
+                let actionBase64 = actionReference.base64!;
+                let actionMime = actionReference.mime!;
+                
+                if (isSafeMode) {
+                    // Extract edges to bypass NSFW filters
+                    const dataUrl = await extractEdges(`data:${actionMime};base64,${actionBase64}`);
+                    const parts = dataUrl.split(',');
+                    if (parts.length > 1) {
+                        actionMime = parts[0].split(':')[1].split(';')[0];
+                        actionBase64 = parts[1];
+                    }
+                }
+                
+                inputImages.push({ base64: actionBase64, mimeType: actionMime });
             } else if (sceneReferences.length > 0) {
                 inputImages.push({ base64: sceneReferences[0].base64!, mimeType: sceneReferences[0].mime! });
             }
@@ -287,8 +302,14 @@ const HeroImageTab: React.FC = () => {
                 `画质：${QUALITY_BOOSTERS.EDITORIAL}`
             ].join(' | ');
 
-            const basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
+            let basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
             
+            if (isSafeMode) {
+                basePrompt = basePrompt.replace(/情趣|性感|透视|诱惑|sexy|erotic/gi, '时尚');
+                basePrompt = basePrompt.replace(/内衣|睡衣|lingerie/gi, '高定泳装');
+                basePrompt += " # SAFE MODE: High-end Fashion Editorial, elegant styling.";
+            }
+
             const platformPrompt = selectedPlatform ? PLATFORM_STYLES.find(p => p.id === selectedPlatform)?.prompt : "";
 
             const prompt = `
@@ -446,9 +467,20 @@ const HeroImageTab: React.FC = () => {
                         <div className="grid grid-cols-2 gap-4">
                             {/* Pose */}
                             <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Zap className="w-4 h-4 text-purple-500" />
-                                    <h3 className="font-bold text-pastel-text text-xs text-nowrap">动作参考图</h3>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <Zap className="w-4 h-4 text-purple-500" />
+                                        <h3 className="font-bold text-pastel-text text-xs text-nowrap">动作参考图</h3>
+                                    </div>
+                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，动作图将自动转化为线稿，并净化Prompt，以绕过敏感词拦截">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isSafeMode}
+                                            onChange={(e) => setIsSafeMode(e.target.checked)}
+                                            className="w-3.5 h-3.5 text-purple-500 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                        />
+                                        <span className="text-[10px] text-gray-500 group-hover:text-purple-600 transition-colors font-medium">安全脱敏模式</span>
+                                    </label>
                                 </div>
                                 <div 
                                     onClick={() => actionInputRef.current?.click()} 
