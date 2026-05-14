@@ -270,8 +270,35 @@ const SceneGenerationTab: React.FC = () => {
     return '生成接近真实买家秀/社媒传播风格的生活化场景图，增强代入感与分享感';
   }, [boardType]);
 
+  const getSizeCategoryFromStr = (sizeStr: string): 'tiny' | 'small' | 'medium' | 'large' | 'wearable' => {
+    const s = sizeStr.toLowerCase().replace(/\s/g, '');
+    const cmMatch = s.match(/(\d+(?:\.\d+)?)\s*cm/i);
+    const inchMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:inch|inches|in|")/i);
+    
+    let cm = 0;
+    if (cmMatch) cm = parseFloat(cmMatch[1]);
+    else if (inchMatch) cm = parseFloat(inchMatch[1]) * 2.54;
+    else {
+      const bareMatch = s.match(/^(\d+(?:\.\d+)?)$/);
+      if (bareMatch) cm = parseFloat(bareMatch[1]);
+    }
+
+    if (cm <= 0) return 'medium'; // fallback
+    if (cm <= 10) return 'tiny';
+    if (cm <= 25) return 'small';
+    if (cm <= 50) return 'medium';
+    return 'large';
+  };
+
   const updateForm = (key: keyof SceneFormState, value: string | number) => {
-    setForm(prev => ({ ...prev, [key]: value }));
+    setForm(prev => {
+      const next = { ...prev, [key]: value };
+      // Auto-update sizeCategory if productSize changes
+      if (key === 'productSize' && typeof value === 'string') {
+        next.sizeCategory = getSizeCategoryFromStr(value);
+      }
+      return next;
+    });
   };
 
   // ==================== File Handling ====================
@@ -356,7 +383,7 @@ const SceneGenerationTab: React.FC = () => {
         mimeType: referenceSceneImage.file.type
       } : undefined;
       
-      const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData);
+      const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize);
       
       // Update analysis result card with the new unified results
       setAnalysisResult(result);
@@ -384,19 +411,24 @@ const SceneGenerationTab: React.FC = () => {
           modelLifestyle: result.modelLifestyle,
           usageScenario: prev.usageScenario || result.usageScenario,
           brandTone: prev.brandTone || result.brandTone,
-          sizeCategory: result.sizeCategory,
+          sizeCategory: prev.productSize ? getSizeCategoryFromStr(prev.productSize) : result.sizeCategory,
           // Auto-fill Camera and Shot Type if they are set to 'auto'
           cameraDevice: prev.cameraDevice === 'auto' ? result.recommendedCamera : prev.cameraDevice,
           shotType: prev.shotType === 'auto' ? result.recommendedShotType : prev.shotType,
         };
       });
-    } catch (err) {
+
+      // Update analysis result card to show correct category based on user size
+      if (form.productSize) {
+        result.sizeCategory = getSizeCategoryFromStr(form.productSize);
+      }
+      setAnalysisResult(result);
       console.error('AI analysis failed:', err);
       setError('AI 分析失败，请手动填写信息或重试');
     } finally {
       setIsAnalyzing(false);
     }
-  }, [uploadedImages, form.userHint, boardType, referenceSceneImage]);
+  }, [uploadedImages, form.userHint, form.productSize, boardType, referenceSceneImage]);
 
   const runReferenceAnalysis = useCallback(async (image: UploadedImage) => {
     setIsAnalyzingReference(true);
@@ -480,7 +512,7 @@ const SceneGenerationTab: React.FC = () => {
     const goldenPrompt = buildGoldenFormula({
       subject: [form.productName, form.productCategory, form.productSize].filter(Boolean).join('，') || '电商产品',
       action: form.copyIntent || '展示产品在真实使用场景中的卖点',
-      environment: [form.sceneDirection, form.usageScenario, form.targetAudience].filter(Boolean).join('，') || '适配产品定位的高转化场景',
+      environment: [form.userHint, form.sceneDirection, form.usageScenario, form.targetAudience].filter(Boolean).join('，') || '适配产品定位的高转化场景',
       style: [form.brandTone, form.colorStyle, boardType === 'social' ? '真实买家秀视觉' : '高转化电商视觉'].filter(Boolean).join('，') || 'premium ecommerce photography',
       lighting: boardType === 'social'
         ? 'natural lifestyle lighting, candid social content feel'
@@ -509,7 +541,7 @@ const SceneGenerationTab: React.FC = () => {
       `运营目标：面向${currentBoard.label}板块，输出符合美国真实生活场景的高转化营销图。`,
       `标题关联：所有图片内容必须与产品「${productTitleContext}」紧密相关。`,
       boardSpecificNote,
-      `场景策略：${form.sceneDirection || '围绕产品卖点构建真实生活方式场景'}。`,
+      `场景策略：${form.userHint ? `【用户描述优先】${form.userHint} (参考方向: ${form.sceneDirection})` : (form.sceneDirection || '围绕产品卖点构建真实生活方式场景')}。`,
       `产品锁定：先锁定颜色、材质、结构与细节，再扩展场景。`,
       `人物画像：${form.modelPersonaPreset}。`,
       `真实感约束：${form.interactionHint || '自然交互'}，尺寸类别=${form.sizeCategory}。`,
@@ -527,7 +559,7 @@ const SceneGenerationTab: React.FC = () => {
       productCategory: form.productCategory,
       productSize: form.productSize,
       sellingPoints: form.sellingPoints,
-      sceneDirection: form.sceneDirection,
+      sceneDirection: form.userHint ? `${form.userHint}, ${form.sceneDirection}` : form.sceneDirection,
       targetAudience: form.targetAudience,
       modelPersonaPreset: form.modelPersonaPreset,
       modelEthnicity: form.modelEthnicity,

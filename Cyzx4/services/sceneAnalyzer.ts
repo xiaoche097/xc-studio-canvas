@@ -57,12 +57,13 @@ export interface SceneAnalysisResult {
 
 // ==================== Analysis Prompt ====================
 
-function buildAnalysisPrompt(userHint: string, boardType: SceneGenerationBoardType): string {
+function buildAnalysisPrompt(userHint: string, boardType: SceneGenerationBoardType, userProductSize?: string): string {
   const boardContext = {
     main: '亚马逊副图场景（突出产品卖点、电商转化）',
     aplus: 'A+ 横幅场景（品牌叙事、故事感）',
     social: '社媒买家秀（真实生活场景、手机拍摄感）',
     story: '品牌故事（电影级超宽场景、空间感、史诗氛围）',
+    asset: '品牌资产卡（2:3 竖版、品牌调性展示）',
   };
 
   return `
@@ -72,7 +73,8 @@ function buildAnalysisPrompt(userHint: string, boardType: SceneGenerationBoardTy
 
 **目标板块**: ${boardContext[boardType]}
 
-${userHint ? `**用户补充说明**: "${userHint}"` : '**用户未提供额外说明**，请完全依赖图片分析。'}
+${userHint ? `**用户补充说明 (权重最高)**: "${userHint}"。你必须完全尊重并以此场景为核心进行分析，严禁产生与之冲突的推荐。` : '**用户未提供额外说明**，请完全依赖图片分析。'}
+${userProductSize ? `**产品尺寸 (强制约束)**: 用户已明确指定产品尺寸为 "${userProductSize}"。你必须直接使用此数值作为 "productSize"，并基于此尺寸准确推断 "sizeCategory"（例如 12cm 必须属于 small）以及 "interactionHint"（人物与 12cm 产品的交互必须符合单手或双手抓握的小型物件特征，严禁推荐环抱、背负等大尺寸交互）。` : ''}
 
 **参考场景图状态**: 如果用户额外上传了“参考场景图”，你必须**优先提取**该图中的环境、构图、光影和人物交互方式，确保生成方案与参考图保持高度一致。你需要详细分析参考图中的背景家具、色调、光源方向和景别。
 
@@ -144,7 +146,8 @@ export async function analyzeProductForScene(
   images: { base64: string; mimeType: string }[],
   userHint: string = '',
   boardType: SceneGenerationBoardType = 'main',
-  referenceSceneImage?: { base64: string; mimeType: string }
+  referenceSceneImage?: { base64: string; mimeType: string },
+  userProductSize?: string
 ): Promise<SceneAnalysisResult> {
   const ai = getAiClient();
   
@@ -171,7 +174,7 @@ export async function analyzeProductForScene(
   }
   
   // Add analysis prompt
-  parts.push({ text: buildAnalysisPrompt(userHint, boardType) });
+  parts.push({ text: buildAnalysisPrompt(userHint, boardType, userProductSize) });
   
   try {
     const response = await ai.models.generateContent({
@@ -185,22 +188,22 @@ export async function analyzeProductForScene(
     
     try {
       const result = JSON.parse(text);
-      return validateAnalysisResult(result);
+      return validateAnalysisResult(result, userHint);
     } catch (parseError) {
       console.warn('Scene analysis JSON parse failed, attempting sanitization...', parseError);
       // Try sanitizing
       const sanitized = text.replace(/[\n\r\t]/g, ' ');
       try {
         const result = JSON.parse(sanitized);
-        return validateAnalysisResult(result);
+        return validateAnalysisResult(result, userHint);
       } catch (e2) {
         console.error('Scene analysis parse completely failed:', e2);
-        return getDefaultAnalysisResult();
+        return getDefaultAnalysisResult(userHint);
       }
     }
   } catch (error) {
     console.error('Scene analysis API call failed:', error);
-    return getDefaultAnalysisResult();
+    return getDefaultAnalysisResult(userHint);
   }
 }
 
@@ -209,7 +212,7 @@ export async function analyzeProductForScene(
 const VALID_PRODUCT_TYPES: SceneGenerationProductType[] = ['plush', 'apparel', 'general'];
 const VALID_SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'wearable'] as const;
 
-function validateAnalysisResult(raw: any): SceneAnalysisResult {
+function validateAnalysisResult(raw: any, userHint: string = ''): SceneAnalysisResult {
   return {
     productName: raw.productName || '商品',
     productCategory: raw.productCategory || '通用产品',
@@ -217,7 +220,7 @@ function validateAnalysisResult(raw: any): SceneAnalysisResult {
     productSize: raw.productSize || '',
     material: raw.material || '',
     sellingPoints: raw.sellingPoints || '',
-    sceneDirection: raw.sceneDirection || '温暖居家生活场景',
+    sceneDirection: raw.sceneDirection || userHint || '温暖居家生活场景',
     targetAudience: raw.targetAudience || '',
     modelPersonaPreset: raw.modelPersonaPreset || '美国都市女性',
     modelEthnicity: raw.modelEthnicity || '自动匹配',
@@ -234,7 +237,7 @@ function validateAnalysisResult(raw: any): SceneAnalysisResult {
   };
 }
 
-function getDefaultAnalysisResult(): SceneAnalysisResult {
+function getDefaultAnalysisResult(userHint: string = ''): SceneAnalysisResult {
   return {
     productName: '商品',
     productCategory: '通用产品',
@@ -242,7 +245,7 @@ function getDefaultAnalysisResult(): SceneAnalysisResult {
     productSize: '',
     material: '',
     sellingPoints: '',
-    sceneDirection: '温暖居家生活场景',
+    sceneDirection: userHint || '温暖居家生活场景',
     targetAudience: '',
     modelPersonaPreset: '美国都市女性',
     modelEthnicity: '自动匹配',

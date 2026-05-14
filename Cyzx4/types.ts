@@ -11,7 +11,6 @@ export enum AppMode {
   INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)
   STORYBOARD = 'STORYBOARD', // 分镜创作 (Storyboard)
   SCENE_GENERATION = 'SCENE_GENERATION', // 场景图生成
-  BATCH_RETOUCH = 'BATCH_RETOUCH', // AI 洗图 (Batch Retouch)
   SETTINGS = 'SETTINGS'      // Settings (New)
 }
 

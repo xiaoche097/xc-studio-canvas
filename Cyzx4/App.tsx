@@ -6,7 +6,6 @@ import AspectRatioTab from './components/AspectRatioTab';
 import StyleReplicateTab from './components/StyleReplicateTab';
 import SceneGenerationTab from './components/SceneGenerationTab';
 import ImageCleanTab from './components/ImageCleanTab';
-import BatchRetouchTab from './components/BatchRetouchTab';
 import FusionTab from './components/FusionTab';
 import InpaintingTab from './components/InpaintingTab';
 import SeatCoverTab from './components/SeatCoverTab';
@@ -98,12 +97,6 @@ const App: React.FC = () => {
             label="主图生成"
           />
           <NavButton
-            active={activeTab === AppMode.BATCH_RETOUCH}
-            onClick={() => setActiveTab(AppMode.BATCH_RETOUCH)}
-            icon={<Zap className="w-5 h-5" />}
-            label="AI 洗图"
-          />
-          <NavButton
             active={activeTab === AppMode.RATIO_QUERY}
             onClick={() => setActiveTab(AppMode.RATIO_QUERY)}
             icon={<Activity className="w-5 h-5" />}
@@ -133,7 +126,6 @@ const App: React.FC = () => {
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
             {activeTab === AppMode.IMAGE_CLEAN && "主图生成 (Hero Image)"}
-            {activeTab === AppMode.BATCH_RETOUCH && "AI 洗图 (Batch Retouch)"}
             {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
             {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
           </h1>
@@ -181,9 +173,6 @@ const App: React.FC = () => {
             {/* Persist ImageCleanTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.IMAGE_CLEAN ? 'block' : 'none', height: '100%' }}>
               <ImageCleanTab />
-            </div>
-            <div style={{ display: activeTab === AppMode.BATCH_RETOUCH ? 'block' : 'none', height: '100%' }}>
-              <BatchRetouchTab />
             </div>
             {activeTab === AppMode.RATIO_QUERY && <AspectRatioTab />}
             {activeTab === AppMode.SETTINGS && <SettingsTab />}
