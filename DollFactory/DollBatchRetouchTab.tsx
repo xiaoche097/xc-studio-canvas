@@ -1,8 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Trash2, CheckCircle2, AlertCircle, Bot } from 'lucide-react';
+import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Trash2, CheckCircle2, AlertCircle, Bot, Layout, Store, RefreshCw } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
+
+const PLATFORM_STYLES = [
+    { id: 'amazon', label: 'Amazon', icon: '🅰️', desc: '纯白背景 / 极简', prompt: 'Amazon professional main image, pure white background (#FFFFFF), high clarity, centered composition, clean edges, professional studio photography.' },
+    { id: 'shein', label: 'SHEIN', icon: '👗', desc: '潮流街拍 / 灵动', prompt: 'SHEIN trendy lifestyle photography, bright natural lighting, youthful vibe, fashionable outdoor or minimalist indoor setting, high-end editorial.' },
+    { id: 'temu', label: 'Temu', icon: '🧡', desc: '高饱和 / 抓眼', prompt: 'Temu commercial style, high contrast, vibrant colors, sharp focus, attention-grabbing composition, clean modern commercial setting.' },
+    { id: 'tmall', label: '天猫淘宝', icon: '🐈', desc: '高级感 / 质感', prompt: 'Tmall/Taobao premium luxury photography, sophisticated soft lighting, elegant composition, rich textures, high-end commercial studio aesthetic.' },
+    { id: 'shopify', label: '独立站', icon: '🛒', desc: '品牌感 / 极简', prompt: 'Minimalist brand photography for independent stores, artistic lighting, soft shadows, clean aesthetic, high-end lifestyle aesthetic.' }
+];
 
 // --- Prompt Templates ---
 const BATCH_RETOUCH_PROMPT = `[ROLE] You are a world-class e-commerce product retouching expert specialized in pure white background photography.
@@ -59,6 +67,7 @@ const DollBatchRetouchTab: React.FC = () => {
   const [guidance, setGuidance] = useState('');
   const [intensity, setIntensity] = useState<keyof typeof INTENSITY_CONFIG>('standard');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('amazon');
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     return localStorage.getItem('yunwu_default_model') || 'gemini-3.1-flash-image-preview';
@@ -324,8 +333,14 @@ const DollBatchRetouchTab: React.FC = () => {
         const source = sources[i];
         const compressed = { base64: source.base64, mime: source.mime };
         
+        const platformObj = PLATFORM_STYLES.find(p => p.id === selectedPlatform);
+        const platformPromptStr = platformObj ? platformObj.prompt : '';
+
         let finalPrompt = BATCH_RETOUCH_PROMPT;
         finalPrompt += INTENSITY_CONFIG[intensity].suffix;
+        if (platformPromptStr) {
+          finalPrompt += `\n\n[PLATFORM VISUAL GENE: ${platformObj?.label}]: ${platformPromptStr}`;
+        }
         if (styleContext) finalPrompt += styleContext;
         if (analysisResult) {
           finalPrompt += `\n\n[AI AGENT ANALYSIS]:\n- Material: ${analysisResult.material}\n- Focus: ${analysisResult.focus}\n- Style Keywords: ${analysisResult.prompt_enhancement}`;
@@ -363,6 +378,76 @@ const DollBatchRetouchTab: React.FC = () => {
       setStatusMessage('发生错误，处理已停止');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleSingleRegenerate = async (idx: number) => {
+    setResults(prev => {
+      const next = [...prev];
+      next[idx].status = 'processing';
+      next[idx].resultUrl = null;
+      next[idx].error = undefined;
+      return next;
+    });
+
+    try {
+      const { generateImageToImage, analyzeReferenceEffect } = await import('../Cyzx4/services/geminiService');
+      
+      let styleContext = '';
+      if (refs.length > 0) {
+        const styleAnalysis = await analyzeReferenceEffect(refs.map(r => ({ base64: r.base64, mimeType: r.mime })));
+        if (styleAnalysis?.extracted_style) {
+          styleContext = `\n\n=== TARGET STYLE ===\n${styleAnalysis.extracted_style}`;
+        }
+      }
+
+      const source = sources[idx];
+      const compressed = { base64: source.base64, mime: source.mime };
+      
+      const platformObj = PLATFORM_STYLES.find(p => p.id === selectedPlatform);
+      const platformPromptStr = platformObj ? platformObj.prompt : '';
+
+      let finalPrompt = BATCH_RETOUCH_PROMPT;
+      finalPrompt += INTENSITY_CONFIG[intensity].suffix;
+      if (platformPromptStr) {
+        finalPrompt += `\n\n[PLATFORM VISUAL GENE: ${platformObj?.label}]: ${platformPromptStr}`;
+      }
+      if (styleContext) finalPrompt += styleContext;
+      if (analysisResult) {
+        finalPrompt += `\n\n[AI AGENT ANALYSIS]:\n- Material: ${analysisResult.material}\n- Focus: ${analysisResult.focus}\n- Style Keywords: ${analysisResult.prompt_enhancement}`;
+      }
+      if (guidance.trim()) finalPrompt += `\n\n[USER REQUEST]: ${guidance.trim()}`;
+
+      const result = await generateImageToImage(
+        [{ base64: compressed.base64, mimeType: compressed.mime }],
+        finalPrompt,
+        {
+          aspectRatio,
+          resolution,
+          modelId: selectedModel,
+          negativePrompt: "floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges, horizon line, ground plane, furniture, studio equipment, reflection on floor",
+          workflowHint: 'doll-retouching' as any
+        }
+      );
+
+      if (result && result.length > 0) {
+        setResults(prev => {
+          const next = [...prev];
+          next[idx].resultUrl = result[0];
+          next[idx].status = 'done';
+          return next;
+        });
+      } else {
+        throw new Error('生成失败');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setResults(prev => {
+        const next = [...prev];
+        next[idx].status = 'error';
+        next[idx].error = err.message || '生成失败';
+        return next;
+      });
     }
   };
 
@@ -515,22 +600,51 @@ const DollBatchRetouchTab: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <h3 className="text-xs font-bold text-pastel-muted uppercase">输出画幅</h3>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {[AspectRatio.SQUARE, AspectRatio.PORTRAIT_3_4, AspectRatio.PORTRAIT_4_5, AspectRatio.PORTRAIT_2_3, AspectRatio.PORTRAIT_9_16].map(ar => (
-                    <button
-                      key={ar}
-                      onClick={() => setAspectRatio(ar)}
-                      className={`py-1.5 rounded-lg border text-[9px] font-bold transition-all ${aspectRatio === ar ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight' : 'border-pastel-border bg-white text-pastel-muted'}`}
-                    >
-                      {ar}
+              {/* Ratio */}
+              <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Layout className="w-4 h-4 text-pastel-highlight" />
+                  <h3 className="font-bold text-pastel-text text-sm">画幅比例</h3>
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {[
+                    { id: AspectRatio.SQUARE, label: '1:1', icon: '正方形' },
+                    { id: AspectRatio.PORTRAIT_2_3, label: '2:3', icon: '主图' },
+                    { id: AspectRatio.PORTRAIT_3_4, label: '3:4', icon: '详情' },
+                    { id: AspectRatio.PORTRAIT_9_16, label: '9:16', icon: '竖屏' },
+                    { id: AspectRatio.LANDSCAPE_16_9, label: '16:9', icon: '横幅' },
+                  ].map((item) => (
+                    <button key={item.id} onClick={() => setAspectRatio(item.id)} className={`flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${aspectRatio === item.id ? 'bg-orange-50 border-pastel-highlight ring-1 ring-orange-100 text-pastel-highlight' : 'bg-pastel-bg/30 border-pastel-border text-pastel-muted hover:border-orange-200'}`}>
+                      <span className="text-[11px] font-bold">{item.label}</span>
+                      <span className="text-[9px] opacity-60">{item.icon}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="space-y-2">
+              {/* Platform Styles */}
+              <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Store className="w-4 h-4 text-pastel-highlight" />
+                  <h3 className="font-bold text-pastel-text text-sm">投放平台风格</h3>
+                  <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">适配各平台视觉基因</span>
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {PLATFORM_STYLES.map((platform) => (
+                    <button 
+                      key={platform.id} 
+                      onClick={() => setSelectedPlatform(platform.id)} 
+                      className={`flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${selectedPlatform === platform.id ? 'bg-orange-50 border-pastel-highlight ring-1 ring-orange-100' : 'bg-pastel-bg/30 border-pastel-border hover:border-orange-200'}`}
+                    >
+                      <span className="text-lg mb-1">{platform.icon}</span>
+                      <span className={`text-[10px] font-bold ${selectedPlatform === platform.id ? 'text-pastel-highlight' : 'text-pastel-text'}`}>{platform.label}</span>
+                      <span className="text-[8px] text-pastel-muted scale-90 whitespace-nowrap">{platform.desc.split(' / ')[0]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm space-y-2">
                 <h3 className="text-xs font-bold text-pastel-muted uppercase">分辨率</h3>
                 <select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs font-bold outline-none focus:border-pastel-highlight transition-all">
                   <option value={ImageResolution.RES_2K}>2K 高清</option>
@@ -668,7 +782,18 @@ const DollBatchRetouchTab: React.FC = () => {
                   </div>
                   <div className="px-5 py-3 border-t border-pastel-border/50 flex justify-between items-center bg-white/80">
                     <span className="text-xs font-bold text-pastel-muted"># {idx + 1} 任务</span>
-                    {res.status === 'done' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                    <div className="flex items-center gap-3">
+                      {(res.status === 'done' || res.status === 'error') && (
+                        <button 
+                          onClick={() => handleSingleRegenerate(idx)}
+                          className="flex items-center gap-1.5 px-2 py-1 rounded border border-pastel-border hover:bg-pastel-bg text-[10px] font-bold text-pastel-muted transition-colors hover:text-pastel-highlight hover:border-pastel-highlight"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          重新生成
+                        </button>
+                      )}
+                      {res.status === 'done' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                    </div>
                   </div>
                 </div>
               ))}
