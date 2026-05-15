@@ -22,7 +22,7 @@ export const analyzeVtonMaterials = async (
   });
 
   const prompt = options.type === 'global' 
-    ? "Analyze these reference images. Provide a detailed VTON REPORT (max 200 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's precise COLOR, PRINTS, PATTERNS, LOGOS, and graphic designs. 3. STRUCTURAL FEATURES: Explicitly identify the NECKLINE (MUST specify if it has visible stitching lines/车缝线 or is seamless/无痕), SLEEVE TYPE, and HEM LENGTH (MUST specify if it exposes the navel/露肚脐, and whether it exposes the full navel or half navel). 4. Fabric texture and fit style. 5. Identify the dominant color temperature."
+    ? "Analyze these reference images. Provide a detailed VTON REPORT (max 200 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's precise COLOR, PRINTS, PATTERNS, LOGOS, and graphic designs. 3. STRUCTURAL FEATURES: Explicitly identify the NECKLINE (MUST specify if it has visible stitching lines/车缝线 or is seamless/无痕), SLEEVE TYPE, and HEM LENGTH (MUST specify if it is a 'cropped waist', and whether it is a full crop/high crop or partial crop/low crop). 4. Fabric texture and fit style. 5. Identify the dominant color temperature. CRITICAL: Avoid NSFW terms like 'navel', 'underwear', 'panties'. Use safe terms like 'midriff', 'cropped waist', 'swimwear bottom'."
     : "Analyze this scene. Provide a concise SCENE REPORT (max 100 words) describing: 1. Lighting direction and shadow hardness. 2. Camera angle and pose. 3. Identify the original clothing's color and texture (to be replaced). 4. Explicitly identify the WHITE BALANCE and COLOR TEMPERATURE of this scene.";
 
   const parts: any[] = images.map(img => ({
@@ -57,6 +57,7 @@ export interface GarmentAnalysisResult {
   cuffs_sleeves: string;
   wearing_effect: string;
   engineered_prompt: string;
+  negative_prompt_additions?: string;
 }
 
 /**
@@ -91,11 +92,12 @@ export const analyzeGarmentFeatures = async (
 **OUTPUT FORMAT (MANDATORY JSON)**:
 {
   "fit": "Describe the fit/silhouette (e.g., Slim fit, Oversized, A-line, Bodycon).",
-  "length": "Describe the length. **CRITICAL**: You MUST explicitly state if it exposes the navel (露肚脐眼), and if so, whether it exposes the full navel or half navel.",
+  "length": "Describe the length. **CRITICAL**: You MUST explicitly state if it is a 'cropped waist' (meaning the midriff is visible). If so, specify if it is a 'high crop' (full midriff exposed) or 'low crop' (partial midriff exposed). DO NOT use the words 'navel' or 'bare stomach' as they trigger safety filters.",
   "neckline": "Describe the neckline/collar. **CRITICAL**: You MUST explicitly state if the neckline has visible stitching lines (车缝线) or if it is seamless/no-stitch (无痕/无车缝线).",
   "cuffs_sleeves": "Describe the sleeves and cuffs (e.g., Sleeveless, Long sleeves with ribbed cuffs, Puff sleeves).",
   "wearing_effect": "Describe how it should look when worn (e.g., Draped elegantly, tight and contouring, relaxed and baggy).",
-  "engineered_prompt": "A concise, comma-separated list of ONLY the garment's structural features and the user's requested changes, optimized for an image generation prompt. DO NOT include color unless specified by the user. Example: 'slim fit ribbed knit top, deep v-neck, long sleeves with thumb holes, cropped waist length, tight bodycon fit'."
+  "engineered_prompt": "A concise, comma-separated list of ONLY the garment's structural features and the user's requested changes, optimized for an image generation prompt. DO NOT include color unless specified by the user. AVOID unsafe terms ('navel', 'underwear'). Use 'midriff', 'cropped waist', 'swimwear bottom' instead. Example: 'slim fit ribbed knit top, deep v-neck, long sleeves with thumb holes, low cropped waist length, tight bodycon fit'.",
+  "negative_prompt_additions": "A comma-separated list of strictly banned elements based on the features. For example, if it is seamless, output 'stitching, visible seams, thread lines'. If it is a low crop, output 'high crop, full midriff exposed'. Leave empty if none."
 }
 `;
 

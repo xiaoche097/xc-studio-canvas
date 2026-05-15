@@ -290,11 +290,6 @@ const ModelMainAdjustTab: React.FC = () => {
       }
 
       let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
-      
-      if (garmentAnalysis && garmentAnalysis.engineered_prompt) {
-         prompt += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
-      }
-
       let negativePrompt = `${GLOBAL_NEGATIVE_PROMPT}, extra objects, additional items, new props, change layout, hallucinate`;
 
       // Use Professional Angle Prompts if selected
@@ -357,6 +352,16 @@ const ModelMainAdjustTab: React.FC = () => {
       } else if (refInputImages.length > 0) {
         // Fallback for global reference without specific boxes
         prompt += `\nCRITICAL: You have been provided ${refFiles.length} additional input image(s) acting as STYLE/EFFECT REFERENCES. Please seamlessly blend their visual features globally onto the main model image.`;
+      }
+      
+      // Inject garment analysis at the very end to ensure it is not overwritten
+      if (garmentAnalysis && garmentAnalysis.engineered_prompt) {
+         prompt += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
+         prompt += `\nCRITICAL GARMENT RULES: Ensure the generated garment strictly follows the neckline stitching details (e.g. seamless vs stitched) and exact length/cropped waist style mentioned above.`;
+         
+         if (garmentAnalysis.negative_prompt_additions) {
+           negativePrompt += `, ${garmentAnalysis.negative_prompt_additions}`;
+         }
       }
       
       setStatusMessage(`正在为您并行生成 ${variantCount} 组精修方案 (约 30-60s)...`);

@@ -284,13 +284,18 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
 
     if (garmentAnalysis?.engineered_prompt) {
       base += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
+      base += `\nCRITICAL GARMENT RULES: Ensure the generated garment strictly follows the neckline stitching details (e.g. seamless vs stitched) and exact length/cropped waist style mentioned above.`;
     }
 
     return base;
   };
 
   const buildGarmentReplacementNegativePrompt = () => {
-    return 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition, strap, tank top, high neck, crew neck, turtleneck, blurred print, smeared texture, simplified patterns, changed neckline, altered sleeves, dark border at hem, hem trim, bottom border, decorative edge, contrasting trim';
+    let negative = 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition, strap, tank top, high neck, crew neck, turtleneck, blurred print, smeared texture, simplified patterns, changed neckline, altered sleeves, dark border at hem, hem trim, bottom border, decorative edge, contrasting trim, change lower body clothing, change pants, alter background';
+    if (garmentAnalysis?.negative_prompt_additions) {
+      negative += `, ${garmentAnalysis.negative_prompt_additions}`;
+    }
+    return negative;
   };
 
   const handleAnalyzeGarment = async () => {
