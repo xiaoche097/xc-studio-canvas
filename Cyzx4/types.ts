@@ -6,6 +6,7 @@ export enum AppMode {
   SEAT_COVER = 'SEAT_COVER', // Seat Cover Fit (New)
   COPYWRITING = 'COPYWRITING', // Listing Copilot (New)
   IMAGE_CLEAN = 'IMAGE_CLEAN', // Image Cleanup Tool (Replaces Video)
+  PRODUCT_REPAIR = 'PRODUCT_REPAIR', // 产品修复 (Product Repair)
   RATIO_QUERY = 'RATIO_QUERY', // Aspect Ratio Query (New)
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)

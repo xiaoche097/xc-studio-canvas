@@ -190,4 +190,5 @@ export type WorkflowHint =
   | 'doll-retouching'
   | 'listing-optimization'
   | 'face-lock'
-  | 'reference-refinement';
+  | 'reference-refinement'
+  | 'structural-repair-v2';

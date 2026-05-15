@@ -1149,8 +1149,9 @@ ${forcedPrompt}`;
           config: {
             safetySettings: GLOBAL_SAFETY_SETTINGS,
             imageConfig: {
-              aspectRatio: aspectRatio,
-              aspect_ratio: aspectRatio,
+              // 兼容性优化：如果使用了中转 API 且模型提示不支持比例参数，则不在 imageConfig 中显式传递，
+              // 而是依靠我们在 prompt 中已经注入的 --ar 标签。
+              ...(config.isYunwu || config.isPlato ? {} : { aspectRatio: aspectRatio, aspect_ratio: aspectRatio }),
               // Standard Gemini expects "1K", "2K", "4K"
               imageSize: resolution, 
               size: explicitDimensions, // DALL-E 3 standard
@@ -1162,8 +1163,7 @@ ${forcedPrompt}`;
           } as any,
           // Fallback for proxies that map Gemini 'generationConfig' to target model parameters
           generationConfig: {
-            aspectRatio: aspectRatio,
-            aspect_ratio: aspectRatio,
+            ...(config.isYunwu || config.isPlato ? {} : { aspectRatio: aspectRatio, aspect_ratio: aspectRatio }),
             image_size: explicitDimensions,
             resolution: resolution,
             quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard",

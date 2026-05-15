@@ -83,7 +83,11 @@ const HeroImageTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
-    const [isSafeMode, setIsSafeMode] = useState(false);
+    const [isSafeMode, setIsSafeMode] = useState(false); // 动作安全模式
+    const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 场景安全模式
+    const [isSafeModeModel, setIsSafeModeModel] = useState(false); // 模特安全模式
+    const [isFaceOnly, setIsFaceOnly] = useState(false); // 仅参考脸型
+    const [isSceneOnly, setIsSceneOnly] = useState(false); // 仅参考场景
     
     // Photo controls
     const [cameraDevice, setCameraDevice] = useState('智能推荐');
@@ -126,6 +130,40 @@ const HeroImageTab: React.FC = () => {
     const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | 'model' | null>(null);
     const [isDragging, setIsDragging] = useState<string | null>(null);
 
+    // Helper for image dimensions and aspect ratio detection
+    const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                resolve({ width: img.width, height: img.height });
+            };
+            img.src = URL.createObjectURL(file);
+        });
+    };
+
+    const autoDetectRatio = (width: number, height: number) => {
+        const ratio = width / height;
+        const presets = [
+            { value: AspectRatio.SQUARE, ratio: 1 / 1 },
+            { value: AspectRatio.PORTRAIT_2_3, ratio: 2 / 3 },
+            { value: AspectRatio.PORTRAIT_3_4, ratio: 3 / 4 },
+            { value: AspectRatio.PORTRAIT_9_16, ratio: 9 / 16 },
+            { value: AspectRatio.LANDSCAPE_16_9, ratio: 16 / 9 },
+        ];
+        
+        let closest = presets[0];
+        let minDiff = Math.abs(ratio - closest.ratio);
+        
+        for (const preset of presets) {
+            const diff = Math.abs(ratio - preset.ratio);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = preset;
+            }
+        }
+        return closest.value;
+    };
+
     // Image processing
     const processFiles = async (files: File[]) => {
         const results: UploadedImage[] = [];
@@ -145,6 +183,12 @@ const HeroImageTab: React.FC = () => {
 
     const handleProductUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
+        if (files.length > 0) {
+            // 自动检测第一张图的比例
+            const dims = await getImageDimensions(files[0]);
+            const detectedRatio = autoDetectRatio(dims.width, dims.height);
+            setAspectRatio(detectedRatio);
+        }
         const processed = await processFiles(files);
         setProductImages(prev => [...prev, ...processed].slice(0, 4));
         setError(null);
@@ -244,48 +288,53 @@ const HeroImageTab: React.FC = () => {
         }, 1200);
 
         try {
-            // 构建图片序列：将姿势/场景参考图排在首位作为“构图锚点”
-            const inputImages: { base64: string; mimeType: string }[] = [];
-            
-            // 1. 优先添加构图锚点 (Action > Scene)
-            if (actionReference) {
-                let actionBase64 = actionReference.base64!;
-                let actionMime = actionReference.mime!;
-                
-                if (isSafeMode) {
-                    // Extract edges to bypass NSFW filters
-                    const dataUrl = await extractEdges(`data:${actionMime};base64,${actionBase64}`);
+            // 1. 预处理所有图片（如果开启安全模式则转换为线稿）
+            const processRefImage = async (img: UploadedImage | null, isSafe: boolean) => {
+                if (!img) return null;
+                let b64 = img.base64!;
+                let mime = img.mime!;
+                if (isSafe) {
+                    const dataUrl = await extractEdges(`data:${mime};base64,${b64}`);
                     const parts = dataUrl.split(',');
                     if (parts.length > 1) {
-                        actionMime = parts[0].split(':')[1].split(';')[0];
-                        actionBase64 = parts[1];
+                        mime = parts[0].split(':')[1].split(';')[0];
+                        b64 = parts[1];
                     }
                 }
-                
-                inputImages.push({ base64: actionBase64, mimeType: actionMime });
-            } else if (sceneReferences.length > 0) {
-                inputImages.push({ base64: sceneReferences[0].base64!, mimeType: sceneReferences[0].mime! });
+                return { base64: b64, mimeType: mime };
+            };
+
+            const processedAction = await processRefImage(actionReference, isSafeMode);
+            const processedModel = await processRefImage(modelReference, isSafeModeModel);
+            const processedScenes = await Promise.all(
+                sceneReferences.map(img => processRefImage(img, isSafeModeScene))
+            );
+
+            // 2. 构建图片序列
+            const inputImages: { base64: string; mimeType: string }[] = [];
+            
+            // 构图锚点优先
+            if (processedAction) {
+                inputImages.push(processedAction);
+            } else if (processedScenes.length > 0 && processedScenes[0]) {
+                inputImages.push(processedScenes[0]);
             }
             
-            // 2. 添加产品图
+            // 添加产品图
             productImages.forEach(img => {
-                // 避免重复添加 (如果产品图恰好也在锚点中)
                 if (actionReference?.base64 !== img.base64) {
                     inputImages.push({ base64: img.base64!, mimeType: img.mime! });
                 }
             });
             
-            // 3. 添加剩余参考图 (Model, 其他 Scene)
-            if (modelReference) {
-                inputImages.push({ base64: modelReference.base64!, mimeType: modelReference.mime! });
-            }
-            
-            sceneReferences.forEach((img, idx) => {
-                // 如果第一张场景图已经被用作锚点，则跳过
-                if (idx === 0 && !actionReference) return;
-                inputImages.push({ base64: img.base64!, mimeType: img.mime! });
+            // 添加模特与剩余场景
+            if (processedModel) inputImages.push(processedModel);
+            processedScenes.forEach((img, idx) => {
+                if (idx === 0 && !processedAction) return; // 跳过已作为锚点的第一张场景图
+                if (img) inputImages.push(img);
             });
 
+            // 3. 构建 Prompt 策略
             const measurementStr = (measurements.bust || measurements.waist || measurements.hips) 
                 ? `Model Measurements: Bust ${measurements.bust || 'N/A'}, Waist ${measurements.waist || 'N/A'}, Hips ${measurements.hips || 'N/A'}.` 
                 : "";
@@ -304,7 +353,8 @@ const HeroImageTab: React.FC = () => {
 
             let basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
             
-            if (isSafeMode) {
+            // 任意一种安全模式开启均执行 Prompt 净化
+            if (isSafeMode || isSafeModeScene || isSafeModeModel) {
                 basePrompt = basePrompt.replace(/情趣|性感|透视|诱惑|sexy|erotic/gi, '时尚');
                 basePrompt = basePrompt.replace(/内衣|睡衣|lingerie/gi, '高定泳装');
                 basePrompt += " # SAFE MODE: High-end Fashion Editorial, elegant styling.";
@@ -319,10 +369,10 @@ const HeroImageTab: React.FC = () => {
             # CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]. You MUST preserve its structure, texture, cut, and pattern EXACTLY. Do NOT allow any stylistic drift. The product in the output must be 100% identical to the source product asset.
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${modelReference ? `# MODEL IDENTITY: REPLICATE the facial features and identity from the model reference image.` : ''}
+            ${modelReference ? `# MODEL IDENTITY: ${isFaceOnly ? 'Strictly REPLICATE ONLY the facial features, face shape, and identity. IGNORE the body pose, clothing, and background from the model reference.' : 'REPLICATE the facial features and identity from the model reference image.'}` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             ${actionReference ? `# POSE: Replicate the human pose from the pose reference image while KEEPING the product structure locked.` : ''}
-            ${sceneReferences.length > 0 ? `# SCENE: Replicate background and lighting from reference images.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
+            ${sceneReferences.length > 0 ? `# SCENE: ${isSceneOnly ? 'Strictly REPLICATE ONLY the background, environment, lighting, and layout. IGNORE any people or subjects present in the scene reference.' : 'Replicate background and lighting from reference images.'}` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
@@ -361,7 +411,7 @@ const HeroImageTab: React.FC = () => {
     };
 
     return (
-        <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white custom-scrollbar">
+        <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white custom-scrollbar pb-24">
             {/* Header */}
             <div className="text-center py-6 px-4">
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-pastel-border rounded-full text-xs text-pastel-muted mb-2 shadow-sm">
@@ -371,14 +421,14 @@ const HeroImageTab: React.FC = () => {
                 <h1 className="text-2xl font-bold text-pastel-text">智能主图生成 (Hero Image)</h1>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 pb-12">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="max-w-7xl mx-auto px-8 pb-16">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                     
                     {/* LEFT COLUMN */}
                     <div className="space-y-4">
                         
                         {/* 1. Ratio */}
-                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                        <div className="bg-white rounded-2xl border border-pastel-border p-6 shadow-sm mb-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <Layout className="w-4 h-4 text-pastel-highlight" />
                                 <h3 className="font-bold text-pastel-text text-sm">画幅比例</h3>
@@ -511,9 +561,31 @@ const HeroImageTab: React.FC = () => {
                             </div>
                             {/* Scene */}
                             <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Sun className="w-4 h-4 text-orange-500" />
-                                    <h3 className="font-bold text-pastel-text text-xs text-nowrap">场景参考图</h3>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <Sun className="w-4 h-4 text-orange-500" />
+                                        <h3 className="font-bold text-pastel-text text-xs text-nowrap">场景参考图</h3>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，AI 将仅提取场景图的构图与光影，忽略图中原有主体">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isSceneOnly}
+                                                onChange={(e) => setIsSceneOnly(e.target.checked)}
+                                                className="w-3.5 h-3.5 text-orange-500 rounded border-gray-300 focus:ring-orange-500 cursor-pointer"
+                                            />
+                                            <span className="text-[10px] text-gray-500 group-hover:text-orange-600 transition-colors font-medium">仅场景</span>
+                                        </label>
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，场景图将自动转化为线稿，以绕过敏感场景拦截">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isSafeModeScene}
+                                                onChange={(e) => setIsSafeModeScene(e.target.checked)}
+                                                className="w-3.5 h-3.5 text-orange-500 rounded border-gray-300 focus:ring-orange-500 cursor-pointer"
+                                            />
+                                            <span className="text-[10px] text-gray-500 group-hover:text-orange-600 transition-colors font-medium">安全脱敏</span>
+                                        </label>
+                                    </div>
                                 </div>
                                 <div 
                                     onClick={() => sceneInputRef.current?.click()} 
@@ -556,7 +628,27 @@ const HeroImageTab: React.FC = () => {
                                     <UserCircle className="w-4 h-4 text-blue-500" />
                                     <h3 className="font-bold text-pastel-text text-sm">模特身份固定 (Face & Body)</h3>
                                 </div>
-                                <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">固定长相与身材比例</span>
+                                <div className="flex items-center gap-3">
+                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，AI 将仅提取模特图的脸型与五官特征，忽略图中原有姿态">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isFaceOnly}
+                                            onChange={(e) => setIsFaceOnly(e.target.checked)}
+                                            className="w-3.5 h-3.5 text-blue-500 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                        <span className="text-[10px] text-gray-500 group-hover:text-blue-600 transition-colors font-medium">仅脸型</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，模特参考图将自动转化为线稿，以绕过敏感人物拦截">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isSafeModeModel}
+                                            onChange={(e) => setIsSafeModeModel(e.target.checked)}
+                                            className="w-3.5 h-3.5 text-blue-500 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                        <span className="text-[10px] text-gray-500 group-hover:text-blue-600 transition-colors font-medium">安全脱敏</span>
+                                    </label>
+                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">固定长相</span>
+                                </div>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
                                 <div 
