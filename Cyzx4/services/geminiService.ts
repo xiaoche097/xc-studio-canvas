@@ -34,6 +34,13 @@ export { getActiveApiInfo, blobToBase64, compressImage, decodeAudioData };
 // Export the VTON Analyst service
 export { analyzeVtonMaterials, analyzeGarmentFeatures } from "./vtonAnalyst";
 
+export const GLOBAL_SAFETY_SETTINGS = [
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
+
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
  * Uses gemini-2.5-flash-image
@@ -1140,6 +1147,7 @@ ${forcedPrompt}`;
           // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
           // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
           config: {
+            safetySettings: GLOBAL_SAFETY_SETTINGS,
             imageConfig: {
               aspectRatio: aspectRatio,
               aspect_ratio: aspectRatio,
@@ -1554,6 +1562,9 @@ Just the raw text.
       model: modelName,
       contents: {
         parts: parts
+      },
+      config: {
+        safetySettings: GLOBAL_SAFETY_SETTINGS
       }
     });
 
@@ -2856,12 +2867,7 @@ You MUST process the input through these 8 distinct phases:
 
     const config: any = {
       temperature: 0.2,
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      ],
+      safetySettings: GLOBAL_SAFETY_SETTINGS,
       imageConfig: {
         aspectRatio: aspectRatio,
         imageSize: resolution, // Must be '1K', '2K', or '4K'
