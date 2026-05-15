@@ -356,7 +356,7 @@ const SceneGenerationTab: React.FC = () => {
       preview: URL.createObjectURL(file),
     };
     setReferenceSceneImage(uploaded);
-    runReferenceAnalysis(uploaded);
+    // runReferenceAnalysis(uploaded); // DISABLED: Manual trigger only per user request
   };
 
   // ==================== AI Auto-Analysis ====================
@@ -423,6 +423,7 @@ const SceneGenerationTab: React.FC = () => {
         result.sizeCategory = getSizeCategoryFromStr(form.productSize);
       }
       setAnalysisResult(result);
+    } catch (err: any) {
       console.error('AI analysis failed:', err);
       setError('AI 分析失败，请手动填写信息或重试');
     } finally {
@@ -734,7 +735,15 @@ const SceneGenerationTab: React.FC = () => {
               <div className="flex items-center gap-2 mb-2">
                 <Package className="w-4 h-4 text-pastel-highlight" />
                 <h3 className="font-semibold text-pastel-text text-sm">产品素材图</h3>
-                <span className="text-[10px] text-pastel-muted ml-auto">上传后 AI 自动分析</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); runAnalysis(); }}
+                  disabled={isAnalyzing || uploadedImages.length === 0}
+                  className="ml-auto text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-600 font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 flex items-center gap-1 border border-purple-200"
+                >
+                  {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                  {analysisResult ? '重新分析' : '智能策划场景'}
+                </button>
               </div>
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -789,7 +798,15 @@ const SceneGenerationTab: React.FC = () => {
               <div className="flex items-center gap-2 mb-2">
                 <ImageIcon className="w-4 h-4 text-purple-500" />
                 <h3 className="font-semibold text-pastel-text text-sm">参考场景图 (可选)</h3>
-                <span className="text-[10px] text-pastel-muted ml-auto">参考其构图、光影及风格</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); if (referenceSceneImage) runReferenceAnalysis(referenceSceneImage); }}
+                  disabled={isAnalyzingReference || !referenceSceneImage}
+                  className="ml-auto text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-600 font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 flex items-center gap-1 border border-purple-200"
+                >
+                  {isAnalyzingReference ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  分析场景元素
+                </button>
               </div>
               <div
                 onClick={() => refSceneInputRef.current?.click()}
@@ -839,11 +856,11 @@ const SceneGenerationTab: React.FC = () => {
                           e.stopPropagation();
                           if (referenceSceneImage) runReferenceAnalysis(referenceSceneImage);
                         }}
-                        className="absolute top-2 left-2 p-1.5 bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/20 rounded-full text-white transition-opacity opacity-0 group-hover/ref:opacity-100 flex items-center gap-1 px-2.5"
-                        title="重新分析场景"
+                        className="absolute top-2 left-2 p-1.5 bg-purple-600 hover:bg-purple-700 backdrop-blur-md border border-white/20 rounded-full text-white transition-opacity opacity-0 group-hover/ref:opacity-100 flex items-center gap-1 px-2.5 shadow-lg"
+                        title="分析场景"
                       >
-                        <RefreshCw className="w-3 h-3" />
-                        <span className="text-[10px] font-medium">重新分析</span>
+                        <Wand2 className="w-3 h-3" />
+                        <span className="text-[10px] font-medium">分析场景</span>
                       </button>
                     )}
                     {!isAnalyzingReference && (

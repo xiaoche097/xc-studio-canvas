@@ -299,6 +299,16 @@ export const compressImage = async (
 export function getErrorMessage(error: any): string {
     const errorMsg = error?.message || error?.toString() || '';
     const errorStatus = error?.status;
+    
+    // 安全策略拦截 (高优先级)
+    if (errorMsg.includes('safety') || errorMsg.includes('blocked by safety') || errorMsg.includes('SAFETY')) {
+        return `⚠️ 安全策略拦截\n${errorMsg}\n\n[建议] 画面中可能包含过于敏感的内容（如内衣/裸露），大模型底层存在不可关闭的安全过滤。请尝试在“高级参数”中切换模型（如 GPT Image 2）或减少画面敏感度。`;
+    }
+
+    // 未返回任何图片 (具体原因提示)
+    if (errorMsg.includes('未返回任何图片')) {
+        return `⚠️ 操作失败\n模型未返回任何结果。可能原因：\n1. 4K 高分辨率请求超时或被代理节点拒绝（请尝试切换到 2K）。\n2. 画面中包含内衣/泳装等内容，虽然我们已放开设置，但模型底层仍可能执行强制拦截。`;
+    }
 
     // 路径/模型不支持错误 (Critical)
     if (error.isPathError || errorMsg.includes('invalid_request') || errorMsg.includes('API 路径')) {

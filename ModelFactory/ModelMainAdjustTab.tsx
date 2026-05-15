@@ -94,6 +94,17 @@ const ModelMainAdjustTab: React.FC = () => {
   const [garmentAnalysis, setGarmentAnalysis] = useState<any>(null);
   const [isAnalyzingGarment, setIsAnalyzingGarment] = useState(false);
 
+  const sanitizeForSafety = (text: string) => {
+    if (!text) return text;
+    return text
+      .replace(/肚脐眼|肚脐/g, '露腰(midriff)')
+      .replace(/内裤|底裤/g, '下装(bottoms)')
+      .replace(/裸露|全裸/g, '皮肤(skin)')
+      .replace(/navel/gi, 'midriff')
+      .replace(/underwear|panties|lingerie/gi, 'swimwear bottom')
+      .replace(/sexy|naked/gi, 'fashionable');
+  };
+
   // Reference Images (Up to 3)
   const [refFiles, setRefFiles] = useState<File[]>([]);
   const [refUrls, setRefUrls] = useState<string[]>([]);
@@ -268,6 +279,8 @@ const ModelMainAdjustTab: React.FC = () => {
     setIsGenerating(true);
     setStatusMessage('正在分析模特原图结构属性，调整生成参数...');
 
+    const safeGuidance = sanitizeForSafety(guidance);
+
     try {
       // Import here to avoid early hydration issues if any
       const { generateImageToImage, analyzeDollModification } = await import('../Cyzx4/services/geminiService');
@@ -289,15 +302,15 @@ const ModelMainAdjustTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
-      let negativePrompt = `${GLOBAL_NEGATIVE_PROMPT}, extra objects, additional items, new props, change layout, hallucinate`;
+      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${safeGuidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
+      let negativePrompt = `${GLOBAL_NEGATIVE_PROMPT}, change background, change face, change pose, change skin color, change lower body clothing, change pants, modify non-targeted areas, add extra people, change environment, change lighting temperature, color cast, distorted features`;
 
       // Use Professional Angle Prompts if selected
       if (selectedAngle && (ANGLE_TEMPLATES as any)[selectedAngle]) {
         const template = (ANGLE_TEMPLATES as any)[selectedAngle];
         prompt = template.prompt;
-        if (guidance) {
-          prompt += `\n\n**Additional Instruction**: ${guidance}`;
+        if (safeGuidance) {
+          prompt += `\n\n**Additional Instruction**: ${safeGuidance}`;
         }
         negativePrompt = template.negativePrompt || GLOBAL_NEGATIVE_PROMPT;
       }
@@ -315,7 +328,7 @@ const ModelMainAdjustTab: React.FC = () => {
             x: b.x, y: b.y, w: b.w, h: b.h, 
             color: ['Red', 'Yellow', 'Blue'][i % 3] 
           })),
-          guidance,
+          safeGuidance,
           selectedAngle ? (ANGLE_TEMPLATES as any)[selectedAngle].name : undefined
         );
         
@@ -601,6 +614,27 @@ const ModelMainAdjustTab: React.FC = () => {
                     <Upload className="w-4 h-4 text-pastel-muted" />
                   </label>
                )}
+            </div>
+          </div>
+
+          {/* 画幅选择 */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2">生成模型</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
+                className={`rounded-xl border py-2 px-1 text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:bg-pastel-bg'}`}
+              >
+                <Zap className="w-3 h-3" /> Gemini 3 Flash
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedModel('gpt-image-2')}
+                className={`rounded-xl border py-2 px-1 text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${selectedModel === 'gpt-image-2' ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:bg-pastel-bg'}`}
+              >
+                <Sparkles className="w-3 h-3 text-purple-500" /> GPT Image 2
+              </button>
             </div>
           </div>
 

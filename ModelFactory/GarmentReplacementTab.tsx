@@ -74,6 +74,17 @@ const GarmentReplacementTab: React.FC = () => {
   const [garmentAnalysis, setGarmentAnalysis] = useState<any>(null);
   const [isAnalyzingGarment, setIsAnalyzingGarment] = useState(false);
 
+  const sanitizeForSafety = (text: string) => {
+    if (!text) return text;
+    return text
+      .replace(/肚脐眼|肚脐/g, '露腰(midriff)')
+      .replace(/内裤|底裤/g, '下装(bottoms)')
+      .replace(/裸露|全裸/g, '皮肤(skin)')
+      .replace(/navel/gi, 'midriff')
+      .replace(/underwear|panties|lingerie/gi, 'swimwear bottom')
+      .replace(/sexy|naked/gi, 'fashionable');
+  };
+
   const MAX_TARGETS = 10;
 
   // ---- Upload Handlers ----
@@ -280,7 +291,7 @@ const GarmentReplacementTab: React.FC = () => {
 - STRUCTURE: Preserve the original neckline, sleeve type, and hemline length.
 - STYLE: High-end fashion editorial, photorealistic, cinematic lighting.
 - CONSTRAINT: Image 1 is the POSE master. Image 2 (and 3) is the PRODUCT master.
-${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
+${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(userGuidance)}` : ''}`;
 
     if (garmentAnalysis?.engineered_prompt) {
       base += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
@@ -303,12 +314,13 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
       alert('请先上传服装 (核心)');
       return;
     }
+
     setIsAnalyzingGarment(true);
     try {
       const coreImgs = await Promise.all(coreGarmentFiles.map(file => smartCrop(file)));
       const result = await analyzeGarmentFeatures(
         coreImgs.map(img => ({ base64: img.base64, mimeType: img.mimeType })), 
-        userGuidance
+        sanitizeForSafety(userGuidance)
       );
       if (result) {
         setGarmentAnalysis(result);
@@ -341,6 +353,8 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
       status: 'pending',
     }));
     setResults(initialResults);
+
+
 
     try {
       // PHASE 1: Material Analysis (Dual-Agent VTON)

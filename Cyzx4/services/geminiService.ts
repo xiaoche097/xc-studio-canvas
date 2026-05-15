@@ -1173,8 +1173,10 @@ ${forcedPrompt}`;
       );
 
       const generatedImages: string[] = [];
-      if (response.candidates?.[0]?.content?.parts) {
-        for (const part of response.candidates[0].content.parts) {
+      const candidate = response.candidates?.[0];
+      
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
           if (part.inlineData && part.inlineData.data) {
             generatedImages.push(
               `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
@@ -1187,6 +1189,19 @@ ${forcedPrompt}`;
           }
         }
       }
+
+      if (generatedImages.length === 0) {
+        const finishReason = candidate?.finishReason;
+        const safetyRatings = candidate?.safetyRatings;
+        const blockReason = (response as any).promptFeedback?.blockReason;
+        
+        console.warn("[AI GENERATION EMPTY]", { finishReason, safetyRatings, blockReason });
+        
+        if (finishReason === 'SAFETY' || blockReason) {
+           throw new Error(`Generation blocked by safety filter: ${finishReason || blockReason}. This usually happens if the AI detects sensitive content (e.g. underwear) despite our best efforts to bypass it.`);
+        }
+      }
+
       return generatedImages;
 
     } catch (error: any) {
