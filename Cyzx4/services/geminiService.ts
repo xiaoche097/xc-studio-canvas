@@ -32,7 +32,7 @@ import type {
 export { getActiveApiInfo, blobToBase64, compressImage, decodeAudioData };
 
 // Export the VTON Analyst service
-export { analyzeVtonMaterials } from "./vtonAnalyst";
+export { analyzeVtonMaterials, analyzeGarmentFeatures } from "./vtonAnalyst";
 
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
@@ -74,6 +74,7 @@ export const analyzeDollModification = async (
    - **Surgical (Boxes provided)**: ONLY the areas inside the boxes should be modified. EVERYTHING else is "FROZEN".
    - **Global (No boxes provided)**: You may refine the entire image (lighting, texture, quality). HOWEVER, you must maintain 100% of the original objects' positions, counts, poses, and basic shapes from Image 1. DO NOT add or remove objects.
 2. **STRICT REFERENCE ALIGNMENT**: Extract visual attributes (texture, lighting, color depth, material feel) from the REFERENCE IMAGES (Images 2+). Apply these attributes to the modified areas or the entire image.
+   - **CLOTHING MODIFICATION**: If the reference images are garments and you are modifying the clothing, you MUST explicitly identify and enforce the target garment's: Fit (e.g., slim fit, oversized), Length (e.g., crop top, midi length), Neckline (e.g., V-neck, crew neck), and Cuffs/Sleeves.
 3. **COLOR CONSISTENCY (CRITICAL)**: Maintain strict color consistency with Image 1. You MUST match the exact color tone, skin hue, lighting atmosphere, and white balance of the source image. Do not apply "neutral" correction if it deviates from the original's artistic intent or warm/cool bias. Ensure the modified areas blend seamlessly with the original color profile.
 4. **NO NEW OBJECTS**: Absolutely NO hallucination of additional dolls, props, or background details not present in Image 1.
 5. **LAYOUT PRESERVATION**: The final image must be a 1:1 structural match to Image 1. If Image 1 has a doll on the left, the final image must have that same doll on the left, just refined.
@@ -762,7 +763,10 @@ export const generateImageToImage = async (
     const config = getApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
       apiKey: config.apiKey,
-      httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined,
+      httpOptions: config.isYunwu ? { 
+        baseUrl: config.baseUrl,
+        headers: { Authorization: `Bearer ${config.apiKey}` }
+      } : undefined,
       apiVersion: config.apiVersion as any
     });
 
@@ -1260,7 +1264,10 @@ export const generateInpainting = async (
     const config = getApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
       apiKey: config.apiKey,
-      httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined,
+      httpOptions: config.isYunwu ? { 
+        baseUrl: config.baseUrl,
+        headers: { Authorization: `Bearer ${config.apiKey}` }
+      } : undefined,
       apiVersion: config.apiVersion as any
     });
 

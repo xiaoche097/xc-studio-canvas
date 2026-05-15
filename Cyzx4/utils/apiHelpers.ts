@@ -150,7 +150,10 @@ export const getAiClient = (): GoogleGenAI => {
         return new GoogleGenAI({
             apiKey: config.apiKey,
             httpOptions: {
-                baseUrl: config.baseUrl
+                baseUrl: config.baseUrl,
+                headers: {
+                    Authorization: `Bearer ${config.apiKey}`
+                }
             },
             apiVersion: config.apiVersion as any // 透传配置中的 apiVersion
         });

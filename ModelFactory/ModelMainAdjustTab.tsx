@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2 } from 'lucide-react';
+import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Shirt, Wand2, CheckCircle2 } from 'lucide-react';
 import { compressImage, getErrorMessage, blobToBase64 } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from '../DollFactory/components/DollImageEditor';
 import { storageService } from '../services/storageService';
+import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 
 // --- Multi-Angle Ecommerce Prompts ---
 const ANGLE_TEMPLATES = {
@@ -87,6 +88,12 @@ const ModelMainAdjustTab: React.FC = () => {
   const [variantCount, setVariantCount] = useState(1);
   const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
 
+  // Core Garment for replacement (up to 5 images)
+  const [coreGarmentFiles, setCoreGarmentFiles] = useState<File[]>([]);
+  const [coreGarmentUrls, setCoreGarmentUrls] = useState<string[]>([]);
+  const [garmentAnalysis, setGarmentAnalysis] = useState<any>(null);
+  const [isAnalyzingGarment, setIsAnalyzingGarment] = useState(false);
+
   // Reference Images (Up to 3)
   const [refFiles, setRefFiles] = useState<File[]>([]);
   const [refUrls, setRefUrls] = useState<string[]>([]);
@@ -142,6 +149,71 @@ const ModelMainAdjustTab: React.FC = () => {
     if (refFiles.length >= 3) return; // Limit to 3 files
     setRefFiles(prev => [...prev, file]);
     setRefUrls(prev => [...prev, URL.createObjectURL(file)]);
+  };
+
+  const addCoreFile = (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    if (coreGarmentFiles.length >= 5) return;
+    setCoreGarmentFiles(prev => [...prev, file]);
+    setCoreGarmentUrls(prev => [...prev, URL.createObjectURL(file)]);
+    setGarmentAnalysis(null);
+  };
+
+  const handleCoreChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    Array.from(e.target.files || []).forEach(file => addCoreFile(file));
+    e.target.value = '';
+  };
+
+  const handleCoreDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    Array.from(e.dataTransfer.files || []).forEach(file => addCoreFile(file));
+  };
+
+  const removeCoreGarment = (index: number) => {
+    setCoreGarmentFiles(prev => prev.filter((_, i) => i !== index));
+    setCoreGarmentUrls(prev => {
+      const newUrls = [...prev];
+      URL.revokeObjectURL(newUrls[index]);
+      newUrls.splice(index, 1);
+      return newUrls;
+    });
+    setGarmentAnalysis(null);
+  };
+
+  // Add paste hook
+  useImagePaste((files) => {
+    // If we have room in coreGarmentFiles, paste there
+    files.forEach(file => {
+      setCoreGarmentFiles(prev => {
+        if (prev.length < 5) {
+          addCoreFile(file);
+        }
+        return prev;
+      });
+    });
+  });
+
+  const handleAnalyzeGarment = async () => {
+    if (coreGarmentFiles.length === 0) {
+      alert('请先上传产品素材图 (需替换的服装)');
+      return;
+    }
+    setIsAnalyzingGarment(true);
+    try {
+      const { analyzeGarmentFeatures } = await import('../Cyzx4/services/geminiService');
+      const coreImgs = await Promise.all(coreGarmentFiles.map(async file => {
+        const compressed = await compressImage(file, 2048, 0.96);
+        return { base64: compressed.base64, mimeType: compressed.mime };
+      }));
+      const result = await analyzeGarmentFeatures(coreImgs, guidance);
+      if (result) {
+        setGarmentAnalysis(result);
+      }
+    } catch (e) {
+      alert(getErrorMessage(e));
+    } finally {
+      setIsAnalyzingGarment(false);
+    }
   };
   
   const removeRefFile = (index: number) => {
@@ -204,6 +276,13 @@ const ModelMainAdjustTab: React.FC = () => {
       const inputImages = [{ base64: compressedImage.base64, mimeType: compressedImage.mime }];
       
       const refInputImages: { base64: string; mimeType: string }[] = [];
+      
+      for (const file of coreGarmentFiles) {
+         const compressedCore = await compressImage(file, 2048, 0.96);
+         inputImages.push({ base64: compressedCore.base64, mimeType: compressedCore.mime });
+         refInputImages.push({ base64: compressedCore.base64, mimeType: compressedCore.mime });
+      }
+
       for (const file of refFiles) {
          const compressedRef = await compressImage(file, 2048, 0.96);
          inputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
@@ -211,6 +290,11 @@ const ModelMainAdjustTab: React.FC = () => {
       }
 
       let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
+      
+      if (garmentAnalysis && garmentAnalysis.engineered_prompt) {
+         prompt += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
+      }
+
       let negativePrompt = `${GLOBAL_NEGATIVE_PROMPT}, extra objects, additional items, new props, change layout, hallucinate`;
 
       // Use Professional Angle Prompts if selected
@@ -442,6 +526,38 @@ const ModelMainAdjustTab: React.FC = () => {
              </div>
           </div>
 
+          {/* 产品素材图上传 */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
+              <span>产品素材图 (需替换的衣服)</span>
+              <span className="text-[10px] font-normal text-pastel-muted">{coreGarmentFiles.length}/5</span>
+            </h3>
+            <div 
+              className="grid grid-cols-5 gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleCoreDrop}
+            >
+               {coreGarmentUrls.map((url, i) => (
+                 <div key={i} className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white p-1">
+                   <img src={url} alt={`core-${i}`} className="w-full h-full object-contain rounded-lg" />
+                   <button 
+                     onClick={() => removeCoreGarment(i)}
+                     className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                   >
+                     <X className="w-2 h-2" />
+                   </button>
+                 </div>
+               ))}
+               {coreGarmentFiles.length < 5 && (
+                 <label className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 cursor-pointer">
+                   <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" multiple />
+                   <Shirt className="w-4 h-4 text-pastel-muted mb-1" />
+                   <span className="text-[8px] text-pastel-muted">上传衣服</span>
+                 </label>
+               )}
+            </div>
+          </div>
+
           {/* 参考图上传 */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
@@ -537,6 +653,60 @@ const ModelMainAdjustTab: React.FC = () => {
               placeholder="例如：将模特的衣服颜色改为参考图1的深蓝色，或者将背景换成参考图2的家居场景（高权重指令）..."
               className="w-full bg-white border border-pastel-border rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none resize-none"
             />
+          </div>
+
+          {/* Agent Garment Analysis */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
+                <Wand2 className="w-3 h-3 text-purple-500" />
+                智能服饰特征分析
+              </h3>
+              <button
+                type="button"
+                onClick={handleAnalyzeGarment}
+                disabled={isAnalyzingGarment || coreGarmentFiles.length === 0}
+                className="text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-600 font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 flex items-center gap-1 border border-purple-200"
+              >
+                {isAnalyzingGarment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                {garmentAnalysis ? '重新分析' : '提取特征'}
+              </button>
+            </div>
+            
+            {garmentAnalysis && (
+              <div className="bg-purple-50/50 border border-purple-100 rounded-xl p-3 space-y-2 animate-in fade-in zoom-in duration-300">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-purple-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1.5 w-full">
+                    <div className="text-[11px] font-bold text-purple-900">Agent 已提取服装关键细节</div>
+                    
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">版型与上身效果</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.fit + " / " + garmentAnalysis.wearing_effect}>{garmentAnalysis.fit}</span>
+                      </div>
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">领口设计</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.neckline}>{garmentAnalysis.neckline}</span>
+                      </div>
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">衣长/裙长</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.length}>{garmentAnalysis.length}</span>
+                      </div>
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">袖长与袖口</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.cuffs_sleeves}>{garmentAnalysis.cuffs_sleeves}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!garmentAnalysis && !isAnalyzingGarment && (
+              <div className="text-[10px] text-pastel-muted bg-pastel-bg border border-pastel-border rounded-xl p-3 text-center">
+                如需替换服装，上传素材图后点击提取特征，可大幅提升换装精准度。
+              </div>
+            )}
           </div>
         </div>
 

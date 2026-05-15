@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone, Cpu, RefreshCw } from 'lucide-react';
+import { Download, Loader2, Maximize2, Sparkles, Upload, X, Zap, Shirt, Settings2, Ratio, MonitorSmartphone, Cpu, RefreshCw, Wand2, CheckCircle2 } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
-import { generateImageToImage, analyzeVtonMaterials } from '../Cyzx4/services/geminiService';
+import { generateImageToImage, analyzeVtonMaterials, analyzeGarmentFeatures } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 import { storageService } from '../services/storageService';
@@ -39,9 +39,9 @@ type PreviewState = {
 } | null;
 
 const GarmentReplacementTab: React.FC = () => {
-  // Core Garment
-  const [coreGarmentFile, setCoreGarmentFile] = useState<File | null>(null);
-  const [coreGarmentUrl, setCoreGarmentUrl] = useState<string | null>(null);
+  // Core Garment (up to 5 images)
+  const [coreGarmentFiles, setCoreGarmentFiles] = useState<File[]>([]);
+  const [coreGarmentUrls, setCoreGarmentUrls] = useState<string[]>([]);
 
   // Pairing Garment
   const [pairingFile, setPairingFile] = useState<File | null>(null);
@@ -70,27 +70,41 @@ const GarmentReplacementTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [userGuidance, setUserGuidance] = useState('');
 
+  // Agent Garment Analysis State
+  const [garmentAnalysis, setGarmentAnalysis] = useState<any>(null);
+  const [isAnalyzingGarment, setIsAnalyzingGarment] = useState(false);
+
   const MAX_TARGETS = 10;
 
   // ---- Upload Handlers ----
-  const setCoreFromFile = (file: File) => {
+  const addCoreFile = (file: File) => {
     if (!file.type.startsWith('image/')) return;
-    if (coreGarmentUrl) URL.revokeObjectURL(coreGarmentUrl);
-    setCoreGarmentFile(file);
-    setCoreGarmentUrl(URL.createObjectURL(file));
+    if (coreGarmentFiles.length >= 5) return;
+    setCoreGarmentFiles(prev => [...prev, file]);
+    setCoreGarmentUrls(prev => [...prev, URL.createObjectURL(file)]);
+    setGarmentAnalysis(null);
     setResults([]);
   };
 
   const handleCoreChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setCoreFromFile(file);
+    Array.from(e.target.files || []).forEach(file => addCoreFile(file));
     e.target.value = '';
   };
 
-  const removeCoreGarment = () => {
-    if (coreGarmentUrl) URL.revokeObjectURL(coreGarmentUrl);
-    setCoreGarmentFile(null);
-    setCoreGarmentUrl(null);
+  const handleCoreDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    Array.from(e.dataTransfer.files || []).forEach(file => addCoreFile(file));
+  };
+
+  const removeCoreGarment = (index: number) => {
+    setCoreGarmentFiles(prev => prev.filter((_, i) => i !== index));
+    setCoreGarmentUrls(prev => {
+      const newUrls = [...prev];
+      URL.revokeObjectURL(newUrls[index]);
+      newUrls.splice(index, 1);
+      return newUrls;
+    });
+    setGarmentAnalysis(null);
     setResults([]);
   };
 
@@ -144,24 +158,31 @@ const GarmentReplacementTab: React.FC = () => {
 
   // 绑定剪贴板粘贴事件
   useImagePaste((files) => {
-    const file = files[0];
-    if (!file || !file.type.startsWith('image/')) return;
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
+    if (validFiles.length === 0) return;
 
     // 优先级 1: 主体商品 (Core Garment)
-    if (!coreGarmentUrl) {
-      setCoreFromFile(file);
+    if (coreGarmentFiles.length < 5) {
+      validFiles.forEach(file => {
+        setCoreGarmentFiles(prev => {
+          if (prev.length < 5) {
+            addCoreFile(file);
+          }
+          return prev;
+        });
+      });
     }
     // 优先级 2: 模特参考 (Identity Ref)
     else if (!modelRefUrl) {
-      setModelRefFromFile(file);
+      setModelRefFromFile(validFiles[0]);
     }
     // 优先级 3: 搭配商品 (Pairing)
     else if (!pairingUrl) {
-      setPairingFromFile(file);
+      setPairingFromFile(validFiles[0]);
     }
     // 优先级 4: 全部作为待替换图
     else {
-      addTargetFiles(files);
+      addTargetFiles(validFiles);
     }
   });
 
@@ -252,7 +273,7 @@ const GarmentReplacementTab: React.FC = () => {
   };
 
   const buildGarmentReplacementPrompt = () => {
-    return `[NANO BANANA - STRUCTURAL GARMENT LOCK]
+    let base = `[NANO BANANA - STRUCTURAL GARMENT LOCK]
 - TASK: Virtual Try-On.
 - SUBJECT: Transfer the garment from the reference images to the model in the target scene.
 - FIDELITY: Maintain 1:1 identical color, print pattern, and fabric texture.
@@ -260,15 +281,43 @@ const GarmentReplacementTab: React.FC = () => {
 - STYLE: High-end fashion editorial, photorealistic, cinematic lighting.
 - CONSTRAINT: Image 1 is the POSE master. Image 2 (and 3) is the PRODUCT master.
 ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
+
+    if (garmentAnalysis?.engineered_prompt) {
+      base += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
+    }
+
+    return base;
   };
 
   const buildGarmentReplacementNegativePrompt = () => {
     return 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition, strap, tank top, high neck, crew neck, turtleneck, blurred print, smeared texture, simplified patterns, changed neckline, altered sleeves, dark border at hem, hem trim, bottom border, decorative edge, contrasting trim';
   };
 
+  const handleAnalyzeGarment = async () => {
+    if (coreGarmentFiles.length === 0) {
+      alert('请先上传服装 (核心)');
+      return;
+    }
+    setIsAnalyzingGarment(true);
+    try {
+      const coreImgs = await Promise.all(coreGarmentFiles.map(file => smartCrop(file)));
+      const result = await analyzeGarmentFeatures(
+        coreImgs.map(img => ({ base64: img.base64, mimeType: img.mimeType })), 
+        userGuidance
+      );
+      if (result) {
+        setGarmentAnalysis(result);
+      }
+    } catch (e) {
+      alert(getErrorMessage(e));
+    } finally {
+      setIsAnalyzingGarment(false);
+    }
+  };
+
   // ---- Generators ----
   const handleGenerate = async () => {
-    if (!coreGarmentFile) {
+    if (coreGarmentFiles.length === 0) {
       alert('请上传服装 (核心)');
       return;
     }
@@ -292,7 +341,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
       // PHASE 1: Material Analysis (Dual-Agent VTON)
       setStatusMessage('正在深度分析素材特征 (1/2)...');
       
-      const coreImg = await smartCrop(coreGarmentFile);
+      const coreImgs = await Promise.all(coreGarmentFiles.map(file => smartCrop(file)));
       let pairingImg: { base64: string; mimeType: string } | null = null;
       if (pairingFile) pairingImg = await smartCrop(pairingFile);
       
@@ -302,7 +351,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
       // Analyze Global Reference (Identity + Garment) - Cache it
       const globalRefs = [];
       if (processedModelRef) globalRefs.push(processedModelRef);
-      globalRefs.push(coreImg);
+      globalRefs.push(...coreImgs);
       if (pairingImg) globalRefs.push(pairingImg);
       
       const globalReport = await analyzeVtonMaterials(globalRefs, { type: 'global' });
@@ -331,7 +380,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
       const targetFile = targetFiles[index];
       if (!targetFile) throw new Error('找不到目标图片');
 
-      const coreImg = await smartCrop(coreGarmentFile!);
+      const coreImgs = await Promise.all(coreGarmentFiles.map(file => smartCrop(file)));
       let pairingImg: { base64: string; mimeType: string } | null = null;
       if (pairingFile) pairingImg = await smartCrop(pairingFile);
       
@@ -351,18 +400,18 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
         inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
         // Image 2 = Model Identity
         inputImages.push({ base64: processedModelRef.base64, mimeType: processedModelRef.mimeType });
-        // Image 3 = Core Garment
-        inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-        // Image 4 = Pairing
+        // Core Garment(s)
+        coreImgs.forEach(img => inputImages.push({ base64: img.base64, mimeType: img.mimeType }));
+        // Pairing
         if (pairingImg) {
           inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
         }
       } else {
         // Image 1 = Target Scene (Pose/Angle/Identity Anchor)
         inputImages.push({ base64: targetImg.base64, mimeType: targetImg.mime });
-        // Image 2 = Core Garment
-        inputImages.push({ base64: coreImg.base64, mimeType: coreImg.mimeType });
-        // Image 3 = Pairing
+        // Core Garment(s)
+        coreImgs.forEach(img => inputImages.push({ base64: img.base64, mimeType: img.mimeType }));
+        // Pairing
         if (pairingImg) {
           inputImages.push({ base64: pairingImg.base64, mimeType: pairingImg.mimeType });
         }
@@ -433,7 +482,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
   };
 
   const handleRegenerateSingle = async (index: number) => {
-    if (!coreGarmentFile) {
+    if (coreGarmentFiles.length === 0) {
       alert('请上传服装 (核心)');
       return;
     }
@@ -443,7 +492,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
       
       // If no cached report, generate one first
       if (!report) {
-        const coreImg = await smartCrop(coreGarmentFile);
+        const coreImgs = await Promise.all(coreGarmentFiles.map(file => smartCrop(file)));
         let pairingImg: { base64: string; mimeType: string } | null = null;
         if (pairingFile) pairingImg = await smartCrop(pairingFile);
         let processedModelRef: { base64: string; mimeType: string; displayUrl: string } | null = null;
@@ -451,7 +500,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
 
         const globalRefs = [];
         if (processedModelRef) globalRefs.push(processedModelRef);
-        globalRefs.push(coreImg);
+        globalRefs.push(...coreImgs);
         if (pairingImg) globalRefs.push(pairingImg);
         
         report = await analyzeVtonMaterials(globalRefs, { type: 'global' });
@@ -505,40 +554,36 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               {/* LARGE: Core Garment (The Star) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between ml-1">
-                  <span className="text-[11px] text-pastel-text font-black" title="建议上传包含正/背/侧面的拼图">1. 服装三视图 (必)</span>
-                  <span className="text-[10px] text-pastel-highlight bg-pastel-highlight/10 px-2 py-0.5 rounded-full font-bold">三视图/参考图</span>
+                  <span className="text-[11px] text-pastel-text font-black" title="最多可上传5张服装的多角度或细节图">1. 服装素材图 (最多5张)</span>
+                  <span className="text-[10px] text-pastel-highlight bg-pastel-highlight/10 px-2 py-0.5 rounded-full font-bold">{coreGarmentFiles.length}/5 张</span>
                 </div>
-                {coreGarmentUrl ? (
-                  <div
-                    className="relative group w-full aspect-[16/9] rounded-2xl border-2 border-pastel-highlight shadow-sm overflow-hidden bg-pastel-bg"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setCoreFromFile(f); }}
-                  >
-                    <img src={coreGarmentUrl} alt="core-garment" className="w-full h-full object-contain" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                      <label className="cursor-pointer bg-white p-2 text-pastel-text hover:text-pastel-highlight rounded-full shadow-lg transition-transform hover:scale-110">
-                        <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" />
-                        <Upload className="w-4 h-4" />
-                      </label>
-                      <button type="button" onClick={removeCoreGarment} className="bg-white p-2 text-pastel-text hover:text-red-500 rounded-full shadow-lg transition-transform hover:scale-110">
-                        <X className="w-4 h-4" />
+                
+                <div className="grid grid-cols-5 gap-2" onDragOver={(e) => e.preventDefault()} onDrop={handleCoreDrop}>
+                  {coreGarmentUrls.map((url, i) => (
+                    <div key={i} className="relative group w-full aspect-square rounded-xl border-2 border-pastel-highlight shadow-sm overflow-hidden bg-pastel-bg">
+                      <img src={url} alt={`core-${i}`} className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => removeCoreGarment(i)} className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                        <X className="w-2.5 h-2.5" />
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <label
-                    className="relative flex flex-col items-center justify-center w-full aspect-[16/9] rounded-2xl border-2 border-dashed border-pastel-highlight/40 bg-pastel-highlight/5 hover:bg-pastel-highlight/10 hover:border-pastel-highlight transition-all cursor-pointer group"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) setCoreFromFile(f); }}
-                  >
-                    <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" />
-                    <div className="w-12 h-12 rounded-full bg-pastel-highlight/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                      <Shirt className="w-6 h-6 text-pastel-highlight" />
-                    </div>
-                    <span className="text-xs text-pastel-text font-bold mb-1">点击上传服装三视图</span>
-                    <span className="text-[10px] text-pastel-muted">支持正、背、侧视角拼图</span>
-                  </label>
-                )}
+                  ))}
+                  {coreGarmentFiles.length < 5 && (
+                    <label className={`relative flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-highlight/40 bg-pastel-highlight/5 hover:bg-pastel-highlight/10 hover:border-pastel-highlight transition-all cursor-pointer group ${coreGarmentFiles.length === 0 ? 'col-span-5 aspect-[16/9]' : ''}`}>
+                      <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" multiple />
+                      <div className="w-10 h-10 rounded-full bg-pastel-highlight/10 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+                        <Shirt className="w-5 h-5 text-pastel-highlight" />
+                      </div>
+                      {coreGarmentFiles.length === 0 ? (
+                        <>
+                          <span className="text-xs text-pastel-text font-bold mb-1">点击/拖拽/粘贴多张服装素材图</span>
+                          <span className="text-[10px] text-pastel-muted">支持正、背、侧及细节图 (最多5张)</span>
+                        </>
+                      ) : (
+                        <span className="text-[8px] text-pastel-text font-bold">继续上传</span>
+                      )}
+                    </label>
+                  )}
+                </div>
               </div>
 
               {/* SMALL: Optional Secondary Refs */}
@@ -738,6 +783,60 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             </div>
           </div>
 
+          {/* Agent Garment Analysis */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
+                <Wand2 className="w-3 h-3 text-purple-500" />
+                智能服饰特征分析
+              </h3>
+              <button
+                type="button"
+                onClick={handleAnalyzeGarment}
+                disabled={isAnalyzingGarment || coreGarmentFiles.length === 0}
+                className="text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-600 font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 flex items-center gap-1 border border-purple-200"
+              >
+                {isAnalyzingGarment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                {garmentAnalysis ? '重新分析' : '提取特征'}
+              </button>
+            </div>
+            
+            {garmentAnalysis && (
+              <div className="bg-purple-50/50 border border-purple-100 rounded-xl p-3 space-y-2 animate-in fade-in zoom-in duration-300">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-purple-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1.5 w-full">
+                    <div className="text-[11px] font-bold text-purple-900">Agent 已提取服装关键细节</div>
+                    
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">版型与上身效果</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.fit + " / " + garmentAnalysis.wearing_effect}>{garmentAnalysis.fit}</span>
+                      </div>
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">领口设计</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.neckline}>{garmentAnalysis.neckline}</span>
+                      </div>
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">衣长/裙长</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.length}>{garmentAnalysis.length}</span>
+                      </div>
+                      <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
+                        <span className="block text-[9px] text-purple-400 font-bold mb-0.5">袖长与袖口</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.cuffs_sleeves}>{garmentAnalysis.cuffs_sleeves}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!garmentAnalysis && !isAnalyzingGarment && (
+              <div className="text-[10px] text-pastel-muted bg-pastel-bg border border-pastel-border rounded-xl p-3 text-center">
+                上传服装并在上方填写补充说明后，点击「提取特征」可确保替换极度精准
+              </div>
+            )}
+          </div>
+
           {/* 图像模型选择 */}
             <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
               <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
@@ -800,8 +899,8 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
         <div className="p-6 border-t border-pastel-border bg-pastel-bg/50 backdrop-blur sticky bottom-0 z-10 w-full">
           <button
             onClick={handleGenerate}
-            disabled={isGenerating || !coreGarmentFile || targetFiles.length === 0}
-            className={`w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-md ${isGenerating || !coreGarmentFile || targetFiles.length === 0
+            disabled={isGenerating || coreGarmentFiles.length === 0 || targetFiles.length === 0}
+            className={`w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-md ${isGenerating || coreGarmentFiles.length === 0 || targetFiles.length === 0
               ? 'bg-pastel-border text-pastel-muted cursor-not-allowed opacity-60'
               : 'bg-gradient-to-r from-pastel-highlight to-pink-500 text-white hover:opacity-90 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]'
               }`}

@@ -14,7 +14,10 @@ export const analyzeVtonMaterials = async (
   const config = getApiConfig();
   const ai = new GoogleGenAI({
     apiKey: config.apiKey,
-    httpOptions: config.isYunwu ? { baseUrl: config.baseUrl } : undefined,
+    httpOptions: config.isYunwu ? { 
+      baseUrl: config.baseUrl,
+      headers: { Authorization: `Bearer ${config.apiKey}` }
+    } : undefined,
     apiVersion: config.apiVersion as any
   });
 
@@ -36,5 +39,74 @@ export const analyzeVtonMaterials = async (
   } catch (e) {
     console.warn("[Analyst Agent] Analysis failed:", e);
     return "Analysis unavailable.";
+  }
+};
+
+export interface GarmentAnalysisResult {
+  fit: string;
+  length: string;
+  neckline: string;
+  cuffs_sleeves: string;
+  wearing_effect: string;
+  engineered_prompt: string;
+}
+
+/**
+ * Advanced Garment Feature Analyst
+ * Extracts precise structural attributes (Fit, Length, Neckline, Cuffs) from target garment.
+ */
+export const analyzeGarmentFeatures = async (
+  images: { base64: string; mimeType: string }[],
+  userGuidance: string
+): Promise<GarmentAnalysisResult | null> => {
+  const config = getApiConfig();
+  const ai = new GoogleGenAI({
+    apiKey: config.apiKey,
+    httpOptions: config.isYunwu ? { 
+      baseUrl: config.baseUrl,
+      headers: { Authorization: `Bearer ${config.apiKey}` }
+    } : undefined,
+    apiVersion: config.apiVersion as any
+  });
+
+  const prompt = `
+**ROLE**: Top-tier Fashion Technical Designer & AI Prompt Engineer.
+
+**YOUR TASK**: Analyze the provided garment images (which may show different angles/details of the same garment) and extract its precise structural features. The user wants to replace an existing garment with this one, and might have provided a supplementary note (user guidance) indicating slight changes they want (e.g. "make the neckline a V-neck", "shorten the length").
+
+**USER GUIDANCE (HIGH PRIORITY)**: "${userGuidance || 'No supplementary notes. Analyze the garment as is.'}"
+
+**CRITICAL INSTRUCTIONS**:
+1. If the user guidance specifies a change (e.g., "V-neck instead of round"), you MUST incorporate that change into your analysis.
+2. Be extremely precise. Don't just say "dress", say "A-line midi dress with slight flare".
+
+**OUTPUT FORMAT (MANDATORY JSON)**:
+{
+  "fit": "Describe the fit/silhouette (e.g., Slim fit, Oversized, A-line, Bodycon).",
+  "length": "Describe the length (e.g., Crop top, Midi length, Floor-length, Above knee).",
+  "neckline": "Describe the neckline/collar (e.g., Deep V-neck, Crew neck, Turtleneck).",
+  "cuffs_sleeves": "Describe the sleeves and cuffs (e.g., Sleeveless, Long sleeves with ribbed cuffs, Puff sleeves).",
+  "wearing_effect": "Describe how it should look when worn (e.g., Draped elegantly, tight and contouring, relaxed and baggy).",
+  "engineered_prompt": "A concise, comma-separated list of ONLY the garment's structural features and the user's requested changes, optimized for an image generation prompt. DO NOT include color unless specified by the user. Example: 'slim fit ribbed knit top, deep v-neck, long sleeves with thumb holes, cropped waist length, tight bodycon fit'."
+}
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite-preview",
+      contents: {
+        parts: [
+          ...images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
+          { text: prompt }
+        ]
+      }
+    });
+
+    let text = response.text || "{}";
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(text) as GarmentAnalysisResult;
+  } catch (e) {
+    console.error("[Garment Analyst Agent] Analysis failed:", e);
+    return null;
   }
 };
