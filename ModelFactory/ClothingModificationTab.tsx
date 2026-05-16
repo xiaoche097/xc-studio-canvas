@@ -213,7 +213,7 @@ const ConfigPopover: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="absolute bottom-full right-0 mb-6 w-[420px] bg-white rounded-[32px] shadow-[0_20px_70px_-10px_rgba(0,0,0,0.3)] border border-slate-200 p-8 z-[120] animate-slide-up origin-bottom-right max-h-[70vh] overflow-y-auto custom-scrollbar">
+    <div className="absolute bottom-full left-0 mb-6 w-[420px] bg-white rounded-[32px] shadow-[0_20px_70px_-10px_rgba(0,0,0,0.3)] border border-slate-200 p-8 z-[120] animate-slide-up origin-bottom-left max-h-[70vh] overflow-y-auto custom-scrollbar">
       <div className="flex items-center justify-between mb-8">
         <div>
             <h3 className="text-sm font-black text-slate-800 tracking-tight">高级项目配置</h3>
