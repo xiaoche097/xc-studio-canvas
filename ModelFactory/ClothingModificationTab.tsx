@@ -552,7 +552,7 @@ const ClothingModificationTab: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-slate-100 overflow-hidden font-sans relative">
       {/* 1. Results Area (Task List) */}
-      <div ref={taskListRef} className="flex-1 overflow-y-auto custom-scrollbar p-10 space-y-8 pb-24">
+      <div ref={taskListRef} className="flex-1 overflow-y-auto custom-scrollbar p-10 space-y-8 pb-60">
         <div className="max-w-6xl mx-auto space-y-8">
           
           {tasks.length === 0 && (
@@ -708,7 +708,7 @@ const ClothingModificationTab: React.FC = () => {
       </div>
 
       {/* 2. Consolidated Card UI (Bottom Controller) */}
-      <div className="px-8 pb-6 flex flex-col items-center bg-slate-100/90 backdrop-blur-xl border-t border-slate-200/50 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-[50]">
+      <div className="px-8 pb-8 flex flex-col items-center bg-slate-100/95 backdrop-blur-2xl border-t border-slate-200 shadow-[0_-20px_50px_rgba(0,0,0,0.05)] z-[100]">
         <div className="max-w-6xl w-full flex flex-col gap-3 mt-6">
            {/* Hint Row */}
            <div className="flex items-center justify-between w-full animate-slide-up">
@@ -726,7 +726,7 @@ const ClothingModificationTab: React.FC = () => {
               </button>
            </div>
            
-           <div className="bg-white/95 backdrop-blur-3xl rounded-[32px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.15)] border border-slate-200/60 flex flex-col relative z-20 overflow-hidden">
+           <div className="bg-white/95 backdrop-blur-3xl rounded-[32px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.15)] border border-slate-200/60 flex flex-col relative z-20">
               {/* Tabs */}
               <div className="flex items-center gap-1 p-1 bg-slate-50/50 border-b border-slate-100 overflow-x-auto no-scrollbar">
                 {MODES.map(mode => (
