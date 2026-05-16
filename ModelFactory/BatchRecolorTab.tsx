@@ -154,18 +154,29 @@ const BatchRecolorTab: React.FC = () => {
   };
 
   const handleImageRefFiles = async (files: File[]) => {
-    const file = files.find(f => f.type.startsWith('image/'));
-    if (file) {
+    const existingImageEntries = colors.filter(c => c.type === 'image');
+    if (existingImageEntries.length >= 3) {
+      alert('最多支持 3 张调色参考图');
+      return;
+    }
+
+    const remainingSlots = 3 - existingImageEntries.length;
+    const validFiles = files.filter(f => f.type.startsWith('image/')).slice(0, remainingSlots);
+    
+    if (validFiles.length === 0) return;
+
+    const newEntries: ColorEntry[] = [];
+    for (const file of validFiles) {
       const compressed = await compressImage(file, 512, 0.8);
-      const entry: ColorEntry = {
-        id: Date.now().toString(),
+      newEntries.push({
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: 'image',
         value: compressed.base64,
         label: '参考图颜色',
         previewUrl: `data:image/jpeg;base64,${compressed.base64}`
-      };
-      setColors(prev => [...prev, entry]);
+      });
     }
+    setColors(prev => [...prev, ...newEntries]);
   };
 
   const handleRefDrop = (e: React.DragEvent) => {
@@ -417,59 +428,81 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                   onChange={(e) => setNewColorText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addTextColor()}
                   placeholder="文字描述：如 '莫兰迪绿'..."
-                  className="flex-1 px-4 py-2.5 bg-white border border-pastel-border rounded-xl text-xs outline-none focus:ring-2 focus:ring-pastel-highlight/20 transition-all"
+                  className="flex-1 px-4 py-2.5 bg-white border border-pastel-border rounded-xl text-xs outline-none focus:ring-2 focus:ring-pastel-highlight/20 transition-all shadow-sm"
                 />
                 <button onClick={addTextColor} className="p-2.5 bg-pastel-highlight text-white rounded-xl hover:shadow-lg transition-all active:scale-95">
                   <Plus className="w-5 h-5" />
                 </button>
               </div>
               
-              <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white border border-pastel-border rounded-xl">
-                  <input
-                    type="color"
-                    value={selectedHex}
-                    onChange={(e) => setSelectedHex(e.target.value)}
-                    className="w-8 h-8 rounded-lg border-0 p-0 cursor-pointer overflow-hidden bg-transparent"
-                  />
-                  <span className="text-[10px] font-mono font-bold text-pastel-muted">{selectedHex.toUpperCase()}</span>
-                  <button onClick={addHexColor} className="ml-auto text-[10px] font-black text-pastel-highlight uppercase tracking-wider hover:underline">
-                    添加色值
-                  </button>
-                </div>
-                <button 
-                  onDragOver={(e) => { e.preventDefault(); setIsDraggingRef(true); }}
-                  onDragLeave={() => setIsDraggingRef(false)}
-                  onDrop={handleRefDrop}
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.onchange = (e: any) => { if(e.target.files) handleImageRefFiles(Array.from(e.target.files)); };
-                    input.click();
-                  }}
-                  className={`flex items-center gap-2 px-4 py-2 border rounded-xl transition-all group ${isDraggingRef ? 'bg-pastel-highlight/10 border-pastel-highlight' : 'bg-white border-pastel-border hover:border-pastel-highlight/40'}`}
-                >
-                  <ImageIcon className={`w-4 h-4 ${isDraggingRef ? 'text-pastel-highlight' : 'text-pastel-muted group-hover:text-pastel-highlight'}`} />
-                  <span className="text-[10px] font-bold">参考图 (拖拽上传)</span>
+              <div className="flex items-center gap-2 px-3 py-2 bg-white border border-pastel-border rounded-xl shadow-sm">
+                <input
+                  type="color"
+                  value={selectedHex}
+                  onChange={(e) => setSelectedHex(e.target.value)}
+                  className="w-8 h-8 rounded-lg border-0 p-0 cursor-pointer overflow-hidden bg-transparent"
+                />
+                <span className="text-[10px] font-mono font-bold text-pastel-muted">{selectedHex.toUpperCase()}</span>
+                <button onClick={addHexColor} className="ml-auto text-[10px] font-black text-pastel-highlight uppercase tracking-wider hover:underline">
+                  添加色值
                 </button>
+              </div>
+            </div>
+
+            {/* 调色参考图 */}
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center justify-between">
+                <h4 className="text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  调色参考图 ({colors.filter(c => c.type === 'image').length}/3)
+                </h4>
+                <span className="text-[9px] text-pastel-muted font-medium">支持拖拽上传</span>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3">
+                {colors.filter(c => c.type === 'image').map((c) => (
+                  <div key={c.id} className="relative aspect-square rounded-2xl border border-pastel-border overflow-hidden bg-white group shadow-sm animate-in zoom-in-95 duration-200">
+                    <img src={c.previewUrl} className="w-full h-full object-cover" alt="ref" />
+                    <button 
+                      onClick={() => removeColor(c.id)}
+                      className="absolute top-1.5 right-1.5 p-1.5 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 shadow-lg"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                {colors.filter(c => c.type === 'image').length < 3 && (
+                  <button 
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingRef(true); }}
+                    onDragLeave={() => setIsDraggingRef(false)}
+                    onDrop={handleRefDrop}
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.multiple = true;
+                      input.accept = "image/*";
+                      input.onchange = (e: any) => { if(e.target.files) handleImageRefFiles(Array.from(e.target.files)); };
+                      input.click();
+                    }}
+                    className={`aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center transition-all group ${isDraggingRef ? 'bg-pastel-highlight/10 border-pastel-highlight scale-[1.02]' : 'bg-white border-pastel-border hover:border-pastel-highlight/40 hover:bg-pastel-highlight/5'}`}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-pastel-bg flex items-center justify-center text-pastel-muted mb-1 transition-colors group-hover:bg-pastel-highlight/10 group-hover:text-pastel-highlight">
+                      <Plus className="w-4 h-4" />
+                    </div>
+                    <span className="text-[9px] font-bold text-pastel-muted group-hover:text-pastel-highlight transition-colors">添加参考图</span>
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Visual Color Grid */}
             <div className="grid grid-cols-4 gap-3">
-              {colors.map((c) => (
+              {colors.filter(c => c.type !== 'image').map((c) => (
                 <div key={c.id} className="group relative aspect-square bg-white border border-pastel-border rounded-2xl overflow-hidden flex flex-col items-center justify-center transition-all hover:border-pastel-highlight/40 shadow-sm animate-in zoom-in-95 duration-200">
                   {c.type === 'hex' ? (
                     <div className="w-full h-full flex flex-col p-1.5">
                       <div className="flex-1 rounded-xl shadow-inner border border-black/5" style={{ backgroundColor: c.value }} />
                       <span className="text-[8px] font-mono font-bold text-center mt-1 text-pastel-muted">{c.label}</span>
-                    </div>
-                  ) : c.type === 'image' ? (
-                    <div className="w-full h-full flex flex-col p-1.5">
-                      <div className="flex-1 rounded-xl overflow-hidden border border-pastel-border shadow-inner">
-                        <img src={c.previewUrl} className="w-full h-full object-cover" alt="ref" />
-                      </div>
-                      <span className="text-[8px] font-bold text-center mt-1 text-pastel-muted truncate">参考图</span>
                     </div>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
@@ -487,8 +520,8 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                 </div>
               ))}
               
-              {colors.length === 0 && (
-                <div className="col-span-4 py-8 border-2 border-dashed border-pastel-border rounded-2xl flex flex-col items-center justify-center text-pastel-muted/40">
+              {colors.filter(c => c.type !== 'image').length === 0 && (
+                <div className="col-span-4 py-8 border-2 border-dashed border-pastel-border rounded-2xl flex flex-col items-center justify-center text-pastel-muted/40 bg-white/30">
                   <Sparkles className="w-6 h-6 mb-2" />
                   <span className="text-[10px] font-bold uppercase tracking-wider">暂无颜色，请从上方添加</span>
                 </div>
