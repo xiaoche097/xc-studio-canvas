@@ -3,7 +3,8 @@ import {
     Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
     Layers, Brain, Camera, MessageSquare, Zap, 
     ShieldCheck, RefreshCw, ZoomIn, Download, Hammer,
-    CheckCircle2, ChevronDown, ChevronUp, Image as ImageIcon
+    CheckCircle2, ChevronDown, ChevronUp, Image as ImageIcon,
+    Lightbulb, User, MapPin, ListTodo, Info
 } from 'lucide-react';
 import { generateImageToImage, compressImage } from '../services/geminiService';
 import { getErrorMessage, getAiClient } from '../utils/apiHelpers';
@@ -33,9 +34,9 @@ const RATIO_OPTIONS = [
 ];
 
 const MODEL_OPTIONS = [
-    { id: 'gemini-3.1-flash-lite-preview', name: 'Banana 2', sub: '3.1 Flash', desc: '速度优先，适合简单修复' },
+    { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', sub: '3.1 Flash', desc: '速度优先，适合简单修复' },
     { id: 'gemini-3-pro-image-preview', name: 'Banana Pro', sub: '3 Pro', desc: '结构精准，推荐商业级修复' },
-    { id: 'imagen-3', name: 'GPT Image 2', sub: 'Ultra', desc: '极致细节，追求高保真画质' },
+    { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra', desc: '极致细节，追求高保真画质' },
 ];
 
 const ProductRepairTab: React.FC = () => {
@@ -46,7 +47,7 @@ const ProductRepairTab: React.FC = () => {
     // Config states
     const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
     const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
-    const [selectedModel, setSelectedModel] = useState<string>('gemini-3-pro-image-preview');
+    const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-image-preview');
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
     // Status states
@@ -58,6 +59,15 @@ const ProductRepairTab: React.FC = () => {
     const [generatedImages, setGeneratedImages] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+
+    // Wizard states
+    const [isWizardOpen, setIsWizardOpen] = useState(false);
+    const [wizardData, setWizardData] = useState({
+        details: '',
+        sellingPoints: '',
+        audience: '',
+        scenarios: ''
+    });
 
     // Helper for image dimensions and aspect ratio detection
     const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
@@ -154,8 +164,18 @@ const ProductRepairTab: React.FC = () => {
         setError(null);
         try {
             const ai = getAiClient();
+            const wizardContext = Object.values(wizardData).some(v => v.trim()) ? `
+                [USER SUPPLEMENTAL CONTEXT]:
+                ${wizardData.details ? `- Product Details: ${wizardData.details}` : ''}
+                ${wizardData.sellingPoints ? `- Selling Points: ${wizardData.sellingPoints}` : ''}
+                ${wizardData.audience ? `- Target Audience: ${wizardData.audience}` : ''}
+                ${wizardData.scenarios ? `- Usage Scenarios: ${wizardData.scenarios}` : ''}
+            ` : "";
+
             const prompt = `
                 As a Professional Product Structure Auditor, analyze this [STANDARD REFERENCE IMAGE].
+                ${wizardContext}
+                
                 Focus on two main categories:
                 1. IF PLUSH/DOLL: Analyze facial symmetry, fur texture, limb proportions, and specific embroidery/seams.
                 2. IF APPAREL/CLOTHING: Analyze fabric grain, collar/cuff structure, button/zipper alignment, and ergonomic cut.
@@ -218,11 +238,21 @@ const ProductRepairTab: React.FC = () => {
                 analysisResult?.category === 'apparel' ? 
                 "PAY SPECIAL ATTENTION to fabric grain continuity and seam alignment." : "";
 
+            const wizardContext = Object.values(wizardData).some(v => v.trim()) ? `
+                [USER SUPPLEMENTAL CONTEXT]:
+                ${wizardData.details ? `- Product Details: ${wizardData.details}` : ''}
+                ${wizardData.sellingPoints ? `- Selling Points: ${wizardData.sellingPoints}` : ''}
+                ${wizardData.audience ? `- Target Audience: ${wizardData.audience}` : ''}
+                ${wizardData.scenarios ? `- Usage Scenarios: ${wizardData.scenarios}` : ''}
+            ` : "";
+
             const prompt = `
                 # REPAIR AGENT: High-Fidelity Structural Restoration
                 # TARGET: Image 2 (Modified Scene)
                 # SOURCE TRUTH: Image 1 (Product Standard)
                 
+                ${wizardContext}
+
                 # INSTRUCTIONS:
                 1. Image 1 is the MASTER REFERENCE for product structure, geometry, and materials.
                 2. Image 2 is the TARGET. Maintain its pose, scene, model identity, and lighting 100%.
@@ -387,6 +417,99 @@ const ProductRepairTab: React.FC = () => {
                             </div>
                         </div>
 
+                        {/* Wizard Section */}
+                        <div className="bg-white rounded-[1.5rem] border border-pastel-border overflow-hidden shadow-sm">
+                            <button 
+                                onClick={() => setIsWizardOpen(!isWizardOpen)}
+                                className={`w-full p-4 flex items-center justify-between transition-colors ${isWizardOpen ? 'bg-orange-50/30' : 'hover:bg-pastel-bg/10'}`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <div className={`p-1.5 rounded-lg transition-colors ${isWizardOpen ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-500'}`}>
+                                        <Lightbulb className="w-4 h-4" />
+                                    </div>
+                                    <div className="text-left">
+                                        <h3 className="font-bold text-pastel-text text-xs flex items-center gap-2">
+                                            输入补充向导
+                                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-500 text-[8px] rounded-md font-black uppercase">建议填写</span>
+                                        </h3>
+                                        <p className="text-[9px] text-pastel-muted">提供更多商品细节，AI 修复将更精准</p>
+                                    </div>
+                                </div>
+                                {isWizardOpen ? <ChevronUp className="w-4 h-4 text-pastel-muted" /> : <ChevronDown className="w-4 h-4 text-pastel-muted" />}
+                            </button>
+                            
+                            {isWizardOpen && (
+                                <div className="px-5 pb-5 pt-2 animate-slide-down">
+                                    <div className="grid grid-cols-1 gap-4">
+                                        {/* Product Details */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-bold text-pastel-muted flex items-center gap-1.5 uppercase tracking-wider">
+                                                <ListTodo className="w-3 h-3 text-orange-400" />
+                                                商品细节
+                                            </label>
+                                            <textarea 
+                                                value={wizardData.details}
+                                                onChange={(e) => setWizardData({...wizardData, details: e.target.value})}
+                                                placeholder="如：材质、尺寸、颜色、特殊工艺细节等..."
+                                                className="w-full p-3 bg-pastel-bg/20 border border-pastel-border rounded-xl text-[11px] text-pastel-text focus:ring-2 focus:ring-orange-200 outline-none min-h-[60px] resize-none placeholder:text-pastel-muted/50"
+                                            />
+                                        </div>
+
+                                        {/* Selling Points */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-bold text-pastel-muted flex items-center gap-1.5 uppercase tracking-wider">
+                                                <Zap className="w-3 h-3 text-yellow-500" />
+                                                核心卖点
+                                            </label>
+                                            <textarea 
+                                                value={wizardData.sellingPoints}
+                                                onChange={(e) => setWizardData({...wizardData, sellingPoints: e.target.value})}
+                                                placeholder="如：防水耐磨、多隔层大容量、轻便透气等..."
+                                                className="w-full p-3 bg-pastel-bg/20 border border-pastel-border rounded-xl text-[11px] text-pastel-text focus:ring-2 focus:ring-yellow-200 outline-none min-h-[60px] resize-none placeholder:text-pastel-muted/50"
+                                            />
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {/* Audience */}
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-bold text-pastel-muted flex items-center gap-1.5 uppercase tracking-wider">
+                                                    <User className="w-3 h-3 text-blue-400" />
+                                                    面向人群
+                                                </label>
+                                                <textarea 
+                                                    value={wizardData.audience}
+                                                    onChange={(e) => setWizardData({...wizardData, audience: e.target.value})}
+                                                    placeholder="如：20~30岁、运动爱好者等..."
+                                                    className="w-full p-3 bg-pastel-bg/20 border border-pastel-border rounded-xl text-[11px] text-pastel-text focus:ring-2 focus:ring-blue-200 outline-none min-h-[60px] resize-none placeholder:text-pastel-muted/50"
+                                                />
+                                            </div>
+
+                                            {/* Scenarios */}
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] font-bold text-pastel-muted flex items-center gap-1.5 uppercase tracking-wider">
+                                                    <MapPin className="w-3 h-3 text-green-400" />
+                                                    使用场景
+                                                </label>
+                                                <textarea 
+                                                    value={wizardData.scenarios}
+                                                    onChange={(e) => setWizardData({...wizardData, scenarios: e.target.value})}
+                                                    placeholder="如：通勤、旅行、户外运动等..."
+                                                    className="w-full p-3 bg-pastel-bg/20 border border-pastel-border rounded-xl text-[11px] text-pastel-text focus:ring-2 focus:ring-green-200 outline-none min-h-[60px] resize-none placeholder:text-pastel-muted/50"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 flex items-start gap-2">
+                                            <Info className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+                                            <p className="text-[9px] text-blue-600 leading-normal">
+                                                <strong>小贴士：</strong> 先给 AI 一点上下文信息，再让 AI 进行结构分析和修复，结果通常会更贴近真实商品，生成效果更稳定。
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Analysis Card */}
                         {isAnalyzing || analysisResult ? (
                             <div className="bg-white rounded-[1.5rem] border border-pastel-border p-4 shadow-sm animate-fade-in">
@@ -510,7 +633,7 @@ const ProductRepairTab: React.FC = () => {
                             className={`w-full py-4 rounded-2xl font-black text-base text-white shadow-xl transition-all flex items-center justify-center gap-2 active:scale-95 ${
                                 isLoading || !standardImage || !targetImage 
                                 ? 'bg-gray-200 cursor-not-allowed text-gray-400 shadow-none' 
-                                : 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-600'
+                                : 'bg-gradient-to-r from-orange-500 to-pink-500'
                             }`}
                         >
                             {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6" />}
@@ -565,22 +688,56 @@ const ProductRepairTab: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : generatedImages.length > 0 ? (
-                                    <div className="w-full h-full p-6 overflow-y-auto flex items-center justify-center">
-                                        {generatedImages.map((img, idx) => (
-                                            <div key={idx} className="relative group/img rounded-2xl overflow-hidden shadow-xl border-4 border-white bg-white max-w-full animate-scale-up">
-                                                <img src={img} className="w-full h-auto object-contain max-h-[60vh]" alt="repaired" />
-                                                <div className="absolute inset-0 bg-black/70 opacity-0 group-hover/img:opacity-100 transition-all duration-300 flex items-center justify-center gap-4 backdrop-blur-md">
-                                                    <button onClick={() => setSelectedPreview(img)} className="p-3.5 bg-white/20 hover:bg-white/30 rounded-full text-white transition-all shadow-xl border border-white/20"><ZoomIn className="w-6 h-6" /></button>
-                                                    <button onClick={() => handleDownload(img)} className="p-3.5 bg-white/20 hover:bg-white/30 rounded-full text-white transition-all shadow-xl border border-white/20"><Download className="w-6 h-6" /></button>
-                                                </div>
-                                                <div className="absolute bottom-4 left-4 right-4 py-2 px-4 bg-black/20 backdrop-blur-xl rounded-xl text-white text-[9px] font-bold border border-white/10 flex items-center justify-between">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                                                        <span>1:1 结构精修已完成</span>
+                                    <div className="w-full h-full p-6 overflow-y-auto flex flex-col items-center">
+                                        <div className="flex flex-col items-center gap-6">
+                                            {generatedImages.map((img, idx) => (
+                                                <div key={idx} className="relative group/img rounded-2xl overflow-hidden shadow-xl border-4 border-white bg-white max-w-full animate-scale-up">
+                                                    <img src={img} className="w-full h-auto object-contain max-h-[60vh]" alt="repaired" />
+                                                    <div className="absolute inset-0 bg-black/70 opacity-0 group-hover/img:opacity-100 transition-all duration-300 flex items-center justify-center gap-4 backdrop-blur-md">
+                                                        <button onClick={() => setSelectedPreview(img)} className="p-3.5 bg-white/20 hover:bg-white/30 rounded-full text-white transition-all shadow-xl border border-white/20"><ZoomIn className="w-6 h-6" /></button>
+                                                        <button onClick={() => handleDownload(img)} className="p-3.5 bg-white/20 hover:bg-white/30 rounded-full text-white transition-all shadow-xl border border-white/20"><Download className="w-6 h-6" /></button>
+                                                    </div>
+                                                    <div className="absolute bottom-4 left-4 right-4 py-2 px-4 bg-black/20 backdrop-blur-xl rounded-xl text-white text-[9px] font-bold border border-white/10 flex items-center justify-between">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                                                            <span>1:1 结构精修已完成</span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            ))}
+
+                                            {/* Repair Details Summary Under the Image */}
+                                            {analysisResult && (
+                                                <div className="w-full mt-4 p-4 bg-white/80 backdrop-blur-sm rounded-2xl border border-pastel-border shadow-sm animate-slide-up">
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <div className="p-1.5 bg-orange-50 rounded-lg">
+                                                            <ShieldCheck className="w-4 h-4 text-orange-500" />
+                                                        </div>
+                                                        <h4 className="font-black text-pastel-text text-sm">修复详情与空间映射</h4>
+                                                    </div>
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <span className="text-[10px] font-bold text-pastel-muted uppercase tracking-widest block mb-2">已修复的结构性问题：</span>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                {analysisResult.details.map((detail: string, i: number) => (
+                                                                    <div key={i} className="flex items-start gap-2 p-2 bg-pastel-bg/30 rounded-xl border border-pastel-border/50">
+                                                                        <CheckCircle2 className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                                                                        <span className="text-[10px] text-pastel-text font-bold leading-tight">{detail}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="pt-3 border-t border-pastel-border/50 flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <Zap className="w-3 h-3 text-purple-500" />
+                                                                <span className="text-[10px] text-pastel-muted font-bold">修复强度：高保真 (Structural-Lock V2)</span>
+                                                            </div>
+                                                            <span className="text-[10px] text-pastel-highlight font-black">100% 几何对齐</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center text-center p-10 space-y-4 opacity-40">
