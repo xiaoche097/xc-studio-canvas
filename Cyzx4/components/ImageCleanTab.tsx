@@ -794,17 +794,35 @@ const HeroImageTab: React.FC = () => {
                             {showAdvanced && (
                                 <div className="p-4 space-y-4">
                                     {/* Model Selector */}
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {[
-                                            { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', desc: '3.1 Flash' },
-                                            { id: 'gemini-3-pro-image-preview', name: 'Banana Pro', desc: '3 Pro' },
-                                            { id: 'gpt-image-2', name: 'GPT Image 2', desc: 'Ultra' }
-                                        ].map(m => (
-                                            <button key={m.id} onClick={() => setSelectedModel(m.id)} className={`py-2 rounded-lg border text-center transition-all ${selectedModel === m.id ? 'bg-purple-50 border-purple-400 text-purple-700' : 'bg-white border-pastel-border text-pastel-muted text-[10px]'}`}>
-                                                <div className="font-bold text-[11px]">{m.name}</div>
-                                                <div className="opacity-60">{m.desc}</div>
-                                            </button>
-                                        ))}
+                                    {/* 图像模型选择 Section */}
+                                    <div className="mb-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Cpu className="w-4 h-4 text-pastel-highlight" />
+                                            <h4 className="font-bold text-pastel-text text-xs">图像模型选择</h4>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            {[
+                                                { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', sub: '3.1 Flash', icon: <Zap className="w-4 h-4 text-orange-400" /> },
+                                                { id: 'nanobananapro', name: 'Banana Pro', sub: '3.0 Pro', icon: <Zap className="w-4 h-4 text-orange-500" /> },
+                                                { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra Quality', icon: <Sparkles className="w-4 h-4 text-orange-600" /> }
+                                            ].map(m => (
+                                                <button 
+                                                    key={m.id} 
+                                                    onClick={() => setSelectedModel(m.id)} 
+                                                    className={`relative p-3 rounded-2xl border-2 text-center transition-all flex flex-col items-center justify-center min-h-[85px] ${
+                                                        selectedModel === m.id 
+                                                        ? 'bg-purple-50/50 border-purple-400 ring-1 ring-purple-100 shadow-sm' 
+                                                        : 'bg-white border-pastel-border hover:border-purple-200'
+                                                    }`}
+                                                >
+                                                    <div className="absolute top-2 left-2">
+                                                        {m.icon}
+                                                    </div>
+                                                    <div className={`font-black text-xs mb-1 ${selectedModel === m.id ? 'text-purple-700' : 'text-pastel-text'}`}>{m.name}</div>
+                                                    <div className={`text-[9px] font-bold opacity-60 ${selectedModel === m.id ? 'text-purple-600' : 'text-pastel-muted'}`}>{m.sub}</div>
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                     {/* Form */}
                                     <div className="grid grid-cols-2 gap-3">

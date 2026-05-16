@@ -617,25 +617,35 @@ const ModelMainAdjustTab: React.FC = () => {
             </div>
           </div>
 
-          {/* 画幅选择 */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2">生成模型</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                className={`rounded-xl border py-2 px-1 text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:bg-pastel-bg'}`}
-              >
-                <Zap className="w-3 h-3" /> Gemini 3 Flash
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedModel('gpt-image-2')}
-                className={`rounded-xl border py-2 px-1 text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${selectedModel === 'gpt-image-2' ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm' : 'bg-white text-pastel-muted border-pastel-border hover:bg-pastel-bg'}`}
-              >
-                <Sparkles className="w-3 h-3 text-purple-500" /> GPT Image 2
-              </button>
-            </div>
+          {/* 生成模型 Section */}
+          <div className="space-y-3">
+             <div className="flex items-center gap-2">
+                 <Cpu className="w-4 h-4 text-pastel-highlight" />
+                 <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider">生成模型</h3>
+             </div>
+             <div className="grid grid-cols-3 gap-2">
+                {[
+                    { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', sub: '3.1 Flash', icon: <Zap className="w-4 h-4 text-orange-400" /> },
+                    { id: 'nanobananapro', name: 'Banana Pro', sub: '3.0 Pro', icon: <Zap className="w-4 h-4 text-orange-500" /> },
+                    { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra Quality', icon: <Sparkles className="w-4 h-4 text-orange-600" /> }
+                ].map(m => (
+                    <button 
+                        key={m.id} 
+                        onClick={() => setSelectedModel(m.id)} 
+                        className={`relative p-2 rounded-xl border-2 text-center transition-all flex flex-col items-center justify-center min-h-[75px] ${
+                            selectedModel === m.id 
+                            ? 'bg-purple-50/50 border-purple-400 ring-1 ring-purple-100 shadow-sm' 
+                            : 'bg-white border-pastel-border hover:border-purple-200'
+                        }`}
+                    >
+                        <div className="absolute top-1.5 left-1.5">
+                            {m.icon}
+                        </div>
+                        <div className={`font-black text-[10px] mt-2 mb-0.5 ${selectedModel === m.id ? 'text-purple-700' : 'text-pastel-text'}`}>{m.name}</div>
+                        <div className={`text-[8px] font-bold opacity-60 ${selectedModel === m.id ? 'text-purple-600' : 'text-pastel-muted'}`}>{m.sub}</div>
+                    </button>
+                ))}
+             </div>
           </div>
 
           {/* 画幅选择 */}
