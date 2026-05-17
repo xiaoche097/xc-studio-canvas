@@ -30,7 +30,7 @@ interface ImageItem {
 
 const DollDesignOptimizeTab: React.FC = () => {
   const [images, setImages] = useState<ImageItem[]>([]);
-  const [thinkingModel, setThinkingModel] = useState('gemini-3.1-flash-preview');
+  const [thinkingModel, setThinkingModel] = useState('gemini-3.1-flash-lite-preview');
   const [outputAspectRatio, setOutputAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
@@ -394,9 +394,9 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setThinkingModel('gemini-3.1-flash-preview')}
+                  onClick={() => setThinkingModel('gemini-3.1-flash-lite-preview')}
                   className={`flex-1 py-2.5 rounded-2xl text-sm font-bold transition-all ${
-                    thinkingModel === 'gemini-3.1-flash-preview'
+                    thinkingModel === 'gemini-3.1-flash-lite-preview'
                       ? 'bg-[#FDF4FF] text-[#9333EA] border border-[#D8B4FE]'
                       : 'bg-white text-slate-500 border border-gray-200 hover:border-gray-300'
                   }`}
@@ -492,6 +492,7 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
                 onChange={(e) => setResolution(e.target.value as ImageResolution)}
                 className="w-full bg-white border border-gray-100 rounded-xl py-2.5 px-3 text-xs outline-none focus:border-[#F5B27A] shadow-sm"
               >
+                <option value={ImageResolution.RES_1K}>1K 标清</option>
                 <option value={ImageResolution.RES_2K}>2K 高清</option>
                 <option value={ImageResolution.RES_4K}>4K 极致 (推荐)</option>
               </select>

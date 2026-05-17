@@ -10,8 +10,9 @@ import SettingsTab from '../AIVideo/SettingsTab';
 import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette, Scissors, ImageIcon } from 'lucide-react';
 
 import ModelMainAdjustTab from './ModelMainAdjustTab.tsx';
+import ModelGenerationTab from './ModelGenerationTab.tsx';
 
-type ModelFactoryMode = 'model-main-adjust' | 'pose-fission' | 'model-adjust' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'batch-props-modifier' | 'settings';
+type ModelFactoryMode = 'model-main-adjust' | 'pose-fission' | 'model-adjust' | 'model-generation' | 'action-reference' | 'garment-replacement' | 'batch-recolor' | 'clothing-modification' | 'batch-props-modifier' | 'settings';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('model-main-adjust');
@@ -52,6 +53,13 @@ const ModelFactoryApp: React.FC = () => {
             onClick={() => setActiveTab('model-adjust')}
             icon={<Wand2 className="w-5 h-5" />}
             label="模特调整 (Pose Transfer)"
+          />
+
+          <NavButton
+            active={activeTab === 'model-generation'}
+            onClick={() => setActiveTab('model-generation')}
+            icon={<ImageIcon className="w-5 h-5" />}
+            label="模特生成"
           />
 
           <NavButton
@@ -105,6 +113,7 @@ const ModelFactoryApp: React.FC = () => {
             {activeTab === 'model-main-adjust' && "模特主图调整 (Model Main Adjust)"}
             {activeTab === 'pose-fission' && "姿势裂变 (Pose Fission)"}
             {activeTab === 'model-adjust' && "模特调整 (Pose Transfer)"}
+            {activeTab === 'model-generation' && "模特生成"}
             {activeTab === 'action-reference' && "动作参考 (Action Reference)"}
             {activeTab === 'garment-replacement' && "批量替换 (Garment Replace)"}
             {activeTab === 'batch-recolor' && "批量改色 (Batch Recolor)"}
@@ -124,6 +133,9 @@ const ModelFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'model-adjust' ? 'block' : 'none', height: '100%' }}>
               <ModelAdjustTab />
+            </div>
+            <div style={{ display: activeTab === 'model-generation' ? 'block' : 'none', height: '100%' }}>
+              <ModelGenerationTab />
             </div>
             <div style={{ display: activeTab === 'action-reference' ? 'block' : 'none', height: '100%' }}>
               <ActionReferenceTab />

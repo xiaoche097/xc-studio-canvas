@@ -98,7 +98,8 @@
     "tmall",
     "taobao",
     "editref",
-    "pillarbox"
+    "pillarbox",
+    "subheadline"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }
