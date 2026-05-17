@@ -101,7 +101,9 @@
     "pillarbox",
     "subheadline",
     "AABB",
-    "nums"
+    "nums",
+    "comfyui",
+    "ComfyUI"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }
