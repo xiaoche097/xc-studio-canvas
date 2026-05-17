@@ -110,8 +110,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
     } else if (title === "AI创意视频") {
       // 跳转到 Cyzx4 工作台的分镜创作 Tab
       onStart("/storyboard", [], selectedModel, WorkflowStep.STORYBOARD_CREATION);
-    } else if (title === "视频工作站") {
-      // Direct jump to Video Station, bypassing modal
+    } else if (title === "小彻工作站") {
+      // 直接跳转到小彻工作站（视频生成），绕过弹窗
       onStart("/video", [], selectedModel, WorkflowStep.VIDEO_GENERATION);
     } else if (title === "玩偶工厂") {
       // Direct jump to Doll Factory, bypassing modal
@@ -175,12 +175,12 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: MarketingVisual
     },
     {
-      title: "视频工作站",
+      title: "小彻工作站",
       prompt: "/video 生成一段产品展示视频",
-      bgClass: "from-white to-violet-50/50 dark:from-white/5 dark:to-violet-900/20",
-      borderClass: "hover:border-violet-200 dark:hover:border-violet-500/30",
+      bgClass: "from-white to-pink-50/50 dark:from-white/5 dark:to-pink-900/20",
+      borderClass: "hover:border-pink-200 dark:hover:border-pink-500/30",
       textClass: "text-gray-800 dark:text-gray-100",
-      visualColor: "text-violet-500",
+      visualColor: "text-pink-500",
       Visual: VideoVisual
     },
     {

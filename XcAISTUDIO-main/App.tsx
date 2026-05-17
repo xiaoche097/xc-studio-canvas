@@ -22,7 +22,8 @@ import { saveToStorage, loadFromStorage } from './services/storage';
 import {
     Plus, Copy, Trash2, Type, Image as ImageIcon, Video as VideoIcon,
     ScanFace, Brush, MousePointerClick, LayoutTemplate, X, Film, Link, RefreshCw, Upload,
-    Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2
+    Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2, Workflow as WorkflowIcon,
+    Globe, Layers, Volume2, Box, Clapperboard
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 
@@ -212,6 +213,9 @@ export const App = () => {
     // Settings State
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+    // Controlled Sidebar Panel State
+    const [activeSidebarPanel, setActiveSidebarPanel] = useState<'history' | 'workflow' | 'add' | null>(null);
+
     // --- Canvas State ---
     const [nodes, setNodes] = useState<AppNode[]>([]);
     const [connections, setConnections] = useState<Connection[]>([]);
@@ -228,6 +232,14 @@ export const App = () => {
     const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
     const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+    // 新增 UI 与交互状态
+    const [showGrid, setShowGrid] = useState(true);
+    const [showMinimap, setShowMinimap] = useState(false);
+    const [showHelpDropdown, setShowHelpDropdown] = useState(false);
+    const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+    const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+    const [interactionMode, setInteractionMode] = useState<'default' | 'comfyui'>('default');
 
     // Interaction / Selection
     const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]); // Changed to Array for multi-select
@@ -426,6 +438,10 @@ export const App = () => {
         const idx = historyIndexRef.current; if (idx > 0) { const prev = historyRef.current[idx - 1]; setNodes(prev.nodes); setConnections(prev.connections); setGroups(prev.groups); setHistoryIndex(idx - 1); }
     }, []);
 
+    const redo = useCallback(() => {
+        const idx = historyIndexRef.current; if (idx < historyRef.current.length - 1) { const next = historyRef.current[idx + 1]; setNodes(next.nodes); setConnections(next.connections); setGroups(next.groups); setHistoryIndex(idx + 1); }
+    }, []);
+
     const deleteNodes = useCallback((ids: string[]) => {
         if (ids.length === 0) return;
         saveHistory();
@@ -526,23 +542,63 @@ export const App = () => {
 
 
     const handleWheel = (e: React.WheelEvent) => {
-        if (e.ctrlKey || e.metaKey) {
-            e.preventDefault(); const newScale = Math.min(Math.max(0.2, scale - e.deltaY * 0.001), 3);
-            const rect = e.currentTarget.getBoundingClientRect(); const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+        if (interactionMode === 'comfyui') {
+            e.preventDefault();
+            // ComfyUI 模式：鼠标滚轮直接进行画布缩放
+            const zoomIntensity = 0.0015;
+            const newScale = Math.min(Math.max(0.2, scale - e.deltaY * zoomIntensity * scale), 3);
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
             const scaleDiff = newScale - scale;
             setPan(p => ({ x: p.x - (x - p.x) * (scaleDiff / scale), y: p.y - (y - p.y) * (scaleDiff / scale) }));
             setScale(newScale);
-        } else { setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY })); }
+        } else {
+            // 默认模式：Ctrl + 滚轮进行缩放，普通滚轮进行平移
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const newScale = Math.min(Math.max(0.2, scale - e.deltaY * 0.001), 3);
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const scaleDiff = newScale - scale;
+                setPan(p => ({ x: p.x - (x - p.x) * (scaleDiff / scale), y: p.y - (y - p.y) * (scaleDiff / scale) }));
+                setScale(newScale);
+            } else {
+                setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+            }
+        }
     };
 
     const handleCanvasMouseDown = (e: React.MouseEvent) => {
-        if (contextMenu) setContextMenu(null); setSelectedGroupId(null);
-        if (e.button === 0 && !e.shiftKey) {
+        if (contextMenu) setContextMenu(null);
+        setSelectedGroupId(null);
+        
+        // 默认左键选择（且未按下 Shift 与 Space）
+        const isSpacePressed = document.body.classList.contains('cursor-grab-override');
+        if (e.button === 0 && !e.shiftKey && !isSpacePressed) {
             if (e.detail > 1) { e.preventDefault(); return; }
             setSelectedNodeIds([]);
             setSelectionRect({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY });
         }
-        if (e.button === 1 || (e.button === 0 && e.shiftKey)) { setIsDraggingCanvas(true); setLastMousePos({ x: e.clientX, y: e.clientY }); }
+        
+        // 判断平移画布：
+        // 1. 中键平移 (button === 1)
+        // 2. 空格 + 左键平移 (Space + button === 0)
+        // 3. 默认模式下：Shift + 左键平移 (Shift + button === 0)
+        // 4. ComfyUI 模式下：右键平移 (button === 2)
+        const isMiddleClick = e.button === 1;
+        const isSpaceDrag = isSpacePressed && e.button === 0;
+        const isDefaultShiftDrag = interactionMode === 'default' && e.button === 0 && e.shiftKey;
+        const isComfyRightDrag = interactionMode === 'comfyui' && e.button === 2;
+
+        if (isMiddleClick || isSpaceDrag || isDefaultShiftDrag || isComfyRightDrag) {
+            setIsDraggingCanvas(true);
+            setLastMousePos({ x: e.clientX, y: e.clientY });
+            if (e.button === 2) {
+                e.preventDefault();
+            }
+        }
     };
 
     const handleGlobalMouseMove = useCallback((e: MouseEvent) => {
@@ -936,8 +992,30 @@ export const App = () => {
         const handleKeyDown = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
             if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); setSelectedNodeIds(nodesRef.current.map(n => n.id)); return; }
+            
+            // Undo & Redo
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); redo(); return; }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+
+            // Zoom Keyboard Shortcuts
+            if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) {
+                e.preventDefault();
+                setScale(s => Math.min(3, s + 0.15));
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && (e.key === '-' || e.key === '_')) {
+                e.preventDefault();
+                setScale(s => Math.max(0.2, s - 0.15));
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+                e.preventDefault();
+                setScale(1);
+                return;
+            }
+
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); setSelectedNodeIds(nodesRef.current.map(n => n.id)); return; }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') { const lastSelected = selectedNodeIds[selectedNodeIds.length - 1]; if (lastSelected) { const nodeToCopy = nodesRef.current.find(n => n.id === lastSelected); if (nodeToCopy) { e.preventDefault(); setClipboard(JSON.parse(JSON.stringify(nodeToCopy))); } } return; }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') { if (clipboard) { e.preventDefault(); saveHistory(); const newNode: AppNode = { ...clipboard, id: `n-${Date.now()}-${Math.floor(Math.random() * 1000)}`, x: clipboard.x + 50, y: clipboard.y + 50, status: NodeStatus.IDLE, inputs: [] }; setNodes(prev => [...prev, newNode]); setSelectedNodeIds([newNode.id]); } return; }
             if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedGroupId) { saveHistory(); setGroups(prev => prev.filter(g => g.id !== selectedGroupId)); setSelectedGroupId(null); return; } if (selectedNodeIds.length > 0) { deleteNodes(selectedNodeIds); } }
@@ -946,7 +1024,7 @@ export const App = () => {
         const handleKeyUpSpace = (e: KeyboardEvent) => { if (e.code === 'Space') { document.body.classList.remove('cursor-grab-override'); } };
         window.addEventListener('keydown', handleKeyDown); window.addEventListener('keydown', handleKeyDownSpace); window.addEventListener('keyup', handleKeyUpSpace);
         return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keydown', handleKeyDownSpace); window.removeEventListener('keyup', handleKeyUpSpace); };
-    }, [selectedWorkflowId, selectedNodeIds, selectedGroupId, deleteNodes, undo, saveHistory, clipboard]);
+    }, [selectedWorkflowId, selectedNodeIds, selectedGroupId, deleteNodes, undo, redo, saveHistory, clipboard]);
 
     const handleCanvasDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
     const handleCanvasDrop = (e: React.DragEvent) => {
@@ -1029,6 +1107,100 @@ export const App = () => {
         return () => { document.head.removeChild(style); };
     }, []);
 
+    // 监听全局点击以自动收起帮助菜单气泡
+    useEffect(() => {
+        if (!showHelpDropdown) return;
+        const handleOutsideClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.help-dropdown-container')) {
+                setShowHelpDropdown(false);
+            }
+        };
+        window.addEventListener('mousedown', handleOutsideClick);
+        return () => window.removeEventListener('mousedown', handleOutsideClick);
+    }, [showHelpDropdown]);
+
+    const getMinimapRects = () => {
+        if (nodes.length === 0) return { nodesRects: [], viewportRect: null };
+        
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        
+        nodes.forEach(n => {
+            const w = n.width || 420;
+            const h = getApproxNodeHeight(n);
+            if (n.x < minX) minX = n.x;
+            if (n.x + w > maxX) maxX = n.x + w;
+            if (n.y < minY) minY = n.y;
+            if (n.y + h > maxY) maxY = n.y + h;
+        });
+
+        groups.forEach(g => {
+            if (g.x < minX) minX = g.x;
+            if (g.x + g.width > maxX) maxX = g.x + g.width;
+            if (g.y < minY) minY = g.y;
+            if (g.y + g.height > maxY) maxY = g.y + g.height;
+        });
+
+        const padding = 300;
+        minX -= padding;
+        maxX += padding;
+        minY -= padding;
+        maxY += padding;
+
+        const boundsW = maxX - minX;
+        const boundsH = maxY - minY;
+
+        const viewLeft = -pan.x / scale;
+        const viewTop = -pan.y / scale;
+        const viewWidth = window.innerWidth / scale;
+        const viewHeight = window.innerHeight / scale;
+
+        const mapW = 180;
+        const mapH = 120;
+
+        const project = (x: number, y: number) => {
+            const px = ((x - minX) / boundsW) * mapW;
+            const py = ((y - minY) / boundsH) * mapH;
+            return { x: px, y: py };
+        };
+
+        const projectSize = (w: number, h: number) => {
+            const pw = (w / boundsW) * mapW;
+            const ph = (h / boundsH) * mapH;
+            return { w: pw, h: ph };
+        };
+
+        const nodesRects = nodes.map(n => {
+            const w = n.width || 420;
+            const h = getApproxNodeHeight(n);
+            const pos = project(n.x, n.y);
+            const size = projectSize(w, h);
+            return {
+                id: n.id,
+                x: Math.max(0, Math.min(mapW - 1, pos.x)),
+                y: Math.max(0, Math.min(mapH - 1, pos.y)),
+                w: Math.max(2, size.w),
+                h: Math.max(2, size.h),
+                type: n.type
+            };
+        });
+
+        const viewPos = project(viewLeft, viewTop);
+        const viewSize = projectSize(viewWidth, viewHeight);
+
+        const viewportRect = {
+            x: Math.max(-50, Math.min(mapW + 50, viewPos.x)),
+            y: Math.max(-50, Math.min(mapH + 50, viewPos.y)),
+            w: Math.max(4, Math.min(mapW * 3, viewSize.w)),
+            h: Math.max(4, Math.min(mapH * 3, viewSize.h))
+        };
+
+        return { nodesRects, viewportRect };
+    };
+
     return (
         <div className="w-screen h-screen overflow-hidden bg-[#0a0a0c]">
             <div
@@ -1039,44 +1211,58 @@ export const App = () => {
                 onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}
             >
                 <div className="absolute inset-0 noise-bg" />
-                <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle, #aaa 1px, transparent 1px)', backgroundSize: `${32 * scale}px ${32 * scale}px`, backgroundPosition: `${pan.x}px ${pan.y}px` }} />
+                <div 
+                    className="absolute inset-0 pointer-events-none transition-opacity duration-300" 
+                    style={{ 
+                        opacity: showGrid ? 0.06 : 0,
+                        backgroundImage: 'radial-gradient(circle, #aaa 1px, transparent 1px)', 
+                        backgroundSize: `${32 * scale}px ${32 * scale}px`, 
+                        backgroundPosition: `${pan.x}px ${pan.y}px` 
+                    }} 
+                />
 
-                <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700 ease-[${SPRING}] z-50 pointer-events-none ${nodes.length > 0 ? 'opacity-0 scale-105' : 'opacity-100 scale-100'}`}>
-                    {/* ... (Welcome Screen) ... */}
-                    <div className="flex flex-col items-center justify-center mb-10 select-none animate-in fade-in slide-in-from-bottom-8 duration-1000">
-                        <div className="relative">
-                            <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-zinc-300 to-zinc-600 drop-shadow-sm px-4 pb-2">XcAISTUDIO</h1>
-                            <div className="absolute -inset-10 bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-blue-500/20 blur-[60px] opacity-20 pointer-events-none mix-blend-screen"></div>
+                <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700 ease-[${SPRING}] z-40 pointer-events-none ${(nodes.length > 0 || contextMenu) ? 'opacity-0 scale-105' : 'opacity-100 scale-100'}`}>
+                    {/* Floating Pill: 双击屏幕 画布自由生成 */}
+                    <div className={`flex items-center gap-3 mb-10 bg-[#09090b]/60 border border-white/5 backdrop-blur-xl px-5 py-2.5 rounded-full shadow-lg ${(nodes.length > 0 || contextMenu) ? 'pointer-events-none' : 'pointer-events-auto'} animate-in fade-in slide-in-from-bottom-3 duration-1000`}>
+                        <div className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-1.5 uppercase tracking-wide">
+                            <MousePointerClick size={13} className="text-emerald-400" />
+                            <span>双击屏幕</span>
                         </div>
-                        <div className="flex items-center gap-4 mt-4">
-                            <div className="h-px w-12 bg-gradient-to-r from-transparent to-zinc-600"></div>
-                            <span className="text-[11px] font-bold tracking-[0.6em] text-zinc-500 uppercase">Welcome</span>
-                            <div className="h-px w-12 bg-gradient-to-l from-transparent to-zinc-600"></div>
-                        </div>
+                        <span className="text-zinc-400 text-sm font-semibold tracking-wide">画布自由生成</span>
                     </div>
 
-                    <div className="flex items-center gap-2 mb-6 text-zinc-500 text-xs font-medium tracking-wide opacity-60">
-                        <div className="px-1.5 py-0.5 rounded-md bg-zinc-800/50 border border-zinc-700/50 text-[10px] flex items-center gap-1">
-                            <MousePointerClick size={10} />
-                            <span>双击</span>
-                        </div>
-                        <span>画布自由生成，或查看工作流模板</span>
-                    </div>
-
-                    <div className={`flex items-center gap-1.5 p-1.5 rounded-[18px] bg-[#09090b]/80 border border-white/5 backdrop-blur-xl shadow-2xl ${nodes.length > 0 ? 'pointer-events-none' : 'pointer-events-auto'}`}>
-                        <button onClick={() => addNode(NodeType.IMAGE_GENERATOR)} className="flex items-center gap-2.5 px-5 py-3 rounded-[14px] bg-[#18181b] hover:bg-[#27272a] text-zinc-400 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300">
-                            <ImageIcon size={16} className="text-zinc-500 transition-colors group-hover:text-cyan-400" />
-                            <span className="text-[13px] font-medium tracking-wide">文字生图</span>
+                    {/* Horizontal 4 Actions Grid */}
+                    <div className={`flex items-center gap-4 p-2.5 rounded-[24px] bg-[#0c0c0e]/95 border border-white/5 backdrop-blur-2xl shadow-2xl transition-all duration-500 ${(nodes.length > 0 || contextMenu) ? 'pointer-events-none' : 'pointer-events-auto'}`}>
+                        <button 
+                            onClick={() => addNode(NodeType.VIDEO_GENERATOR)} 
+                            className="flex items-center gap-3 px-6 py-3.5 rounded-[16px] bg-[#18181b] hover:bg-[#27272a] text-zinc-300 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300"
+                        >
+                            <Film size={18} className="text-zinc-500 transition-colors group-hover:text-purple-400" />
+                            <span className="text-sm font-semibold tracking-wide">文字生视频</span>
                         </button>
 
-                        <button onClick={() => addNode(NodeType.VIDEO_GENERATOR)} className="flex items-center gap-2.5 px-5 py-3 rounded-[14px] bg-[#18181b] hover:bg-[#27272a] text-zinc-400 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300">
-                            <Film size={16} className="text-zinc-500 transition-colors group-hover:text-purple-400" />
-                            <span className="text-[13px] font-medium tracking-wide">文生视频</span>
+                        <button 
+                            onClick={() => addNode(NodeType.IMAGE_EDITOR)} 
+                            className="flex items-center gap-3 px-6 py-3.5 rounded-[16px] bg-[#18181b] hover:bg-[#27272a] text-zinc-300 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300"
+                        >
+                            <Sparkles size={18} className="text-zinc-500 transition-colors group-hover:text-cyan-400" />
+                            <span className="text-sm font-semibold tracking-wide">图片换背景</span>
                         </button>
 
-                        <button onClick={() => addNode(NodeType.VIDEO_GENERATOR, undefined, undefined, { generationMode: 'FIRST_LAST_FRAME' })} className="flex items-center gap-2.5 px-5 py-3 rounded-[14px] bg-[#18181b] hover:bg-[#27272a] text-zinc-400 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300">
-                            <Link size={16} className="text-zinc-500 transition-colors group-hover:text-emerald-400" />
-                            <span className="text-[13px] font-medium tracking-wide">首尾插帧</span>
+                        <button 
+                            onClick={() => addNode(NodeType.VIDEO_GENERATOR, undefined, undefined, { generationMode: 'FIRST_LAST_FRAME' })} 
+                            className="flex items-center gap-3 px-6 py-3.5 rounded-[16px] bg-[#18181b] hover:bg-[#27272a] text-zinc-300 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300"
+                        >
+                            <Link size={18} className="text-zinc-500 transition-colors group-hover:text-emerald-400" />
+                            <span className="text-sm font-semibold tracking-wide">首尾帧生视频</span>
+                        </button>
+
+                        <button 
+                            onClick={() => setActiveSidebarPanel('workflow')} 
+                            className="flex items-center gap-3 px-6 py-3.5 rounded-[16px] bg-[#18181b] hover:bg-[#27272a] text-zinc-300 hover:text-zinc-100 transition-all border border-white/5 hover:border-white/10 group shadow-sm hover:shadow-md hover:-translate-y-0.5 duration-300"
+                        >
+                            <WorkflowIcon size={18} className="text-zinc-500 transition-colors group-hover:text-amber-400" />
+                            <span className="text-sm font-semibold tracking-wide">我的工作流</span>
                         </button>
                     </div>
                 </div>
@@ -1181,7 +1367,14 @@ export const App = () => {
                 </div>
 
                 {contextMenu && (
-                    <div className="fixed z-[100] bg-[#1c1c1e]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-1.5 min-w-[160px] animate-in fade-in zoom-in-95 duration-200 origin-top-left" style={{ top: contextMenu.y, left: contextMenu.x }} onMouseDown={(e) => e.stopPropagation()}>
+                    <div 
+                        className={contextMenuTarget?.type === 'create'
+                            ? "fixed z-[100] w-80 bg-[#0c0c0e]/95 backdrop-blur-3xl border border-white/5 rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-4.5 animate-in fade-in zoom-in-95 duration-200 origin-top-left flex flex-col overflow-y-auto max-h-[75vh] custom-scrollbar space-y-5"
+                            : "fixed z-[100] bg-[#1c1c1e]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-1.5 min-w-[160px] animate-in fade-in zoom-in-95 duration-200 origin-top-left"
+                        }
+                        style={{ top: contextMenu.y, left: contextMenu.x }} 
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
                         {contextMenuTarget?.type === 'node' && (
                             <>
                                 <button className="w-full text-left px-3 py-2 text-xs font-medium text-slate-300 hover:bg-cyan-500/20 hover:text-cyan-400 rounded-lg flex items-center gap-2 transition-colors" onClick={() => { const targetNode = nodes.find(n => n.id === contextMenu.id); if (targetNode) setClipboard(JSON.parse(JSON.stringify(targetNode))); setContextMenu(null); }}>
@@ -1193,8 +1386,122 @@ export const App = () => {
                         )}
                         {contextMenuTarget?.type === 'create' && (
                             <>
-                                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">创建新节点</div>
-                                {[NodeType.PROMPT_INPUT, NodeType.IMAGE_GENERATOR, NodeType.VIDEO_GENERATOR, NodeType.AUDIO_GENERATOR, NodeType.VIDEO_ANALYZER, NodeType.IMAGE_EDITOR].map(t => { const ItemIcon = getNodeIcon(t); return (<button key={t} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-200 hover:bg-white/10 rounded-lg flex items-center gap-2.5 transition-colors" onClick={() => { addNode(t, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}> <ItemIcon size={12} className="text-cyan-400" /> {getNodeNameCN(t)} </button>); })}
+                                {/* 添加节点 Section */}
+                                <div className="space-y-2 text-left">
+                                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">添加节点</div>
+                                    
+                                    {/* 文本 Item */}
+                                    <button 
+                                        onClick={() => { addNode(NodeType.PROMPT_INPUT, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Type size={16} />
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">文本</span>
+                                            <span className="text-[10px] text-zinc-500 truncate group-hover:text-zinc-400 transition-colors mt-0.5">脚本、广告词、品牌文案</span>
+                                        </div>
+                                    </button>
+
+                                    {/* 图片 Item */}
+                                    <button 
+                                        onClick={() => { addNode(NodeType.IMAGE_GENERATOR, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <ImageIcon size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">图片</span>
+                                    </button>
+
+                                    {/* 视频 Item */}
+                                    <button 
+                                        onClick={() => { addNode(NodeType.VIDEO_GENERATOR, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Film size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">视频</span>
+                                    </button>
+
+                                    {/* 3D 世界 Item */}
+                                    <button 
+                                        onClick={() => { addNode(NodeType.VIDEO_ANALYZER, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Globe size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">3D 世界</span>
+                                    </button>
+
+                                    {/* 音频 Item */}
+                                    <button 
+                                        onClick={() => { addNode(NodeType.AUDIO_GENERATOR, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Volume2 size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">音频</span>
+                                    </button>
+                                </div>
+
+                                {/* 功能节点 Section */}
+                                <div className="space-y-2 text-left">
+                                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">功能节点</div>
+
+                                    {/* 分镜格子 Item */}
+                                    <button 
+                                        onClick={() => { setIsMultiFrameOpen(!isMultiFrameOpen); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Clapperboard size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">分镜格子</span>
+                                    </button>
+
+                                    {/* AI 应用 Item */}
+                                    <button 
+                                        onClick={() => { setIsChatOpen(!isChatOpen); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Layers size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">AI 应用</span>
+                                    </button>
+                                </div>
+
+                                {/* 添加资源 Section */}
+                                <div className="space-y-2 text-left">
+                                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">添加资源</div>
+
+                                    {/* 上传 Item */}
+                                    <button 
+                                        onClick={() => { addNode(NodeType.IMAGE_GENERATOR, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Upload size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">上传</span>
+                                    </button>
+
+                                    {/* 从作品导入 Item */}
+                                    <button 
+                                        onClick={() => { setActiveSidebarPanel('history'); setContextMenu(null); }}
+                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                    >
+                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                            <Box size={16} />
+                                        </div>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">从作品导入</span>
+                                    </button>
+                                </div>
                             </>
                         )}
                         {contextMenuTarget?.type === 'group' && (
@@ -1245,19 +1552,433 @@ export const App = () => {
                     onDeleteWorkflow={deleteWorkflow}
                     onRenameWorkflow={renameWorkflow}
                     onOpenSettings={() => setIsSettingsOpen(true)}
+                    activePanel={activeSidebarPanel}
+                    onChangeActivePanel={setActiveSidebarPanel}
                 />
 
                 <AssistantPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
 
-                <div className="absolute bottom-8 right-8 flex items-center gap-3 px-4 py-2 bg-[#1c1c1e]/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-2xl z-50 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                    <button onClick={() => setScale(s => Math.max(0.2, s - 0.1))} className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10"><Minus size={14} strokeWidth={3} /></button>
-                    <div className="flex items-center gap-2 min-w-[100px]">
-                        <input type="range" min="0.2" max="3" step="0.1" value={scale} onChange={(e) => setScale(parseFloat(e.target.value))} className="w-24 h-1 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-125 transition-all" />
-                        <span className="text-[10px] font-bold text-slate-400 w-8 text-right tabular-nums cursor-pointer hover:text-white" onClick={() => setScale(1)} title="Reset Zoom">{Math.round(scale * 100)}%</span>
+                {/* Canvas Mini-map (Dynamic Scale Projection) */}
+                {showMinimap && (() => {
+                    const { nodesRects, viewportRect } = getMinimapRects();
+                    return (
+                        <div className="absolute bottom-[92px] left-[96px] w-[180px] h-[120px] bg-[#0d0d10]/95 border border-white/10 rounded-[20px] shadow-3xl overflow-hidden z-50 backdrop-blur-2xl p-2 animate-in fade-in slide-in-from-bottom-2 duration-300 pointer-events-none">
+                            {/* Minimap Box Area */}
+                            <div className="relative w-full h-full bg-zinc-950/80 rounded-xl overflow-hidden border border-white/5">
+                                {/* Nodes representation */}
+                                {nodesRects.map(r => (
+                                    <div 
+                                        key={r.id} 
+                                        className={`absolute rounded-[2px] opacity-60 border border-white/10 ${
+                                            r.type.includes('IMAGE') ? 'bg-cyan-500' :
+                                            r.type.includes('VIDEO') ? 'bg-purple-500' :
+                                            r.type.includes('PROMPT') ? 'bg-emerald-500' :
+                                            'bg-zinc-600'
+                                        }`}
+                                        style={{ 
+                                            left: `${r.x}px`, 
+                                            top: `${r.y}px`, 
+                                            width: `${r.w}px`, 
+                                            height: `${r.h}px` 
+                                        }} 
+                                    />
+                                ))}
+
+                                {/* Viewport representation */}
+                                {viewportRect && (
+                                    <div 
+                                        className="absolute border border-emerald-400 bg-emerald-400/5 rounded-md shadow-[0_0_8px_rgba(16,185,129,0.3)] transition-all duration-150"
+                                        style={{ 
+                                            left: `${viewportRect.x}px`, 
+                                            top: `${viewportRect.y}px`, 
+                                            width: `${viewportRect.w}px`, 
+                                            height: `${viewportRect.h}px` 
+                                        }} 
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    );
+                })()}
+
+                {/* Pill Zoom and Controller at Bottom Left */}
+                <div className="absolute bottom-8 left-[96px] flex items-center gap-3 z-50 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    {/* Pill Bar */}
+                    <div className="flex items-center gap-4 px-5 py-2.5 bg-[#0d0d10]/90 backdrop-blur-3xl border border-white/5 rounded-full shadow-2xl">
+                        {/* Map Icon */}
+                        <button 
+                            onClick={() => setShowMinimap(!showMinimap)} 
+                            className={`p-1.5 transition-all rounded-lg ${showMinimap ? 'text-emerald-400 bg-emerald-500/10 scale-105' : 'text-zinc-500 hover:text-zinc-200'}`}
+                            title="切换缩略图"
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.12 3.88 16 2"/><path d="M18.6 5.4 20 4"/><path d="m22 7.6-2-.6"/><path d="m22 12-2 .5"/><path d="m20 16.6 2 .4"/><path d="M16 20l-1.88 1.88"/><path d="M12 22l-.5-2"/><path d="M7.6 22l.4-2"/><path d="M4 20l1.4-1.4"/><path d="M2 16.4l2-.4"/><path d="M2 12l2-.5"/><path d="M4 7.6l-2-.6"/><path d="M5.4 5.4 4 4"/><path d="M8 2l-.4 2"/><path d="M12 2l.5 2"/><path d="m15.4 5.4-1.4 1.4"/><path d="M18 8a6 6 0 0 0-6-6"/><path d="M12 20a8 8 0 1 0 0-16"/><path d="M12 20a6 6 0 0 1-6-6"/></svg>
+                        </button>
+
+                        {/* Grid Icon */}
+                        <button 
+                            onClick={() => setShowGrid(!showGrid)} 
+                            className={`p-1.5 transition-all rounded-lg ${showGrid ? 'text-emerald-400 bg-emerald-500/10 scale-105' : 'text-zinc-500 hover:text-zinc-200'}`}
+                            title="切换网格"
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /><path d="M15 3v18" /><path d="M3 9h18" /><path d="M3 15h18" /></svg>
+                        </button>
+
+                        {/* Focus View Icon */}
+                        <button 
+                            onClick={handleFitView} 
+                            className="p-1.5 text-zinc-500 hover:text-zinc-200 transition-all hover:bg-white/5 rounded-lg"
+                            title="适配视图"
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><circle cx="12" cy="12" r="1" /><path d="M12 8v2" /><path d="M12 14v2" /><path d="M8 12h2" /><path d="M14 12h2" /></svg>
+                        </button>
+
+                        {/* Zoom Slider */}
+                        <div className="flex items-center gap-3">
+                            <input 
+                                type="range" 
+                                min="0.2" 
+                                max="3" 
+                                step="0.05" 
+                                value={scale} 
+                                onChange={(e) => setScale(parseFloat(e.target.value))} 
+                                className="w-24 h-1 bg-zinc-800 rounded-full appearance-none cursor-pointer outline-none transition-all relative z-10 
+                                [&::-webkit-slider-runnable-track]:bg-transparent
+                                [&::-webkit-slider-thumb]:appearance-none 
+                                [&::-webkit-slider-thumb]:w-3.5 
+                                [&::-webkit-slider-thumb]:h-3.5 
+                                [&::-webkit-slider-thumb]:rounded-full 
+                                [&::-webkit-slider-thumb]:bg-emerald-400 
+                                [&::-webkit-slider-thumb]:border-2 
+                                [&::-webkit-slider-thumb]:border-white 
+                                [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(16,185,129,0.6)]
+                                hover:[&::-webkit-slider-thumb]:scale-110 
+                                active:[&::-webkit-slider-thumb]:scale-125
+                                [&::-webkit-slider-thumb]:transition-transform"
+                                style={{
+                                    background: `linear-gradient(to right, #10b981 0%, #10b981 ${((scale - 0.2) / (3.0 - 0.2)) * 100}%, #27272a ${((scale - 0.2) / (3.0 - 0.2)) * 100}%, #27272a 100%)`
+                                }}
+                            />
+                            <span 
+                                className="text-[11px] font-bold text-zinc-500 hover:text-zinc-200 transition-colors w-10 text-right font-mono cursor-pointer" 
+                                onClick={() => setScale(1)} 
+                                title="重置为 100%"
+                            >
+                                {Math.round(scale * 100)}%
+                            </span>
+                        </div>
                     </div>
-                    <button onClick={() => setScale(s => Math.min(3, s + 0.1))} className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10"><Plus size={14} strokeWidth={3} /></button>
-                    <button onClick={handleFitView} className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10 ml-2 border-l border-white/10 pl-3" title="适配视图">
-                        <Scan size={14} strokeWidth={3} />
+
+                    {/* Button 1: Question mark Button */}
+                    <div className="relative help-dropdown-container">
+                        <button 
+                            onClick={() => setShowHelpDropdown(!showHelpDropdown)} 
+                            className={`w-10 h-10 rounded-full flex items-center justify-center bg-[#0d0d10]/90 backdrop-blur-3xl border ${showHelpDropdown ? 'border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]' : 'border-white/5 text-zinc-400 hover:text-zinc-100 hover:bg-white/5'} transition-all shadow-2xl`}
+                            title="帮助与教程"
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg>
+                        </button>
+
+                        {/* Question Button Dropdown */}
+                        {showHelpDropdown && (
+                            <div className="absolute bottom-[48px] left-0 w-[140px] bg-[#0d0d10]/95 border border-white/10 rounded-2xl shadow-2xl p-2 z-50 flex flex-col gap-1 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                <button 
+                                    onClick={() => { setIsGuideModalOpen(true); setShowHelpDropdown(false); }} 
+                                    className="w-full text-left px-3 py-2.5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 rounded-xl flex items-center gap-2.5 transition-all group"
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-500 group-hover:text-emerald-400 transition-colors"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                                    使用教程
+                                </button>
+                                <button 
+                                    onClick={() => { setIsShortcutsModalOpen(true); setShowHelpDropdown(false); }} 
+                                    className="w-full text-left px-3 py-2.5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 rounded-xl flex items-center gap-2.5 transition-all group"
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-500 group-hover:text-emerald-400 transition-colors"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>
+                                    快捷键
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Button 2: Document/Edit Button */}
+                    <button 
+                        onClick={() => {
+                            setActiveSidebarPanel('workflow');
+                            setIsSettingsOpen(true);
+                        }} 
+                        className="w-10 h-10 rounded-full flex items-center justify-center bg-[#0d0d10]/90 backdrop-blur-3xl border border-white/5 text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-all shadow-2xl"
+                        title="系统配置 / 工作流"
+                    >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    </button>
+                </div>
+
+                {/* Shortcuts Key Center Modal */}
+                {isShortcutsModalOpen && (
+                    <div className="fixed inset-0 flex items-center justify-center z-[150] bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
+                        {/* Overlay Click to Close */}
+                        <div className="absolute inset-0" onClick={() => setIsShortcutsModalOpen(false)} />
+                        
+                        {/* Modal Box */}
+                        <div className="w-[580px] bg-[#141416]/98 border border-white/10 rounded-[28px] shadow-3xl p-8 backdrop-blur-md flex flex-col gap-6 relative z-10 animate-in zoom-in-95 duration-300 text-left">
+                            {/* Close Button */}
+                            <button 
+                                onClick={() => setIsShortcutsModalOpen(false)} 
+                                className="absolute top-6 right-6 p-1.5 text-zinc-400 hover:text-white bg-zinc-800/40 hover:bg-zinc-800/80 rounded-full transition-all border border-white/5"
+                            >
+                                <X size={15} />
+                            </button>
+
+                            {/* Header */}
+                            <div>
+                                <h3 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>
+                                    快捷键
+                                </h3>
+                                <p className="text-zinc-500 text-[11px] mt-1 font-medium">使用快捷操作在 XcAi 智能工坊中以双倍效率进行创作与编排。</p>
+                            </div>
+
+                            {/* Columns Layout */}
+                            <div className="grid grid-cols-2 gap-8 py-2 border-y border-white/5">
+                                {/* Left Column: 缩放 & 移动画布 */}
+                                <div className="flex flex-col gap-6">
+                                    {/* 缩放 Section */}
+                                    <div>
+                                        <h4 className="text-zinc-500 text-[11px] font-bold uppercase tracking-wider mb-3">缩放</h4>
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">放大</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">+</kbd>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">缩小</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">-</kbd>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">鼠标</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <span className="text-[11px] text-zinc-400 font-semibold">滚轮</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">触控板</span>
+                                                <span className="text-[11px] text-zinc-400 font-semibold flex items-center gap-1">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-zinc-500"><path d="M18 15a6 6 0 0 0-6-6"/><path d="M12 20a8 8 0 1 0 0-16"/><path d="M12 20a6 6 0 0 1-6-6"/></svg>
+                                                    双指捏合
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 移动画布 Section */}
+                                    <div>
+                                        <h4 className="text-zinc-500 text-[11px] font-bold uppercase tracking-wider mb-3">移动画布</h4>
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">鼠标</span>
+                                                <div className="flex flex-col items-end gap-1.5">
+                                                    <span className="text-[11px] text-zinc-400 font-semibold flex items-center gap-1">
+                                                        <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Space</kbd>
+                                                        <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                        左键拖拽
+                                                    </span>
+                                                    <span className="text-[11px] text-zinc-400 font-semibold flex items-center gap-1">
+                                                        <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                        <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                        左键拖拽
+                                                    </span>
+                                                    <span className="text-[11px] text-zinc-400 font-semibold">鼠标中键拖拽</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">触控板</span>
+                                                <span className="text-[11px] text-zinc-400 font-semibold">双指拖拽</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Right Column: 其他 */}
+                                <div className="flex flex-col gap-6">
+                                    <div>
+                                        <h4 className="text-zinc-500 text-[11px] font-bold uppercase tracking-wider mb-3">其他</h4>
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">删除</span>
+                                                <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Delete</kbd>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">撤销</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Z</kbd>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">重做</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Shift</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Z</kbd>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">复制</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">C</kbd>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center py-1">
+                                                <span className="text-zinc-400 text-xs font-semibold">粘贴</span>
+                                                <div className="flex items-center gap-1">
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">Ctrl</kbd>
+                                                    <span className="text-zinc-600 text-[10px] font-bold">+</span>
+                                                    <kbd className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-md text-[10px] font-mono font-bold shadow-[0_1.5px_0_rgba(0,0,0,0.4)]">V</kbd>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Canvas Mode Toggle Switch */}
+                            <div className="flex justify-between items-center pt-2 bg-white/[0.02] p-4 rounded-2xl border border-white/5 mt-2">
+                                <div className="flex flex-col gap-0.5">
+                                    <span className="text-[13px] font-bold text-zinc-100 flex items-center gap-1.5">
+                                        <div className={`w-2 h-2 rounded-full ${interactionMode === 'comfyui' ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                                        画布模式
+                                    </span>
+                                    <span className="text-[10px] text-zinc-500 font-medium">
+                                        {interactionMode === 'comfyui' 
+                                            ? '🚀 ComfyUI 模式：滚轮直接缩放，右键/中键拖拽画布' 
+                                            : '💡 默认模式：Ctrl+滚轮缩放，Shift+左键或中键拖拽画布'}
+                                    </span>
+                                </div>
+
+                                <button 
+                                    onClick={() => setInteractionMode(m => m === 'default' ? 'comfyui' : 'default')}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                                        interactionMode === 'comfyui' ? 'bg-emerald-500' : 'bg-zinc-800'
+                                    }`}
+                                >
+                                    <span 
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                            interactionMode === 'comfyui' ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
+                                    />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* User Guide Tutorial Modal */}
+                {isGuideModalOpen && (
+                    <div className="fixed inset-0 flex items-center justify-center z-[150] bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
+                        {/* Overlay Click to Close */}
+                        <div className="absolute inset-0" onClick={() => setIsGuideModalOpen(false)} />
+
+                        {/* Modal Box */}
+                        <div className="w-[520px] bg-[#141416]/98 border border-white/10 rounded-[28px] shadow-3xl p-8 backdrop-blur-md flex flex-col gap-6 relative z-10 animate-in zoom-in-95 duration-300 text-left">
+                            {/* Close Button */}
+                            <button 
+                                onClick={() => setIsGuideModalOpen(false)} 
+                                className="absolute top-6 right-6 p-1.5 text-zinc-400 hover:text-white bg-zinc-800/40 hover:bg-zinc-800/80 rounded-full transition-all border border-white/5"
+                            >
+                                <X size={15} />
+                            </button>
+
+                            {/* Header */}
+                            <div>
+                                <h3 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                                    使用教程
+                                </h3>
+                                <p className="text-zinc-500 text-[11px] mt-1 font-medium">几步轻松上手 XcAi 智能编排与生成系统，释放无限创意。</p>
+                            </div>
+
+                            {/* Steps list */}
+                            <div className="flex flex-col gap-4 py-2 border-y border-white/5">
+                                <div className="flex gap-4">
+                                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0 animate-pulse">1</div>
+                                    <div className="flex flex-col gap-0.5">
+                                        <span className="text-zinc-200 text-[13px] font-bold">创建创意描述</span>
+                                        <span className="text-zinc-500 text-xs leading-relaxed">双击画布空白处，在弹出菜单中选择“创意描述”创建输入节点，这是生成画面的核心提示词基础。</span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0">2</div>
+                                    <div className="flex flex-col gap-0.5">
+                                        <span className="text-zinc-200 text-[13px] font-bold">使用 AI 智能体提效</span>
+                                        <span className="text-zinc-500 text-xs leading-relaxed">点击右下角眯眼笑嘴小球，召唤“AI 导演助理”，精选 9 大创作技能磨砂卡片（如电商衣图、网感设计），点击卡片自动填充专业提示词！</span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0">3</div>
+                                    <div className="flex flex-col gap-0.5">
+                                        <span className="text-zinc-200 text-[13px] font-bold">连线编排与智能生成</span>
+                                        <span className="text-zinc-500 text-xs leading-relaxed">拖动节点连接圆点，将“创意描述”连入“图像生成”或“视频生成”节点。点击生成按钮，高品质素材将直接沉淀到您的左下角资产库。</span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0">4</div>
+                                    <div className="flex flex-col gap-0.5">
+                                        <span className="text-zinc-200 text-[13px] font-bold">切换 ComfyUI 交互模式</span>
+                                        <span className="text-zinc-500 text-xs leading-relaxed">习惯 ComfyUI 操作？在快捷键面板底部开启“ComfyUI 模式”，直接滑动滚轮缩放画布，右键或中键拖拽画布！</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Got it button */}
+                            <button 
+                                onClick={() => setIsGuideModalOpen(false)} 
+                                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-black text-xs font-bold rounded-2xl transition-all shadow-lg hover:shadow-emerald-500/20 active:scale-98"
+                            >
+                                我知道了
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Floating AI Assistant Neon Breathing Ball at Bottom Right */}
+                <div className="absolute bottom-8 right-8 flex items-center gap-3 z-50 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <button 
+                        onClick={() => setIsChatOpen(!isChatOpen)}
+                        className="floating-assistant-btn relative w-13 h-13 rounded-full bg-gradient-to-tr from-emerald-500 via-emerald-400 to-green-300 flex items-center justify-center cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.5)] hover:shadow-[0_0_30px_rgba(16,185,129,0.8)] hover:scale-105 transition-all duration-300 group"
+                    >
+                        {/* Breathing light aura */}
+                        <div className="absolute inset-0 rounded-full bg-emerald-400/20 animate-ping opacity-75 pointer-events-none duration-1000" />
+                        
+                        {/* Cute Eyes & Mouth SVG */}
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-black transform group-hover:scale-110 transition-transform">
+                            {/* Shiny dark eyes */}
+                            <circle cx="8" cy="11" r="2" fill="black" />
+                            <circle cx="16" cy="11" r="2" fill="black" />
+                            {/* Tiny cute smile */}
+                            <path d="M10 14.5C10.5 15 11.2 15.3 12 15.3C12.8 15.3 13.5 15 14 14.5" stroke="black" strokeWidth="1.8" strokeLinecap="round" />
+                            {/* Blushing cheeks */}
+                            <circle cx="5.5" cy="13" r="1" fill="#f87171" opacity="0.7" />
+                            <circle cx="18.5" cy="13" r="1" fill="#f87171" opacity="0.7" />
+                        </svg>
+                        
+                        {/* Hover Tooltip */}
+                        <div className="absolute -top-11 scale-0 group-hover:scale-100 transition-all duration-200 px-2 py-1 rounded bg-[#09090b]/90 border border-white/5 text-[9px] font-semibold text-zinc-300 whitespace-nowrap shadow-xl">
+                            AI 导演助理
+                        </div>
                     </button>
                 </div>
             </div>

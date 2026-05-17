@@ -169,12 +169,105 @@ const ModelGenerationTab: React.FC = () => {
         link.click();
     };
 
-    // Concurrency Task Runner
+    // 并发任务运行器 - 单个任务执行
+    const runSingleTask = async (taskIdx: number) => {
+        const ref = poseReferences[taskIdx];
+        if (!ref) return;
+
+        // 重置/初始化该任务的状态为加载中
+        setTasks(prev => prev.map((t, i) => i === taskIdx ? {
+            ...t,
+            status: 'loading' as const,
+            progress: 0,
+            currentStep: 0,
+            error: undefined,
+            resultImage: undefined
+        } : t));
+        
+        // 进度跟踪器定时器
+        let currentProg = 0;
+        let currentStepIdx = 0;
+        const interval = setInterval(() => {
+            currentStepIdx = Math.min(currentStepIdx + 1, COT_STEPS.length - 1);
+            currentProg = Math.min(currentProg + 14, 95);
+            setTasks(prev => prev.map((t, i) => i === taskIdx ? {
+                ...t,
+                progress: currentProg,
+                currentStep: currentStepIdx
+            } : t));
+        }, 1100);
+
+        try {
+            // 映射模特参考图
+            const poseItem = { base64: ref.base64!, mimeType: ref.mime! };
+            const modelItems = primaryModelImages.map(m => ({ base64: m.base64!, mimeType: m.mime! }));
+            
+            // 复制姿态参考图以适配 [Pose, Pose, Model1, Model2, ...] 的布局
+            let inputImages;
+            if (primaryModelImages.length <= 2) {
+                inputImages = [poseItem, ...modelItems];
+            } else {
+                inputImages = [poseItem, poseItem, ...modelItems];
+            }
+
+            const constraintsStr = [
+                keepBackground ? "Lock and retain the original background from Image 3 (Primary Model Image)." : "Place model in a matching background.",
+                allowProps ? "If the pose requires prop interaction (e.g. chair, umbrella), intelligently add the interacting prop into the original background of Image 3." : "Do not add any additional props.",
+                lockCropScale ? "Align and match exact camera angle, zoom scale, portrait crop ratio, limb structure, subject size and position inside frame precisely as shown in Image 1 & 2 (Pose reference)." : ""
+            ].filter(Boolean).join(" ");
+
+            const prompt = `
+            # SYSTEM CONSTRAINTS (CRITICAL & ENFORCED):
+            1. MODEL HAIR & CLOTHING FIDELITY (HIGHEST WEIGHT):
+               - The generated model MUST have the EXACT SAME hairstyle, facial features, body shape, and hair color as the person in Image 3 (Primary Model Image). Do NOT change hairstyle, color or facial features.
+               - The clothing in the generated image MUST remain PIXEL-IDENTICAL to the garment shown in Image 3. Do not modify, deform, or change any style, pattern, fabric, or cut of the clothing.
+            2. POSE & FRAMING REPLICATION:
+               - You MUST transfer the EXACT human pose, limb positions, body positioning, camera angle, perspective, and subject-to-frame crop/scale factor from Image 1 & 2 (Pose Reference Image).
+               - Do NOT transfer any background elements, colors, or textures from Image 1 & 2.
+               - Do NOT transfer any accessories, bags, sunglasses, or jewelries from Image 1 & 2.
+            3. BACKGROUND & PRECISION:
+               - ${constraintsStr}
+            4. EXCLUSIONS:
+               - Absolutely no background elements from Image 1 & 2.
+               - Absolutely no accessories from Image 1 & 2.
+
+            # DETAILS: ${enhancePrompt(userPrompt || "High fidelity pose transfer", 'EDITORIAL')}, ${QUALITY_BOOSTERS.RETOUCHING}
+            `;
+
+            const results = await generateImageToImage(inputImages, prompt, {
+                aspectRatio,
+                resolution,
+                modelId: selectedModel,
+                workflowHint: 'pose-transfer',
+                hasModelRef: true
+            });
+
+            clearInterval(interval);
+            setTasks(prev => prev.map((t, i) => i === taskIdx ? {
+                ...t,
+                status: 'completed',
+                progress: 100,
+                resultImage: results[0]
+            } : t));
+
+        } catch (err) {
+            clearInterval(interval);
+            const errMsg = getErrorMessage(err);
+            setTasks(prev => prev.map((t, i) => i === taskIdx ? {
+                ...t,
+                status: 'failed',
+                progress: 100,
+                error: errMsg
+            } : t));
+        }
+    };
+
+    // 触发并发生成
     const triggerConcurrentGeneration = async () => {
         if (primaryModelImages.length === 0) return;
         if (poseReferences.length === 0) return;
 
-        // Reset tasks list
+        // 重置任务列表
         const initialTasks = poseReferences.map((ref, idx) => ({
             id: `task-${Date.now()}-${idx}`,
             poseIndex: idx,
@@ -187,88 +280,7 @@ const ModelGenerationTab: React.FC = () => {
         }));
         setTasks(initialTasks);
 
-        const runSingleTask = async (taskIdx: number) => {
-            const ref = poseReferences[taskIdx];
-            
-            // Progress tracker intervals
-            let currentProg = 0;
-            let currentStepIdx = 0;
-            const interval = setInterval(() => {
-                currentStepIdx = Math.min(currentStepIdx + 1, COT_STEPS.length - 1);
-                currentProg = Math.min(currentProg + 14, 95);
-                setTasks(prev => prev.map((t, i) => i === taskIdx ? {
-                    ...t,
-                    progress: currentProg,
-                    currentStep: currentStepIdx
-                } : t));
-            }, 1100);
-
-            try {
-                // Map model reference images
-                const poseItem = { base64: ref.base64!, mimeType: ref.mime! };
-                const modelItems = primaryModelImages.map(m => ({ base64: m.base64!, mimeType: m.mime! }));
-                
-                // Duplicate Pose Reference properly to maintain [Pose, Pose, Model1, Model2, ...] layout
-                let inputImages;
-                if (primaryModelImages.length <= 2) {
-                    inputImages = [poseItem, ...modelItems];
-                } else {
-                    inputImages = [poseItem, poseItem, ...modelItems];
-                }
-
-                const constraintsStr = [
-                    keepBackground ? "Lock and retain the original background from Image 3 (Primary Model Image)." : "Place model in a matching background.",
-                    allowProps ? "If the pose requires prop interaction (e.g. chair, umbrella), intelligently add the interacting prop into the original background of Image 3." : "Do not add any additional props.",
-                    lockCropScale ? "Align and match exact camera angle, zoom scale, portrait crop ratio, limb structure, subject size and position inside frame precisely as shown in Image 1 & 2 (Pose reference)." : ""
-                ].filter(Boolean).join(" ");
-
-                const prompt = `
-                # SYSTEM CONSTRAINTS (CRITICAL & ENFORCED):
-                1. MODEL HAIR & CLOTHING FIDELITY (HIGHEST WEIGHT):
-                   - The generated model MUST have the EXACT SAME hairstyle, facial features, body shape, and hair color as the person in Image 3 (Primary Model Image). Do NOT change hairstyle, color or facial features.
-                   - The clothing in the generated image MUST remain PIXEL-IDENTICAL to the garment shown in Image 3. Do not modify, deform, or change any style, pattern, fabric, or cut of the clothing.
-                2. POSE & FRAMING REPLICATION:
-                   - You MUST transfer the EXACT human pose, limb positions, body positioning, camera angle, perspective, and subject-to-frame crop/scale factor from Image 1 & 2 (Pose Reference Image).
-                   - Do NOT transfer any background elements, colors, or textures from Image 1 & 2.
-                   - Do NOT transfer any accessories, bags, sunglasses, or jewelries from Image 1 & 2.
-                3. BACKGROUND & PRECISION:
-                   - ${constraintsStr}
-                4. EXCLUSIONS:
-                   - Absolutely no background elements from Image 1 & 2.
-                   - Absolutely no accessories from Image 1 & 2.
-
-                # DETAILS: ${enhancePrompt(userPrompt || "High fidelity pose transfer", 'EDITORIAL')}, ${QUALITY_BOOSTERS.RETOUCHING}
-                `;
-
-                const results = await generateImageToImage(inputImages, prompt, {
-                    aspectRatio,
-                    resolution,
-                    modelId: selectedModel,
-                    workflowHint: 'pose-transfer',
-                    hasModelRef: true
-                });
-
-                clearInterval(interval);
-                setTasks(prev => prev.map((t, i) => i === taskIdx ? {
-                    ...t,
-                    status: 'completed',
-                    progress: 100,
-                    resultImage: results[0]
-                } : t));
-
-            } catch (err) {
-                clearInterval(interval);
-                const errMsg = getErrorMessage(err);
-                setTasks(prev => prev.map((t, i) => i === taskIdx ? {
-                    ...t,
-                    status: 'failed',
-                    progress: 100,
-                    error: errMsg
-                } : t));
-            }
-        };
-
-        // Fire all tasks in parallel!
+        // 并发启动所有任务！
         initialTasks.forEach((_, idx) => runSingleTask(idx));
     };
 

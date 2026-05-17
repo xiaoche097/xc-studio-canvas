@@ -4,7 +4,7 @@ import {
     Plus, RotateCcw, History, MessageSquare, FolderHeart, X, 
     ImageIcon, Video as VideoIcon, Film, Save, FolderPlus, 
     Edit, Trash2, Box, ScanFace, Brush, Type, Workflow as WorkflowIcon,
-    Clapperboard, Mic2, Settings
+    Clapperboard, Mic2, Settings, Globe, Layers, Upload, Volume2
 } from 'lucide-react';
 import { NodeType, Workflow } from '../types';
 
@@ -37,6 +37,10 @@ interface SidebarDockProps {
 
     // Settings
     onOpenSettings: () => void;
+
+    // Controlled activePanel state
+    activePanel: 'history' | 'workflow' | 'add' | null;
+    onChangeActivePanel: (panel: 'history' | 'workflow' | 'add' | null) => void;
 }
 
 // Helper Helpers
@@ -84,9 +88,11 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
     onSaveWorkflow,
     onDeleteWorkflow,
     onRenameWorkflow,
-    onOpenSettings
+    onOpenSettings,
+    activePanel,
+    onChangeActivePanel
 }) => {
-    const [activePanel, setActivePanel] = useState<'history' | 'workflow' | 'add' | null>(null);
+    const setActivePanel = onChangeActivePanel;
     const [activeHistoryTab, setActiveHistoryTab] = useState<'image' | 'video'>('image');
     const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, id: string, type: 'workflow' | 'history' } | null>(null);
@@ -268,33 +274,124 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
 
         // Default: Add Node
         return (
-            <>
-                <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/5">
-                    <button onClick={() => setActivePanel(null)}><X size={14} className="text-slate-500 hover:text-white" /></button>
-                    <span className="text-xs font-bold uppercase tracking-widest text-white/50">
-                        添加节点
-                    </span>
+            <div className="flex-1 overflow-y-auto p-4.5 custom-scrollbar space-y-5">
+                {/* 添加节点 Section */}
+                <div className="space-y-2">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">添加节点</div>
+                    
+                    {/* 文本 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.PROMPT_INPUT); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Type size={16} />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                            <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">文本</span>
+                            <span className="text-[10px] text-zinc-500 truncate group-hover:text-zinc-400 transition-colors mt-0.5">脚本、广告词、品牌文案</span>
+                        </div>
+                    </button>
+
+                    {/* 图片 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.IMAGE_GENERATOR); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <ImageIcon size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">图片</span>
+                    </button>
+
+                    {/* 视频 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.VIDEO_GENERATOR); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Film size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">视频</span>
+                    </button>
+
+                    {/* 3D 世界 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.VIDEO_ANALYZER); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Globe size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">3D 世界</span>
+                    </button>
+
+                    {/* 音频 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.AUDIO_GENERATOR); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Volume2 size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">音频</span>
+                    </button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-2">
-                    {[NodeType.PROMPT_INPUT, NodeType.IMAGE_GENERATOR, NodeType.VIDEO_GENERATOR, NodeType.AUDIO_GENERATOR, NodeType.VIDEO_ANALYZER, NodeType.IMAGE_EDITOR].map(t => {
-                        const ItemIcon = getNodeIcon(t);
-                        return (
-                            <button 
-                                key={t} 
-                                onClick={(e) => { e.stopPropagation(); onAddNode(t); setActivePanel(null); }} 
-                                className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 flex items-center gap-3 text-sm text-slate-200 transition-colors border border-transparent hover:border-white/5 hover:shadow-lg"
-                            >
-                                <div className="p-2 bg-white/10 rounded-lg text-cyan-200 shadow-inner">
-                                    <ItemIcon size={16} />
-                                </div> 
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-xs">{getNodeNameCN(t)}</span>
-                                </div>
-                            </button>
-                        );
-                    })}
+
+                {/* 功能节点 Section */}
+                <div className="space-y-2">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">功能节点</div>
+
+                    {/* 分镜格子 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onToggleMultiFrame(); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Clapperboard size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">分镜格子</span>
+                    </button>
+
+                    {/* AI 应用 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onToggleChat(); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Layers size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">AI 应用</span>
+                    </button>
                 </div>
-            </>
+
+                {/* 添加资源 Section */}
+                <div className="space-y-2">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">添加资源</div>
+
+                    {/* 上传 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.IMAGE_GENERATOR); setActivePanel(null); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Upload size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">上传</span>
+                    </button>
+
+                    {/* 从资产导入 Item */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setActivePanel('history'); }}
+                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                    >
+                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                            <Box size={16} />
+                        </div>
+                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">从资产导入</span>
+                    </button>
+                </div>
+            </div>
         );
     };
 
@@ -302,50 +399,76 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
         <>
             {/* Left Vertical Dock */}
             <div 
-                className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col items-center gap-3 p-2 bg-[#2c2c2e]/70 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl z-50 animate-in slide-in-from-left-10 duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]"
+                className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col items-center gap-4 py-5 px-3 bg-[#0d0d10]/85 backdrop-blur-3xl border border-white/5 rounded-[28px] shadow-2xl z-50 animate-in slide-in-from-left-10 duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]"
                 onMouseLeave={handleSidebarLeave}
             >
-                {[
-                    { id: 'add', icon: Plus },
-                    { id: 'workflow', icon: FolderHeart }, 
-                    { id: 'smart_sequence', icon: Clapperboard, action: onToggleMultiFrame, active: isMultiFrameOpen },
-                    { id: 'sonic_studio', icon: Mic2, action: onToggleSonicStudio, active: isSonicStudioOpen, tooltip: '音频中心 (Audio Hub)' },
-                    { id: 'history', icon: History },
-                    { id: 'chat', icon: MessageSquare, action: onToggleChat, active: isChatOpen },
-                    { id: 'undo', icon: RotateCcw, action: onUndo },
-                ].map(item => (
-                    <div key={item.id} className="relative group">
-                        <button 
-                            onMouseEnter={() => handleSidebarHover(item.id)}
-                            onClick={() => item.action ? item.action() : setActivePanel(item.id as any)}
-                            className={`relative group w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 ${activePanel === item.id || item.active ? 'bg-white text-black shadow-lg' : 'hover:bg-white/10 text-slate-300 hover:text-white'}`}
-                        >
-                            <item.icon size={20} strokeWidth={2} />
-                        </button>
-                        {/* Tooltip for Sidebar Icons */}
-                        {(item.id === 'smart_sequence' || item.id === 'sonic_studio') && (
-                            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 backdrop-blur-md rounded border border-white/10 text-[10px] text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                {item.tooltip || (item.id === 'smart_sequence' ? '智能多帧' : '音频中心')}
-                            </div>
-                        )}
+                {/* Top circular Add (+) button */}
+                <div className="relative group">
+                    <button 
+                        onMouseEnter={() => handleSidebarHover('add')}
+                        onClick={() => setActivePanel(activePanel === 'add' ? null : 'add')}
+                        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 shadow-md ${activePanel === 'add' ? 'bg-white/20 text-white' : 'bg-white hover:bg-[#ff79c6] hover:text-white text-black shadow-white/5'}`}
+                    >
+                        {activePanel === 'add' ? <X size={20} strokeWidth={2.5} /> : <Plus size={20} strokeWidth={2.5} />}
+                    </button>
+                    {/* Tooltip */}
+                    <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-black/80 backdrop-blur-md rounded border border-white/5 text-[10px] text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                        添加节点
                     </div>
-                ))}
-                
-                {/* Spacer & Settings */}
-                <div className="w-8 h-px bg-white/10 my-1"></div>
-                
-                <button 
-                    onClick={onOpenSettings}
-                    className="relative group w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 hover:bg-white/10 text-slate-300 hover:text-white"
-                >
-                    <Settings size={20} strokeWidth={2} />
-                </button>
+                </div>
 
+                <div className="w-8 h-px bg-white/5 my-1"></div>
+
+                {/* Primary Navigation Items */}
+                {[
+                    { id: 'history', icon: Box, label: '资产', isPanel: true },
+                    { id: 'workflow', icon: WorkflowIcon, label: '工作流', isPanel: true },
+                    { id: 'chat', icon: History, label: '历史', action: onToggleChat, active: isChatOpen },
+                    { id: 'smart_sequence', icon: Clapperboard, label: '导演台', action: onToggleMultiFrame, active: isMultiFrameOpen },
+                    { id: 'editor', icon: Edit, label: '剪辑', action: () => onAddNode(NodeType.IMAGE_EDITOR) }
+                ].map(item => {
+                    const isSelected = activePanel === item.id || item.active;
+                    return (
+                        <div key={item.id} className="relative group">
+                            <button 
+                                onMouseEnter={() => item.isPanel && handleSidebarHover(item.id)}
+                                onClick={() => item.action ? item.action() : setActivePanel(item.id as any)}
+                                className={`flex flex-col items-center gap-1.5 w-12 py-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isSelected ? 'text-[#ff79c6] bg-white/5' : 'text-zinc-400 hover:text-zinc-100'}`}
+                            >
+                                <item.icon size={19} strokeWidth={2} className="transition-transform duration-300 group-hover:-translate-y-0.5" />
+                                <span className="text-[10px] font-medium tracking-wider scale-95 transition-colors duration-300 select-none">
+                                    {item.label}
+                                </span>
+                            </button>
+                        </div>
+                    );
+                })}
+                
+                {/* Spacer & Utility buttons */}
+                <div className="w-8 h-px bg-white/5 my-1"></div>
+                
+                <div className="flex flex-col gap-1">
+                    <button 
+                        onClick={onUndo}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 text-zinc-500 hover:text-zinc-200 hover:bg-white/5"
+                        title="撤销 (Undo)"
+                    >
+                        <RotateCcw size={16} strokeWidth={2} />
+                    </button>
+                    
+                    <button 
+                        onClick={onOpenSettings}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 text-zinc-500 hover:text-zinc-200 hover:bg-white/5"
+                        title="设置 (Settings)"
+                    >
+                        <Settings size={16} strokeWidth={2} />
+                    </button>
+                </div>
             </div>
 
             {/* Slide-out Panels */}
             <div 
-                className={`fixed left-24 top-1/2 -translate-y-1/2 max-h-[75vh] h-auto w-72 bg-[#1c1c1e]/85 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl transition-all duration-500 ease-[${SPRING}] z-40 flex flex-col overflow-hidden ${activePanel ? 'translate-x-0 opacity-100' : '-translate-x-10 opacity-0 pointer-events-none scale-95'}`}
+                className={`fixed left-[116px] top-1/2 -translate-y-1/2 max-h-[75vh] h-auto w-80 bg-[#0c0c0e]/95 backdrop-blur-3xl border border-white/5 rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-500 ease-[${SPRING}] z-40 flex flex-col overflow-hidden ${activePanel ? 'translate-x-0 opacity-100' : '-translate-x-10 opacity-0 pointer-events-none scale-95'}`}
                 onMouseEnter={handlePanelEnter}
                 onMouseLeave={handlePanelLeave}
                 onMouseDown={(e) => e.stopPropagation()}

@@ -176,17 +176,62 @@ export const TranslateVisual = ({ className }: { className?: string }) => (
 );
 
 export const VideoVisual = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="15" y="25" width="70" height="50" rx="4" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
-    <path d="M45 40L65 50L45 60V40Z" fill="currentColor" stroke="currentColor" strokeWidth="2"/>
-    <path d="M25 25V75" stroke="currentColor" strokeWidth="2"/>
-    <path d="M75 25V75" stroke="currentColor" strokeWidth="2"/>
-    <circle cx="20" cy="35" r="2" fill="currentColor"/>
-    <circle cx="20" cy="50" r="2" fill="currentColor"/>
-    <circle cx="20" cy="65" r="2" fill="currentColor"/>
-    <circle cx="80" cy="35" r="2" fill="currentColor"/>
-    <circle cx="80" cy="50" r="2" fill="currentColor"/>
-    <circle cx="80" cy="65" r="2" fill="currentColor"/>
+  <svg className={className} viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* 左侧小耳朵 */}
+    <path d="M 31 54 C 25 54, 23 61, 29 64 C 31 65, 33 63, 33 60" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 圆鼓鼓的大脸颊与下巴 */}
+    <path d="M 33 60 C 35 72, 51 78, 67 78 C 83 78, 95 66, 93 50" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 风间标志性发型 */}
+    <path d="M 33 46 C 26 44, 13 37, 7 35 C 17 27, 35 15, 43 9 C 49 9, 55 21, 59 25 C 65 17, 73 14, 77 19 C 81 23, 79 27, 85 27 C 89 19, 95 14, 97 21 C 99 27, 97 37, 91 45 C 87 41, 81 39, 75 42 C 67 37, 59 37, 53 43 C 45 39, 37 41, 33 46 Z" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 刘海分界线 */}
+    <path d="M 33 46 C 39 42, 47 40, 55 44 C 61 38, 69 38, 77 43 C 83 40, 89 42, 93 46" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 圆圆黑黑的呆萌大眼睛 */}
+    <ellipse cx="50" cy="51" rx="8" ry="10" fill="currentColor" fillOpacity="0.9" stroke="currentColor" strokeWidth="2" />
+    <ellipse cx="74" cy="49" rx="8" ry="10" fill="currentColor" fillOpacity="0.9" stroke="currentColor" strokeWidth="2" />
+
+    {/* 高高挂起的小细眉毛 */}
+    <path d="M 40 37 Q 48 33, 54 39" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+    <path d="M 68 39 Q 74 33, 82 37" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+
+    {/* 小巧的鼻子 */}
+    <path d="M 68 57 L 66 62" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+
+    {/* 标志性偏向右脸颊的可爱小嘴巴 */}
+    <path d="M 67 66 C 65 62, 77 62, 75 66 C 74 72, 66 72, 67 66 Z" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 衣服身体 */}
+    <path d="M 45 78 C 36 82, 29 88, 29 96 C 29 102, 35 104, 42 102 C 44 110, 77 110, 79 102 C 85 104, 91 102, 91 96 C 91 88, 85 82, 77 78 Z" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 衣服领子与线条 */}
+    <path d="M 45 78 C 53 82, 69 82, 77 78" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    <path d="M 57 82 V 86 M 61 83 V 87 M 65 82 V 86" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+
+    {/* 握成小馒头状的右手 */}
+    <path d="M 41 102 C 43 102, 47 98, 47 94 C 47 90, 41 88, 37 92 C 33 96, 37 102, 41 102 Z" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M 41 92 C 43 94, 43 96, 41 98" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+
+    {/* 右手臂袖子 */}
+    <path d="M 77 82 C 85 82, 93 84, 99 88 L 95 96 C 89 92, 83 90, 77 90 Z" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
+
+    {/* 萌萌的小手指着右方 */}
+    <path d="M 97 88 C 99 84, 103 77, 106 78 C 109 79, 107 86, 103 87 C 109 85, 115 84, 118 87 C 120 89, 116 92, 109 94 C 111 94, 113 96, 112 98 C 111 100, 107 100, 105 98 C 104 98, 99 98, 97 94 Z" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 可爱的肥短裤 */}
+    <path d="M 43 102 L 39 111 L 57 111 L 58 107 L 60 111 L 79 111 L 75 102 Z" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+    {/* 短胖的小左腿与白鞋袜 */}
+    <path d="M 45 111 V 115" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    <rect x="43" y="115" width="5" height="3" fill="#FFFFFF" fillOpacity="0.8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <path d="M 43 118 C 39 118, 37 121, 44 121 L 48 121 Z" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+
+    {/* 短胖的小右腿与白鞋袜 */}
+    <path d="M 73 111 V 115" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    <rect x="71" y="115" width="5" height="3" fill="#FFFFFF" fillOpacity="0.8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <path d="M 73 118 C 77 118, 79 121, 72 121 L 68 121 Z" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
 

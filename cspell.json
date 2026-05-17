@@ -99,7 +99,9 @@
     "taobao",
     "editref",
     "pillarbox",
-    "subheadline"
+    "subheadline",
+    "AABB",
+    "nums"
   ],
   "ignorePaths": ["node_modules", "dist", ".git"]
 }

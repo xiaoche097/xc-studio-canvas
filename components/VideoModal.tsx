@@ -51,7 +51,7 @@ export const VideoModal: React.FC<VideoModalProps> = ({ isOpen, onClose, onConfi
                 <div className="p-8">
                     <div className="mb-6">
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                            视频工作站 <span className="text-xs font-normal px-2 py-1 bg-violet-500/10 text-violet-500 rounded-full border border-violet-500/20">Alpha</span>
+                            小彻工作站 <span className="text-xs font-normal px-2 py-1 bg-violet-500/10 text-violet-500 rounded-full border border-violet-500/20">Alpha</span>
                         </h2>
                         <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">上传参考图，生成高品质动态视频</p>
                     </div>
