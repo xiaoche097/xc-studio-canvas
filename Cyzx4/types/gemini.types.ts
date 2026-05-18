@@ -191,4 +191,6 @@ export type WorkflowHint =
   | 'listing-optimization'
   | 'face-lock'
   | 'reference-refinement'
-  | 'structural-repair-v2';
+  | 'structural-repair-v2'
+  | 'model-modification'
+  | 'model-retouching';

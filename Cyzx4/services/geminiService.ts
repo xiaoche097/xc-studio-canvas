@@ -32,7 +32,7 @@ import type {
 export { getActiveApiInfo, blobToBase64, compressImage, decodeAudioData };
 
 // Export the VTON Analyst service
-export { analyzeVtonMaterials, analyzeGarmentFeatures } from "./vtonAnalyst";
+export { analyzeVtonMaterials, analyzeGarmentFeatures, analyzeImagePerspective } from "./vtonAnalyst";
 
 export const GLOBAL_SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -79,7 +79,11 @@ export const analyzeDollModification = async (
 **CRITICAL RULES**:
 1. **MODIFICATION MODE**:
    - **Surgical (Boxes provided)**: ONLY the areas inside the boxes should be modified. EVERYTHING else is "FROZEN".
-   - **Global (No boxes provided)**: You may refine the entire image (lighting, texture, quality). HOWEVER, you must maintain 100% of the original objects' positions, counts, poses, and basic shapes from Image 1. DO NOT add or remove objects.
+   - **Global (No boxes provided)**: You may refine the entire image (lighting, texture, quality). HOWEVER, ${
+     targetAngle
+       ? `since the user has requested a perspective change to "${targetAngle}", you must reconstruct and rotate the main subject/model accordingly to match this angle. Maintain the same identity, proportions, and scale of the model from Image 1, but rebuild the pose/angle to show the "${targetAngle}".`
+       : `you must maintain 100% of the original objects' positions, counts, poses, and basic shapes from Image 1. DO NOT add or remove objects.`
+   }
 2. **STRICT REFERENCE ALIGNMENT**: Extract visual attributes (texture, lighting, color depth, material feel) from the REFERENCE IMAGES (Images 2+). Apply these attributes to the modified areas or the entire image.
    - **CLOTHING MODIFICATION**: If the reference images are garments and you are modifying the clothing, you MUST explicitly identify and enforce the target garment's: Fit (e.g., slim fit, oversized), Length (e.g., crop top, midi length), Neckline (e.g., V-neck, crew neck), and Cuffs/Sleeves.
 3. **COLOR CONSISTENCY (CRITICAL)**: Maintain strict color consistency with Image 1. You MUST match the exact color tone, skin hue, lighting atmosphere, and white balance of the source image. Do not apply "neutral" correction if it deviates from the original's artistic intent or warm/cool bias. Ensure the modified areas blend seamlessly with the original color profile.
@@ -95,7 +99,15 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
 
 **USER GUIDANCE (HIGH WEIGHT COMMAND)**: "${userGuidance || 'Enhance the selected regions based on reference images.'}"
 
-**TARGET PERSPECTIVE**: ${targetAngle === '主图精修' ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.' : targetAngle ? `Rotate the object INSIDE the box to ${targetAngle} view, while keeping the rest of the image perspective identical to Image 1.` : 'Keep current perspective.'}
+**TARGET PERSPECTIVE**: ${
+  targetAngle === '主图精修'
+    ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.'
+    : targetAngle
+      ? boxes.length > 0
+        ? `Rotate the object INSIDE the box to ${targetAngle} view, while keeping the rest of the image perspective identical to Image 1.`
+        : `Reconstruct and rotate the entire main subject/model in the image to ${targetAngle} view.`
+      : 'Keep current perspective.'
+}
 
 **OUTPUT (Strict JSON)**:
 {
@@ -1074,6 +1086,36 @@ ${forcedPrompt}`;
                     ? `
         **ROLE**: Professional 3D Mannequin & Sculptural Artist.
         **MISSION**: Convert the person in Image 1 into a **BLANK, FACELESS, AND CLOTH-FREE** 3D mannequin.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : options.workflowHint === 'model-modification'
+                    ? `
+        **ROLE**: World-Class E-commerce Fashion Photographer & AI Visual Editor.
+        **MISSION**: Generate a highly photorealistic e-commerce model image based on the provided reference images.
+        **IMAGE MAPPING**:
+        - Image 1: The model original/source image (defines the model's face, hair, body dimensions, skin tone, and composition/framing).
+        - Image 2: The product asset/target clothing image (if provided, this is the clothing that must replace the model's original clothing in Image 1).
+        - Image 3+: Additional styling or color references.
+        
+        **CRITICAL INSTRUCTIONS**:
+        1. **MODEL IDENTITY (MANDATORY)**: You MUST preserve the model's facial structure, hair color/style, eye details, skin color, and physical body proportions (height, build) from Image 1.
+        2. **COMPOSITION & CROP**: You MUST strictly preserve the same lens cropping, framing (close-up, medium shot, or full-body), and zoom distance as Image 1. Never pull the camera back if Image 1 is a close-up.
+        3. **CLOTHING REPLACEMENT**: If Image 2 is provided as a product asset, replace the clothing on the model in Image 1 with the exact clothing shown in Image 2, capturing every stitch, color, and texture detail.
+        4. **SCENE & BACKGROUND**: Keep a clean, professional e-commerce studio background (or pure white as requested).
+        
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : options.workflowHint === 'model-retouching'
+                    ? `
+        **ROLE**: Professional E-commerce Fashion Photography Retoucher.
+        **MISSION**: Perform high-end commercial retouching on the model image in Image 1.
+        **CRITICAL RULES**:
+        1. **STRICT GEOMETRY & ANGLE LOCK**: Keep the exact camera angle, model pose, framing, zoom distance, and lens composition identical to Image 1. Absolutely NO camera movement, rotation, or posture shifts.
+        2. **CLOTHING REPLACEMENT**: If Image 2 is provided, replace the model's original clothing with the exact clothing in Image 2, preserving the model's exact pose and pose-clothing interaction.
+        3. **QUALITY ENHANCEMENT**: Clean skin blemishes, soften wrinkles, optimize lighting, and sharpen fabric texture for professional e-commerce use.
+        
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

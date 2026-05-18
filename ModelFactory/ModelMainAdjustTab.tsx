@@ -7,68 +7,98 @@ import { storageService } from '../services/storageService';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 
 // --- Multi-Angle Ecommerce Prompts ---
-const ANGLE_TEMPLATES = {
-  A: {
-    name: '左前 45°',
-    label: '3/4 front-left',
-    prompt: `你现在是一名顶级的电商模特摄影修图师。
+// --- Multi-Angle Ecommerce Prompts Helper ---
+const getAngleTemplates = (hasGarment: boolean) => {
+  const garmentInstruction = hasGarment
+    ? `**服装替换 (GARMENT REPLACEMENT - CRITICAL)**：请将 Image 1 中模特身上穿着的衣服**完全替换**为 Image 2 中的衣服。必须 100% 完美还原 Image 2 中衣服的款式、颜色、印花图案、布料材质纹理、领口（如圆领/V领）、袖长与剪裁细节。绝对不能保留 Image 1 原有的服装款式与颜色。`
+    : `**服装保持 (GARMENT RETENTION)**：必须 100% 完美复刻 Image 1 中模特穿着的服装款式与颜色，严禁改变原图衣服的外观。`;
+
+  const compositionInstruction = `**镜头景别与构图锁定 (CRITICAL COMPOSITION LOCK)**：严格继承并锁定 Image 1 的镜头景别与裁剪比例（如特写/半身/全身）。如果 Image 1 是特写或半身像，生成的图像也**必须保持完全相同焦距景深下的特写或半身比例**，仅在 3D 空间中旋转模特的角度或身体，**绝对不能**拉远镜头擅自将其变更为全身站姿。`;
+
+  return {
+    A: {
+      name: '左前 45°',
+      label: '3/4 front-left',
+      prompt: `你现在是一名顶级的电商模特摄影修图师。
 **核心指令：执行视角重建。**
-**视角转换**：请忽略参考图的原始角度。将模特重建至【左前方 45 度视角（3/4 front-left）】，呈现自然站姿。
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦以及服装的款式与颜色。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+**视角转换**：请忽略参考图的原始角度。将模特重建至【左前方 45 度视角（3/4 front-left）】。
+${compositionInstruction}
+**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+${garmentInstruction}
 **色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
-  },
-  B: {
-    name: '正面',
-    label: 'front view',
-    prompt: `你现在是一名顶级的电商模特摄影修图师。
+    },
+    B: {
+      name: '正面',
+      label: 'front view',
+      prompt: `你现在是一名顶级的电商模特摄影修图师。
 **核心指令：强制回正视角。**
-**视角转换**：请忽略参考图的原始偏转角度，将模特重建至【正前方平视视角（Front View）】，自然站姿面对镜头。
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦以及服装的款式与颜色。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+**视角转换**：请忽略参考图的原始偏转角度，将模特重建至【正前方平视视角（Front View）】，自然面对镜头。
+${compositionInstruction}
+**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+${garmentInstruction}
 **色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
-  },
-  C: {
-    name: '右前 45°',
-    label: '3/4 front-right',
-    prompt: `你现在是一名顶级的电商模特摄影修图师。
+    },
+    C: {
+      name: '右前 45°',
+      label: '3/4 front-right',
+      prompt: `你现在是一名顶级的电商模特摄影修图师。
 **核心指令：执行视角重建。**
-**视角转换**：请忽略参考图的原始角度，将模特重建至【右前方 45 度视角（3/4 front-right）】，呈现自然侧身站姿。
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦以及服装的款式与颜色。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+**视角转换**：请忽略参考图的原始角度，将模特重建至【右前方 45 度视角（3/4 front-right）】，呈现自然侧身视角。
+${compositionInstruction}
+**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+${garmentInstruction}
 **色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
-  },
-  D: {
-    name: '侧面',
-    label: 'side profile',
-    prompt: `你现在是一名顶级的电商模特摄影修图师。
+    },
+    D: {
+      name: '侧面',
+      label: 'side profile',
+      prompt: `你现在是一名顶级的电商模特摄影修图师。
 **核心指令：视角 90 度转动。**
-**视角转换**：请基于 Image 1 的模特身份重构一个【正侧面视角（Side Profile）】，模特自然侧身站立。
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦以及服装的款式与颜色。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+**视角转换**：请基于 Image 1 的模特身份重构一个【正侧面视角（Side Profile）】，模特侧身站立。
+${compositionInstruction}
+**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+${garmentInstruction}
 **色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，真实皮肤质感。`
-  },
-  E: {
-    name: '背面',
-    label: 'back view',
-    prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：视角 180 度大转弯。**
+    },
+    E: {
+      name: '背面',
+      label: 'back view',
+      prompt: `你现在是一名顶级的电商模特摄影修图师。
+**核心指令：视角 180 度大转弯（正背面视角）。**
 **视角转换**：请基于 Image 1 的模特身份重构一个【正背面视角（Back View）】，展示服装背面效果。
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的身高、三围比例、体型胖瘦、发型发色以及服装款式与颜色。严禁出现生成的模特身材与原图不一致的情况。
+${compositionInstruction}
+**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的身高、三围比例、体型胖瘦、发型发色。严禁出现生成的模特身材与原图不一致的情况。
+${garmentInstruction}
 **色彩一致性**：保持与 Image 1 一致。
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度。`
-  },
-  RETOUCH: {
-    name: '主图精修',
-    label: 'Retouch & Lock',
-    prompt: `你现在是一名顶级的电商模特摄影修图师。
+    },
+    RETOUCH: {
+      name: '主图精修',
+      label: 'Retouch & Lock',
+      prompt: `你现在是一名顶级的电商模特摄影修图师。
 **核心指令：商业级主图精修。**
-**角度锁定**：严格保持 Image 1 的相机角度、模特姿势、构构与裁切范围完全一致。
+**角度锁定**：严格保持 Image 1 的相机角度、模特姿势、构图与裁切范围完全一致。
+${compositionInstruction}
 **精修要求**：清理皮肤瑕疵，优化服装褶皱，增强面料质感，提升整体画质与锐度。
 **色彩一致性**：严格保持与 Image 1 完全一致的色彩基调、肤色表现和光影饱和度。严禁自行改变色温。
 **身份保持**：必须 100% 保持模特身份。
+${hasGarment ? garmentInstruction : ''}
 **输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，商业大片质感。`
-  }
+    }
+  };
+};
+
+const ANGLE_TEMPLATES = {
+  A: { name: '左前 45°', label: '3/4 front-left' },
+  B: { name: '正面', label: 'front view' },
+  C: { name: '右前 45°', label: '3/4 front-right' },
+  D: { name: '侧面', label: 'side profile' },
+  E: { name: '背面', label: 'back view' },
+  RETOUCH: { name: '主图精修', label: 'Retouch & Lock' }
 };
 
 const GLOBAL_NEGATIVE_PROMPT = `deformed anatomy, distorted face, different person, extra limbs, bad lighting, text, watermark, plastic skin, cartoon, illustration, low resolution, blurry, messy background, colorful background, color shift, color mismatch, inconsistent lighting`;
@@ -93,6 +123,20 @@ const ModelMainAdjustTab: React.FC = () => {
   const [coreGarmentUrls, setCoreGarmentUrls] = useState<string[]>([]);
   const [garmentAnalysis, setGarmentAnalysis] = useState<any>(null);
   const [isAnalyzingGarment, setIsAnalyzingGarment] = useState(false);
+
+  // --- Premium Auto-detection States ---
+  const [isAnalyzingModel, setIsAnalyzingModel] = useState(false);
+  const [isAnalyzingGarmentAuto, setIsAnalyzingGarmentAuto] = useState(false);
+  const [autoSelectedTip, setAutoSelectedTip] = useState<string | null>(null);
+  const [autoDetectedAngleSource, setAutoDetectedAngleSource] = useState<'model' | 'garment' | null>(null);
+
+  const showAutoSelectedToast = (message: string) => {
+    setAutoSelectedTip(message);
+    const timer = setTimeout(() => {
+      setAutoSelectedTip(prev => prev === message ? null : prev);
+    }, 4500);
+    return () => clearTimeout(timer);
+  };
 
   const sanitizeForSafety = (text: string) => {
     if (!text) return text;
@@ -126,7 +170,7 @@ const ModelMainAdjustTab: React.FC = () => {
     return new File([u8arr], filename, {type:mime});
   };
 
-  const setSourceFromFile = (file: File) => {
+  const setSourceFromFile = async (file: File) => {
     if (!file.type.startsWith('image/')) return;
     if (sourceUrl && sourceUrl.startsWith('blob:')) URL.revokeObjectURL(sourceUrl);
     setSourceFile(file);
@@ -141,6 +185,24 @@ const ModelMainAdjustTab: React.FC = () => {
       setImageAspectRatio(img.width / img.height);
     };
     img.src = url;
+
+    // Trigger AI background perspective detection for Model Original Image
+    setIsAnalyzingModel(true);
+    try {
+      const { analyzeImagePerspective } = await import('../Cyzx4/services/geminiService');
+      const compressed = await compressImage(file, 1024, 0.9);
+      const detectedAngle = await analyzeImagePerspective({ base64: compressed.base64, mimeType: compressed.mime });
+      if (detectedAngle) {
+        setSelectedAngle(detectedAngle);
+        setAutoDetectedAngleSource('model');
+        const angleName = (ANGLE_TEMPLATES as any)[detectedAngle]?.name || detectedAngle;
+        showAutoSelectedToast(`✨ AI 自动检测到模特视角为【${angleName}】，已为您自动锁定！`);
+      }
+    } catch (err) {
+      console.warn("Auto model perspective analysis failed", err);
+    } finally {
+      setIsAnalyzingModel(false);
+    }
   };
 
   const handleSourceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,12 +224,39 @@ const ModelMainAdjustTab: React.FC = () => {
     setRefUrls(prev => [...prev, URL.createObjectURL(file)]);
   };
 
+  const triggerAutoGarmentAnalysis = async (file: File) => {
+    setIsAnalyzingGarmentAuto(true);
+    try {
+      const { analyzeGarmentFeatures } = await import('../Cyzx4/services/geminiService');
+      const compressed = await compressImage(file, 2048, 0.95);
+      const result = await analyzeGarmentFeatures([{ base64: compressed.base64, mimeType: compressed.mime }], guidance);
+      if (result) {
+        setGarmentAnalysis(result);
+        if (result.perspective) {
+          setSelectedAngle(result.perspective);
+          setAutoDetectedAngleSource('garment');
+          const angleName = (ANGLE_TEMPLATES as any)[result.perspective]?.name || result.perspective;
+          showAutoSelectedToast(`👕 AI 已自动识别衣服图视角为【${angleName}】并提取服饰特征！`);
+        } else {
+          showAutoSelectedToast(`👕 AI 已成功自动提取该衣服的高清细节与款式特征！`);
+        }
+      }
+    } catch (err) {
+      console.warn("Auto garment analysis failed", err);
+    } finally {
+      setIsAnalyzingGarmentAuto(false);
+    }
+  };
+
   const addCoreFile = (file: File) => {
     if (!file.type.startsWith('image/')) return;
     if (coreGarmentFiles.length >= 5) return;
     setCoreGarmentFiles(prev => [...prev, file]);
     setCoreGarmentUrls(prev => [...prev, URL.createObjectURL(file)]);
     setGarmentAnalysis(null);
+    
+    // Automatically trigger garment features & perspective extraction
+    triggerAutoGarmentAnalysis(file);
   };
 
   const handleCoreChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -302,12 +391,19 @@ const ModelMainAdjustTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${safeGuidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity and clothing.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n=== END STRICT INSTRUCTIONS ===`;
+      const hasGarment = coreGarmentFiles.length > 0;
+      const dynamicTemplates = getAngleTemplates(hasGarment);
+
+      let prompt = `[MODEL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a fashion model.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${safeGuidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the model identity.'}\n**Perspective**: Maintain the exact same camera angle and model pose as Image 1.\n**镜头景别与构图锁定 (CRITICAL COMPOSITION LOCK)**：严格继承并锁定 Image 1 的镜头景别与裁剪比例（如特写/半身/全身）。如果 Image 1 是特写或半身像，生成的图像也必须保持完全相同焦距景深下的特写或半身比例，绝对不能拉远镜头擅自将其变更为全身站姿。\n${
+        hasGarment
+          ? `**服装替换 (GARMENT REPLACEMENT - CRITICAL)**：请将 Image 1 中模特身上穿着的衣服完全替换为 Image 2 中的衣服。必须 100% 完美还原 Image 2 中衣服的款式、颜色、印花图案、布料材质纹理、领口、袖长与剪裁细节。`
+          : `**服装保持 (GARMENT RETENTION)**：必须 100% 完美复刻 Image 1 中模特穿着的服装款式与颜色。`
+      }\n=== END STRICT INSTRUCTIONS ===`;
       let negativePrompt = `${GLOBAL_NEGATIVE_PROMPT}, change background, change face, change pose, change skin color, change lower body clothing, change pants, modify non-targeted areas, add extra people, change environment, change lighting temperature, color cast, distorted features`;
 
       // Use Professional Angle Prompts if selected
-      if (selectedAngle && (ANGLE_TEMPLATES as any)[selectedAngle]) {
-        const template = (ANGLE_TEMPLATES as any)[selectedAngle];
+      if (selectedAngle && (dynamicTemplates as any)[selectedAngle]) {
+        const template = (dynamicTemplates as any)[selectedAngle];
         prompt = template.prompt;
         if (safeGuidance) {
           prompt += `\n\n**Additional Instruction**: ${safeGuidance}`;
@@ -439,7 +535,23 @@ const ModelMainAdjustTab: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text">
+    <div className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text relative">
+      {/* 智能视角锁定浮动提示 (Floating Toast) */}
+      {autoSelectedTip && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[250] bg-slate-900/95 text-white px-5 py-3.5 rounded-[20px] shadow-[0_20px_50px_rgba(0,0,0,0.3)] backdrop-blur-md border border-white/10 flex items-center gap-3 animate-in slide-in-from-top fade-in duration-300">
+          <div className="p-1.5 bg-gradient-to-tr from-orange-500 to-pink-500 rounded-lg text-white">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black uppercase tracking-[0.15em] text-orange-400">AI 自动检测与锁定</span>
+            <span className="text-xs text-slate-100 font-bold mt-0.5">{autoSelectedTip}</span>
+          </div>
+          <button onClick={() => setAutoSelectedTip(null)} className="text-white/60 hover:text-white ml-4 shrink-0">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* 左侧控制栏 */}
       <div className="w-full md:w-1/3 lg:w-[400px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
         <div className="p-5 flex-1 space-y-6">
@@ -460,87 +572,131 @@ const ModelMainAdjustTab: React.FC = () => {
               <span>模特原图</span>
               <span className="text-[10px] font-normal text-pastel-muted">必须上传</span>
             </h3>
-            {sourceUrl ? (
-              <div 
-                className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleSourceDrop}
-              >
-                <div className="relative w-full h-full p-3 flex items-center justify-center">
-                  <div 
-                    className="relative shadow-sm"
-                    style={{ 
-                      aspectRatio: imageAspectRatio || '1/1', 
-                      maxHeight: '100%', 
-                      maxWidth: '100%' 
-                    }}
-                  >
-                    <img src={sourceUrl} alt="source" className="w-full h-full block rounded-lg object-contain" />
-                    
-                    {/* Draw Boxes Preview */}
-                    <div className="absolute inset-0 pointer-events-none">
-                       {editorBoxes.map((b, i) => {
-                          const colors = [
-                             { border: 'border-red-500', bg: 'bg-red-500', text: 'text-white' },
-                             { border: 'border-yellow-400', bg: 'bg-yellow-400', text: 'text-black' },
-                             { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-white' }
-                          ];
-                          const style = colors[i % 3];
-                          return (
-                          <div 
-                             key={b.id} 
-                             className={`absolute border-2 ${style.border} ${style.bg}/10 pointer-events-none flex items-start justify-start overflow-hidden`}
-                             style={{ left: `${b.x*100}%`, top: `${b.y*100}%`, width: `${b.w*100}%`, height: `${b.h*100}%` }}
-                          >
-                             <span className={`${style.bg} ${style.text} text-[8px] font-bold px-1 rounded-br-sm`}>{i+1}</span>
-                          </div>
-                       )})}
+            
+            <div className="relative">
+              {sourceUrl ? (
+                <div 
+                  className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleSourceDrop}
+                >
+                  <div className="relative w-full h-full p-3 flex items-center justify-center">
+                    <div 
+                      className="relative shadow-sm"
+                      style={{ 
+                        aspectRatio: imageAspectRatio || '1/1', 
+                        maxHeight: '100%', 
+                        maxWidth: '100%' 
+                      }}
+                    >
+                      <img src={sourceUrl} alt="source" className="w-full h-full block rounded-lg object-contain" />
+                      
+                      {/* Draw Boxes Preview */}
+                      <div className="absolute inset-0 pointer-events-none">
+                         {editorBoxes.map((b, i) => {
+                            const colors = [
+                               { border: 'border-red-500', bg: 'bg-red-500', text: 'text-white' },
+                               { border: 'border-yellow-400', bg: 'bg-yellow-400', text: 'text-black' },
+                               { border: 'border-blue-500', bg: 'bg-blue-500', text: 'text-white' }
+                            ];
+                            const style = colors[i % 3];
+                            return (
+                            <div 
+                               key={b.id} 
+                               className={`absolute border-2 ${style.border} ${style.bg}/10 pointer-events-none flex items-start justify-start overflow-hidden`}
+                               style={{ left: `${b.x*100}%`, top: `${b.y*100}%`, width: `${b.w*100}%`, height: `${b.h*100}%` }}
+                            >
+                               <span className={`${style.bg} ${style.text} text-[8px] font-bold px-1 rounded-br-sm`}>{i+1}</span>
+                            </div>
+                         )})}
+                      </div>
                     </div>
                   </div>
+                  
+                  <button 
+                    onClick={() => { setSourceUrl(null); setSourceFile(null); setEditorBoxes([]); }}
+                    className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-black/80 transition-colors opacity-0 group-hover:opacity-100 z-20"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  
+                  <button 
+                    onClick={() => setIsEditorOpen(true)}
+                    className="absolute bottom-3 right-3 bg-black/70 text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-black/90 transition-colors shadow-lg opacity-0 group-hover:opacity-100 z-20 backdrop-blur-sm border border-white/10"
+                  >
+                    编辑
+                  </button>
                 </div>
-                
-                <button 
-                  onClick={() => { setSourceUrl(null); setSourceFile(null); setEditorBoxes([]); }}
-                  className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-black/80 transition-colors opacity-0 group-hover:opacity-100 z-20"
+              ) : (
+                <label 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleSourceDrop}
+                  className="relative flex flex-col items-center justify-center w-full aspect-square rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-                
-                <button 
-                  onClick={() => setIsEditorOpen(true)}
-                  className="absolute bottom-3 right-3 bg-black/70 text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-black/90 transition-colors shadow-lg opacity-0 group-hover:opacity-100 z-20 backdrop-blur-sm border border-white/10"
-                >
-                  编辑
-                </button>
-              </div>
-            ) : (
-              <label 
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleSourceDrop}
-                className="relative flex flex-col items-center justify-center w-full aspect-square rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
-              >
-                <input type="file" className="hidden" onChange={handleSourceChange} accept="image/*" />
-                <div className="w-12 h-12 mb-3 bg-white shadow-sm rounded-xl flex items-center justify-center text-pastel-muted group-hover:text-pastel-highlight transition-colors">
-                  <ImageIcon className="w-6 h-6" />
+                  <input type="file" className="hidden" onChange={handleSourceChange} accept="image/*" />
+                  <div className="w-12 h-12 mb-3 bg-white shadow-sm rounded-xl flex items-center justify-center text-pastel-muted group-hover:text-pastel-highlight transition-colors">
+                    <ImageIcon className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold text-pastel-text">点击或拖拽模特图到此处</span>
+                </label>
+              )}
+
+              {/* Model Image Perspective Analysis Loading Overlay */}
+              {isAnalyzingModel && (
+                <div className="absolute inset-0 bg-white/85 backdrop-blur-[1px] flex flex-col items-center justify-center z-30 rounded-[24px] border border-pastel-highlight/30 transition-all duration-300">
+                  <div className="p-3 bg-pastel-highlight/10 rounded-full mb-3 animate-bounce">
+                    <Loader2 className="w-6 h-6 text-pastel-highlight animate-spin" />
+                  </div>
+                  <span className="text-[11px] font-bold text-pastel-highlight animate-pulse">AI 正在识别原图视角...</span>
                 </div>
-                <span className="text-sm font-bold text-pastel-text">点击或拖拽模特图到此处</span>
-              </label>
-            )}
+              )}
+            </div>
           </div>
 
           {/* 角度选择 */}
           <div className="space-y-3">
-             <h3 className="text-sm font-semibold text-pastel-text">调整角度 / 视角</h3>
+             <div className="flex items-center justify-between">
+               <h3 className="text-sm font-semibold text-pastel-text flex items-center gap-1.5">
+                 调整角度 / 视角
+               </h3>
+               {(isAnalyzingModel || isAnalyzingGarmentAuto) && (
+                 <span className="text-[9px] text-pastel-highlight font-bold flex items-center gap-1 animate-pulse">
+                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                   AI 正在分析视角...
+                 </span>
+               )}
+             </div>
              <div className="grid grid-cols-3 gap-2">
-                {Object.entries(ANGLE_TEMPLATES).map(([key, item]) => (
-                   <button
-                      key={key}
-                      onClick={() => setSelectedAngle(selectedAngle === key ? null : key)}
-                      className={`py-2 px-1 rounded-xl border text-[10px] font-bold transition-all ${selectedAngle === key ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight' : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'}`}
-                   >
-                      {item.name}
-                   </button>
-                ))}
+                {Object.entries(ANGLE_TEMPLATES).map(([key, item]) => {
+                  const isAutoSelected = selectedAngle === key && autoDetectedAngleSource !== null;
+                  return (
+                    <button
+                       key={key}
+                       onClick={() => {
+                          setSelectedAngle(selectedAngle === key ? null : key);
+                          setAutoDetectedAngleSource(null); // Clear auto selected state if user manually clicks
+                       }}
+                       className={`relative py-2 px-1 rounded-xl border text-[10px] font-bold transition-all ${
+                         selectedAngle === key 
+                           ? 'bg-pastel-highlight/10 text-pastel-highlight border-pastel-highlight shadow-sm' 
+                           : 'bg-white text-pastel-muted border-pastel-border hover:border-pastel-highlight/40'
+                       }`}
+                    >
+                      {/* Pulsing AI badge */}
+                      {isAutoSelected && (
+                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pastel-highlight opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-pastel-highlight"></span>
+                        </span>
+                      )}
+                      
+                      <div className="flex items-center justify-center gap-1">
+                        {isAutoSelected && <Sparkles className="w-3 h-3 text-pastel-highlight shrink-0 animate-pulse" />}
+                        <span>{item.name}</span>
+                      </div>
+                    </button>
+                  );
+                })}
              </div>
           </div>
 
@@ -566,6 +722,15 @@ const ModelMainAdjustTab: React.FC = () => {
                    </button>
                  </div>
                ))}
+
+               {/* Garment Auto Analysis Loading State */}
+               {isAnalyzingGarmentAuto && (
+                 <div className="relative w-full aspect-square rounded-xl border border-dashed border-pastel-highlight/50 bg-pastel-highlight/5 flex flex-col items-center justify-center p-1 animate-pulse">
+                   <Loader2 className="w-4 h-4 text-pastel-highlight animate-spin mb-1 shrink-0" />
+                   <span className="text-[7px] text-pastel-highlight font-black leading-tight text-center">特征识别中</span>
+                 </div>
+               )}
+
                {coreGarmentFiles.length < 5 && (
                  <label className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 cursor-pointer">
                    <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" multiple />

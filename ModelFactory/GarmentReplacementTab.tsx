@@ -38,6 +38,18 @@ type PreviewState = {
   subtitle?: string;
 } | null;
 
+const getAngleChineseName = (perspective: string): string => {
+  const mapping: Record<string, string> = {
+    A: '左前 45°',
+    B: '正面',
+    C: '右前 45°',
+    D: '侧面',
+    E: '背面',
+    RETOUCH: '特写/局部'
+  };
+  return mapping[perspective] || perspective;
+};
+
 const GarmentReplacementTab: React.FC = () => {
   // Core Garment (up to 5 images)
   const [coreGarmentFiles, setCoreGarmentFiles] = useState<File[]>([]);
@@ -55,6 +67,10 @@ const GarmentReplacementTab: React.FC = () => {
   const [targetFiles, setTargetFiles] = useState<File[]>([]);
   const [targetUrls, setTargetUrls] = useState<string[]>([]);
 
+  // --- Target Photos Perspective States ---
+  const [targetPerspectives, setTargetPerspectives] = useState<(string | null)[]>(Array(10).fill(null));
+  const [targetAnalyzingStates, setTargetAnalyzingStates] = useState<boolean[]>(Array(10).fill(false));
+
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -70,9 +86,14 @@ const GarmentReplacementTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [userGuidance, setUserGuidance] = useState('');
 
-  // Agent Garment Analysis State
-  const [garmentAnalysis, setGarmentAnalysis] = useState<any>(null);
+  // Agent Garment Analysis State (Array of up to 5 items matching coreGarmentFiles)
+  const [coreGarmentAnalyses, setCoreGarmentAnalyses] = useState<(any | null)[]>([]);
+  const [coreGarmentAnalyzingStates, setCoreGarmentAnalyzingStates] = useState<boolean[]>([]);
+  const [selectedGarmentIndex, setSelectedGarmentIndex] = useState<number>(0);
   const [isAnalyzingGarment, setIsAnalyzingGarment] = useState(false);
+
+  // --- Premium Auto-detection States ---
+  const [autoSelectedTip, setAutoSelectedTip] = useState<string | null>(null);
 
   const sanitizeForSafety = (text: string) => {
     if (!text) return text;
@@ -88,13 +109,90 @@ const GarmentReplacementTab: React.FC = () => {
   const MAX_TARGETS = 10;
 
   // ---- Upload Handlers ----
+  const triggerAutoGarmentAnalysisAtIndex = async (file: File, index: number) => {
+    setCoreGarmentAnalyzingStates(prev => {
+      const copy = [...prev];
+      copy[index] = true;
+      return copy;
+    });
+    try {
+      const { analyzeGarmentFeatures } = await import('../Cyzx4/services/geminiService');
+      const compressed = await compressImage(file, 2048, 0.95);
+      const result = await analyzeGarmentFeatures([{ base64: compressed.base64, mimeType: compressed.mime }], userGuidance);
+      if (result) {
+        setCoreGarmentAnalyses(prev => {
+          const copy = [...prev];
+          copy[index] = result;
+          return copy;
+        });
+        if (result.perspective) {
+          const angleName = getAngleChineseName(result.perspective);
+          showAutoSelectedToast(`👕 AI 已自动识别服装图 #${index + 1} 视角为【${angleName}】并完美提取特征！`);
+        } else {
+          showAutoSelectedToast(`👕 AI 已成功自动提取服装图 #${index + 1} 的细节与款式特征！`);
+        }
+      }
+    } catch (err) {
+      console.warn(`Auto garment analysis at index ${index} failed`, err);
+    } finally {
+      setCoreGarmentAnalyzingStates(prev => {
+        const copy = [...prev];
+        copy[index] = false;
+        return copy;
+      });
+    }
+  };
+
+  const showAutoSelectedToast = (message: string) => {
+    setAutoSelectedTip(message);
+    setTimeout(() => {
+      setAutoSelectedTip(null);
+    }, 4500);
+  };
+
+  const triggerAutoTargetAnalysis = async (file: File, index: number) => {
+    setTargetAnalyzingStates(prev => {
+      const copy = [...prev];
+      copy[index] = true;
+      return copy;
+    });
+    try {
+      const { analyzeImagePerspective } = await import('../Cyzx4/services/geminiService');
+      const compressed = await compressImage(file, 2048, 0.95);
+      const angleKey = await analyzeImagePerspective({ base64: compressed.base64, mimeType: compressed.mime });
+      if (angleKey) {
+        setTargetPerspectives(prev => {
+          const copy = [...prev];
+          copy[index] = angleKey;
+          return copy;
+        });
+      }
+    } catch (err) {
+      console.warn(`Target image ${index} perspective analysis failed`, err);
+    } finally {
+      setTargetAnalyzingStates(prev => {
+        const copy = [...prev];
+        copy[index] = false;
+        return copy;
+      });
+    }
+  };
+
   const addCoreFile = (file: File) => {
     if (!file.type.startsWith('image/')) return;
     if (coreGarmentFiles.length >= 5) return;
+    
+    const targetIdx = coreGarmentFiles.length;
     setCoreGarmentFiles(prev => [...prev, file]);
     setCoreGarmentUrls(prev => [...prev, URL.createObjectURL(file)]);
-    setGarmentAnalysis(null);
+    
+    setCoreGarmentAnalyses(prev => [...prev, null]);
+    setCoreGarmentAnalyzingStates(prev => [...prev, false]);
+    setSelectedGarmentIndex(targetIdx);
     setResults([]);
+
+    // Automatically trigger garment features & perspective extraction for this specific uploaded garment
+    triggerAutoGarmentAnalysisAtIndex(file, targetIdx);
   };
 
   const handleCoreChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,7 +213,14 @@ const GarmentReplacementTab: React.FC = () => {
       newUrls.splice(index, 1);
       return newUrls;
     });
-    setGarmentAnalysis(null);
+    setCoreGarmentAnalyses(prev => prev.filter((_, i) => i !== index));
+    setCoreGarmentAnalyzingStates(prev => prev.filter((_, i) => i !== index));
+    setSelectedGarmentIndex(prev => {
+      const remainingCount = coreGarmentFiles.length - 1;
+      if (remainingCount <= 0) return 0;
+      if (prev >= remainingCount) return remainingCount - 1;
+      return prev;
+    });
     setResults([]);
   };
 
@@ -204,6 +309,8 @@ const GarmentReplacementTab: React.FC = () => {
       alert(`最多支持 ${MAX_TARGETS} 张要替换的图片`);
       return;
     }
+    
+    const startIndex = targetFiles.length;
     const newFiles = [...targetFiles];
     const newUrls = [...targetUrls];
     validFiles.forEach(file => {
@@ -213,6 +320,11 @@ const GarmentReplacementTab: React.FC = () => {
     setTargetFiles(newFiles);
     setTargetUrls(newUrls);
     setResults([]);
+
+    // Automatically trigger perspective auto-detection for each uploaded target image in the background
+    validFiles.forEach((file, i) => {
+      triggerAutoTargetAnalysis(file, startIndex + i);
+    });
   };
 
   const handleTargetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -224,6 +336,21 @@ const GarmentReplacementTab: React.FC = () => {
     URL.revokeObjectURL(targetUrls[index]);
     setTargetFiles(prev => prev.filter((_, i) => i !== index));
     setTargetUrls(prev => prev.filter((_, i) => i !== index));
+    
+    // Clean up parallel states
+    setTargetPerspectives(prev => {
+      const copy = [...prev];
+      copy.splice(index, 1);
+      copy.push(null);
+      return copy;
+    });
+    setTargetAnalyzingStates(prev => {
+      const copy = [...prev];
+      copy.splice(index, 1);
+      copy.push(false);
+      return copy;
+    });
+    
     setResults([]);
   };
 
@@ -231,6 +358,8 @@ const GarmentReplacementTab: React.FC = () => {
     targetUrls.forEach(url => URL.revokeObjectURL(url));
     setTargetFiles([]);
     setTargetUrls([]);
+    setTargetPerspectives(Array(10).fill(null));
+    setTargetAnalyzingStates(Array(10).fill(false));
     setResults([]);
   };
 
@@ -283,7 +412,7 @@ const GarmentReplacementTab: React.FC = () => {
     });
   };
 
-  const buildGarmentReplacementPrompt = () => {
+  const buildGarmentReplacementPrompt = (targetIndex?: number) => {
     let base = `[NANO BANANA - STRUCTURAL GARMENT LOCK]
 - TASK: Virtual Try-On.
 - SUBJECT: Transfer the garment from the reference images to the model in the target scene.
@@ -293,8 +422,55 @@ const GarmentReplacementTab: React.FC = () => {
 - CONSTRAINT: Image 1 is the POSE master. Image 2 (and 3) is the PRODUCT master.
 ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(userGuidance)}` : ''}`;
 
-    if (garmentAnalysis?.engineered_prompt) {
-      base += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${garmentAnalysis.engineered_prompt}`;
+    // Loop through all uploaded garments' analyzed perspectives and features
+    coreGarmentAnalyses.forEach((analysis, idx) => {
+      if (analysis?.perspective) {
+        const angleDesc: Record<string, string> = {
+          A: '3/4 front-left view',
+          B: 'front view',
+          C: '3/4 front-right view',
+          D: 'side profile view',
+          E: 'back view',
+          RETOUCH: 'detail close-up view'
+        };
+        const desc = angleDesc[analysis.perspective] || analysis.perspective;
+        // Image ordinal offsets: Target Scene is Image 1. Model Ref is Image 2 (if exists).
+        const imageOrdinal = 1 + (modelRefFile ? 1 : 0) + idx;
+        base += `\n- SOURCE GARMENT IMAGE ${imageOrdinal}: This is the garment photographed in a ${desc}.`;
+        
+        if (analysis.engineered_prompt) {
+          base += ` Features: ${analysis.engineered_prompt}`;
+        }
+      }
+    });
+
+    if (targetIndex !== undefined && targetPerspectives[targetIndex]) {
+      const targetAngle = targetPerspectives[targetIndex];
+      const angleDesc: Record<string, string> = {
+        A: '3/4 front-left view',
+        B: 'front view',
+        C: '3/4 front-right view',
+        D: 'side profile view',
+        E: 'back view',
+        RETOUCH: 'detail close-up view'
+      };
+      const desc = angleDesc[targetAngle!] || targetAngle;
+      base += `\n- TARGET MODEL VIEW: The model in the target photo (Image 1) is facing in a ${desc}. `;
+
+      // Search for the exact matching garment index (e.g. both are back views)
+      const matchingGarmentIdx = coreGarmentAnalyses.findIndex(analysis => analysis?.perspective === targetAngle);
+      if (matchingGarmentIdx !== -1) {
+        const matchingOrdinal = 1 + (modelRefFile ? 1 : 0) + matchingGarmentIdx;
+        base += `CRITICAL: Align and map this model perspective directly to SOURCE GARMENT IMAGE ${matchingOrdinal} (which is also a ${desc}) to synthesize a pixel-perfect matching texture and pattern!`;
+      } else {
+        base += `Synthesize the clothing features from the available source garment views to structurally wrap around this model's body angle.`;
+      }
+    }
+
+    // Append the active selected garment's detailed prompt constraints if available
+    const activeGarment = coreGarmentAnalyses[selectedGarmentIndex];
+    if (activeGarment?.engineered_prompt) {
+      base += `\n\n[AGENT GARMENT ANALYSIS OVERRIDE]\nGARMENT FEATURES TO ENFORCE (PRIORITY): ${activeGarment.engineered_prompt}`;
       base += `\nCRITICAL GARMENT RULES: Ensure the generated garment strictly follows the neckline stitching details (e.g. seamless vs stitched) and exact length/cropped waist style mentioned above.`;
     }
 
@@ -303,8 +479,9 @@ ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(user
 
   const buildGarmentReplacementNegativePrompt = () => {
     let negative = 'magenta tint, red cast, red drift, purple bleed, oversaturated reds, color distortion, unnatural warmth, distorted white balance, wrong color, color shift, color drift, different garment, grid, multi-view, three-view, layout, split screen, collage, multiple people, blurry face, low quality, logo on wrong side, text, watermark, different person, changed pose, reframed composition, strap, tank top, high neck, crew neck, turtleneck, blurred print, smeared texture, simplified patterns, changed neckline, altered sleeves, dark border at hem, hem trim, bottom border, decorative edge, contrasting trim, change lower body clothing, change pants, alter background';
-    if (garmentAnalysis?.negative_prompt_additions) {
-      negative += `, ${garmentAnalysis.negative_prompt_additions}`;
+    const activeGarment = coreGarmentAnalyses[selectedGarmentIndex];
+    if (activeGarment?.negative_prompt_additions) {
+      negative += `, ${activeGarment.negative_prompt_additions}`;
     }
     return negative;
   };
@@ -315,15 +492,24 @@ ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(user
       return;
     }
 
+    const index = selectedGarmentIndex;
+    const file = coreGarmentFiles[index];
+    if (!file) return;
+
+    setIsGenerating(false); // Make sure generator loading is unaffected
     setIsAnalyzingGarment(true);
     try {
-      const coreImgs = await Promise.all(coreGarmentFiles.map(file => smartCrop(file)));
+      const img = await smartCrop(file);
       const result = await analyzeGarmentFeatures(
-        coreImgs.map(img => ({ base64: img.base64, mimeType: img.mimeType })), 
+        [{ base64: img.base64, mimeType: img.mimeType }], 
         sanitizeForSafety(userGuidance)
       );
       if (result) {
-        setGarmentAnalysis(result);
+        setCoreGarmentAnalyses(prev => {
+          const copy = [...prev];
+          copy[index] = result;
+          return copy;
+        });
       }
     } catch (e) {
       alert(getErrorMessage(e));
@@ -444,7 +630,7 @@ ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(user
         try {
           result = await generateImageToImage(
             inputImages,
-            buildGarmentReplacementPrompt(), 
+            buildGarmentReplacementPrompt(index), 
             {
               modelId,
               aspectRatio: outputAspectRatio,
@@ -573,19 +759,66 @@ ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(user
               {/* LARGE: Core Garment (The Star) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between ml-1">
-                  <span className="text-[11px] text-pastel-text font-black" title="最多可上传5张服装的多角度或细节图">1. 服装素材图 (最多5张)</span>
+                  <span className="text-[11px] text-pastel-text font-black flex items-center gap-1" title="最多可上传5张服装的多角度或细节图">
+                    1. 服装素材图 (最多5张)
+                    {coreGarmentAnalyzingStates.some(x => x) && (
+                      <span className="text-[9px] text-purple-600 font-bold flex items-center gap-1 animate-pulse ml-2">
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        AI 分析视角中...
+                      </span>
+                    )}
+                  </span>
                   <span className="text-[10px] text-pastel-highlight bg-pastel-highlight/10 px-2 py-0.5 rounded-full font-bold">{coreGarmentFiles.length}/5 张</span>
                 </div>
                 
                 <div className="grid grid-cols-5 gap-2" onDragOver={(e) => e.preventDefault()} onDrop={handleCoreDrop}>
-                  {coreGarmentUrls.map((url, i) => (
-                    <div key={i} className="relative group w-full aspect-square rounded-xl border-2 border-pastel-highlight shadow-sm overflow-hidden bg-pastel-bg">
-                      <img src={url} alt={`core-${i}`} className="w-full h-full object-cover" />
-                      <button type="button" onClick={() => removeCoreGarment(i)} className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  ))}
+                  {coreGarmentUrls.map((url, i) => {
+                    const isSelected = i === selectedGarmentIndex;
+                    const isAnalyzing = coreGarmentAnalyzingStates[i];
+                    const angleKey = coreGarmentAnalyses[i]?.perspective;
+                    
+                    return (
+                      <div 
+                        key={i} 
+                        onClick={() => setSelectedGarmentIndex(i)}
+                        className={`relative group w-full aspect-square rounded-xl border-2 overflow-hidden bg-pastel-bg cursor-pointer transition-all ${
+                          isSelected 
+                            ? 'border-purple-600 ring-2 ring-purple-500/30 scale-105 shadow-md z-10' 
+                            : 'border-pastel-highlight/20 hover:border-purple-400 shadow-sm'
+                        }`}
+                      >
+                        <img src={url} alt={`core-${i}`} className="w-full h-full object-cover" />
+                        
+                        {/* Sparkles angle marker */}
+                        {angleKey && (
+                          <div className="absolute top-1 left-1 bg-purple-600/90 text-white text-[8px] font-black px-1.5 py-0.5 rounded-md shadow flex items-center gap-0.5 z-10 animate-pulse">
+                            <Sparkles className="w-2 h-2" />
+                            <span>{getAngleChineseName(angleKey)}</span>
+                          </div>
+                        )}
+
+                        {/* Card Loader Overlay */}
+                        {isAnalyzing && (
+                          <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex flex-col items-center justify-center text-white z-10">
+                            <Loader2 className="w-4 h-4 animate-spin text-purple-400 mb-1" />
+                            <span className="text-[7px] text-slate-200 font-bold leading-none text-center">AI识别中</span>
+                          </div>
+                        )}
+
+                        <button 
+                          type="button" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeCoreGarment(i);
+                          }} 
+                          className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+
                   {coreGarmentFiles.length < 5 && (
                     <label className={`relative flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-highlight/40 bg-pastel-highlight/5 hover:bg-pastel-highlight/10 hover:border-pastel-highlight transition-all cursor-pointer group ${coreGarmentFiles.length === 0 ? 'col-span-5 aspect-[16/9]' : ''}`}>
                       <input type="file" className="hidden" onChange={handleCoreChange} accept="image/*" multiple />
@@ -808,6 +1041,11 @@ ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(user
               <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
                 <Wand2 className="w-3 h-3 text-purple-500" />
                 智能服饰特征分析
+                {coreGarmentFiles.length > 0 && (
+                  <span className="text-[9px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded font-black">
+                    服装 #{selectedGarmentIndex + 1}
+                  </span>
+                )}
               </h3>
               <button
                 type="button"
@@ -816,42 +1054,69 @@ ${sanitizeForSafety(userGuidance) ? `- USER SUPPLEMENT: ${sanitizeForSafety(user
                 className="text-[10px] bg-purple-50 hover:bg-purple-100 text-purple-600 font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 flex items-center gap-1 border border-purple-200"
               >
                 {isAnalyzingGarment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                {garmentAnalysis ? '重新分析' : '提取特征'}
+                {coreGarmentAnalyses[selectedGarmentIndex] ? '重新分析' : '提取特征'}
               </button>
             </div>
             
-            {garmentAnalysis && (
+            {coreGarmentAnalyses[selectedGarmentIndex] && (
               <div className="bg-purple-50/50 border border-purple-100 rounded-xl p-3 space-y-2 animate-in fade-in zoom-in duration-300">
                 <div className="flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-purple-500 shrink-0 mt-0.5" />
                   <div className="space-y-1.5 w-full">
-                    <div className="text-[11px] font-bold text-purple-900">Agent 已提取服装关键细节</div>
+                    <div className="text-[11px] font-bold text-purple-900">
+                      Agent 已提取服装 #{selectedGarmentIndex + 1} 关键细节
+                    </div>
                     
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
                         <span className="block text-[9px] text-purple-400 font-bold mb-0.5">版型与上身效果</span>
-                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.fit + " / " + garmentAnalysis.wearing_effect}>{garmentAnalysis.fit}</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={coreGarmentAnalyses[selectedGarmentIndex].fit + " / " + coreGarmentAnalyses[selectedGarmentIndex].wearing_effect}>
+                          {coreGarmentAnalyses[selectedGarmentIndex].fit}
+                        </span>
                       </div>
                       <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
                         <span className="block text-[9px] text-purple-400 font-bold mb-0.5">领口设计</span>
-                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.neckline}>{garmentAnalysis.neckline}</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={coreGarmentAnalyses[selectedGarmentIndex].neckline}>
+                          {coreGarmentAnalyses[selectedGarmentIndex].neckline}
+                        </span>
                       </div>
                       <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
                         <span className="block text-[9px] text-purple-400 font-bold mb-0.5">衣长/裙长</span>
-                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.length}>{garmentAnalysis.length}</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={coreGarmentAnalyses[selectedGarmentIndex].length}>
+                          {coreGarmentAnalyses[selectedGarmentIndex].length}
+                        </span>
                       </div>
                       <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm">
                         <span className="block text-[9px] text-purple-400 font-bold mb-0.5">袖长与袖口</span>
-                        <span className="text-[10px] text-pastel-text line-clamp-2" title={garmentAnalysis.cuffs_sleeves}>{garmentAnalysis.cuffs_sleeves}</span>
+                        <span className="text-[10px] text-pastel-text line-clamp-2" title={coreGarmentAnalyses[selectedGarmentIndex].cuffs_sleeves}>
+                          {coreGarmentAnalyses[selectedGarmentIndex].cuffs_sleeves}
+                        </span>
                       </div>
+                      
+                      {coreGarmentAnalyses[selectedGarmentIndex].perspective && (
+                        <div className="bg-white rounded-md p-1.5 border border-purple-100 shadow-sm col-span-2 flex items-center justify-between">
+                          <div>
+                            <span className="block text-[9px] text-purple-400 font-bold mb-0.5">智能识别视角</span>
+                            <span className="text-[10px] text-pastel-text font-black">
+                              {getAngleChineseName(coreGarmentAnalyses[selectedGarmentIndex].perspective)}
+                            </span>
+                          </div>
+                          <span className="text-[9px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-black flex items-center gap-1 shrink-0">
+                            <Sparkles className="w-2.5 h-2.5 animate-pulse" /> AI 自动锁定
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
             )}
-            {!garmentAnalysis && !isAnalyzingGarment && (
+            {!coreGarmentAnalyses[selectedGarmentIndex] && !isAnalyzingGarment && (
               <div className="text-[10px] text-pastel-muted bg-pastel-bg border border-pastel-border rounded-xl p-3 text-center">
-                上传服装并在上方填写补充说明后，点击「提取特征」可确保替换极度精准
+                {coreGarmentFiles.length > 0 
+                  ? `点击上方服装图，或者点击「提取特征」来分析服装 #${selectedGarmentIndex + 1} 的款式特征`
+                  : '上传服装并在上方填写补充说明后，点击「提取特征」可确保替换极度精准'
+                }
               </div>
             )}
           </div>
