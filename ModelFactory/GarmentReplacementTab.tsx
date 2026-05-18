@@ -178,31 +178,43 @@ const GarmentReplacementTab: React.FC = () => {
     }
   };
 
-  const addCoreFile = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    if (coreGarmentFiles.length >= 5) return;
+  const addCoreFiles = (files: File[]) => {
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
+    if (validFiles.length === 0) return;
     
-    const targetIdx = coreGarmentFiles.length;
-    setCoreGarmentFiles(prev => [...prev, file]);
-    setCoreGarmentUrls(prev => [...prev, URL.createObjectURL(file)]);
+    const currentCount = coreGarmentFiles.length;
+    const allowedFiles = validFiles.slice(0, 5 - currentCount);
+    if (allowedFiles.length === 0) return;
+
+    // Pre-calculate the starting index for batching
+    setCoreGarmentFiles(prev => [...prev, ...allowedFiles]);
+    setCoreGarmentUrls(prev => [...prev, ...allowedFiles.map(file => URL.createObjectURL(file))]);
     
-    setCoreGarmentAnalyses(prev => [...prev, null]);
-    setCoreGarmentAnalyzingStates(prev => [...prev, false]);
-    setSelectedGarmentIndex(targetIdx);
+    setCoreGarmentAnalyses(prev => [...prev, ...Array(allowedFiles.length).fill(null)]);
+    setCoreGarmentAnalyzingStates(prev => [...prev, ...Array(allowedFiles.length).fill(false)]);
+    setSelectedGarmentIndex(currentCount);
     setResults([]);
 
-    // Automatically trigger garment features & perspective extraction for this specific uploaded garment
-    triggerAutoGarmentAnalysisAtIndex(file, targetIdx);
+    // Trigger auto-analysis in parallel with exact, pre-calculated future indices
+    allowedFiles.forEach((file, i) => {
+      triggerAutoGarmentAnalysisAtIndex(file, currentCount + i);
+    });
+  };
+
+  const addCoreFile = (file: File) => {
+    addCoreFiles([file]);
   };
 
   const handleCoreChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    Array.from(e.target.files || []).forEach(file => addCoreFile(file));
+    if (e.target.files) addCoreFiles(Array.from(e.target.files));
     e.target.value = '';
   };
 
   const handleCoreDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    Array.from(e.dataTransfer.files || []).forEach(file => addCoreFile(file));
+    if (e.dataTransfer.files) {
+      addCoreFiles(Array.from(e.dataTransfer.files));
+    }
   };
 
   const removeCoreGarment = (index: number) => {
@@ -279,14 +291,7 @@ const GarmentReplacementTab: React.FC = () => {
 
     // 优先级 1: 主体商品 (Core Garment)
     if (coreGarmentFiles.length < 5) {
-      validFiles.forEach(file => {
-        setCoreGarmentFiles(prev => {
-          if (prev.length < 5) {
-            addCoreFile(file);
-          }
-          return prev;
-        });
-      });
+      addCoreFiles(validFiles);
     }
     // 优先级 2: 模特参考 (Identity Ref)
     else if (!modelRefUrl) {
