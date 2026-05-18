@@ -9,6 +9,7 @@ import { SketchEditor } from './components/SketchEditor';
 import { SmartSequenceDock } from './components/SmartSequenceDock';
 import { SonicStudio } from './components/SonicStudio';
 import { SettingsModal } from './components/SettingsModal';
+import { HistoryModal } from './components/HistoryModal';
 
 declare global {
     interface Window {
@@ -23,7 +24,7 @@ import {
     Plus, Copy, Trash2, Type, Image as ImageIcon, Video as VideoIcon,
     ScanFace, Brush, MousePointerClick, LayoutTemplate, X, Film, Link, RefreshCw, Upload,
     Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2, Workflow as WorkflowIcon,
-    Globe, Layers, Volume2, Box, Clapperboard
+    Globe, Layers, Volume2, Box, Clapperboard, History
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 
@@ -198,6 +199,7 @@ export const App = () => {
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
     const [assetHistory, setAssetHistory] = useState<any[]>([]);
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
 
@@ -1426,16 +1428,6 @@ export const App = () => {
                                         <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">视频</span>
                                     </button>
 
-                                    {/* 3D 世界 Item */}
-                                    <button 
-                                        onClick={() => { addNode(NodeType.VIDEO_ANALYZER, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
-                                        className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
-                                    >
-                                        <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
-                                            <Globe size={16} />
-                                        </div>
-                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">3D 世界</span>
-                                    </button>
 
                                     {/* 音频 Item */}
                                     <button 
@@ -1464,15 +1456,15 @@ export const App = () => {
                                         <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">分镜格子</span>
                                     </button>
 
-                                    {/* AI 应用 Item */}
+                                    {/* 历史记录 Item */}
                                     <button 
-                                        onClick={() => { setIsChatOpen(!isChatOpen); setContextMenu(null); }}
+                                        onClick={() => { setIsHistoryModalOpen(true); setContextMenu(null); }}
                                         className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
                                     >
                                         <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
-                                            <Layers size={16} />
+                                            <History size={16} />
                                         </div>
-                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">AI 应用</span>
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">历史记录</span>
                                     </button>
                                 </div>
 
@@ -1532,18 +1524,43 @@ export const App = () => {
                     onGenerate={(src, prompt) => handleAssetGenerated('audio', src, prompt)}
                 />
                 <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+                <HistoryModal
+                    isOpen={isHistoryModalOpen}
+                    onClose={() => setIsHistoryModalOpen(false)}
+                    assetHistory={assetHistory}
+                    onHistoryItemClick={(item) => {
+                        const type = item.type.includes('image') ? NodeType.IMAGE_GENERATOR : 
+                                     item.type.includes('video') ? NodeType.VIDEO_GENERATOR : 
+                                     NodeType.AUDIO_GENERATOR;
+                        const data = item.type === 'image' ? { image: item.src } : 
+                                     item.type === 'video' ? { videoUri: item.src } : 
+                                     { audioUri: item.src };
+                        addNode(type, undefined, undefined, data);
+                        setIsHistoryModalOpen(false);
+                    }}
+                    onDeleteAsset={(id) => setAssetHistory(prev => prev.filter(a => a.id !== id))}
+                    onBatchDeleteAssets={(ids) => setAssetHistory(prev => prev.filter(a => !ids.includes(a.id)))}
+                />
 
                 <SidebarDock
                     onAddNode={addNode}
                     onUndo={undo}
-                    isChatOpen={isChatOpen}
-                    onToggleChat={() => setIsChatOpen(!isChatOpen)}
+                    isHistoryModalOpen={isHistoryModalOpen}
+                    onToggleHistoryModal={() => setIsHistoryModalOpen(!isHistoryModalOpen)}
                     isMultiFrameOpen={isMultiFrameOpen}
                     onToggleMultiFrame={() => setIsMultiFrameOpen(!isMultiFrameOpen)}
                     isSonicStudioOpen={isSonicStudioOpen}
                     onToggleSonicStudio={() => setIsSonicStudioOpen(!isSonicStudioOpen)}
                     assetHistory={assetHistory}
-                    onHistoryItemClick={(item) => { const type = item.type.includes('image') ? NodeType.IMAGE_GENERATOR : NodeType.VIDEO_GENERATOR; const data = item.type === 'image' ? { image: item.src } : { videoUri: item.src }; addNode(type, undefined, undefined, data); }}
+                    onHistoryItemClick={(item) => {
+                        const type = item.type.includes('image') ? NodeType.IMAGE_GENERATOR : 
+                                     item.type.includes('video') ? NodeType.VIDEO_GENERATOR : 
+                                     NodeType.AUDIO_GENERATOR;
+                        const data = item.type === 'image' ? { image: item.src } : 
+                                     item.type === 'video' ? { videoUri: item.src } : 
+                                     { audioUri: item.src };
+                        addNode(type, undefined, undefined, data);
+                    }}
                     onDeleteAsset={(id) => setAssetHistory(prev => prev.filter(a => a.id !== id))}
                     workflows={workflows}
                     selectedWorkflowId={selectedWorkflowId}
