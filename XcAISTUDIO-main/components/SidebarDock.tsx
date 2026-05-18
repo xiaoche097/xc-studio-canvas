@@ -274,7 +274,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
 
         // Default: Add Node
         return (
-            <div className="flex-1 overflow-y-auto p-4.5 custom-scrollbar space-y-5">
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-5">
                 {/* 添加节点 Section */}
                 <div className="space-y-2">
                     <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">添加节点</div>

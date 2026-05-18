@@ -1369,7 +1369,7 @@ export const App = () => {
                 {contextMenu && (
                     <div 
                         className={contextMenuTarget?.type === 'create'
-                            ? "fixed z-[100] w-80 bg-[#0c0c0e]/95 backdrop-blur-3xl border border-white/5 rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-4.5 animate-in fade-in zoom-in-95 duration-200 origin-top-left flex flex-col overflow-y-auto max-h-[75vh] custom-scrollbar space-y-5"
+                            ? "fixed z-[100] w-80 bg-[#0c0c0e]/95 backdrop-blur-3xl border border-white/5 rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-6 animate-in fade-in zoom-in-95 duration-200 origin-top-left flex flex-col overflow-y-auto max-h-[75vh] custom-scrollbar space-y-5"
                             : "fixed z-[100] bg-[#1c1c1e]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-1.5 min-w-[160px] animate-in fade-in zoom-in-95 duration-200 origin-top-left"
                         }
                         style={{ top: contextMenu.y, left: contextMenu.x }} 
