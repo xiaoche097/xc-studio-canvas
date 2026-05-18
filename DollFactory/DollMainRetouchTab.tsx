@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2 } from 'lucide-react';
+import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Bot } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
@@ -166,6 +166,44 @@ const DollMainRetouchTab: React.FC = () => {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorBoxes, setEditorBoxes] = useState<EditorBox[]>([]);
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null);
+
+  // AI Reference Analysis states
+  const [refAnalysis, setRefAnalysis] = useState<{
+    lighting_analysis: string;
+    material_analysis: string;
+    overall_atmosphere: string;
+  } | null>(null);
+  const [isAnalyzingRef, setIsAnalyzingRef] = useState(false);
+
+  // Automatically analyze reference image quality and fabric texture in background
+  React.useEffect(() => {
+    const runRefAnalysis = async () => {
+      if (refFiles.length > 0) {
+        if (refAnalysis || isAnalyzingRef) return;
+        setIsAnalyzingRef(true);
+        try {
+          const { analyzeReferenceEffect } = await import('../Cyzx4/services/geminiService');
+          const sampleFile = refFiles[0];
+          const compressedSample = await compressImage(sampleFile, 1024, 0.9);
+          const styleAnalysis = await analyzeReferenceEffect([{ base64: compressedSample.base64, mimeType: compressedSample.mime }]);
+          if (styleAnalysis) {
+            setRefAnalysis({
+              lighting_analysis: styleAnalysis.lighting_analysis || '',
+              material_analysis: styleAnalysis.material_analysis || '',
+              overall_atmosphere: styleAnalysis.overall_atmosphere || ''
+            });
+          }
+        } catch (e) {
+          console.error("Auto reference analysis failed:", e);
+        } finally {
+          setIsAnalyzingRef(false);
+        }
+      } else {
+        setRefAnalysis(null);
+      }
+    };
+    runRefAnalysis();
+  }, [refFiles.length]);
 
   const dataURLtoFile = (dataUrl: string, filename: string) => {
     let arr = dataUrl.split(','),
@@ -347,12 +385,37 @@ const DollMainRetouchTab: React.FC = () => {
            }
           }
         } else {
-          setStatusMessage('🌍 Agent 正在深度分析目标效果图质感...');
-          const styleAnalysis = await analyzeReferenceEffect(refInputImages);
+          let extractedStyle = '';
+          if (refAnalysis) {
+            extractedStyle = `
+=== TARGET LIGHTING & LIGHT FEEL ===
+${refAnalysis.lighting_analysis}
+
+=== TARGET PLUSH TEXTURE & MATERIAL ===
+${refAnalysis.material_analysis}
+
+=== TARGET COLOR & ATMOSPHERE ===
+${refAnalysis.overall_atmosphere}
+`;
+          } else {
+            setStatusMessage('🌍 Agent 正在深度分析目标效果图质感...');
+            const styleAnalysis = await analyzeReferenceEffect(refInputImages);
+            if (styleAnalysis) {
+              extractedStyle = `
+=== TARGET LIGHTING & LIGHT FEEL ===
+${styleAnalysis.lighting_analysis || ''}
+
+=== TARGET PLUSH TEXTURE & MATERIAL ===
+${styleAnalysis.material_analysis || ''}
+
+=== TARGET COLOR & ATMOSPHERE ===
+${styleAnalysis.overall_atmosphere || ''}
+`;
+            }
+          }
           
-          if (styleAnalysis && styleAnalysis.extracted_style) {
-             console.log("Agent Style Analysis:", styleAnalysis.extracted_style);
-             prompt += `\n\n=== STRICT TARGET STYLE ENFORCEMENT (CRITICAL) ===\nYou MUST apply the following visual style, lighting setup, color palette, and material texture extracted from the reference images (Images 2+) to the product in Image 1:\n\n"${styleAnalysis.extracted_style}"\n\nEnsure the final output has EXACTLY this atmosphere, color tone, and texture level while strictly maintaining Image 1's geometry.`;
+          if (extractedStyle) {
+             prompt += `\n\n=== STRICT TARGET STYLE ENFORCEMENT (CRITICAL) ===\nYou MUST apply the following visual style, lighting setup, color palette, and material texture extracted from the reference images (Images 2+) to the product in Image 1:\n${extractedStyle}\n\nEnsure the final output has EXACTLY this atmosphere, color tone, and texture level while strictly maintaining Image 1's geometry.`;
           }
         }
       }
@@ -574,6 +637,54 @@ const DollMainRetouchTab: React.FC = () => {
                )}
             </div>
           </div>
+
+          {/* AI Reference Analysis Diagnostic Card */}
+          {isAnalyzingRef && (
+            <div className="w-full py-2.5 bg-purple-50 dark:bg-purple-500/10 border border-dashed border-purple-200 dark:border-purple-500/30 rounded-xl flex items-center justify-center gap-2 text-purple-600 dark:text-purple-400 animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-[10px] font-black uppercase tracking-wider">AI 正在深度解析参考图光感与材质...</span>
+            </div>
+          )}
+
+          {refAnalysis && (
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/20 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
+                <Bot className="w-8 h-8 text-purple-500" />
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-1 rounded-md bg-purple-500 text-white">
+                  <Sparkles className="w-3 h-3" />
+                </div>
+                <span className="text-[10px] font-black text-purple-600 uppercase">精修质感与光影标准 (AI 已锁定)</span>
+                <button onClick={() => setRefAnalysis(null)} className="ml-auto text-gray-400 hover:text-gray-600">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs">✨</span>
+                    <span className="text-[10px] font-bold text-gray-500">光影光感识别：</span>
+                  </div>
+                  <p className="text-[10px] text-gray-800 font-medium pl-5 leading-relaxed">{refAnalysis.lighting_analysis}</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs">🧶</span>
+                    <span className="text-[10px] font-bold text-gray-500">毛绒质感识别：</span>
+                  </div>
+                  <p className="text-[10px] text-gray-800 font-medium pl-5 leading-relaxed">{refAnalysis.material_analysis}</p>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs">🌈</span>
+                    <span className="text-[10px] font-bold text-gray-500">画面色调氛围：</span>
+                  </div>
+                  <p className="text-[10px] text-gray-600 font-medium pl-5 leading-relaxed italic">{refAnalysis.overall_atmosphere}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 画幅选择 */}
           <div className="space-y-2">

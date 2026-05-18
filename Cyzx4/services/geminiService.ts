@@ -152,13 +152,20 @@ export const analyzeReferenceEffect = async (
 ) => {
   const ai = getAiClient();
   const analysisPrompt = `
-**ROLE**: Top-tier E-commerce Photography Visual Analyst.
+**ROLE**: Top-tier E-commerce Photography Visual Analyst & Plush Toy Material Director.
 
-**TASK**: Analyze the provided reference image(s) (which represent the TARGET effect) and extract their exact visual style, color palette, lighting setup, and material texture.
+**TASK**: Analyze the provided target reference image(s) and extract the precise e-commerce retouching standards. Specifically focus on two key dimensions:
+1. **光影光感 (Lighting & Light Feel)**: Identify light sources, light soft/hard quality, highlight layout, shadow falloff, contact shadow (ambient occlusion) style, and contrast level.
+2. **毛绒质感 (Plush Material & Fabric Texture)**: Identify fabric type (e.g., short-pile velboa, crystal velvet, dense fleece, long fur), pile/nap direction, fiber thickness, glossiness/sheen (matte, velvet sheen, satin, glossy), edge fluffiness, and neatness.
+3. **画面色调氛围 (Overall Atmosphere)**: Identify color tone, color temperature, background styling, and retouching atmosphere.
 
 **OUTPUT FORMAT (MANDATORY JSON)**:
+Your response must be a valid JSON object matching the following structure. Do NOT include markdown code blocks other than the JSON itself. Provide high-quality Chinese descriptions for the analysis fields, and professional English keywords for "extracted_style" to guide image generation models:
 {
-  "extracted_style": "A concise but highly descriptive paragraph detailing the exact lighting (e.g., soft studio lighting, harsh directional light), color tone/temperature (e.g., warm amber hues, cool cinematic blue), contrast level, and material texture (e.g., sleek matte, plush fluffy, glossy) seen in the reference images. Use strong, image-generation keywords."
+  "lighting_analysis": "用一段极精炼的中文，分析参考图的光影分布与光感（例如：柔和棚拍双侧漫反射光，明暗过渡平滑，带有自然微弱的贴地投影）",
+  "material_analysis": "用一段极精炼的中文，分析玩偶面料材质与毛绒细微质感（例如：高密短水晶超柔绒，毛绒短而致密细腻，带微弱温润哑光，边缘圆润无炸毛）",
+  "overall_atmosphere": "用一段极精炼的中文，分析整体画面的色彩温度、调性与背景氛围（例如：高饱和度透亮色彩，纯净极简无缝暖白背景，高端商业棚拍画质）",
+  "extracted_style": "A professional English keyword block combining all lighting, material texture, and e-commerce standards for image-to-image models (e.g., 'professional studio high-key lighting, soft ambient occlusion shadow, high-density premium short-pile velboa plush texture, extremely neat fabric edges, warm white background, vivid realistic colors, sharp macro details')"
 }
 `;
 

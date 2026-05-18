@@ -12,6 +12,7 @@ import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../Cyzx4/services/promptUtils';
+import { extractEdges } from '../Cyzx4/utils/imageProcessor';
 
 interface UploadedImage {
     file: File;
@@ -45,13 +46,15 @@ const ModelGenerationTab: React.FC = () => {
     // Selection states
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_2_3);
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
-    const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_4K);
+    const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [showAdvanced, setShowAdvanced] = useState(true);
     
     // Constraints (保持背景、道具互动、裁剪角度锁)
     const [keepBackground, setKeepBackground] = useState(true);
     const [allowProps, setAllowProps] = useState(true);
     const [lockCropScale, setLockCropScale] = useState(true);
+    const [strictFaceLock, setStrictFaceLock] = useState(true); // 高精准身份与人脸锁
+    const [isSafeMode, setIsSafeMode] = useState(true); // 安全线稿姿态提取 (默认开启)
 
     // Image states
     const [primaryModelImages, setPrimaryModelImages] = useState<UploadedImage[]>([]); // 模特原画组 (最多5张)
@@ -198,13 +201,30 @@ const ModelGenerationTab: React.FC = () => {
         }, 1100);
 
         try {
-            // 映射模特参考图
-            const poseItem = { base64: ref.base64!, mimeType: ref.mime! };
+            // 映射动作姿态参考图（支持安全线稿模式以过滤动作图中的人物身份和背景颜色干扰）
+            let b64 = ref.base64!;
+            let mime = ref.mime!;
+            if (isSafeMode) {
+                try {
+                    const dataUrl = await extractEdges(`data:${mime};base64,${b64}`);
+                    const parts = dataUrl.split(',');
+                    if (parts.length > 1) {
+                        mime = parts[0].split(':')[1].split(';')[0];
+                        b64 = parts[1];
+                    }
+                } catch (e) {
+                    console.error("Failed to extract edges for pose reference", e);
+                }
+            }
+            const poseItem = { base64: b64, mimeType: mime };
             const modelItems = primaryModelImages.map(m => ({ base64: m.base64!, mimeType: m.mime! }));
             
             // 复制姿态参考图以适配 [Pose, Pose, Model1, Model2, ...] 的布局
             let inputImages;
-            if (primaryModelImages.length <= 2) {
+            if (strictFaceLock) {
+                // 当高精准人像锁开启时，我们通过“动作图双重复拍”确保对齐底层服务映射，并对“模特原画进行3倍超高注意力权重赋值”
+                inputImages = [poseItem, poseItem, ...modelItems, ...modelItems, ...modelItems];
+            } else if (primaryModelImages.length <= 2) {
                 inputImages = [poseItem, ...modelItems];
             } else {
                 inputImages = [poseItem, poseItem, ...modelItems];
@@ -216,11 +236,25 @@ const ModelGenerationTab: React.FC = () => {
                 lockCropScale ? "Align and match exact camera angle, zoom scale, portrait crop ratio, limb structure, subject size and position inside frame precisely as shown in Image 1 & 2 (Pose reference)." : ""
             ].filter(Boolean).join(" ");
 
+            const identityConstraints = strictFaceLock 
+                ? `
+            - **CRITICAL: 100% PERFECT FACE & IDENTITY CLONE (MAXIMUM PRIORITY)**:
+              1. The person's face in the generated image MUST be an ABSOLUTE 100% PERFECT CLONE of the model provided in Image 3 (Primary Model Image). Every single facial detail, including eye shape, iris color, eyebrow shape, nose structure, lips, mouth size, skin texture, skin tone, cheekbones, and face shape MUST match Image 3 exactly, with zero deviation.
+              2. Hair Style & Color: The hair style, hair length, hair texture, and hair color in the generated image MUST be a perfect clone of the hair in Image 3. Absolutely NO features (color, style, length) from the hair in Image 1 & 2 may leak or influence the generation.
+              3. Body & Proportions: The model's physical height, body build, shoulders, waist-to-hip ratio, and overall limb proportions MUST be a perfect match to the body structure in Image 3.
+              4. TOTAL DISCARD: The human identity, face, expression, hair color, and skin of the person in Image 1 & 2 (Pose reference) are PLACEHOLDERS. You MUST completely discard, ignore, and delete the identity of the person in Image 1 & 2. Do not copy any facial details or hair colors from Image 1 & 2.
+            `
+                : "";
+
             const prompt = `
+            # [CRITICAL COMMAND: MAXIMUM PRIORITY IDENTITY LOCK]
+            The absolute highest priority constraint is to achieve 100% exact face cloning of the model in Image 3. The face, eyes, hair, skin, and body shape in the final generated output must be completely identical and indistinguishable from the model in Image 3.
+
             # SYSTEM CONSTRAINTS (CRITICAL & ENFORCED):
-            1. MODEL HAIR & CLOTHING FIDELITY (HIGHEST WEIGHT):
-               - The generated model MUST have the EXACT SAME hairstyle, facial features, body shape, and hair color as the person in Image 3 (Primary Model Image). Do NOT change hairstyle, color or facial features.
+            1. MODEL HAIR, FACE & CLOTHING FIDELITY (HIGHEST WEIGHT):
+               - The generated model MUST have the EXACT SAME hairstyle, facial features, face shape, body shape, and hair color as the model in Image 3 (Primary Model Image). Do NOT change hairstyle, color or facial features.
                - The clothing in the generated image MUST remain PIXEL-IDENTICAL to the garment shown in Image 3. Do not modify, deform, or change any style, pattern, fabric, or cut of the clothing.
+               ${identityConstraints}
             2. POSE & FRAMING REPLICATION:
                - You MUST transfer the EXACT human pose, limb positions, body positioning, camera angle, perspective, and subject-to-frame crop/scale factor from Image 1 & 2 (Pose Reference Image).
                - Do NOT transfer any background elements, colors, or textures from Image 1 & 2.
@@ -228,8 +262,8 @@ const ModelGenerationTab: React.FC = () => {
             3. BACKGROUND & PRECISION:
                - ${constraintsStr}
             4. EXCLUSIONS:
-               - Absolutely no background elements from Image 1 & 2.
-               - Absolutely no accessories from Image 1 & 2.
+				- Absolutely no background elements from Image 1 & 2.
+				- Absolutely no accessories from Image 1 & 2.
 
             # DETAILS: ${enhancePrompt(userPrompt || "High fidelity pose transfer", 'EDITORIAL')}, ${QUALITY_BOOSTERS.RETOUCHING}
             `;
@@ -444,13 +478,13 @@ const ModelGenerationTab: React.FC = () => {
                                 <Ruler className="w-4 h-4 text-pastel-highlight" />
                                 <h3 className="font-bold text-pastel-text text-sm">姿态转移约束设定 (Precision Constraints)</h3>
                             </div>
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                                 <label className="flex items-start gap-2.5 p-3 rounded-xl border border-pastel-border bg-pastel-bg/10 cursor-pointer hover:bg-orange-50/20 transition-all">
                                     <input 
                                         type="checkbox" 
                                         checked={keepBackground}
                                         onChange={e => setKeepBackground(e.target.checked)}
-                                        className="mt-0.5 w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                                        className="mt-0.5 w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500 cursor-pointer"
                                     />
                                     <div className="flex flex-col">
                                         <span className="text-xs font-bold text-pastel-text">保持图1背景</span>
@@ -463,7 +497,7 @@ const ModelGenerationTab: React.FC = () => {
                                         type="checkbox" 
                                         checked={allowProps}
                                         onChange={e => setAllowProps(e.target.checked)}
-                                        className="mt-0.5 w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                                        className="mt-0.5 w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500 cursor-pointer"
                                     />
                                     <div className="flex flex-col">
                                         <span className="text-xs font-bold text-pastel-text">自适应道具互动</span>
@@ -476,11 +510,43 @@ const ModelGenerationTab: React.FC = () => {
                                         type="checkbox" 
                                         checked={lockCropScale}
                                         onChange={e => setLockCropScale(e.target.checked)}
-                                        className="mt-0.5 w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                                        className="mt-0.5 w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500 cursor-pointer"
                                     />
                                     <div className="flex flex-col">
                                         <span className="text-xs font-bold text-pastel-text">裁剪与透视锁</span>
                                         <span className="text-[9px] text-pastel-muted mt-0.5 leading-normal">强力对齐参考图的人物裁剪比例、放大率与相机透视</span>
+                                    </div>
+                                </label>
+
+                                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-purple-200 bg-purple-50/10 cursor-pointer hover:bg-purple-50/20 transition-all animate-pulse-subtle">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={strictFaceLock}
+                                        onChange={e => setStrictFaceLock(e.target.checked)}
+                                        className="mt-0.5 w-4 h-4 text-purple-500 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                    />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-pastel-text flex items-center gap-1">
+                                            高精准人像锁
+                                            <Sparkles className="w-3 h-3 text-purple-500" />
+                                        </span>
+                                        <span className="text-[9px] text-pastel-muted mt-0.5 leading-normal">强力锁定并复刻模特原图的五官、发型与发色，杜绝动作图干扰</span>
+                                    </div>
+                                </label>
+
+                                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-purple-200 bg-purple-50/10 cursor-pointer hover:bg-purple-50/20 transition-all">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={isSafeMode}
+                                        onChange={e => setIsSafeMode(e.target.checked)}
+                                        className="mt-0.5 w-4 h-4 text-purple-500 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                    />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-pastel-text flex items-center gap-1">
+                                            骨骼线稿提取
+                                            <Brain className="w-3 h-3 text-purple-500" />
+                                        </span>
+                                        <span className="text-[9px] text-pastel-muted mt-0.5 leading-normal">提取动作图边缘并转化为黑白线稿，从根本上隔离背景与长相污染</span>
                                     </div>
                                 </label>
                             </div>
@@ -549,8 +615,8 @@ const ModelGenerationTab: React.FC = () => {
                                                 className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"
                                             >
                                                 <option value={ImageResolution.RES_1K}>1K 快速标清</option>
-                                                <option value={ImageResolution.RES_2K}>2K 商业高清</option>
-                                                <option value={ImageResolution.RES_4K}>4K 极致海报级 (推荐)</option>
+                                                <option value={ImageResolution.RES_2K}>2K 商业高清 (推荐)</option>
+                                                <option value={ImageResolution.RES_4K}>4K 极致海报级</option>
                                             </select>
                                         </div>
                                         <div className="flex flex-col justify-end">

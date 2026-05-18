@@ -96,11 +96,18 @@ const HeroImageTab: React.FC = () => {
     
     // Image states
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
-    const [actionReference, setActionReference] = useState<UploadedImage | null>(null);
+    const [actionReferences, setActionReferences] = useState<UploadedImage[]>([]);
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
     const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
     const [measurements, setMeasurements] = useState({ bust: '', waist: '', hips: '' });
     const [userPrompt, setUserPrompt] = useState('');
+    
+    // 自动同步动作参考图的数量到批量生成数量 (当数量 > 1 时自动锁定对齐)
+    useEffect(() => {
+        if (actionReferences.length > 1) {
+            setGenerateCount(actionReferences.length);
+        }
+    }, [actionReferences]);
     
     // Form
     const [form, setForm] = useState<HeroFormState>({
@@ -197,7 +204,7 @@ const HeroImageTab: React.FC = () => {
     const handleActionUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
-        if (processed.length > 0) setActionReference(processed[0]);
+        setActionReferences(prev => [...prev, ...processed].slice(0, 10));
         setError(null);
     };
 
@@ -304,35 +311,48 @@ const HeroImageTab: React.FC = () => {
                 return { base64: b64, mimeType: mime };
             };
 
-            const processedAction = await processRefImage(actionReference, isSafeMode);
+            const processedActions = await Promise.all(
+                actionReferences.map(img => processRefImage(img, isSafeMode))
+            );
             const processedModel = await processRefImage(modelReference, isSafeModeModel);
             const processedScenes = await Promise.all(
                 sceneReferences.map(img => processRefImage(img, isSafeModeScene))
             );
 
-            // 2. 构建图片序列
-            const inputImages: { base64: string; mimeType: string }[] = [];
-            
-            // 构图锚点优先
-            if (processedAction) {
-                inputImages.push(processedAction);
-            } else if (processedScenes.length > 0 && processedScenes[0]) {
-                inputImages.push(processedScenes[0]);
-            }
-            
-            // 添加产品图
-            productImages.forEach(img => {
-                if (actionReference?.base64 !== img.base64) {
-                    inputImages.push({ base64: img.base64!, mimeType: img.mime! });
+            // 2. 构建图片序列 (支持根据动作图索引进行动态独立对齐)
+            // 严格匹配 API 与 Prompt 契约：产品图必须作为 Image 1 (首张图片) 传入以确保 100% 一致性锁定！
+            const getInputImagesForIndex = (actionIndex?: number) => {
+                const list: { base64: string; mimeType: string }[] = [];
+                
+                // [第一优先级] 添加产品图作为首张图片 (Image 1)，这与 Prompt 中的 "# CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]" 完美对齐
+                productImages.forEach(img => {
+                    const isAlreadyAdded = actionReferences.some(ar => ar.base64 === img.base64);
+                    if (!isAlreadyAdded) {
+                        list.push({ base64: img.base64!, mimeType: img.mime! });
+                    }
+                });
+
+                // [第二优先级] 添加模特图，作为人脸特征锁定的参考
+                if (processedModel) {
+                    list.push(processedModel);
                 }
-            });
-            
-            // 添加模特与剩余场景
-            if (processedModel) inputImages.push(processedModel);
-            processedScenes.forEach((img, idx) => {
-                if (idx === 0 && !processedAction) return; // 跳过已作为锚点的第一张场景图
-                if (img) inputImages.push(img);
-            });
+                
+                // [第三优先级] 添加特定的动作姿态参考图，作为姿态对齐的构图锚点
+                if (typeof actionIndex === 'number' && processedActions[actionIndex]) {
+                    list.push(processedActions[actionIndex]);
+                } else if (processedActions.length === 1 && processedActions[0]) {
+                    list.push(processedActions[0]);
+                } else if (processedActions.length > 1) {
+                    list.push(processedActions[0]);
+                }
+                
+                // [第四优先级] 添加背景场景参考图
+                processedScenes.forEach(img => {
+                    if (img) list.push(img);
+                });
+                
+                return list;
+            };
 
             // 3. 构建 Prompt 策略
             const measurementStr = (measurements.bust || measurements.waist || measurements.hips) 
@@ -347,7 +367,7 @@ const HeroImageTab: React.FC = () => {
                 `人群：${form.personaTemplate}`,
                 `场景：${sceneStrategy}`,
                 photoStrategy,
-                actionReference ? `动作：复刻姿态参考图` : `动作：智能匹配姿态`,
+                actionReferences.length > 0 ? `动作：复刻姿态参考图` : `动作：智能匹配姿态`,
                 `画质：${QUALITY_BOOSTERS.EDITORIAL}`
             ].join(' | ');
 
@@ -371,7 +391,7 @@ const HeroImageTab: React.FC = () => {
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
             ${modelReference ? `# MODEL IDENTITY: ${isFaceOnly ? 'Strictly REPLICATE ONLY the facial features, face shape, and identity. IGNORE the body pose, clothing, and background from the model reference.' : 'REPLICATE the facial features and identity from the model reference image.'}` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReference ? `# POSE: Replicate the human pose from the pose reference image while KEEPING the product structure locked.` : ''}
+            ${actionReferences.length > 0 ? `# POSE: Replicate the human pose from the pose reference images while KEEPING the product structure locked.` : ''}
             ${sceneReferences.length > 0 ? `# SCENE: ${isSceneOnly ? 'Strictly REPLICATE ONLY the background, environment, lighting, and layout. IGNORE any people or subjects present in the scene reference.' : 'Replicate background and lighting from reference images.'}` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
@@ -381,15 +401,17 @@ const HeroImageTab: React.FC = () => {
             # FINAL OUTPUT: High-fidelity, commercial-grade asset with strict geometric locking for the product.
             `;
 
-            const batchPromises = Array.from({ length: generateCount }, () => 
-                generateImageToImage(inputImages, prompt, {
+            const countToGenerate = actionReferences.length > 1 ? actionReferences.length : generateCount;
+            const batchPromises = Array.from({ length: countToGenerate }, (_, i) => {
+                const specificInputImages = getInputImagesForIndex(actionReferences.length > 1 ? i : undefined);
+                return generateImageToImage(specificInputImages, prompt, {
                     aspectRatio,
                     resolution,
                     modelId: selectedModel,
                     hasModelRef: !!modelReference,
-                    workflowHint: actionReference ? 'pose-transfer' : (modelReference ? 'face-lock' : 'scene-product-lock')
-                })
-            );
+                    workflowHint: actionReferences.length > 0 ? 'pose-transfer' : (modelReference ? 'face-lock' : 'scene-product-lock')
+                });
+            });
 
             const batchResults = await Promise.all(batchPromises);
             setGeneratedImages(batchResults.flat());
@@ -545,16 +567,27 @@ const HeroImageTab: React.FC = () => {
                                         : 'border-pastel-border'
                                     }`}
                                 >
-                                    <input ref={actionInputRef} type="file" className="hidden" onChange={handleActionUpload} accept="image/*" />
-                                    {actionReference ? (
-                                        <div className="relative group/action">
-                                            <img src={actionReference.preview} className="w-full h-32 object-cover rounded-lg border-2 border-purple-200" alt="action" />
-                                            <button onClick={(e) => { e.stopPropagation(); setActionReference(null); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
+                                    <input ref={actionInputRef} type="file" multiple className="hidden" onChange={handleActionUpload} accept="image/*" />
+                                    {actionReferences.length > 0 ? (
+                                        <div className="grid grid-cols-3 gap-1.5 w-full">
+                                            {actionReferences.map((img, idx) => (
+                                                <div key={idx} className="relative group/action aspect-[3/4] bg-pastel-bg/30 rounded border border-purple-200 overflow-hidden">
+                                                    <img src={img.preview} className="w-full h-full object-cover" alt="action" />
+                                                    <span className="absolute bottom-0.5 left-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">#{idx+1}</span>
+                                                    <button onClick={(e) => { e.stopPropagation(); setActionReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/action:opacity-100 transition-opacity"><X className="w-2.5 h-2.5" /></button>
+                                                </div>
+                                            ))}
+                                            {actionReferences.length < 10 && (
+                                                <div className="aspect-[3/4] border border-dashed border-purple-200 rounded flex flex-col items-center justify-center text-purple-400 hover:border-purple-300">
+                                                    <Upload className="w-4 h-4 text-purple-400" />
+                                                    <span className="text-[8px] scale-90 mt-0.5 text-purple-600 font-semibold">继续添加</span>
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
                                         <div className="text-center py-4">
                                             <Wand2 className="w-6 h-6 mx-auto mb-1 text-purple-300" />
-                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态</p>
+                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态 (最多10张)</p>
                                         </div>
                                     )}
                                 </div>
@@ -833,7 +866,27 @@ const HeroImageTab: React.FC = () => {
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">清晰度</label><select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select></div>
-                                        <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">批量</label><select value={generateCount} onChange={e => setGenerateCount(Number(e.target.value))} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value={1}>1张</option><option value={2}>2张</option><option value={4}>4张</option></select></div>
+                                        <div>
+                                            <label className="text-[10px] text-pastel-muted font-bold block mb-1">
+                                                批量 {actionReferences.length > 1 && <span className="text-[8px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded font-normal border border-purple-100 animate-pulse">自动对齐动作</span>}
+                                            </label>
+                                            <select 
+                                                value={generateCount} 
+                                                onChange={e => setGenerateCount(Number(e.target.value))} 
+                                                disabled={actionReferences.length > 1}
+                                                className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs disabled:opacity-85 disabled:bg-purple-50/10 disabled:border-purple-200 transition-all cursor-pointer disabled:cursor-not-allowed"
+                                            >
+                                                {actionReferences.length > 1 ? (
+                                                    <option value={actionReferences.length}>{actionReferences.length}张 (等同于参考图数)</option>
+                                                ) : (
+                                                    <>
+                                                        <option value={1}>1张</option>
+                                                        <option value={2}>2张</option>
+                                                        <option value={4}>4张</option>
+                                                    </>
+                                                )}
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
                             )}
