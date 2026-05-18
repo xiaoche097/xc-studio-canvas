@@ -64,6 +64,7 @@ function buildAnalysisPrompt(userHint: string, boardType: SceneGenerationBoardTy
     social: '社媒买家秀（真实生活场景、手机拍摄感）',
     story: '品牌故事（电影级超宽场景、空间感、史诗氛围）',
     asset: '品牌资产卡（2:3 竖版、品牌调性展示）',
+    mobile: '手机比例（9:16 竖屏、移动端详情/垂直社媒）',
   };
 
   return `

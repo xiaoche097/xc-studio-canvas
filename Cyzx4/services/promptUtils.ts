@@ -269,7 +269,7 @@ export const TEXTURE_KEYWORDS = {
 } as const;
 
 export type SceneGenerationProductType = "plush" | "apparel" | "general";
-export type SceneGenerationBoardType = "main" | "aplus" | "social" | "story" | "asset";
+export type SceneGenerationBoardType = "main" | "aplus" | "social" | "story" | "asset" | "mobile";
 
 export interface SceneGenerationPromptInput {
     boardType: SceneGenerationBoardType;
@@ -756,6 +756,7 @@ const SCENE_LENS_MAP: Record<SceneGenerationBoardType, string> = {
     social: "shot on 85mm portrait lens, candid handheld lifestyle framing, authentic buyer-show perspective",
     story: "shot on 24mm anamorphic lens, ultra-wide cinematic 21:9 composition, far-left subject placement, negative space on right, deep depth of field, epic spatial storytelling",
     asset: "shot on 85mm portrait lens, premium 2:3 vertical composition, focused product-lifestyle hero shot, high-end editorial clarity",
+    mobile: "shot on 85mm portrait lens, premium 9:16 vertical composition, focused mobile product-lifestyle hero shot, high-end vertical editorial clarity",
 };
 
 const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
@@ -764,6 +765,7 @@ const SCENE_BOARD_GUIDE: Record<SceneGenerationBoardType, string> = {
     social: "real American lifestyle buyer-show content, candid human interaction, natural social-media realism, believable daily life moment",
     story: "premium cinematic A+ brand story visual, clean high-end spatial storytelling, refined atmospheric depth, high commercial conversion aesthetic",
     asset: "real American lifestyle buyer-show content, clean and focused brand asset, natural social-media realism, but very clean, minimalist, and uncluttered environment",
+    mobile: "real American lifestyle buyer-show content, vertical mobile-screen optimized, clean and focused brand asset, natural social-media realism, but very clean, minimalist, and uncluttered environment",
 };
 
 const PRODUCT_TYPE_GUIDE: Record<SceneGenerationProductType, string> = {
@@ -902,11 +904,11 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     // Product title context — used to anchor all image content to the listing
     const productTitleContext = [input.productName, input.productCategory, input.sellingPoints].filter(Boolean).join(' — ');
 
-    let customLighting = ["main", "social", "aplus", "asset"].includes(input.boardType)
+    let customLighting = ["main", "social", "aplus", "asset", "mobile"].includes(input.boardType)
         ? "natural ambient lighting, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo (can be natural window light or outdoor sunlight as appropriate)"
         : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look";
     let customComposition = SCENE_LENS_MAP[input.boardType];
-    let customQuality = ["main", "social", "aplus", "asset"].includes(input.boardType) ? "FILM" : "EDITORIAL";
+    let customQuality = ["main", "social", "aplus", "asset", "mobile"].includes(input.boardType) ? "FILM" : "EDITORIAL";
 
     if (input.productType === 'plush') {
         const isCommercialStyle = /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.sceneDirection || '') || /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.extraNotes || '') || /马卡龙|糖果|商业/.test(input.colorStyle || '');
@@ -1018,6 +1020,17 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
         asset: [
             `This is a premium 2:3 vertical Brand Asset Card for the product: "${productTitleContext}".`,
             "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone, providing authentic social-media lifestyle realism.",
+            "Characteristics of authentic buyer photos: natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment, natural ambient lighting, casual and spontaneous feel.",
+            "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
+            input.productType === 'apparel' ? 
+            "Incorporate one of these authentic social media visual logics specifically for apparel: 1) Minimalist Chic: clean color blocks, minimalist backgrounds. 2) American Retro/Y2K: industrial backgrounds. 3) Effortless Loungewear: cozy clean home or cafe settings. 4) Vacation Baddie: sun-drenched settings." : "",
+            "CRITICAL REQUIREMENT: Keep the scene clean, minimalist, and uncluttered. DO NOT include too many elements. The background and scene must NOT be flashy, busy, or complex. HOWEVER, you MUST vary the minimalist aesthetics (e.g., modern clean, warm neutral tones, sleek industrial minimal, soft coastal clean, mid-century minimal). Vary the minimal furniture, wall textures, and color palettes so each image looks distinctly different while remaining clean.",
+            "The mood and scene must directly relate to the product's actual use case as described in the title and selling points.",
+            "ANTI-AI DIRECTIVE: Ensure extreme realism. The image must look exactly like an unedited raw iPhone photo. Absolutely NO 'plastic' skin, NO symmetrical poses, and NO studio lighting. Introduce slight film grain to break the 'AI look'."
+        ].filter(Boolean).join(' '),
+        mobile: [
+            `This is a premium 9:16 vertical Mobile Screen optimized image for the product: "${productTitleContext}".`,
+            "CRITICAL: This must look like a REAL photo taken by an actual buyer with their phone, providing authentic social-media lifestyle realism and optimized for vertical mobile viewing.",
             "Characteristics of authentic buyer photos: natural phone-camera perspective (slightly tilted or off-center), real home or outdoor environment, natural ambient lighting, casual and spontaneous feel.",
             "The person should look like a real customer genuinely using and enjoying the product in their everyday life, not a model posing.",
             input.productType === 'apparel' ? 

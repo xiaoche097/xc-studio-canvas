@@ -41,7 +41,7 @@ import {
   Ruler,
 } from 'lucide-react';
 
-type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset';
+type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset' | 'mobile';
 
 interface UploadedImage {
   file: File;
@@ -155,6 +155,12 @@ const BOARD_CONFIG: Record<BoardType, { label: string; description: string; aspe
     aspectRatio: AspectRatio.PORTRAIT_2_3,
     icon: '🎴',
   },
+  mobile: {
+    label: '手机比例',
+    description: '9:16 竖向手机场景，适合移动端详情页与垂直社媒展示',
+    aspectRatio: AspectRatio.PORTRAIT_9_16,
+    icon: '🤳',
+  },
 };
 
 // AI Analysis card field labels
@@ -267,6 +273,7 @@ const SceneGenerationTab: React.FC = () => {
     if (boardType === 'aplus') return '生成适合 A+ 模块的横版场景图，强调品牌感、故事感与细节质感';
     if (boardType === 'story') return '生成电影宽画幅品牌场景，强调史诗感、空间深度与品牌故事张力';
     if (boardType === 'asset') return '生成 2:3 竖版品牌资产卡，适合高转化营销传播与竖屏内容资产';
+    if (boardType === 'mobile') return '生成 9:16 手机竖向场景，优化移动端视觉体验与沉浸式社交分享';
     return '生成接近真实买家秀/社媒传播风格的生活化场景图，增强代入感与分享感';
   }, [boardType]);
 
@@ -514,8 +521,8 @@ const SceneGenerationTab: React.FC = () => {
       subject: [form.productName, form.productCategory, form.productSize].filter(Boolean).join('，') || '电商产品',
       action: form.copyIntent || '展示产品在真实使用场景中的卖点',
       environment: [form.userHint, form.sceneDirection, form.usageScenario, form.targetAudience].filter(Boolean).join('，') || '适配产品定位的高转化场景',
-      style: [form.brandTone, form.colorStyle, boardType === 'social' ? '真实买家秀视觉' : '高转化电商视觉'].filter(Boolean).join('，') || 'premium ecommerce photography',
-      lighting: boardType === 'social'
+      style: [form.brandTone, form.colorStyle, ['social', 'mobile'].includes(boardType) ? '真实买家秀视觉' : '高转化电商视觉'].filter(Boolean).join('，') || 'premium ecommerce photography',
+      lighting: ['social', 'mobile'].includes(boardType)
         ? 'natural lifestyle lighting, candid social content feel'
         : boardType === 'aplus'
           ? 'cinematic commercial lighting, premium storytelling atmosphere'
@@ -524,7 +531,9 @@ const SceneGenerationTab: React.FC = () => {
         ? 'centered hero composition, product first, amazon secondary image style'
         : boardType === 'aplus'
           ? 'wide banner composition, layered environment, premium ecommerce storytelling'
-          : 'portrait framing, lifestyle usage moment, authentic buyer-show composition',
+          : boardType === 'mobile'
+            ? 'vertical mobile framing, 9:16 screen optimized, lifestyle usage moment'
+            : 'portrait framing, lifestyle usage moment, authentic buyer-show composition',
       qualityBooster: 'PRODUCT',
     });
 
@@ -536,7 +545,9 @@ const SceneGenerationTab: React.FC = () => {
         ? `A+策略：内容必须紧扣产品标题「${productTitleContext}」，讲述产品的使用故事。`
         : boardType === 'asset'
           ? `资产卡策略：生成 2:3 竖版场景，内容必须紧扣产品「${productTitleContext}」的核心资产展示。`
-          : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。`;
+          : boardType === 'mobile'
+            ? `手机比例策略：生成 9:16 竖屏场景，内容必须紧扣产品「${productTitleContext}」以高度匹配移动端和垂直社媒。`
+            : `副图策略：内容必须紧扣产品标题「${productTitleContext}」的核心卖点。`;
 
     const strategy = [
       `运营目标：面向${currentBoard.label}板块，输出符合美国真实生活场景的高转化营销图。`,
@@ -709,7 +720,7 @@ const SceneGenerationTab: React.FC = () => {
                 <Store className="w-4 h-4 text-pastel-highlight" />
                 <h3 className="font-semibold text-pastel-text text-sm">场景板块</h3>
               </div>
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                 {(Object.keys(BOARD_CONFIG) as BoardType[]).map((key) => {
                   const item = BOARD_CONFIG[key];
                   const active = boardType === key;
@@ -1100,6 +1111,7 @@ const SceneGenerationTab: React.FC = () => {
                                         if (variant.config?.config?.aspectRatio === '1:1') setBoardType('main');
                                         else if (variant.config?.config?.aspectRatio === '16:9') setBoardType('aplus');
                                         else if (variant.config?.config?.aspectRatio === '3:4') setBoardType('social');
+                                        else if (variant.config?.config?.aspectRatio === '9:16') setBoardType('mobile');
                                         else if (variant.config?.config?.aspectRatio === '4:3') setBoardType('aplus'); // 4:3 is close to aplus/landscape
                                     }}
                                     className={`relative p-2.5 rounded-xl border text-left transition-all ${
