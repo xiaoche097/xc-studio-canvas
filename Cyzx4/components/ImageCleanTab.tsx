@@ -332,8 +332,9 @@ const HeroImageTab: React.FC = () => {
                     }
                 });
 
-                // [第二优先级] 添加模特图，作为人脸特征锁定的参考
+                // [第二优先级] 添加模特图，作为人脸特征和长相的绝对参考（传入两次以双倍增强 AI 的注意力长相锁定权重）
                 if (processedModel) {
+                    list.push(processedModel);
                     list.push(processedModel);
                 }
                 
@@ -389,10 +390,10 @@ const HeroImageTab: React.FC = () => {
             # CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]. You MUST preserve its structure, texture, cut, and pattern EXACTLY. Do NOT allow any stylistic drift. The product in the output must be 100% identical to the source product asset.
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${modelReference ? `# MODEL IDENTITY: ${isFaceOnly ? 'Strictly REPLICATE ONLY the facial features, face shape, and identity. IGNORE the body pose, clothing, and background from the model reference.' : 'REPLICATE the facial features and identity from the model reference image.'}` : ''}
+            ${modelReference ? `# MODEL IDENTITY FIDELITY (MANDATORY): The generated model MUST have the EXACT SAME facial features, face shape, eyes, nose, lips, hair color/texture, and overall identity as the provided model reference image. Replicate her look with 100% high-fidelity precision. Any face alteration, distortion, or stylistic drift of the model's look is STRICTLY PROHIBITED.` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             ${actionReferences.length > 0 ? `# POSE: Replicate the human pose from the pose reference images while KEEPING the product structure locked.` : ''}
-            ${sceneReferences.length > 0 ? `# SCENE: ${isSceneOnly ? 'Strictly REPLICATE ONLY the background, environment, lighting, and layout. IGNORE any people or subjects present in the scene reference.' : 'Replicate background and lighting from reference images.'}` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
+            ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference image EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
