@@ -13,63 +13,44 @@ const getAngleTemplates = (hasGarment: boolean) => {
     ? `**服装替换 (GARMENT REPLACEMENT - CRITICAL)**：请将 Image 1 中模特身上穿着的衣服**完全替换**为 Image 2 中的衣服。必须 100% 完美还原 Image 2 中衣服的款式、颜色、印花图案、布料材质纹理、领口（如圆领/V领）、袖长与剪裁细节。绝对不能保留 Image 1 原有的服装款式与颜色。`
     : `**服装保持 (GARMENT RETENTION)**：必须 100% 完美复刻 Image 1 中模特穿着的服装款式与颜色，严禁改变原图衣服的外观。`;
 
-  const compositionInstruction = `**镜头景别与构图锁定 (CRITICAL COMPOSITION LOCK)**：严格继承并锁定 Image 1 的镜头景别与裁剪比例（如特写/半身/全身）。如果 Image 1 是特写或半身像，生成的图像也**必须保持完全相同焦距景深下的特写或半身比例**，仅在 3D 空间中旋转模特的角度或身体，**绝对不能**拉远镜头擅自将其变更为全身站姿。`;
+  const compositionInstruction = `**镜头景别与构图锁定 (CRITICAL COMPOSITION LOCK)**：严格继承并锁定 Image 1 的镜头景别与裁剪比例（如特写/半身/全身）。如果 Image 1 是特写或半身像，生成的图像也**必须保持完全相同焦距景深下的特写或半身比例**，绝对不能拉远镜头擅自将其变更为全身站姿。`;
+
+  const basePrompt = (perspectiveName: string, label: string) => `你现在是一名顶级的电商模特摄影修图师。
+**核心指令：原图模特视角高精匹配与衣服替换。**
+**视角锁定与对齐**：AI 已识别到 Image 1 原图的模特是【${perspectiveName}视角（${label}）】。请在此视角下以 1:1 极高精度贴合产品衣服的款式与材质，严格锁定并继承 Image 1 中模特的姿势、面部朝向、相机角度完全一致。
+${compositionInstruction}
+**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
+${garmentInstruction}
+**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
+**输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`;
 
   return {
     A: {
       name: '左前 45°',
       label: '3/4 front-left',
-      prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：执行视角重建。**
-**视角转换**：请忽略参考图的原始角度。将模特重建至【左前方 45 度视角（3/4 front-left）】。
-${compositionInstruction}
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
-${garmentInstruction}
-**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
-**输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
+      prompt: basePrompt('左前 45°', '3/4 front-left')
     },
     B: {
       name: '正面',
       label: 'front view',
-      prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：强制回正视角。**
-**视角转换**：请忽略参考图的原始偏转角度，将模特重建至【正前方平视视角（Front View）】，自然面对镜头。
-${compositionInstruction}
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
-${garmentInstruction}
-**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
-**输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
+      prompt: basePrompt('正面', 'front view')
     },
     C: {
       name: '右前 45°',
       label: '3/4 front-right',
-      prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：执行视角重建。**
-**视角转换**：请忽略参考图的原始角度，将模特重建至【右前方 45 度视角（3/4 front-right）】，呈现自然侧身视角。
-${compositionInstruction}
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
-${garmentInstruction}
-**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
-**输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，自然柔光，真实皮肤质感。`
+      prompt: basePrompt('右前 45°', '3/4 front-right')
     },
     D: {
       name: '侧面',
       label: 'side profile',
-      prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：视角 90 度转动。**
-**视角转换**：请基于 Image 1 的模特身份重构一个【正侧面视角（Side Profile）】，模特侧身站立。
-${compositionInstruction}
-**身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的面部长相、五官、身高、三围比例、体型胖瘦。严禁出现生成的模特长相或身材与原图完全不一样的情况。
-${garmentInstruction}
-**色彩一致性**：必须严格保持与 Image 1 完全一致的色彩基调、光影氛围和白平衡。严禁自行改变色温。
-**输出要求**：纯白背景(#FFFFFF)，电商棚拍级锐度，真实皮肤质感。`
+      prompt: basePrompt('侧面', 'side profile')
     },
     E: {
       name: '背面',
       label: 'back view',
       prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：视角 180 度大转弯（正背面视角）。**
-**视角转换**：请基于 Image 1 的模特身份重构一个【正背面视角（Back View）】，展示服装背面效果。
+**核心指令：原图模特视角高精匹配与衣服替换。**
+**视角锁定与对齐**：AI 已识别到 Image 1 原图的模特是【背面视角（back view）】。请在此视角下以 1:1 极高精度贴合产品衣服的背部裁剪细节，严格锁定并继承 Image 1 中模特背部的姿势、相机角度与身体线条完全一致。
 ${compositionInstruction}
 **身份与身材锁定 (CRITICAL)**：必须 100% 完美复刻 Image 1 中模特的身高、三围比例、体型胖瘦、发型发色。严禁出现生成的模特身材与原图不一致的情况。
 ${garmentInstruction}
@@ -80,8 +61,8 @@ ${garmentInstruction}
       name: '主图精修',
       label: 'Retouch & Lock',
       prompt: `你现在是一名顶级的电商模特摄影修图师。
-**核心指令：商业级主图精修。**
-**角度锁定**：严格保持 Image 1 的相机角度、模特姿势、构图与裁切范围完全一致。
+**核心指令：商业级主图精修与原图视角锁定。**
+**角度锁定**：严格保持 Image 1 的相机角度、模特姿势、原图视角、构图与裁切范围完全一致。
 ${compositionInstruction}
 **精修要求**：清理皮肤瑕疵，优化服装褶皱，增强面料质感，提升整体画质与锐度。
 **色彩一致性**：严格保持与 Image 1 完全一致的色彩基调、肤色表现和光影饱和度。严禁自行改变色温。
@@ -656,8 +637,8 @@ const ModelMainAdjustTab: React.FC = () => {
           {/* 角度选择 */}
           <div className="space-y-3">
              <div className="flex items-center justify-between">
-               <h3 className="text-sm font-semibold text-pastel-text flex items-center gap-1.5">
-                 调整角度 / 视角
+               <h3 className="text-sm font-semibold text-pastel-text flex items-center gap-1.5 flex-wrap">
+                 原图模特视角 <span className="text-[10px] text-pastel-highlight font-normal ml-1 bg-pastel-highlight/15 py-0.5 px-1.5 rounded-full border border-pastel-highlight/20">(AI自动识别并锁定)</span>
                </h3>
                {(isAnalyzingModel || isAnalyzingGarmentAuto) && (
                  <span className="text-[9px] text-pastel-highlight font-bold flex items-center gap-1 animate-pulse">
