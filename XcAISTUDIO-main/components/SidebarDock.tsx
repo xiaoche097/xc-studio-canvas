@@ -407,7 +407,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                     <button 
                         onMouseEnter={() => handleSidebarHover('add')}
                         onClick={() => setActivePanel(activePanel === 'add' ? null : 'add')}
-                        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 shadow-md ${activePanel === 'add' ? 'bg-white/20 text-white' : 'bg-white hover:bg-[#ff79c6] hover:text-white text-black shadow-white/5'}`}
+                        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 shadow-md ${activePanel === 'add' ? 'bg-white/20 text-white' : 'bg-white hover:bg-cyan-500 hover:text-white text-black shadow-white/5'}`}
                     >
                         {activePanel === 'add' ? <X size={20} strokeWidth={2.5} /> : <Plus size={20} strokeWidth={2.5} />}
                     </button>
@@ -433,7 +433,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                             <button 
                                 onMouseEnter={() => item.isPanel && handleSidebarHover(item.id)}
                                 onClick={() => item.action ? item.action() : setActivePanel(item.id as any)}
-                                className={`flex flex-col items-center gap-1.5 w-12 py-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isSelected ? 'text-[#ff79c6] bg-white/5' : 'text-zinc-400 hover:text-zinc-100'}`}
+                                className={`flex flex-col items-center gap-1.5 w-12 py-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isSelected ? 'text-cyan-400 bg-white/5' : 'text-zinc-400 hover:text-zinc-100'}`}
                             >
                                 <item.icon size={19} strokeWidth={2} className="transition-transform duration-300 group-hover:-translate-y-0.5" />
                                 <span className="text-[10px] font-medium tracking-wider scale-95 transition-colors duration-300 select-none">
