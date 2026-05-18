@@ -403,12 +403,18 @@ const HeroImageTab: React.FC = () => {
 
             const countToGenerate = actionReferences.length > 1 ? actionReferences.length : generateCount;
 
-            // Define 4 highly varied and beautiful pose options to generate distinct positions, angles and stances
+            // Define 10 highly varied, high-end professional commercial studio camera angles and modeling poses
             const DIVERSE_POSES = [
                 "front view modeling pose, looking at camera, standing naturally with hands resting at sides, full body composition",
                 "three-quarter elegant profile view, model walking gracefully with light motion, turned head, confident gaze",
                 "side view modeling pose, looking back over shoulder toward camera, highlighting back side styling",
-                "relaxed editorial sitting pose on a clean studio block, front view, hands on knees, medium full body framing"
+                "relaxed editorial sitting pose on a clean studio block, front view, hands on knees, medium full body framing",
+                "dynamic diagonal action pose, three-quarter perspective, body slightly angled with arms in relaxed mid-stride motion",
+                "close-up detail portrait shot showing the product fit, front view, cropped at waist level, focusing on garment layout",
+                "low-angle heroic fashion stance, looking slightly down at camera, hands on hips, confident runway poise",
+                "elegant casual pose leaning gently against a sleek minimalist wall, crossed legs, body tilted at a 15-degree angle",
+                "full back view modeling pose, head turned 90 degrees showing profile chin line and back garment consistency",
+                "medium shot from high-angle perspective, showing the model walking forward with relaxed shoulders, looking forward"
             ];
 
             const batchPromises = Array.from({ length: countToGenerate }, (_, i) => {
@@ -903,6 +909,9 @@ const HeroImageTab: React.FC = () => {
                                                         <option value={1}>1张</option>
                                                         <option value={2}>2张</option>
                                                         <option value={4}>4张</option>
+                                                        <option value={6}>6张</option>
+                                                        <option value={8}>8张</option>
+                                                        <option value={10}>10张</option>
                                                     </>
                                                 )}
                                             </select>
