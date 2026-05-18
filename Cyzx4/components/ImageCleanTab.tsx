@@ -402,9 +402,29 @@ const HeroImageTab: React.FC = () => {
             `;
 
             const countToGenerate = actionReferences.length > 1 ? actionReferences.length : generateCount;
+
+            // Define 4 highly varied and beautiful pose options to generate distinct positions, angles and stances
+            const DIVERSE_POSES = [
+                "front view modeling pose, looking at camera, standing naturally with hands resting at sides, full body composition",
+                "three-quarter elegant profile view, model walking gracefully with light motion, turned head, confident gaze",
+                "side view modeling pose, looking back over shoulder toward camera, highlighting back side styling",
+                "relaxed editorial sitting pose on a clean studio block, front view, hands on knees, medium full body framing"
+            ];
+
             const batchPromises = Array.from({ length: countToGenerate }, (_, i) => {
                 const specificInputImages = getInputImagesForIndex(actionReferences.length > 1 ? i : undefined);
-                return generateImageToImage(specificInputImages, prompt, {
+                
+                let finalPrompt = prompt;
+                if (actionReferences.length === 0 && countToGenerate > 1) {
+                    const poseSpec = DIVERSE_POSES[i % DIVERSE_POSES.length];
+                    finalPrompt = prompt.replace(
+                        "动作：智能匹配姿态",
+                        `动作：智能变化 (${poseSpec})`
+                    );
+                    finalPrompt += `\n# POSE AND ANGLE DIVERSIFICATION: For this specific image out of the batch, you MUST generate the model in this pose and camera angle: ${poseSpec}. Keep the face structure and environment identical, but vary the body position and shot perspective strictly to match this directive.\n`;
+                }
+
+                return generateImageToImage(specificInputImages, finalPrompt, {
                     aspectRatio,
                     resolution,
                     modelId: selectedModel,
