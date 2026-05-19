@@ -419,7 +419,24 @@ const StyleReplicateTab: React.FC = () => {
         const link = document.createElement('a');
         link.href = imageUrl;
         link.download = `style-replicate-${Date.now()}-${index + 1}.png`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+    };
+
+    // Sequential download all handler with 300ms delay to prevent browser blocking
+    const handleDownloadAll = async () => {
+        for (let i = 0; i < generatedImages.length; i++) {
+            if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            const link = document.createElement('a');
+            link.href = generatedImages[i];
+            link.download = `style-replicate-${Date.now()}-${i + 1}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
     };
 
     // Reset handler
@@ -831,13 +848,24 @@ const StyleReplicateTab: React.FC = () => {
                                 <h3 className="font-semibold text-pastel-text">生成结果</h3>
                             </div>
                             {generatedImages.length > 0 && (
-                                <button
-                                    onClick={handleReset}
-                                    className="text-xs text-pastel-muted hover:text-pastel-text flex items-center gap-1"
-                                >
-                                    <RefreshCw className="w-3 h-3" />
-                                    重置
-                                </button>
+                                <div className="flex items-center gap-3">
+                                    {generatedImages.length > 1 && (
+                                        <button
+                                            onClick={handleDownloadAll}
+                                            className="text-xs text-pastel-highlight hover:text-orange-600 flex items-center gap-1 font-medium transition-colors"
+                                        >
+                                            <Download className="w-3.5 h-3.5" />
+                                            全部下载 ({generatedImages.length})
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={handleReset}
+                                        className="text-xs text-pastel-muted hover:text-pastel-text flex items-center gap-1 transition-colors"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        重置
+                                    </button>
+                                </div>
                             )}
                         </div>
 
@@ -907,7 +935,7 @@ const StyleReplicateTab: React.FC = () => {
                                     </div>
                                 </div>
                             ) : generatedImages.length > 0 ? (
-                                <div className={`p-4 h-full overflow-y-auto ${generatedImages.length === 1 ? 'flex items-center justify-center' : 'grid grid-cols-2 gap-3'}`}>
+                                <div className={`p-4 h-full overflow-y-auto ${generatedImages.length === 1 ? 'flex items-center justify-center' : 'grid grid-cols-2 gap-3 items-start content-start'}`}>
                                     {generatedImages.map((img, idx) => (
                                         <div
                                             key={idx}
@@ -916,7 +944,7 @@ const StyleReplicateTab: React.FC = () => {
                                             <img
                                                 src={img}
                                                 alt={`Generated ${idx + 1}`}
-                                                className="w-full h-auto object-contain"
+                                                className="w-full h-auto object-contain block"
                                             />
                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                                 <button
@@ -948,29 +976,50 @@ const StyleReplicateTab: React.FC = () => {
                         {/* Action Buttons */}
                         {generatedImages.length > 0 && (
                             <div className="mt-4 flex items-center justify-between">
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setSelectedPreview(generatedImages[0])}
-                                        className="px-4 py-2 border border-pastel-border rounded-lg text-sm text-pastel-text hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
-                                    >
-                                        <ZoomIn className="w-4 h-4" />
-                                        放大
-                                    </button>
-                                    <button
-                                        onClick={() => generatedImages.forEach((img, i) => handleDownload(img, i))}
-                                        className="px-4 py-2 border border-pastel-border rounded-lg text-sm text-pastel-text hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
-                                    >
-                                        <Download className="w-4 h-4" />
-                                        下载
-                                    </button>
-                                </div>
-                                <button
-                                    onClick={handleGenerate}
-                                    className="px-4 py-2 bg-pastel-highlight text-white rounded-lg text-sm font-medium hover:bg-orange-600 flex items-center gap-1.5 transition-colors shadow-sm"
-                                >
-                                    <RefreshCw className="w-4 h-4" />
-                                    重新生成
-                                </button>
+                                {generatedImages.length > 1 ? (
+                                    <>
+                                        <button
+                                            onClick={handleDownloadAll}
+                                            className="px-6 py-2.5 bg-pastel-highlight text-white rounded-lg text-sm font-medium hover:bg-orange-600 flex items-center gap-1.5 transition-all shadow-md shadow-orange-200 hover:scale-[1.02] active:scale-[0.98]"
+                                        >
+                                            <Download className="w-4 h-4" />
+                                            全部下载 ({generatedImages.length}张)
+                                        </button>
+                                        <button
+                                            onClick={handleGenerate}
+                                            className="px-4 py-2 border border-pastel-border text-pastel-text rounded-lg text-sm font-medium hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
+                                        >
+                                            <RefreshCw className="w-4 h-4" />
+                                            重新批量生成
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setSelectedPreview(generatedImages[0])}
+                                                className="px-4 py-2 border border-pastel-border rounded-lg text-sm text-pastel-text hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
+                                            >
+                                                <ZoomIn className="w-4 h-4" />
+                                                放大
+                                            </button>
+                                            <button
+                                                onClick={() => handleDownload(generatedImages[0], 0)}
+                                                className="px-4 py-2 border border-pastel-border rounded-lg text-sm text-pastel-text hover:bg-pastel-bg flex items-center gap-1.5 transition-colors"
+                                            >
+                                                <Download className="w-4 h-4" />
+                                                下载
+                                            </button>
+                                        </div>
+                                        <button
+                                            onClick={handleGenerate}
+                                            className="px-4 py-2 bg-pastel-highlight text-white rounded-lg text-sm font-medium hover:bg-orange-600 flex items-center gap-1.5 transition-colors shadow-sm"
+                                        >
+                                            <RefreshCw className="w-4 h-4" />
+                                            重新生成
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
