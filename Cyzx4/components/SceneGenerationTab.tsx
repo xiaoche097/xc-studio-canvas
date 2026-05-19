@@ -639,7 +639,7 @@ const SceneGenerationTab: React.FC = () => {
     return strategy.join('\n');
   };
 
-  const buildGenerationPrompt = () => {
+  const buildGenerationPrompt = (overrideEthnicity?: string) => {
     return buildSceneGenerationPrompt({
       boardType,
       productType: form.productType,
@@ -650,7 +650,7 @@ const SceneGenerationTab: React.FC = () => {
       sceneDirection: form.userHint ? `${form.userHint}, ${form.sceneDirection}` : form.sceneDirection,
       targetAudience: form.targetAudience,
       modelPersonaPreset: form.modelPersonaPreset,
-      modelEthnicity: form.modelEthnicity,
+      modelEthnicity: overrideEthnicity || form.modelEthnicity,
       modelAgeGroup: form.modelAgeGroup,
       modelFamilyStructure: form.modelFamilyStructure,
       modelLifestyle: form.modelLifestyle,
@@ -705,16 +705,40 @@ const SceneGenerationTab: React.FC = () => {
         }))
       );
 
+      // Verify if we should diversify ethnicities across the batch
+      // Triggered when batchCount > 1, modelEthnicity is "自动匹配", and it's not a product-only preset ("无模特（纯产品）")
+      const shouldDiversifyEthnicity = form.batchCount > 1 && 
+                                       form.modelEthnicity === '自动匹配' && 
+                                       form.modelPersonaPreset !== '无模特（纯产品）';
+
+      // Pool of non-Asian ethnicities to ensure varied results across the batch
+      const NON_ASIAN_ETHNICITIES = [
+        '白人美国人',
+        '黑人美国人',
+        '拉丁裔美国人',
+        '中东裔美国人',
+        '混合族裔美国人',
+        '太平洋岛民'
+      ];
+      
+      // Shuffle ethnicities list for organic dispersion
+      const shuffledEthnicities = [...NON_ASIAN_ETHNICITIES].sort(() => Math.random() - 0.5);
+
       // 并行生成多张图片
-      const batchPromises = Array.from({ length: form.batchCount }, () =>
-        generateImageToImage(images, finalPrompt, {
+      const batchPromises = Array.from({ length: form.batchCount }, (_, idx) => {
+        let promptForIdx = rawGenerationPrompt;
+        if (shouldDiversifyEthnicity) {
+          const assignedEthnicity = shuffledEthnicities[idx % shuffledEthnicities.length];
+          promptForIdx = buildGenerationPrompt(assignedEthnicity);
+        }
+        return generateImageToImage(images, promptForIdx, {
           aspectRatio,
           resolution,
           modelId: selectedModel,
           negativePrompt,
           workflowHint: 'scene-product-lock',
-        })
-      );
+        });
+      });
 
       const batchResults = await Promise.all(batchPromises);
       const allResults = batchResults.flat();
