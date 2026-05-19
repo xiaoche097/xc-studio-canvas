@@ -392,9 +392,6 @@ const SceneGenerationTab: React.FC = () => {
       
       const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize);
       
-      // Update analysis result card with the new unified results
-      setAnalysisResult(result);
-      
       // Apply analysis results to form
       setForm(prev => {
         return {
@@ -425,73 +422,152 @@ const SceneGenerationTab: React.FC = () => {
         };
       });
 
-      // Update analysis result card to show correct category based on user size
-      if (form.productSize) {
-        result.sizeCategory = getSizeCategoryFromStr(form.productSize);
-      }
-      setAnalysisResult(result);
+      // Update analysis result card to show correct category based on user size, preserving user's manual inputs
+      const updatedResult = {
+        ...result,
+        productName: form.productName || result.productName || '商品',
+        productCategory: form.productCategory || result.productCategory || '通用产品',
+        productSize: form.productSize || result.productSize || '',
+        sizeCategory: form.productSize ? getSizeCategoryFromStr(form.productSize) : result.sizeCategory,
+        material: form.material || result.material || '',
+        sellingPoints: form.sellingPoints || result.sellingPoints || '',
+        brandTone: form.brandTone || result.brandTone || '',
+        targetAudience: form.targetAudience || result.targetAudience || '',
+        usageScenario: form.usageScenario || result.usageScenario || '',
+      };
+      setAnalysisResult(updatedResult);
     } catch (err: any) {
       console.error('AI analysis failed:', err);
       setError('AI 分析失败，请手动填写信息或重试');
     } finally {
       setIsAnalyzing(false);
     }
-  }, [uploadedImages, form.userHint, form.productSize, boardType, referenceSceneImage]);
+  }, [uploadedImages, form, boardType, referenceSceneImage]);
 
   const runReferenceAnalysis = useCallback(async (image: UploadedImage) => {
     setIsAnalyzingReference(true);
     setError(null);
     try {
-      const base64 = await blobToBase64(image.file);
-      const result = await analyzeReferenceScene({
-        base64,
+      const refImgData = {
+        base64: await blobToBase64(image.file),
         mimeType: image.file.type
-      });
-      if (result) {
-        setForm(prev => ({ 
-          ...prev, 
+      };
+
+      if (uploadedImages.length > 0) {
+        // We have both product images and a reference scene image!
+        // Run a unified analysis to extract both product features and reference scene features.
+        const images = await Promise.all(
+          uploadedImages.map(async item => ({
+            base64: await blobToBase64(item.file),
+            mimeType: item.file.type,
+          }))
+        );
+
+        const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize);
+
+        // Apply analysis results to form
+        setForm(prev => ({
+          ...prev,
+          productName: prev.productName || result.productName,
+          productCategory: prev.productCategory || result.productCategory,
+          productType: result.productType,
+          productSize: prev.productSize || result.productSize,
+          material: prev.material || result.material,
+          sellingPoints: prev.sellingPoints || result.sellingPoints,
           sceneDirection: result.sceneDirection,
-          interactionHint: result.interactionHint || prev.interactionHint,
-          colorStyle: result.colorStyle || prev.colorStyle,
-          modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
-            ? result.modelPersonaPreset 
-            : prev.modelPersonaPreset
+          interactionHint: result.interactionHint,
+          colorStyle: result.colorStyle,
+          modelPersonaPreset: result.modelPersonaPreset,
+          targetAudience: prev.targetAudience || result.targetAudience,
+          modelEthnicity: result.modelEthnicity,
+          modelAgeGroup: result.modelAgeGroup,
+          modelFamilyStructure: result.modelFamilyStructure,
+          modelLifestyle: result.modelLifestyle,
+          usageScenario: prev.usageScenario || result.usageScenario,
+          brandTone: prev.brandTone || result.brandTone,
+          sizeCategory: prev.productSize ? getSizeCategoryFromStr(prev.productSize) : result.sizeCategory,
+          cameraDevice: prev.cameraDevice === 'auto' ? result.recommendedCamera : prev.cameraDevice,
+          shotType: prev.shotType === 'auto' ? result.recommendedShotType : prev.shotType,
         }));
-        
-        setAnalysisResult(prev => {
-          const baseResult = prev || {
-            productName: '商品',
-            productCategory: '通用产品',
-            productType: 'general',
-            productSize: '',
-            material: '',
-            sellingPoints: '',
+
+        // Preserve user inputs in analysisResult
+        const updatedResult = {
+          ...result,
+          productName: form.productName || result.productName || '商品',
+          productCategory: form.productCategory || result.productCategory || '通用产品',
+          productSize: form.productSize || result.productSize || '',
+          sizeCategory: form.productSize ? getSizeCategoryFromStr(form.productSize) : result.sizeCategory,
+          material: form.material || result.material || '',
+          sellingPoints: form.sellingPoints || result.sellingPoints || '',
+          brandTone: form.brandTone || result.brandTone || '',
+          targetAudience: form.targetAudience || result.targetAudience || '',
+          usageScenario: form.usageScenario || result.usageScenario || '',
+        };
+        setAnalysisResult(updatedResult);
+        setShowAnalysisDetail(true);
+      } else {
+        // No product images uploaded yet, analyze reference scene only
+        const result = await analyzeReferenceScene(refImgData);
+        if (result) {
+          setForm(prev => ({ 
+            ...prev, 
             sceneDirection: result.sceneDirection,
-            targetAudience: '',
-            modelPersonaPreset: result.modelPersonaPreset || '美国都市女性',
-            modelEthnicity: '自动匹配',
-            modelAgeGroup: '20-30岁',
-            modelFamilyStructure: '单人',
-            modelLifestyle: '居家休闲',
-            colorStyle: result.colorStyle || '',
-            usageScenario: '',
-            brandTone: '',
-            interactionHint: result.interactionHint || 'naturally interacting with the product',
-            recommendedCamera: 'iphone',
-            recommendedShotType: 'medium',
-            sizeCategory: 'medium',
-          };
-          return { 
-            ...baseResult, 
-            sceneDirection: result.sceneDirection,
-            interactionHint: result.interactionHint || baseResult.interactionHint,
-            colorStyle: result.colorStyle || baseResult.colorStyle,
+            interactionHint: result.interactionHint || prev.interactionHint,
+            colorStyle: result.colorStyle || prev.colorStyle,
             modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
               ? result.modelPersonaPreset 
-              : baseResult.modelPersonaPreset
-          };
-        });
-        setShowAnalysisDetail(true);
+              : prev.modelPersonaPreset
+          }));
+          
+          setAnalysisResult(prev => {
+            const baseResult = prev || {
+              productName: form.productName || '商品',
+              productCategory: form.productCategory || '通用产品',
+              productType: form.productType || 'general',
+              productSize: form.productSize || '',
+              material: form.material || '',
+              sellingPoints: form.sellingPoints || '',
+              sceneDirection: result.sceneDirection,
+              targetAudience: form.targetAudience || '',
+              modelPersonaPreset: result.modelPersonaPreset || form.modelPersonaPreset || '美国都市女性',
+              modelEthnicity: form.modelEthnicity || '自动匹配',
+              modelAgeGroup: form.modelAgeGroup || '20-30岁',
+              modelFamilyStructure: form.modelFamilyStructure || '单人',
+              modelLifestyle: form.modelLifestyle || '居家休闲',
+              colorStyle: result.colorStyle || form.colorStyle || '',
+              usageScenario: form.usageScenario || '',
+              brandTone: form.brandTone || '',
+              interactionHint: result.interactionHint || form.interactionHint || 'naturally interacting with the product',
+              recommendedCamera: (['iphone', 'fuji', 'canon', 'sony', 'polaroid'].includes(form.cameraDevice) 
+                ? form.cameraDevice 
+                : 'iphone') as 'auto' | 'iphone' | 'fuji' | 'canon' | 'sony' | 'polaroid',
+              recommendedShotType: (['wide', 'medium', 'close', 'macro'].includes(form.shotType)
+                ? form.shotType
+                : 'medium') as 'auto' | 'wide' | 'medium' | 'close' | 'macro',
+              sizeCategory: form.sizeCategory || 'medium',
+            };
+            return { 
+              ...baseResult, 
+              sceneDirection: result.sceneDirection,
+              interactionHint: result.interactionHint || baseResult.interactionHint,
+              colorStyle: result.colorStyle || baseResult.colorStyle,
+              modelPersonaPreset: (result.modelPersonaPreset && result.modelPersonaPreset !== '无模特（纯产品）') 
+                ? result.modelPersonaPreset 
+                : baseResult.modelPersonaPreset,
+              // Strictly enforce user-provided fields
+              productName: form.productName || baseResult.productName,
+              productCategory: form.productCategory || baseResult.productCategory,
+              productSize: form.productSize || baseResult.productSize,
+              sizeCategory: form.productSize ? getSizeCategoryFromStr(form.productSize) : baseResult.sizeCategory,
+              material: form.material || baseResult.material,
+              sellingPoints: form.sellingPoints || baseResult.sellingPoints,
+              brandTone: form.brandTone || baseResult.brandTone,
+              targetAudience: form.targetAudience || baseResult.targetAudience,
+              usageScenario: form.usageScenario || baseResult.usageScenario,
+            };
+          });
+          setShowAnalysisDetail(true);
+        }
       }
     } catch (err) {
       console.error('Reference scene analysis failed:', err);
@@ -499,7 +575,7 @@ const SceneGenerationTab: React.FC = () => {
     } finally {
       setIsAnalyzingReference(false);
     }
-  }, [analysisResult]);
+  }, [analysisResult, form, uploadedImages, boardType]);
 
   // Auto-trigger analysis when images are uploaded - DISABLED by user request for manual control
   /* 

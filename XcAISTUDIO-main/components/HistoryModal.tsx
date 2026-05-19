@@ -223,7 +223,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 <div className="p-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                         <h2 className="text-xl font-bold text-white tracking-wider flex items-center gap-2">
-                            <span className="text-cyan-400">✨</span> 历史记录
+                            <span className="text-emerald-400">✨</span> 历史记录
                         </h2>
                         
                         {/* Tab 栏切换按钮组 */}
@@ -242,10 +242,10 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                             setActiveTab(tab.id as TabType);
                                             handleExitSelectionMode();
                                         }}
-                                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all ${
+                                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all border ${
                                             isActive 
-                                                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md' 
-                                                : 'text-zinc-400 hover:text-white'
+                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-sm' 
+                                                : 'bg-transparent text-zinc-400 border-transparent hover:text-zinc-200'
                                         }`}
                                     >
                                         <Icon size={13} />
@@ -260,7 +260,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                     <div className="flex items-center gap-3 self-end md:self-auto">
                         {isSelectionMode ? (
                             <div className="flex items-center gap-3 animate-in slide-in-from-right-4 duration-300">
-                                <span className="text-xs text-cyan-400 font-semibold bg-cyan-400/10 px-3 py-1.5 rounded-full border border-cyan-400/20">
+                                <span className="text-xs text-emerald-400 font-semibold bg-emerald-400/10 px-3 py-1.5 rounded-full border border-emerald-400/20">
                                     已选 {selectedIds.size} 项
                                 </span>
                                 
@@ -297,7 +297,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                     onClick={() => setIsSelectionMode(true)}
                                     className="flex items-center gap-1.5 px-4 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-full border border-white/5 text-xs font-semibold transition-all hover:scale-105"
                                 >
-                                    <CheckSquare size={13} className="text-cyan-400" />
+                                    <CheckSquare size={13} className="text-emerald-400" />
                                     批量操作
                                 </button>
                             )
@@ -338,7 +338,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                         }}
                                         className={`group relative flex flex-col bg-[#111115]/80 border rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 ${
                                             isSelected 
-                                                ? 'border-cyan-500/80 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/30' 
+                                                ? 'border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/30' 
                                                 : 'border-white/5 hover:border-white/20 hover:shadow-[0_10px_25px_rgba(0,0,0,0.5)]'
                                         }`}
                                     >
@@ -376,7 +376,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                                         <div className="flex justify-end gap-2">
                                                             <button
                                                                 onClick={(e) => handleDownload(e, item)}
-                                                                className="p-1.5 bg-black/60 hover:bg-cyan-500 text-white rounded-lg border border-white/5 hover:border-cyan-400 transition-all hover:scale-105"
+                                                                className="p-1.5 bg-black/60 hover:bg-emerald-500 text-white rounded-lg border border-white/5 hover:border-emerald-400 transition-all hover:scale-105"
                                                                 title="下载到本地"
                                                             >
                                                                 <Download size={12} />
@@ -393,7 +393,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                                         {/* 导入画布的主操作按钮 */}
                                                         <div className="space-y-1.5">
                                                             <div className="text-[10px] text-zinc-400 font-semibold">{formatTimestamp(item.timestamp)}</div>
-                                                            <div className="w-full py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-bold rounded-lg text-center shadow-lg transition-all hover:from-cyan-400 hover:to-blue-500">
+                                                            <div className="w-full py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold rounded-lg text-center shadow-lg transition-all hover:from-emerald-400 hover:to-teal-500">
                                                                 导入画布
                                                             </div>
                                                         </div>
@@ -404,7 +404,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                             /* 2. 音频卡片布局 (特殊精美的音乐卡片) */
                                             <div className="p-4 flex flex-col justify-between min-h-[140px] bg-zinc-900/40 relative overflow-hidden group/audio">
                                                 {/* 流光幻彩背景渐变圈 */}
-                                                <div className="absolute -right-10 -bottom-10 w-24 h-24 bg-gradient-to-tr from-cyan-500/10 to-blue-500/10 rounded-full blur-xl group-hover/audio:scale-150 transition-all duration-700 pointer-events-none"></div>
+                                                <div className="absolute -right-10 -bottom-10 w-24 h-24 bg-gradient-to-tr from-emerald-500/10 to-teal-500/10 rounded-full blur-xl group-hover/audio:scale-150 transition-all duration-700 pointer-events-none"></div>
                                                 
                                                 <div className="flex items-start gap-3 relative z-10">
                                                     {/* 音频图标或正在播放按钮 */}
@@ -412,7 +412,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                                         onClick={(e) => handleTogglePlayAudio(e, item)}
                                                         className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all ${
                                                             playingAudioId === item.id
-                                                                ? 'bg-cyan-500 border-cyan-400 text-black shadow-[0_0_15px_rgba(6,182,212,0.4)] animate-pulse'
+                                                                ? 'bg-emerald-500 border-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.4)] animate-pulse'
                                                                 : 'bg-zinc-800 hover:bg-zinc-700 border-white/5 text-zinc-300'
                                                         }`}
                                                     >
@@ -438,7 +438,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                                     <div className="mt-4 flex flex-col gap-1 animate-in fade-in duration-300 relative z-10">
                                                         <div className="w-full bg-zinc-800 rounded-full h-1 overflow-hidden">
                                                             <div 
-                                                                className="bg-cyan-400 h-full rounded-full transition-all duration-100"
+                                                                className="bg-emerald-400 h-full rounded-full transition-all duration-100"
                                                                 style={{ width: `${(audioCurrentTime / (audioDuration || 1)) * 100}%` }}
                                                             ></div>
                                                         </div>
@@ -454,7 +454,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                                             <div className="flex gap-2">
                                                                 <button
                                                                     onClick={(e) => handleDownload(e, item)}
-                                                                    className="p-1 hover:text-cyan-400 hover:bg-white/5 rounded transition-all"
+                                                                    className="p-1 hover:text-emerald-400 hover:bg-white/5 rounded transition-all"
                                                                     title="下载音频"
                                                                 >
                                                                     <Download size={12} />
@@ -477,7 +477,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                         {isSelectionMode && (
                                             <div className="absolute top-3 left-3 z-10 bg-black/60 rounded-full p-0.5 border border-white/10 backdrop-blur-sm transition-all hover:scale-110">
                                                 {isSelected ? (
-                                                    <div className="w-4 h-4 bg-cyan-500 rounded-full flex items-center justify-center text-black">
+                                                    <div className="w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center text-black">
                                                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
                                                             <path d="M20 6L9 17l-5-5" />
                                                         </svg>
@@ -490,9 +490,9 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
                                         {/* 提示：点击即可导入画布 */}
                                         {!isSelectionMode && activeTab !== 'audio' && (
-                                            <div className="p-2.5 bg-[#111115] border-t border-white/5 flex items-center justify-between text-[10px] text-zinc-500 font-semibold group-hover:text-cyan-400 transition-colors">
+                                            <div className="p-2.5 bg-[#111115] border-t border-white/5 flex items-center justify-between text-[10px] text-zinc-500 font-semibold group-hover:text-emerald-400 transition-colors">
                                                 <span className="truncate max-w-[80%]">{item.title || '创意图像'}</span>
-                                                <span className="text-zinc-600 group-hover:text-cyan-400/80 transition-colors">导入 →</span>
+                                                <span className="text-zinc-600 group-hover:text-emerald-400/80 transition-colors">导入 →</span>
                                             </div>
                                         )}
                                     </div>
@@ -504,9 +504,9 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                         <div className="flex flex-col items-center justify-center py-24 animate-in fade-in zoom-in duration-500">
                             {/* 发光霓虹光圈背景 */}
                             <div className="relative w-28 h-28 bg-[#111115] border border-white/10 rounded-full flex items-center justify-center shadow-[0_15px_30px_rgba(0,0,0,0.6)]">
-                                <div className="absolute inset-0 rounded-full bg-cyan-500/10 blur-xl opacity-60 animate-pulse pointer-events-none duration-1000"></div>
+                                <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-xl opacity-60 animate-pulse pointer-events-none duration-1000"></div>
                                 <div className="w-16 h-16 bg-[#16161c] border border-white/5 rounded-full flex items-center justify-center text-zinc-500">
-                                    <Inbox className="w-8 h-8 opacity-40 text-cyan-400/70" />
+                                    <Inbox className="w-8 h-8 opacity-40 text-emerald-400/70" />
                                 </div>
                             </div>
                             
