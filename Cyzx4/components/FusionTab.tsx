@@ -240,6 +240,11 @@ const FusionTab: React.FC = () => {
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<StylePreset | null>(null);
 
+  // For 'clothing-to-3d-mannequin' style parameters
+  const [viewAngle, setViewAngle] = useState<'front' | 'three_quarter'>('three_quarter');
+  const [renderStyle, setRenderStyle] = useState<'real' | 'render'>('real');
+  const [shadowStyle, setShadowStyle] = useState<'none' | 'subtle'>('subtle');
+
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
@@ -459,7 +464,26 @@ const FusionTab: React.FC = () => {
       let negativePrompt = undefined;
       
       if (selectedStyle) {
-          const stylePrompt = images.length > 0 ? selectedStyle.promptWithRef : selectedStyle.prompt;
+          let stylePrompt = images.length > 0 ? selectedStyle.promptWithRef : selectedStyle.prompt;
+          
+          if (selectedStyle.id === 'clothing-to-3d-mannequin') {
+              // Construct parameters string
+              const anglePrompt = viewAngle === 'front' ? 'front view' : '3/4 front-right side view';
+              const styleTypePrompt = renderStyle === 'real' ? 'high-end studio photography feel' : 'clean 3D digital render style';
+              const shadowPrompt = shadowStyle === 'none' ? 'no shadows, flat cutout look' : 'soft natural contact shadow at the bottom';
+              
+              const paramText = `camera angle: ${anglePrompt}, rendering style: ${styleTypePrompt}, shadow: ${shadowPrompt}`;
+              
+              stylePrompt = stylePrompt.replace('[PARAMETERS]', paramText);
+              
+              // Also replace default "3/4 side view by default unless specified" with the selected angle
+              if (viewAngle === 'front') {
+                  stylePrompt = stylePrompt.replace('3/4 side view by default unless specified', 'front view');
+              } else {
+                  stylePrompt = stylePrompt.replace('3/4 side view by default unless specified', '3/4 front-right side view');
+              }
+          }
+          
           // Replace [SUBJECT] in style prompt if it exists, otherwise append
           if (stylePrompt.includes('[SUBJECT]')) {
              generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
@@ -864,6 +888,77 @@ const FusionTab: React.FC = () => {
                 </div>
               </div>
 
+              {/* Style Specific Parameters - 自动识别服装转3D */}
+              {selectedStyle?.id === 'clothing-to-3d-mannequin' && (
+                <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm flex flex-col gap-4 animate-in slide-in-from-top-2 duration-300">
+                  <div className="flex items-center gap-2 border-b border-pastel-border pb-2">
+                    <Sparkles className="w-4 h-4 text-pastel-highlight" />
+                    <span className="text-xs font-bold text-pastel-text">“服装转3D” 高级参数调节</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* View Angle */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-pastel-muted mb-1.5">
+                        视角选择
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={viewAngle}
+                          onChange={(e) => setViewAngle(e.target.value as 'front' | 'three_quarter')}
+                          className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-1.5 px-2.5 text-xs text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight/50 transition-all font-medium cursor-pointer"
+                        >
+                          <option value="three_quarter">3/4 侧前视角 (默认)</option>
+                          <option value="front">正面视角</option>
+                        </select>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
+                          <svg width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Rendering Style */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-pastel-muted mb-1.5">
+                        生成风格
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={renderStyle}
+                          onChange={(e) => setRenderStyle(e.target.value as 'real' | 'render')}
+                          className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-1.5 px-2.5 text-xs text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight/50 transition-all font-medium cursor-pointer"
+                        >
+                          <option value="real">真实棚拍 (质感写实)</option>
+                          <option value="render">3D渲染 (纯净数字)</option>
+                        </select>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
+                          <svg width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Shadow Style */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-pastel-muted mb-1.5">
+                        阴影效果
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={shadowStyle}
+                          onChange={(e) => setShadowStyle(e.target.value as 'none' | 'subtle')}
+                          className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-1.5 px-2.5 text-xs text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight/50 transition-all font-medium cursor-pointer"
+                        >
+                          <option value="subtle">轻微阴影 (自然立体)</option>
+                          <option value="none">无阴影 (平面抠图)</option>
+                        </select>
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
+                          <svg width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Prompt Area */}
               <div className="flex-1 flex flex-col relative">
@@ -1421,6 +1516,11 @@ const FusionTab: React.FC = () => {
           const wideStyles = ['model-clothing-extraction', 'master-model-no-ref', 'master-model-with-ref'];
           if (style?.id && wideStyles.includes(style.id)) {
             setAspectRatio(AspectRatio.LANDSCAPE_16_9);
+          }
+          if (style?.id === 'clothing-to-3d-mannequin') {
+            setViewAngle('three_quarter');
+            setRenderStyle('real');
+            setShadowStyle('subtle');
           }
         }}
         currentSelectedId={selectedStyle?.id}

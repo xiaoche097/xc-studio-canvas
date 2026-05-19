@@ -96,7 +96,7 @@ export const STYLE_PRESETS: StylePreset[] = [
         category: '电商',
         previewUrl: '/styles/clothing_to_3d.png',
         description: '实拍图转立体电商单品图（鬼影效果）。支持参数调节：真实棚拍/3D渲染、阴影=无/轻微、视角=正面/3-4侧前等。',
-        prompt: 'professional 3D ghost mannequin photography of [SUBJECT], voluminous and naturally shaped garment, invisible model effect, three-dimensional representation. Pure white background #FFFFFF, soft professional studio lighting, detailed fabric texture, premium product catalog style, clean edges, sharp focus.',
+        prompt: 'professional 3D ghost mannequin photography of [SUBJECT], voluminous and naturally shaped garment, invisible model effect, three-dimensional representation. Pure white background #FFFFFF, soft professional studio lighting, detailed fabric texture, premium product catalog style, clean edges, sharp focus. [PARAMETERS]',
         promptWithRef: 'professional 3D clothing extraction of [SUBJECT] following reference structure, 3/4 side view by default unless specified, ghost mannequin effect (invisible model), preserving exact silhouette, button placement, and fabric texture from reference. Naturally voluminous, high-end studio photography feel, pure white background #FFFFFF, soft natural shadows. [PARAMETERS]',
         negativePrompt: 'human, person, face, head, skin, hands, feet, hair, limbs, blurry, low quality, flat illustration, vector, 2d, hanger, dummy, background objects, text, watermark, logo, messy lighting, noisy.'
     },
