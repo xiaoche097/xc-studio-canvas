@@ -7,14 +7,16 @@ import {
     Camera, UserCircle, Cpu, ChevronUp, Edit3, Settings,
     FileText, Smartphone, Film, Eye, Maximize, Scan, Target
 } from 'lucide-react';
-import { generateImageToImage, blobToBase64, compressImage } from '../services/geminiService';
+import { generateImageToImage, blobToBase64, compressImage, editGeneratedImage } from '../services/geminiService';
 import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, getAiClient } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { storageService } from '../../services/storageService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 import { extractEdges } from '../utils/imageProcessor';
+import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
+import { CLOTHING_POSES } from '../constants/clothingPresets';
 
 interface UploadedImage {
     file: File;
@@ -84,10 +86,15 @@ const HeroImageTab: React.FC = () => {
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
     const [isSafeMode, setIsSafeMode] = useState(false); // 动作安全模式
+    const [isPoseOnly, setIsPoseOnly] = useState(true); // 仅参考姿态 (默认开启，自动提取线稿以消除背景干扰)
     const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 场景安全模式
     const [isSafeModeModel, setIsSafeModeModel] = useState(false); // 模特安全模式
     const [isFaceOnly, setIsFaceOnly] = useState(false); // 仅参考脸型
     const [isSceneOnly, setIsSceneOnly] = useState(false); // 仅参考场景
+    const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 正在自动净化场景图
+    const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 正在自动净化产品素材图
+    const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 是否开启产品图AI去噪净化
+    const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 控制AI模特规则上传指南弹窗的显示
     
     // Photo controls
     const [cameraDevice, setCameraDevice] = useState('智能推荐');
@@ -197,7 +204,57 @@ const HeroImageTab: React.FC = () => {
             setAspectRatio(detectedRatio);
         }
         const processed = await processFiles(files);
-        setProductImages(prev => [...prev, ...processed].slice(0, 4));
+        
+        if (isProductPurifyEnabled && processed.length > 0) {
+            setIsPurifyingProduct(true);
+            setError(null);
+            try {
+                const purified = await Promise.all(processed.map(async (img) => {
+                    // 1. 快速检测产品图背景中是否包含衣架、画框、挂钩等干扰
+                    const ai = getAiClient();
+                    const checkPrompt = "Analyze this product photo. Does the background contain any distracting items such as clothes hangers, hooks, picture frames on the wall, stands, furniture, or complex messy background? Respond with ONLY 'yes' or 'no' in lowercase.";
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-3.1-flash-lite-preview',
+                        contents: {
+                            parts: [
+                                { inlineData: { mimeType: img.mime!, data: img.base64! } },
+                                { text: checkPrompt }
+                            ]
+                        }
+                    });
+                    const answer = (response.text || '').trim().toLowerCase();
+                    
+                    if (answer.includes('yes')) {
+                        console.log("[Product Purify] Distractions detected in product image. Purifying product background...");
+                        // 2. 调用 editGeneratedImage 擦除衣服以外的背景、衣架和画框
+                        const editPrompt = "Selectively remove all background noise, hangers, wall hooks, wall frames, art frames, picture borders, stands, and messy environment shadows. Do not touch or modify the clothing garment product itself. Replace the background with a completely solid, clean, seamless studio light gray or white background. Keep the exact fabric texture, print pattern, and shape of the clothing perfectly.";
+                        const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
+                        if (results && results.length > 0) {
+                            const cleanBase64Data = results[0];
+                            const parts = cleanBase64Data.split(',');
+                            const cleanBase64 = parts[1];
+                            const cleanMime = parts[0].split(':')[1].split(';')[0];
+                            return {
+                                ...img,
+                                preview: cleanBase64Data,
+                                base64: cleanBase64,
+                                mime: cleanMime
+                            };
+                        }
+                    }
+                    return img;
+                }));
+                setProductImages(prev => [...prev, ...purified].slice(0, 4));
+            } catch (err) {
+                console.error("Purify product image failed:", err);
+                // 降级回退到原始图片
+                setProductImages(prev => [...prev, ...processed].slice(0, 4));
+            } finally {
+                setIsPurifyingProduct(false);
+            }
+        } else {
+            setProductImages(prev => [...prev, ...processed].slice(0, 4));
+        }
         setError(null);
     };
 
@@ -211,7 +268,53 @@ const HeroImageTab: React.FC = () => {
     const handleSceneUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
-        setSceneReferences(prev => [...prev, ...processed].slice(0, 3));
+        
+        setIsPurifyingScene(true);
+        setError(null);
+        try {
+            const purified = await Promise.all(processed.map(async (img) => {
+                // 1. 快速检测图片中是否包含人物
+                const ai = getAiClient();
+                const checkPrompt = "Analyze this image. Does it contain any humans, models, people, or persons? Respond with ONLY 'yes' or 'no' in lowercase.";
+                const response = await ai.models.generateContent({
+                    model: 'gemini-3.1-flash-lite-preview',
+                    contents: {
+                        parts: [
+                            { inlineData: { mimeType: img.mime!, data: img.base64! } },
+                            { text: checkPrompt }
+                        ]
+                    }
+                });
+                const answer = (response.text || '').trim().toLowerCase();
+                
+                if (answer.includes('yes')) {
+                    console.log("[Scene Purify] Person detected in scene reference. Purifying background...");
+                    // 2. 调用 editGeneratedImage 去除人物主体，净化背景
+                    const editPrompt = "Remove all people, persons, models, and humans from the image, and naturally fill in and inpaint the background details behind them to create a clean, empty room/space scene. Keep all other furniture, lighting, walls, windows, and architectural elements exactly identical.";
+                    const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
+                    if (results && results.length > 0) {
+                        const cleanBase64Data = results[0];
+                        const parts = cleanBase64Data.split(',');
+                        const cleanBase64 = parts[1];
+                        const cleanMime = parts[0].split(':')[1].split(';')[0];
+                        return {
+                            ...img,
+                            preview: cleanBase64Data,
+                            base64: cleanBase64,
+                            mime: cleanMime
+                        };
+                    }
+                }
+                return img;
+            }));
+            setSceneReferences(prev => [...prev, ...purified].slice(0, 3));
+        } catch (err) {
+            console.error("Purify scene image failed:", err);
+            // 回退到原始图片
+            setSceneReferences(prev => [...prev, ...processed].slice(0, 3));
+        } finally {
+            setIsPurifyingScene(false);
+        }
         setError(null);
     };
 
@@ -295,12 +398,12 @@ const HeroImageTab: React.FC = () => {
         }, 1200);
 
         try {
-            // 1. 预处理所有图片（如果开启安全模式则转换为线稿）
-            const processRefImage = async (img: UploadedImage | null, isSafe: boolean) => {
+            // 1. 预处理所有图片（如果开启安全模式或仅参考姿态，则动作图转换为线稿线段以剔除背景干扰）
+            const processRefImage = async (img: UploadedImage | null, isSafeOrPoseOnly: boolean) => {
                 if (!img) return null;
                 let b64 = img.base64!;
                 let mime = img.mime!;
-                if (isSafe) {
+                if (isSafeOrPoseOnly) {
                     const dataUrl = await extractEdges(`data:${mime};base64,${b64}`);
                     const parts = dataUrl.split(',');
                     if (parts.length > 1) {
@@ -312,7 +415,7 @@ const HeroImageTab: React.FC = () => {
             };
 
             const processedActions = await Promise.all(
-                actionReferences.map(img => processRefImage(img, isSafeMode))
+                actionReferences.map(img => processRefImage(img, isSafeMode || isPoseOnly))
             );
             const processedModel = await processRefImage(modelReference, isSafeModeModel);
             const processedScenes = await Promise.all(
@@ -387,12 +490,16 @@ const HeroImageTab: React.FC = () => {
             # AGENT STRATEGY: ${strategy}
             # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
             
-            # CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]. You MUST preserve its structure, texture, cut, and pattern EXACTLY. Do NOT allow any stylistic drift. The product in the output must be 100% identical to the source product asset.
+            # CRITICAL REQUIREMENT - MAXIMUM PRODUCT FIDELITY (HIGHEST PRIORITY): 
+            The FIRST IMAGE is the [PRODUCT ASSET]. You MUST preserve its exact structural design, clothing shape, collar style, neck cuts, sleeves, pockets, fabric texture, prints/patterns (e.g. leopard print or stripes), stitching, and materials perfectly. 
+            The clothing on the generated model MUST be a 100% pixel-accurate high-fidelity replica of this product asset, with ZERO structure changes or textile/fabric details loss. 
+            **BACKGROUND NOISE ISOLATION (STRICT)**: You MUST completely and absolutely ignore, block, and discard any background elements present in the product asset image, including clothes hangers, hooks, picture frames on the wall, hanging art, wall stripes, wooden frames, shadow boards, stands, or room walls. 
+            DO NOT generate or allow ANY of these product background items to appear in the final model's scene background. You must isolate ONLY the clothing itself from the product asset.
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${modelReference ? `# MODEL IDENTITY FIDELITY (MANDATORY): The generated model MUST have the EXACT SAME facial features, face shape, eyes, nose, lips, hair color/texture, and overall identity as the provided model reference image. Replicate her look with 100% high-fidelity precision. Any face alteration, distortion, or stylistic drift of the model's look is STRICTLY PROHIBITED.` : ''}
+            ${modelReference ? `# MODEL IDENTITY AND BODY SHAPE FIDELITY (CRITICAL): The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided model reference image. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in the model reference image. The clothing on the generated model MUST be the product asset from Image 1, and the pose must follow the pose directive.` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReferences.length > 0 ? `# POSE: Replicate the human pose from the pose reference images while KEEPING the product structure locked.` : ''}
+            ${actionReferences.length > 0 ? `# POSE ANCHOR DIRECTIVE (CRITICAL): Replicate the EXACT human pose, body posture, skeletal alignment, hand positions, and camera framing from the action reference images. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, furniture, colors, textures, lighting, or scene details present in the action reference images. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
             ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference image EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
@@ -403,6 +510,21 @@ const HeroImageTab: React.FC = () => {
             `;
 
             const countToGenerate = actionReferences.length > 1 ? actionReferences.length : generateCount;
+
+            // 检查是否为睡衣/家居服系列产品
+            const keywords = ['睡衣', 'pajama', 'sleepwear', '家居服', 'loungewear', '睡裤', '睡袍', 'nightgown', 'bathrobe'];
+            const productNameLower = (form.productName || '').toLowerCase();
+            const productCategoryLower = (form.productCategory || '').toLowerCase();
+            const isSleepwear = keywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+
+            // 检查是否为普通服装/针织衫/外套系列产品
+            const clothingKeywords = [
+                '衣服', '女装', '男装', '服装', '毛衣', '开衫', '外套', '针织衫', '针织', 
+                '裙子', '连衣裙', '裤子', 't恤', '卫衣', '大衣', '风衣', '衬衫', '上衣', 
+                'clothing', 'sweater', 'knitwear', 'cardigan', 'jacket', 'pants', 'skirt', 
+                'shirt', 'top', 'dress', 'hoodie', 'apparel', 'garment', 'knit'
+            ];
+            const isClothing = clothingKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
 
             // Define 10 highly varied, high-end professional commercial studio camera angles and modeling poses
             const DIVERSE_POSES = [
@@ -418,17 +540,59 @@ const HeroImageTab: React.FC = () => {
                 "medium shot from high-angle perspective, showing the model walking forward with relaxed shoulders, looking forward"
             ];
 
+            // 彻底洗牌打乱 230 个睡衣姿态预设列表，确保批量生成的每一张图分配到的睡衣姿态都是绝对随机且不重复的
+            let shuffledSleepwearPoses = [...SLEEPWEAR_POSES];
+            if (isSleepwear) {
+                for (let k = shuffledSleepwearPoses.length - 1; k > 0; k--) {
+                    const r = Math.floor(Math.random() * (k + 1));
+                    [shuffledSleepwearPoses[k], shuffledSleepwearPoses[r]] = [shuffledSleepwearPoses[r], shuffledSleepwearPoses[k]];
+                }
+            }
+
+            // 彻底洗牌打乱 160 个普通服装姿态预设列表，确保批量生成的每一张图分配到的姿态都是绝对随机且不重复的
+            let shuffledClothingPoses = [...CLOTHING_POSES];
+            if (isClothing && !isSleepwear) {
+                for (let k = shuffledClothingPoses.length - 1; k > 0; k--) {
+                    const r = Math.floor(Math.random() * (k + 1));
+                    [shuffledClothingPoses[k], shuffledClothingPoses[r]] = [shuffledClothingPoses[r], shuffledClothingPoses[k]];
+                }
+            }
+
             const batchPromises = Array.from({ length: countToGenerate }, (_, i) => {
                 const specificInputImages = getInputImagesForIndex(actionReferences.length > 1 ? i : undefined);
                 
                 let finalPrompt = prompt;
-                if (actionReferences.length === 0 && countToGenerate > 1) {
-                    const poseSpec = DIVERSE_POSES[i % DIVERSE_POSES.length];
-                    finalPrompt = prompt.replace(
-                        "动作：智能匹配姿态",
-                        `动作：智能变化 (${poseSpec})`
-                    );
-                    finalPrompt += `\n# POSE AND ANGLE DIVERSIFICATION: For this specific image out of the batch, you MUST generate the model in this pose and camera angle: ${poseSpec}. Keep the face structure and environment identical, but vary the body position and shot perspective strictly to match this directive.\n`;
+                if (actionReferences.length === 0) {
+                    if (isSleepwear) {
+                        // 顺序从洗牌后的列表中抽取动作，实现“100%彻底打乱且不重复用到”
+                        const posePreset = shuffledSleepwearPoses[i % shuffledSleepwearPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        
+                        finalPrompt = finalPrompt.replace(
+                            "动作：智能匹配姿态",
+                            `动作：睡衣预设姿态 - ${posePreset.name} (${poseSpec})`
+                        );
+                        // 极大强化对于动作姿态的描述，赋予最高权重与优先级，彻底规避呆板普通的站姿
+                        finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT lifestyle pajama pose and body posture described here: ${poseSpec}. Completely ignore, bypass, and discard standard, rigid, artificial standing model poses. Focus heavily and render the relaxed limb angles, cozy physical twists, soft pajama creases, leg bends, and comfy sleepy lifestyle poses with 100% fidelity. The final image pose must strictly mirror this directive.\n`;
+                    } else if (isClothing) {
+                        // 顺序从洗牌后的列表中抽取普通服装主图姿态，实现“100%彻底打乱且不重复用到”
+                        const posePreset = shuffledClothingPoses[i % shuffledClothingPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        
+                        finalPrompt = finalPrompt.replace(
+                            "动作：智能匹配姿态",
+                            `动作：服装预设姿态 - ${posePreset.name} (${poseSpec})`
+                        );
+                        // 强化普通服装动作渲染指令，高权重锁定，杜绝死板姿势，强化开衫/针织衫等日常成衣的质感与版型展现
+                        finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT commercial fashion display pose described here: ${poseSpec}. Completely ignore and bypass awkward, rigid, standard dummy postures. Ensure the sweater/knitwear/clothing draping, hem adjustment, pocket insertions, shoulder exposure, or bag carrying action is rendered with 100% realism. The final model's pose and garment geometry must strictly adhere to this directive.\n`;
+                    } else if (countToGenerate > 1) {
+                        const poseSpec = DIVERSE_POSES[i % DIVERSE_POSES.length];
+                        finalPrompt = finalPrompt.replace(
+                            "动作：智能匹配姿态",
+                            `动作：智能变化 (${poseSpec})`
+                        );
+                        finalPrompt += `\n# POSE AND ANGLE DIVERSIFICATION: For this specific image out of the batch, you MUST generate the model in this pose and camera angle: ${poseSpec}. Keep the face structure and environment identical, but vary the body position and shot perspective strictly to match this directive.\n`;
+                    }
                 }
 
                 return generateImageToImage(specificInputImages, finalPrompt, {
@@ -457,6 +621,17 @@ const HeroImageTab: React.FC = () => {
         link.href = img;
         link.download = `hero-${Date.now()}-${idx}.png`;
         link.click();
+    };
+
+    const handleDownloadAll = () => {
+        generatedImages.forEach((img, idx) => {
+            setTimeout(() => {
+                const link = document.createElement('a');
+                link.href = img;
+                link.download = `hero-all-${Date.now()}-${idx + 1}.png`;
+                link.click();
+            }, idx * 250);
+        });
     };
 
     return (
@@ -522,27 +697,51 @@ const HeroImageTab: React.FC = () => {
 
                         {/* 2. Product Assets */}
                         <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
-                            <div className="flex items-center gap-2 mb-3">
-                                <h3 className="font-bold text-pastel-text text-sm">产品素材图</h3>
-                                <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-100 flex items-center gap-1 animate-pulse">
-                                    <CheckCircle2 className="w-2.5 h-2.5" />
-                                    产品一致性已锁定
-                                </span>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-pastel-text text-sm">产品素材图</h3>
+                                    <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-100 flex items-center gap-1 animate-pulse">
+                                        <CheckCircle2 className="w-2.5 h-2.5" />
+                                        产品一致性已锁定
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-purple-50/50 px-2 py-0.5 rounded-lg border border-purple-100 shadow-sm" title="开启后，AI在您上传图片时将自动检测并移除背景里的画框、相框、衣架、挂钩等干扰元素，只保留衣服主体">
+                                    <input 
+                                        type="checkbox" 
+                                        id="product-purify-toggle"
+                                        checked={isProductPurifyEnabled}
+                                        onChange={(e) => setIsProductPurifyEnabled(e.target.checked)}
+                                        className="w-3.5 h-3.5 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="product-purify-toggle" className="text-[10px] font-bold text-purple-700 cursor-pointer flex items-center gap-1">
+                                        <Sparkles className="w-2.5 h-2.5 text-purple-500" />
+                                        AI背景去噪净化
+                                    </label>
+                                </div>
                             </div>
                             <div 
-                                onClick={() => productInputRef.current?.click()} 
+                                onClick={() => !isPurifyingProduct && productInputRef.current?.click()} 
                                 onMouseEnter={() => setHoveredSlot('product')} 
                                 onMouseLeave={() => setHoveredSlot(null)}
                                 onDragOver={(e) => handleDragOver(e, 'product')}
                                 onDragLeave={handleDragLeave}
                                 onDrop={(e) => handleDrop(e, 'product')}
-                                className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all ${
+                                className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all overflow-hidden ${
                                     isDragging === 'product' || hoveredSlot === 'product'
                                     ? 'border-pastel-highlight bg-pastel-bg/30' 
                                     : 'border-pastel-border'
                                 }`}
                             >
                                 <input ref={productInputRef} type="file" multiple className="hidden" onChange={handleProductUpload} accept="image/*" />
+                                
+                                {isPurifyingProduct && (
+                                    <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-2 p-2">
+                                        <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
+                                        <span className="text-[11px] font-bold text-purple-700 animate-pulse">AI 智能去噪净化中...</span>
+                                        <span className="text-[8px] text-pastel-muted">正在擦除衣架、画框、墙面等背景杂质</span>
+                                    </div>
+                                )}
+
                                 {productImages.length > 0 ? (
                                     <div className="grid grid-cols-4 gap-2">
                                         {productImages.map((img, idx) => (
@@ -571,15 +770,26 @@ const HeroImageTab: React.FC = () => {
                                         <Zap className="w-4 h-4 text-purple-500" />
                                         <h3 className="font-bold text-pastel-text text-xs text-nowrap">动作参考图</h3>
                                     </div>
-                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，动作图将自动转化为线稿，并净化Prompt，以绕过敏感词拦截">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={isSafeMode}
-                                            onChange={(e) => setIsSafeMode(e.target.checked)}
-                                            className="w-3.5 h-3.5 text-purple-500 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
-                                        />
-                                        <span className="text-[10px] text-gray-500 group-hover:text-purple-600 transition-colors font-medium">安全脱敏模式</span>
-                                    </label>
+                                    <div className="flex items-center gap-3">
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="仅提取动作姿态，自动过滤和消除动作图中的背景与场景元素干扰（推荐开启）">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isPoseOnly}
+                                                onChange={(e) => setIsPoseOnly(e.target.checked)}
+                                                className="w-3.5 h-3.5 text-purple-500 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                            />
+                                            <span className="text-[10px] text-gray-500 group-hover:text-purple-600 transition-colors font-medium">仅参考姿态</span>
+                                        </label>
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，动作图将自动转化为线稿，并净化Prompt，以绕过敏感词拦截">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isSafeMode}
+                                                onChange={(e) => setIsSafeMode(e.target.checked)}
+                                                className="w-3.5 h-3.5 text-purple-500 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                            />
+                                            <span className="text-[10px] text-gray-500 group-hover:text-purple-600 transition-colors font-medium">安全脱敏</span>
+                                        </label>
+                                    </div>
                                 </div>
                                 <div 
                                     onClick={() => actionInputRef.current?.click()} 
@@ -661,7 +871,12 @@ const HeroImageTab: React.FC = () => {
                                     }`}
                                 >
                                     <input ref={sceneInputRef} type="file" multiple className="hidden" onChange={handleSceneUpload} accept="image/*" />
-                                    {sceneReferences.length > 0 ? (
+                                    {isPurifyingScene ? (
+                                        <div className="text-center py-4 flex flex-col items-center justify-center gap-2">
+                                            <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
+                                            <p className="text-[10px] text-orange-600 font-semibold animate-pulse">正在检测并自动净化场景（去除人像主体）...</p>
+                                        </div>
+                                    ) : sceneReferences.length > 0 ? (
                                         <div className="grid grid-cols-3 gap-1">
                                             {sceneReferences.map((img, idx) => (
                                                 <div key={idx} className="relative group/scene">
@@ -769,6 +984,27 @@ const HeroImageTab: React.FC = () => {
                                         />
                                     </div>
                                 </div>
+                            </div>
+                            
+                            {/* 模特图上传指南展示，平时只显示一个AI模特规则，点击可以放大查看 */}
+                            <div className="mt-3 bg-purple-50/40 border border-purple-100/60 rounded-xl px-3.5 py-2.5 flex items-center justify-between shadow-sm">
+                                <div className="flex items-center gap-2">
+                                    <span className="flex h-2 w-2 relative">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+                                    </span>
+                                    <span className="text-[11px] text-pastel-text font-bold">
+                                        如何上传以达到最高准确度？
+                                    </span>
+                                </div>
+                                <button 
+                                    type="button"
+                                    onClick={() => setShowModelGuideModal(true)} 
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg text-[10px] font-bold shadow-sm hover:from-purple-600 hover:to-indigo-600 transition-all hover:scale-[1.02] active:scale-95"
+                                >
+                                    <Sparkles className="w-3 h-3 text-white animate-pulse" />
+                                    AI模特规则
+                                </button>
                             </div>
                         </div>
 
@@ -936,12 +1172,24 @@ const HeroImageTab: React.FC = () => {
                                     <Sun className="w-5 h-5 text-orange-500" />
                                     <h3 className="font-bold text-pastel-text text-lg">生成结果</h3>
                                 </div>
-                                {error && (
-                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-medium border border-red-100 animate-fade-in">
-                                        <AlertCircle className="w-3 h-3" />
-                                        {error}
-                                    </div>
-                                )}
+                                <div className="flex items-center gap-3">
+                                    {error && (
+                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-medium border border-red-100 animate-fade-in">
+                                            <AlertCircle className="w-3 h-3" />
+                                            {error}
+                                        </div>
+                                    )}
+                                    {generatedImages.length > 0 && !isLoading && (
+                                        <button 
+                                            type="button"
+                                            onClick={handleDownloadAll}
+                                            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-lg text-xs font-black shadow-md hover:from-orange-600 hover:to-pink-600 hover:scale-[1.02] active:scale-95 transition-all animate-fade-in"
+                                        >
+                                            <Download className="w-3.5 h-3.5" />
+                                            全部下载 ({generatedImages.length})
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             <div className="flex-1 bg-pastel-bg/50 rounded-2xl border-2 border-dashed border-pastel-border flex flex-col relative overflow-hidden">
                                 {isLoading ? (
@@ -987,6 +1235,92 @@ const HeroImageTab: React.FC = () => {
                     <div className="relative max-w-5xl max-h-[90vh] bg-white rounded-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                         <img src={selectedPreview} className="max-h-[85vh] w-auto object-contain" alt="p" />
                         <button onClick={() => setSelectedPreview(null)} className="absolute top-4 right-4 p-2 bg-black/40 text-white rounded-full"><X className="w-6 h-6" /></button>
+                    </div>
+                </div>
+            )}
+
+            {/* AI模特规则放大查看弹窗 */}
+            {showModelGuideModal && (
+                <div 
+                    className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300 animate-fade-in"
+                    onClick={() => setShowModelGuideModal(false)}
+                >
+                    <div 
+                        className="relative max-w-md w-full bg-white rounded-3xl p-7 shadow-2xl border border-purple-50 flex flex-col gap-5 transform transition-all duration-300 scale-100 hover:shadow-purple-100/40"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* 头部标题区 */}
+                        <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
+                            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-purple-200 shrink-0">
+                                <Sparkles className="w-4.5 h-4.5 animate-pulse" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-extrabold text-gray-900 flex items-center gap-1.5">
+                                    AI 模特身份固定上传规则
+                                </h3>
+                                <p className="text-[10px] text-gray-400 font-medium">
+                                    遵循以下高精度提取准则，可让生成的商拍模特质量达到极致
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 规则条目卡片列表 */}
+                        <div className="space-y-3">
+                            {[
+                                {
+                                    num: "01",
+                                    title: "纯色或简单背景",
+                                    desc: "优先提供干净、白墙或单色背景的图片。避免背景中有复杂的货架、多人环境，有利于 AI 更加聚焦并提取模特五官与体态曲线。",
+                                    badgeColor: "bg-purple-50 text-purple-600 border border-purple-100"
+                                },
+                                {
+                                    num: "02",
+                                    title: "清晰正面半身特写",
+                                    desc: "推荐使用五官及发型清晰无遮挡、光线均匀的正面半身照片。避开强逆光、浓重侧光阴影或低头/仰头角度，保证长相提取准确度最高。",
+                                    badgeColor: "bg-blue-50 text-blue-600 border border-blue-100"
+                                },
+                                {
+                                    num: "03",
+                                    title: "穿着素色或紧身衣服",
+                                    desc: "强烈推荐让参考模特穿着紧身吊带、背心或贴身衣物。这能帮助 AI 完美且精准地提取模特的体型比例，不受宽大衣服误导。",
+                                    badgeColor: "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                },
+                                {
+                                    num: "04",
+                                    title: "避免首饰与配饰遮挡",
+                                    desc: "参考照片中严禁佩戴大镜框墨镜、大型项链、挂饰或遮阳帽等配饰。避免面部和颈部特征受干扰产生畸变。",
+                                    badgeColor: "bg-amber-50 text-amber-600 border border-amber-100"
+                                }
+                            ].map((item, idx) => (
+                                <div key={idx} className="flex gap-3.5 p-3 bg-pastel-bg/25 border border-pastel-border/60 rounded-2xl hover:border-purple-200 hover:bg-purple-50/10 transition-colors">
+                                    <div className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-black text-xs shrink-0 shadow-sm ${item.badgeColor}`}>
+                                        {item.num}
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <h4 className="text-xs font-extrabold text-gray-800">{item.title}</h4>
+                                        <p className="text-[10px] text-gray-500 leading-relaxed font-medium">{item.desc}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* 底部按钮区 */}
+                        <div className="flex gap-3 mt-1">
+                            <button 
+                                onClick={() => setShowModelGuideModal(false)}
+                                className="flex-1 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white rounded-xl text-xs font-black shadow-md shadow-purple-100/60 hover:scale-[1.01] active:scale-95 transition-all text-center"
+                            >
+                                我已了解，开始上传
+                            </button>
+                        </div>
+
+                        {/* 关闭按钮 */}
+                        <button 
+                            onClick={() => setShowModelGuideModal(false)} 
+                            className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
                     </div>
                 </div>
             )}

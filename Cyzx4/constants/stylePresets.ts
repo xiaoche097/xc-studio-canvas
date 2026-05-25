@@ -129,5 +129,15 @@ export const STYLE_PRESETS: StylePreset[] = [
         prompt: '将图片转成场景图：Professional e-commerce studio photography of the product on a PURE WHITE background #FFFFFF. High-key studio lighting, clean edges, crisp details, soft contact shadow only. Maintain the exact lighting, texture, and material feel of the original product. No environment, no props, no distracting background.',
         promptWithRef: '将图片转成场景图：Professional e-commerce studio retouching on a PURE WHITE background #FFFFFF. Use the reference image for product identity. Maintain the product\'s original lighting, shadows, and textures perfectly. Replace the current background with a clean, infinite white studio background. Ensure sharp focus and high resolution.',
         negativePrompt: 'floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges, horizon line, ground plane, furniture, studio equipment, reflection on floor'
+    },
+    {
+        id: 'model-reference-generation',
+        name: '模特参考生成',
+        category: '摄影',
+        previewUrl: '/styles/master_model_with_ref.png',
+        description: '仅参考模特长相与身材比例，自动隔离原图服装、配饰与背景干扰，支持纯文本描述生成。',
+        prompt: 'High-end commercial fashion editorial photography of a gorgeous professional fashion model, full body or medium shot, cinematic lighting, extremely detailed, photorealistic, premium catalog aesthetic. Wearing modern stylish outfit described in [SUBJECT], clean minimal background, professional photography style.',
+        promptWithRef: 'High-fidelity commercial fashion photography using the model identity and body proportions from the reference image. The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided reference image. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in the reference image. Replicate the model\'s look with high precision. Place this model in the scene and outfit described in: [SUBJECT], with clothing and styling naturally adapted to the new environment under professional studio or lifestyle lighting.',
+        negativePrompt: 'face changed, identity changed, cgi, 3d render, plastic skin, waxy skin, doll-like, ai-generated look, over-smoothed skin, blur, low resolution, noise, oversharpening halo, white outline, messy edges, text, watermark, logo, jewelry from reference, accessories from reference, clothing from reference, background from reference.'
     }
 ];

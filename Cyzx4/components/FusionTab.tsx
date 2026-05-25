@@ -502,9 +502,11 @@ const FusionTab: React.FC = () => {
           negativePrompt,
           workflowHint: selectedStyle?.id === 'magic-mannequin-pose-transfer' 
             ? 'magic-mannequin' 
-            : selectedStyle?.id?.includes('strict-angle') 
-              ? 'strict-geometry-lock' 
-              : undefined
+            : selectedStyle?.id === 'model-reference-generation'
+              ? 'face-lock'
+              : selectedStyle?.id?.includes('strict-angle') 
+                ? 'strict-geometry-lock' 
+                : undefined
         });
       });
 
@@ -1516,6 +1518,9 @@ const FusionTab: React.FC = () => {
           const wideStyles = ['model-clothing-extraction', 'master-model-no-ref', 'master-model-with-ref'];
           if (style?.id && wideStyles.includes(style.id)) {
             setAspectRatio(AspectRatio.LANDSCAPE_16_9);
+          }
+          if (style?.id === 'model-reference-generation') {
+            setAspectRatio(AspectRatio.PORTRAIT_2_3);
           }
           if (style?.id === 'clothing-to-3d-mannequin') {
             setViewAngle('three_quarter');
