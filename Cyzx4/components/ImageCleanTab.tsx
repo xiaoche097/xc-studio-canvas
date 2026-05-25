@@ -415,7 +415,7 @@ const HeroImageTab: React.FC = () => {
             };
 
             const processedActions = await Promise.all(
-                actionReferences.map(img => processRefImage(img, isSafeMode || isPoseOnly))
+                actionReferences.map(img => processRefImage(img, false))
             );
             const processedModel = await processRefImage(modelReference, isSafeModeModel);
             const processedScenes = await Promise.all(
@@ -458,7 +458,30 @@ const HeroImageTab: React.FC = () => {
                 return list;
             };
 
-            // 3. 构建 Prompt 策略
+            // 3. 构建 Prompt 策略与参考图 1-based 动态索引计算以解决 Gemini 多模态映射错位问题
+            const productIndexStart = 1;
+            const productIndexEnd = productImages.length;
+            
+            let modelIndexStart = 0;
+            let modelIndexEnd = 0;
+            if (processedModel) {
+                modelIndexStart = productIndexEnd + 1;
+                modelIndexEnd = productIndexEnd + 2;
+            }
+            
+            let actionIndex = 0;
+            if (actionReferences.length > 0) {
+                actionIndex = (processedModel ? productIndexEnd + 2 : productIndexEnd) + 1;
+            }
+            
+            let sceneIndexStart = 0;
+            let sceneIndexEnd = 0;
+            if (processedScenes.length > 0) {
+                const prevCount = (processedModel ? productIndexEnd + 2 : productIndexEnd) + (actionReferences.length > 0 ? 1 : 0);
+                sceneIndexStart = prevCount + 1;
+                sceneIndexEnd = prevCount + processedScenes.length;
+            }
+
             const measurementStr = (measurements.bust || measurements.waist || measurements.hips) 
                 ? `Model Measurements: Bust ${measurements.bust || 'N/A'}, Waist ${measurements.waist || 'N/A'}, Hips ${measurements.hips || 'N/A'}.` 
                 : "";
@@ -491,16 +514,16 @@ const HeroImageTab: React.FC = () => {
             # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
             
             # CRITICAL REQUIREMENT - MAXIMUM PRODUCT FIDELITY (HIGHEST PRIORITY): 
-            The FIRST IMAGE is the [PRODUCT ASSET]. You MUST preserve its exact structural design, clothing shape, collar style, neck cuts, sleeves, pockets, fabric texture, prints/patterns (e.g. leopard print or stripes), stitching, and materials perfectly. 
+            The FIRST IMAGE (Image 1) is the [PRODUCT ASSET]. You MUST preserve its exact structural design, clothing shape, collar style, neck cuts, sleeves, pockets, fabric texture, prints/patterns (e.g. leopard print or stripes), stitching, and materials perfectly. 
             The clothing on the generated model MUST be a 100% pixel-accurate high-fidelity replica of this product asset, with ZERO structure changes or textile/fabric details loss. 
             **BACKGROUND NOISE ISOLATION (STRICT)**: You MUST completely and absolutely ignore, block, and discard any background elements present in the product asset image, including clothes hangers, hooks, picture frames on the wall, hanging art, wall stripes, wooden frames, shadow boards, stands, or room walls. 
             DO NOT generate or allow ANY of these product background items to appear in the final model's scene background. You must isolate ONLY the clothing itself from the product asset.
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${modelReference ? `# MODEL IDENTITY AND BODY SHAPE FIDELITY (CRITICAL): The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided model reference image. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in the model reference image. The clothing on the generated model MUST be the product asset from Image 1, and the pose must follow the pose directive.` : ''}
+            ${modelReference ? `# MODEL IDENTITY AND BODY SHAPE FIDELITY (CRITICAL): The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided model reference images at Image ${modelIndexStart} and Image ${modelIndexEnd}. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in Image ${modelIndexStart} and Image ${modelIndexEnd}. The clothing on the generated model MUST be the product asset from Image 1, and the pose must follow the pose directive.` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReferences.length > 0 ? `# POSE ANCHOR DIRECTIVE (CRITICAL): Replicate the EXACT human pose, body posture, skeletal alignment, hand positions, and camera framing from the action reference images. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, furniture, colors, textures, lighting, or scene details present in the action reference images. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
-            ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference image EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
+            ${actionReferences.length > 0 ? `# POSE ANCHOR DIRECTIVE (CRITICAL): Replicate the EXACT human pose, body posture, skeletal alignment, hand positions, and camera framing from the action reference image at Image ${actionIndex}. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in Image ${actionIndex}. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
+            ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference images from Image ${sceneIndexStart} to Image ${sceneIndexEnd} EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
@@ -600,7 +623,7 @@ const HeroImageTab: React.FC = () => {
                     resolution,
                     modelId: selectedModel,
                     hasModelRef: !!modelReference,
-                    workflowHint: actionReferences.length > 0 ? 'pose-transfer' : (modelReference ? 'face-lock' : 'scene-product-lock')
+                    workflowHint: actionReferences.length > 0 ? undefined : (modelReference ? 'face-lock' : 'scene-product-lock')
                 });
             });
 
