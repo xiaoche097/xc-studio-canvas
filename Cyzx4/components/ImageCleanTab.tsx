@@ -80,7 +80,7 @@ const COT_STEPS = [
 
 const HeroImageTab: React.FC = () => {
     // Selection states
-    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
@@ -135,6 +135,7 @@ const HeroImageTab: React.FC = () => {
     const [generatedImages, setGeneratedImages] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+    const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
     
     // Refs
     const productInputRef = useRef<HTMLInputElement>(null);
@@ -143,40 +144,6 @@ const HeroImageTab: React.FC = () => {
     const modelInputRef = useRef<HTMLInputElement>(null);
     const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | 'model' | null>(null);
     const [isDragging, setIsDragging] = useState<string | null>(null);
-
-    // Helper for image dimensions and aspect ratio detection
-    const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
-        return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                resolve({ width: img.width, height: img.height });
-            };
-            img.src = URL.createObjectURL(file);
-        });
-    };
-
-    const autoDetectRatio = (width: number, height: number) => {
-        const ratio = width / height;
-        const presets = [
-            { value: AspectRatio.SQUARE, ratio: 1 / 1 },
-            { value: AspectRatio.PORTRAIT_2_3, ratio: 2 / 3 },
-            { value: AspectRatio.PORTRAIT_3_4, ratio: 3 / 4 },
-            { value: AspectRatio.PORTRAIT_9_16, ratio: 9 / 16 },
-            { value: AspectRatio.LANDSCAPE_16_9, ratio: 16 / 9 },
-        ];
-        
-        let closest = presets[0];
-        let minDiff = Math.abs(ratio - closest.ratio);
-        
-        for (const preset of presets) {
-            const diff = Math.abs(ratio - preset.ratio);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closest = preset;
-            }
-        }
-        return closest.value;
-    };
 
     // Image processing
     const processFiles = async (files: File[]) => {
@@ -197,12 +164,6 @@ const HeroImageTab: React.FC = () => {
 
     const handleProductUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
-        if (files.length > 0) {
-            // 自动检测第一张图的比例
-            const dims = await getImageDimensions(files[0]);
-            const detectedRatio = autoDetectRatio(dims.width, dims.height);
-            setAspectRatio(detectedRatio);
-        }
         const processed = await processFiles(files);
         
         if (isProductPurifyEnabled && processed.length > 0) {
@@ -380,19 +341,81 @@ const HeroImageTab: React.FC = () => {
         }
     };
 
-    const handleGenerate = async () => {
+    const analyzeHeroStylingPlan = async (images: UploadedImage[]): Promise<string> => {
+        const fallback = [
+            '# UNIFIED STYLING PLAN:',
+            '- If the product image does not show pants, use one consistent clean light-wash straight-leg denim jean style across every generated image.',
+            '- If shoes are visible, use one consistent minimal neutral shoe style across every generated image.',
+            '- If bags or jewelry are needed, keep them minimal, commercially realistic, and consistent across the batch.',
+            '- Never replace, redesign, recolor, simplify, or reinterpret the product garment from Image 1.'
+        ].join('\n');
+        try {
+            const ai = getAiClient();
+            const parts: any[] = images.map(img => ({
+                inlineData: { mimeType: img.mime!, data: img.base64! }
+            }));
+            parts.push({ text: `Analyze these product asset images for an ecommerce fashion hero-image workflow.
+Return ONLY valid JSON with these string fields:
+{
+  "productGarment": "precise garment type, color, fabric, construction, trims, neckline, sleeve/strap details, hem, buttons, ruffles, patterns",
+  "productFidelityChecklist": "short checklist of product details that must never change",
+  "needsBottom": "yes/no and why",
+  "unifiedBottom": "one consistent pants/skirt/shorts recommendation if missing from product asset; include color, fit, rise, fabric, and why it matches",
+  "unifiedShoes": "one consistent shoe recommendation if feet may be visible",
+  "unifiedBag": "one consistent bag recommendation; use none if it would distract",
+  "unifiedJewelry": "one consistent minimal jewelry/accessory recommendation",
+  "avoidStyling": "styling details to avoid because they conflict with the product"
+}
+Rules:
+- If pants/bottoms are not clearly part of the product asset, recommend a unified bottom to use across ALL generated outputs.
+- If bags, shoes, belts, jewelry, or props are not in the product asset, recommend a consistent minimal set or explicitly say none.
+- The product garment itself is highest priority and must remain identical to the reference.
+- Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy.
+User note: ${userPrompt || 'none'}` });
+            const response = await ai.models.generateContent({
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: { parts }
+            });
+            const text = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(text);
+            return [
+                '# UNIFIED STYLING PLAN (AGENT ANALYZED - APPLY TO EVERY OUTPUT):',
+                `- Product garment identity: ${parsed.productGarment || 'use Image 1 as the exact product source of truth'}`,
+                `- Product fidelity checklist: ${parsed.productFidelityChecklist || 'preserve exact structure, fabric, trims, color, seams, buttons, ruffles, prints, and silhouette'}`,
+                `- Bottom coverage need: ${parsed.needsBottom || 'infer from product image'}`,
+                `- Unified bottom for ALL images: ${parsed.unifiedBottom || 'consistent light-wash straight-leg denim jeans if bottom is not part of the product asset'}`,
+                `- Unified shoes for ALL images: ${parsed.unifiedShoes || 'minimal neutral shoes only when visible'}`,
+                `- Unified bag for ALL images: ${parsed.unifiedBag || 'none unless pose requires a handheld accessory'}`,
+                `- Unified jewelry/accessories for ALL images: ${parsed.unifiedJewelry || 'minimal small earrings or a delicate necklace, consistent across the batch'}`,
+                `- Avoid styling: ${parsed.avoidStyling || 'avoid changing the product garment or adding distracting accessories'}`,
+                '- CONSISTENCY RULE: pants, shoes, bags, belts, jewelry, and visible accessories must stay the same style/color/material across every image in this batch unless they are physically hidden by the crop.'
+            ].join('\n');
+        } catch (err) {
+            console.warn('Hero styling plan analysis failed, using fallback.', err);
+            return fallback;
+        }
+    };
+
+    const handleGenerate = async (regenerateIndex?: number) => {
         if (productImages.length === 0) {
             setError('请上传产品图素材');
             return;
         }
 
-        setIsLoading(true);
+        const isSingleRegenerate = typeof regenerateIndex === 'number';
+        if (isSingleRegenerate) {
+            setRegeneratingIndex(regenerateIndex);
+        } else {
+            setIsLoading(true);
+        }
         setError(null);
-        setGeneratedImages([]);
+        if (!isSingleRegenerate) {
+            setGeneratedImages([]);
+        }
         
         setCurrentStep(0);
         setProgress(0);
-        const stepInterval = setInterval(() => {
+        const stepInterval = isSingleRegenerate ? undefined : setInterval(() => {
             setCurrentStep(prev => (prev < COT_STEPS.length - 1 ? prev + 1 : prev));
             setProgress(prev => Math.min(prev + 12, 95));
         }, 1200);
@@ -415,7 +438,12 @@ const HeroImageTab: React.FC = () => {
             };
 
             const processedActions = await Promise.all(
-                actionReferences.map(img => processRefImage(img, false))
+                actionReferences.map(async img => {
+                    const original = await processRefImage(img, false);
+                    const poseOnlyMap = await processRefImage(img, isPoseOnly || isSafeMode);
+                    const lineart = (isPoseOnly || isSafeMode) ? poseOnlyMap : await processRefImage(img, true);
+                    return { original, lineart };
+                })
             );
             const processedModel = await processRefImage(modelReference, isSafeModeModel);
             const processedScenes = await Promise.all(
@@ -442,12 +470,14 @@ const HeroImageTab: React.FC = () => {
                 }
                 
                 // [第三优先级] 添加特定的动作姿态参考图，作为姿态对齐的构图锚点
-                if (typeof actionIndex === 'number' && processedActions[actionIndex]) {
-                    list.push(processedActions[actionIndex]);
-                } else if (processedActions.length === 1 && processedActions[0]) {
-                    list.push(processedActions[0]);
-                } else if (processedActions.length > 1) {
-                    list.push(processedActions[0]);
+                const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
+                    ? processedActions[actionIndex]
+                    : processedActions[0];
+                if (selectedAction?.original) {
+                    list.push(selectedAction.original);
+                }
+                if (selectedAction?.lineart) {
+                    list.push(selectedAction.lineart);
                 }
                 
                 // [第四优先级] 添加背景场景参考图
@@ -470,14 +500,16 @@ const HeroImageTab: React.FC = () => {
             }
             
             let actionIndex = 0;
+            let actionLineartIndex = 0;
             if (actionReferences.length > 0) {
                 actionIndex = (processedModel ? productIndexEnd + 2 : productIndexEnd) + 1;
+                actionLineartIndex = actionIndex + 1;
             }
             
             let sceneIndexStart = 0;
             let sceneIndexEnd = 0;
             if (processedScenes.length > 0) {
-                const prevCount = (processedModel ? productIndexEnd + 2 : productIndexEnd) + (actionReferences.length > 0 ? 1 : 0);
+                const prevCount = (processedModel ? productIndexEnd + 2 : productIndexEnd) + (actionReferences.length > 0 ? 2 : 0);
                 sceneIndexStart = prevCount + 1;
                 sceneIndexEnd = prevCount + processedScenes.length;
             }
@@ -508,6 +540,7 @@ const HeroImageTab: React.FC = () => {
             }
 
             const platformPrompt = selectedPlatform ? PLATFORM_STYLES.find(p => p.id === selectedPlatform)?.prompt : "";
+            const unifiedStylingPlan = await analyzeHeroStylingPlan(productImages);
 
             const prompt = `
             # AGENT STRATEGY: ${strategy}
@@ -519,10 +552,12 @@ const HeroImageTab: React.FC = () => {
             **BACKGROUND NOISE ISOLATION (STRICT)**: You MUST completely and absolutely ignore, block, and discard any background elements present in the product asset image, including clothes hangers, hooks, picture frames on the wall, hanging art, wall stripes, wooden frames, shadow boards, stands, or room walls. 
             DO NOT generate or allow ANY of these product background items to appear in the final model's scene background. You must isolate ONLY the clothing itself from the product asset.
             
+            ${unifiedStylingPlan}
+            
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
             ${modelReference ? `# MODEL IDENTITY AND BODY SHAPE FIDELITY (CRITICAL): The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided model reference images at Image ${modelIndexStart} and Image ${modelIndexEnd}. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in Image ${modelIndexStart} and Image ${modelIndexEnd}. The clothing on the generated model MUST be the product asset from Image 1, and the pose must follow the pose directive.` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReferences.length > 0 ? `# POSE ANCHOR DIRECTIVE (CRITICAL): Replicate the EXACT human pose, body posture, skeletal alignment, hand positions, and camera framing from the action reference image at Image ${actionIndex}. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in Image ${actionIndex}. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
+            ${actionReferences.length > 0 ? `# POSE ANCHOR DIRECTIVE (CRITICAL): Images ${actionIndex} and ${actionLineartIndex} are the ONLY pose anchors for this output. Image ${actionIndex} is the original pose reference for crop, framing, camera angle, body scale, subject placement, lens distance, and left/right facing direction. Image ${actionLineartIndex} is the lineart/silhouette pose map for skeletal alignment, limb angles, hand positions, head direction, torso rotation, leg stance, and body proportions. Product fidelity from Image 1 has higher priority than pose if there is a conflict, but the output MUST keep the same overall pose family, crop, angle, body scale, and composition as Images ${actionIndex}-${actionLineartIndex}. Do NOT replace a side/back/three-quarter pose with a front standing pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, or over-shoulder direction. Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, shift the subject scale, mirror left/right direction, or invent a different standard catalog pose. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in Images ${actionIndex}-${actionLineartIndex}. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
             ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference images from Image ${sceneIndexStart} to Image ${sceneIndexEnd} EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
@@ -540,14 +575,7 @@ const HeroImageTab: React.FC = () => {
             const productCategoryLower = (form.productCategory || '').toLowerCase();
             const isSleepwear = keywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
 
-            // 检查是否为普通服装/针织衫/外套系列产品
-            const clothingKeywords = [
-                '衣服', '女装', '男装', '服装', '毛衣', '开衫', '外套', '针织衫', '针织', 
-                '裙子', '连衣裙', '裤子', 't恤', '卫衣', '大衣', '风衣', '衬衫', '上衣', 
-                'clothing', 'sweater', 'knitwear', 'cardigan', 'jacket', 'pants', 'skirt', 
-                'shirt', 'top', 'dress', 'hoodie', 'apparel', 'garment', 'knit'
-            ];
-            const isClothing = clothingKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const shouldUseClothingPoseLibrary = !isSleepwear;
 
             // Define 10 highly varied, high-end professional commercial studio camera angles and modeling poses
             const DIVERSE_POSES = [
@@ -574,22 +602,27 @@ const HeroImageTab: React.FC = () => {
 
             // 彻底洗牌打乱 160 个普通服装姿态预设列表，确保批量生成的每一张图分配到的姿态都是绝对随机且不重复的
             let shuffledClothingPoses = [...CLOTHING_POSES];
-            if (isClothing && !isSleepwear) {
+            if (shouldUseClothingPoseLibrary) {
                 for (let k = shuffledClothingPoses.length - 1; k > 0; k--) {
                     const r = Math.floor(Math.random() * (k + 1));
                     [shuffledClothingPoses[k], shuffledClothingPoses[r]] = [shuffledClothingPoses[r], shuffledClothingPoses[k]];
                 }
             }
 
-            const batchPromises = Array.from({ length: countToGenerate }, (_, i) => {
+            const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
+            const batchPromises = generationIndices.map((i) => {
                 const specificInputImages = getInputImagesForIndex(actionReferences.length > 1 ? i : undefined);
                 
                 let finalPrompt = prompt;
+                let selectedPoseHeader = '';
                 if (actionReferences.length === 0) {
                     if (isSleepwear) {
                         // 顺序从洗牌后的列表中抽取动作，实现“100%彻底打乱且不重复用到”
                         const posePreset = shuffledSleepwearPoses[i % shuffledSleepwearPoses.length];
                         const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED RANDOM POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this image with the EXACT lifestyle pajama pose and camera framing described here: ${poseSpec}. This selected preset is mandatory for this output and must override generic catalog standing angles.
+`;
                         
                         finalPrompt = finalPrompt.replace(
                             "动作：智能匹配姿态",
@@ -597,10 +630,14 @@ const HeroImageTab: React.FC = () => {
                         );
                         // 极大强化对于动作姿态的描述，赋予最高权重与优先级，彻底规避呆板普通的站姿
                         finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT lifestyle pajama pose and body posture described here: ${poseSpec}. Completely ignore, bypass, and discard standard, rigid, artificial standing model poses. Focus heavily and render the relaxed limb angles, cozy physical twists, soft pajama creases, leg bends, and comfy sleepy lifestyle poses with 100% fidelity. The final image pose must strictly mirror this directive.\n`;
-                    } else if (isClothing) {
+                    } else if (shouldUseClothingPoseLibrary) {
                         // 顺序从洗牌后的列表中抽取普通服装主图姿态，实现“100%彻底打乱且不重复用到”
                         const posePreset = shuffledClothingPoses[i % shuffledClothingPoses.length];
                         const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED RANDOM CLOTHING POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this image with the EXACT commercial fashion display pose and camera framing described here: ${poseSpec}. This selected preset is mandatory for this output and must override generic repeated catalog angles. Preserve product fidelity from Image 1, but pose, body posture, hand placement, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
+# RANDOMIZATION RULE: Each batch item receives a different shuffled preset. Do not reuse the same default front/side/back/seated four-angle pattern unless those exact presets were selected.
+`;
                         
                         finalPrompt = finalPrompt.replace(
                             "动作：智能匹配姿态",
@@ -617,25 +654,40 @@ const HeroImageTab: React.FC = () => {
                         finalPrompt += `\n# POSE AND ANGLE DIVERSIFICATION: For this specific image out of the batch, you MUST generate the model in this pose and camera angle: ${poseSpec}. Keep the face structure and environment identical, but vary the body position and shot perspective strictly to match this directive.\n`;
                     }
                 }
+                if (selectedPoseHeader) {
+                    finalPrompt = `${selectedPoseHeader}\n${finalPrompt}`;
+                }
 
                 return generateImageToImage(specificInputImages, finalPrompt, {
                     aspectRatio,
                     resolution,
                     modelId: selectedModel,
+                    negativePrompt: actionReferences.length > 0 
+                        ? 'wrong pose, different pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, mirrored pose, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, standing pose when reference is seated, seated pose when reference is standing, zoomed out, zoomed in'
+                        : undefined,
                     hasModelRef: !!modelReference,
-                    workflowHint: actionReferences.length > 0 ? undefined : (modelReference ? 'face-lock' : 'scene-product-lock')
+                    workflowHint: actionReferences.length > 0 ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock')
                 });
             });
 
             const batchResults = await Promise.all(batchPromises);
-            setGeneratedImages(batchResults.flat());
+            const flatResults = batchResults.flat();
+            if (isSingleRegenerate) {
+                setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (flatResults[0] || img) : img));
+            } else {
+                setGeneratedImages(flatResults);
+            }
 
         } catch (err) {
             setError(getErrorMessage(err));
         } finally {
-            clearInterval(stepInterval);
-            setIsLoading(false);
-            setProgress(100);
+            if (stepInterval) clearInterval(stepInterval);
+            if (isSingleRegenerate) {
+                setRegeneratingIndex(null);
+            } else {
+                setIsLoading(false);
+                setProgress(100);
+            }
         }
     };
 
@@ -1181,7 +1233,7 @@ const HeroImageTab: React.FC = () => {
                             )}
                         </div>
 
-                        <button onClick={handleGenerate} disabled={isLoading || productImages.length === 0} className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
+                        <button onClick={() => handleGenerate()} disabled={isLoading || productImages.length === 0} className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
                             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
                             {isLoading ? 'Agent 正在绘制...' : '一键生成高品质主图'}
                         </button>
@@ -1233,8 +1285,15 @@ const HeroImageTab: React.FC = () => {
                                                 </div>
                                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 backdrop-blur-[2px]">
                                                     <button onClick={() => setSelectedPreview(img)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform"><ZoomIn className="w-6 h-6" /></button>
+                                                    <button onClick={() => handleGenerate(idx)} disabled={regeneratingIndex !== null || isLoading} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform disabled:opacity-50 disabled:cursor-not-allowed" title="重新生成这张"><RefreshCw className={`w-6 h-6 ${regeneratingIndex === idx ? 'animate-spin' : ''}`} /></button>
                                                     <button onClick={() => handleDownload(img, idx)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform"><Download className="w-6 h-6" /></button>
                                                 </div>
+                                                {regeneratingIndex === idx && (
+                                                    <div className="absolute inset-0 bg-white/75 backdrop-blur-sm flex flex-col items-center justify-center gap-2 text-orange-600 font-bold text-xs">
+                                                        <RefreshCw className="w-6 h-6 animate-spin" />
+                                                        <span>正在重新生成...</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

@@ -804,7 +804,23 @@ export const generateImageToImage = async (
         
         // Build workflow-aware prompt for GPT (since it doesn't get separate system instructions)
         let gptPrompt = forcedPrompt;
-        if (workflowHint === 'listing-optimization') {
+        if (workflowHint === 'hero-pose-lock') {
+          gptPrompt = `[ROLE: Senior E-commerce Fashion Director & Product-Fidelity Retoucher]
+[TASK: Generate a new hero image from ordered reference images]
+[INPUT PRIORITY]
+1. Image 1 and any immediately following product images are the product source of truth. Preserve product structure, silhouette, fabric, trims, seams, prints, and material fidelity.
+2. The pose reference original and its lineart/silhouette copy are identified in the user prompt. Use them only for crop, framing, camera angle, body scale, subject placement, limb geometry, hand positions, head direction, torso rotation, and leg stance.
+3. Ignore the pose reference clothing, face, identity, colors, background, and lighting.
+
+[STRICT POSE LOCK]
+- Keep the same pose family, camera angle, crop, body scale, and left/right facing direction as the pose anchors named in the prompt.
+- Do not substitute a front standing catalog pose for a side, back, seated, walking, raised-hand, pocket-hand, or over-shoulder reference.
+- Do not zoom in/out, mirror the pose, drop hand gestures, or change half-body/full-body framing.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
+        } else if (workflowHint === 'listing-optimization') {
           gptPrompt = `[ROLE: Senior Amazon A+ Content Visual Strategist & High-Conversion Layout Designer]
 [TASK: Redesign the product listing image based on the optimization brief below]
 [ORIENTATION: Use ${aspectRatio} aspect ratio]
@@ -1016,6 +1032,33 @@ ${forcedPrompt}`;
         **IMAGE MAPPING**:
         - Image 1 & 2: POSE & COMPOSITION ANCHOR.
         - Image 3 & beyond: PRODUCT DETAILS & MODEL IDENTITY.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : workflowHint === 'hero-pose-lock'
+                ? `
+        **ROLE**: Senior E-commerce Hero Image Director & Product-Fidelity Retoucher.
+        **MISSION**: Generate ONE professional fashion hero image with PRODUCT-FIRST fidelity and strict pose/framing lock.
+
+        **INPUT CONTRACT**:
+        - Image 1 and any subsequent product images named in the user prompt are the PRODUCT SOURCE OF TRUTH.
+        - The user prompt identifies the POSE ANCHOR original image and its LINEART/SILHOUETTE companion by exact Image number.
+        - The pose original controls crop, framing, camera angle, lens distance, body scale, subject placement, and left/right facing direction.
+        - The lineart/silhouette companion controls skeletal alignment, limb angles, hand positions, head direction, torso rotation, leg stance, and body proportions.
+
+        **PRIORITY ORDER**:
+        1. Product structure, silhouette, fabric, trim, seams, prints, and material details from the product image(s).
+        2. Pose anchor geometry: same pose family, crop, camera angle, body scale, and composition.
+        3. Model identity/body reference, if provided.
+        4. Scene/background instructions.
+
+        **STRICT POSE FAILURE BLOCKLIST**:
+        - Do NOT replace the reference pose with a generic front-facing standing catalog pose.
+        - Do NOT change side/back/three-quarter direction into a front view, or front view into side/back.
+        - Do NOT remove raised arms, pocket hands, hand-to-face gestures, seated stance, walking stance, over-shoulder turns, or visible torso rotation.
+        - Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, change subject scale, or mirror left/right direction.
+        - Ignore pose-reference clothing, face, identity, background, color palette, texture, and lighting.
+
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
