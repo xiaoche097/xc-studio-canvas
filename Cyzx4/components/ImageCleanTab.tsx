@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { generateImageToImage, blobToBase64, compressImage, editGeneratedImage } from '../services/geminiService';
 import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
-import { getErrorMessage, getAiClient } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { storageService } from '../../services/storageService';
@@ -174,7 +174,7 @@ const HeroImageTab: React.FC = () => {
                     // 1. 快速检测产品图背景中是否包含衣架、画框、挂钩等干扰
                     const ai = getAiClient();
                     const checkPrompt = "Analyze this product photo. Does the background contain any distracting items such as clothes hangers, hooks, picture frames on the wall, stands, furniture, or complex messy background? Respond with ONLY 'yes' or 'no' in lowercase.";
-                    const response = await ai.models.generateContent({
+                    const response = await generateContentWithAnalysisFallback(ai, {
                         model: 'gemini-3.1-flash-lite-preview',
                         contents: {
                             parts: [
@@ -237,7 +237,7 @@ const HeroImageTab: React.FC = () => {
                 // 1. 快速检测图片中是否包含人物
                 const ai = getAiClient();
                 const checkPrompt = "Analyze this image. Does it contain any humans, models, people, or persons? Respond with ONLY 'yes' or 'no' in lowercase.";
-                const response = await ai.models.generateContent({
+                const response = await generateContentWithAnalysisFallback(ai, {
                     model: 'gemini-3.1-flash-lite-preview',
                     contents: {
                         parts: [
@@ -372,7 +372,7 @@ Rules:
 - The product garment itself is highest priority and must remain identical to the reference.
 - Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy.
 User note: ${userPrompt || 'none'}` });
-            const response = await ai.models.generateContent({
+            const response = await generateContentWithAnalysisFallback(ai, {
                 model: 'gemini-3.1-flash-lite-preview',
                 contents: { parts }
             });

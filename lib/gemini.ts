@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getApiConfig } from "../Cyzx4/utils/apiHelpers";
+import { getApiConfig, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
 
 class GeminiClient {
   private getClient() {
@@ -16,7 +16,7 @@ class GeminiClient {
     modelName?: string
   ) {
     const config = getApiConfig();
-    const selectedModelName = modelName || "gemini-1.5-flash";
+    const selectedModelName = resolveRuntimeModelId(modelName || "gemini-1.5-flash", config);
     
     // For Proxies (Plato/Yunwu), the SDK might fail if it hardcodes the Google URL.
     // However, if the user has configured it in Settings, we should honor it.
@@ -96,7 +96,7 @@ class GeminiClient {
 
     // Model Routing logic
     // Default to gpt-image-2 as requested for quality
-    const imageModel = options.model || "gpt-image-2"; 
+    const imageModel = resolveRuntimeModelId(options.model || "gpt-image-2", config);
     
     // Some proxies use v1/models/ or v1beta/models/
     // We try to stick to the configured version in apiHelpers if possible

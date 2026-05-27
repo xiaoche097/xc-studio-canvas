@@ -22,7 +22,7 @@ import {
   CheckCircle2,
   Copy
 } from 'lucide-react';
-import { getApiConfig } from '../Cyzx4/utils/apiHelpers';
+import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
 
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
@@ -209,7 +209,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setYunwuTestMessage('正在测试...');
     try {
       // 使用固定模型进行测试，不依赖用户选择的模型
-      const testModel = 'gemini-3.1-flash-lite-preview';
+      const testModel = resolveRuntimeModelId('gemini-3.1-flash-lite-preview', { isYunwu: true, isPlato: false });
       const res = await sendTestRequest(yunwuBaseUrl || DEFAULT_BASE_URL, key, testModel, 'Say OK');
       setYunwuTestStatus(res.text ? 'success' : 'error');
       setYunwuTestMessage(res.text ? '✅ 连接成功' : '❌ 无响应');

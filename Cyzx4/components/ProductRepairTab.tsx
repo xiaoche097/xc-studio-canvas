@@ -7,7 +7,7 @@ import {
     Lightbulb, User, MapPin, ListTodo, Info
 } from 'lucide-react';
 import { generateImageToImage, compressImage } from '../services/geminiService';
-import { getErrorMessage, getAiClient } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 
 interface UploadedImage {
@@ -190,7 +190,7 @@ const ProductRepairTab: React.FC = () => {
                     "repairPrompt": "precise technical instruction to lock this structure"
                 }
             `;
-            const response = await ai.models.generateContent({
+            const response = await generateContentWithAnalysisFallback(ai, {
                 model: 'gemini-3.1-flash-lite-preview',
                 contents: {
                     parts: [

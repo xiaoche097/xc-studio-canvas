@@ -7,6 +7,8 @@ import {
   getApiConfig,
   getAiClient,
   getActiveApiInfo,
+  resolveRuntimeModelId,
+  generateContentWithAnalysisFallback,
   executeWithTimeout,
   blobToBase64,
   compressImage,
@@ -127,7 +129,7 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
     });
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: { parts }
     });
@@ -175,7 +177,7 @@ Your response must be a valid JSON object matching the following structure. Do N
     }));
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: { parts }
     });
@@ -204,7 +206,7 @@ export const generateText = async (
     }));
     parts.push({ text: prompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: modelId,
       contents: { parts }
     });
@@ -261,7 +263,7 @@ export const analyzeProductImage = async (
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
@@ -466,7 +468,7 @@ Respond ONLY with valid JSON.
     }));
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
       contents: { parts }
     });
@@ -582,7 +584,7 @@ export const generateMarketingImage = async (
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: modelId,
+        model: resolveRuntimeModelId(modelId),
         contents: {
           parts: parts,
         },
@@ -853,7 +855,7 @@ ${forcedPrompt}`;
         }
 
         const payload = {
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           prompt: gptPrompt,
           size: gptSize,
           quality: "auto",
@@ -1234,7 +1236,7 @@ ${forcedPrompt}`;
 
       const response = await executeWithTimeout(
         ai.models.generateContent({
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           contents: { parts: parts },
           // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
           // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
@@ -1393,7 +1395,7 @@ export const generateInpainting = async (
         console.warn(`[GPT Image 2 Inpaint] Size: ${gptSize}, Prompt: ${forcedPrompt.substring(0, 50)}...`);
         
         const payload = {
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           prompt: forcedPrompt,
           size: gptSize,
           response_format: "b64_json",
@@ -1531,7 +1533,7 @@ export const generateInpainting = async (
 
       const response = await executeWithTimeout(
         ai.models.generateContent({
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           contents: { parts: parts },
           config: {
             imageConfig: {
@@ -1664,8 +1666,8 @@ Just the raw text.
     parts.push({ text: userMessage });
 
     // Use gemini-3.1-flash-lite-preview for fast reasoning & text generation
-    const modelName = "gemini-3.1-flash-lite-preview";
-    const response = await ai.models.generateContent({
+    const modelName = resolveRuntimeModelId("gemini-3.1-flash-lite-preview");
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: modelName,
       contents: {
         parts: parts
@@ -1724,8 +1726,8 @@ You must analyze the user's request to identify their core intent:
 `;
 
   try {
-    const modelName = "gemini-3.1-flash-lite-preview"; // Use Flash for speed
-    const response = await ai.models.generateContent({
+    const modelName = resolveRuntimeModelId("gemini-3.1-flash-lite-preview"); // Use Flash for speed
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: modelName,
       contents: {
         parts: [
@@ -2197,7 +2199,7 @@ Generate a **NEW photorealistic image** that:
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: modelName,
+        model: resolveRuntimeModelId(modelName),
         contents: { parts: parts },
         config: {
           imageConfig: {
@@ -2982,7 +2984,7 @@ You MUST process the input through these 8 distinct phases:
     };
 
     return await ai.models.generateContent({
-      model: modelName,
+      model: resolveRuntimeModelId(modelName),
       contents: [{ role: "user", parts }],
       config: config,
     });
@@ -3203,7 +3205,7 @@ Professional commercial photography quality. The result must be indistinguishabl
     };
 
     return await ai.models.generateContent({
-      model: modelName,
+      model: resolveRuntimeModelId(modelName),
       contents: [{ role: "user", parts }],
       config: config,
     });
@@ -3295,7 +3297,7 @@ export const analyzeImageQuality = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
       contents: {
         parts: [
@@ -3371,7 +3373,7 @@ export const analyzeStyle = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
@@ -3661,7 +3663,7 @@ Respond ONLY with valid JSON.
     }));
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: textModel,
       contents: { parts }
     });
@@ -3773,11 +3775,12 @@ Return ONLY the final enriched English prompt. Do NOT include any preamble or ex
     }));
     parts.push({ text: refinementPrompt });
 
-    const response = await executeWithTimeout(
-      ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(
+      ai,
+      {
         model: "gemini-3.1-flash-lite-preview",
         contents: { parts }
-      }),
+      },
       { timeoutMs: 30000 }
     );
 
