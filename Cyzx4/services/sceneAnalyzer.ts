@@ -140,6 +140,14 @@ For plush products, the analysis must NOT behave like a generic Amazon lifestyle
 
 Avoid recommending hard studio flash, high contrast, plastic toy feeling, empty oversized rooms, messy toy piles, extra background dolls, creepy expressions, gray muddy color, CGI render style, or random unrelated props.
 
+**COMPLETE PRODUCT FIELD RULES (CRITICAL WHEN REFERENCE SCENE IS USED)**:
+- PRODUCT IMAGE parts are the only source of truth for product identity.
+- REFERENCE SCENE IMAGE parts only control composition, lighting, mood, environment, camera angle, and interaction style.
+- Always fill productName, productCategory, productType, productSize, material, sellingPoints, targetAudience, brandTone, colorStyle, usageScenario, interactionHint, and sizeCategory.
+- Do not return generic defaults like "商品", "通用产品", blank material, blank sellingPoints, or blank brandTone when a visible product exists.
+- If the product image shows a plush bird, plush animal, stuffed toy, doll, fuzzy pillow, mascot, or soft companion item, set productType to "plush" and describe the exact plush item, fabric, stitching, fibers, shape, emotional selling points, and safe soft brand tone.
+- If product identity is uncertain, infer the most specific visible product category rather than using general.
+
 **OUTPUT FORMAT**: 
 返回纯 JSON 对象，不要用 markdown 代码块包裹。确保所有 string value 用双引号。
 Return ONLY one valid JSON object. Do not add explanations before or after the JSON.
@@ -168,8 +176,12 @@ export async function analyzeProductForScene(
   
   const parts: any[] = [];
   
-  // Add product images
-  images.forEach((img) => {
+  // Add product images with explicit role labels so reference scenes do not
+  // get mistaken for the product source of truth.
+  images.forEach((img, index) => {
+    parts.push({
+      text: `PRODUCT IMAGE ${index + 1}: analyze this image as the product identity/source of truth. Fill productName, productCategory, productType, material, sellingPoints, brandTone, productSize, and sizeCategory from this product image.`,
+    });
     parts.push({
       inlineData: {
         mimeType: img.mimeType,
@@ -180,6 +192,9 @@ export async function analyzeProductForScene(
 
   // Add reference scene image if provided (as the LAST image part)
   if (referenceSceneImage) {
+    parts.push({
+      text: 'REFERENCE SCENE IMAGE: use this only for scene composition, lighting, mood, environment, camera angle, and interaction style. Do not use it as the product identity unless no PRODUCT IMAGE exists.',
+    });
     parts.push({
       inlineData: {
         mimeType: referenceSceneImage.mimeType,
@@ -368,9 +383,13 @@ export async function analyzeReferenceScene(image: { base64: string; mimeType: s
       },
     });
 
-    let text = response.text || '{}';
-    text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    return JSON.parse(text);
+    const result = parseSceneAnalysisJson(response.text || '{}');
+    return {
+      sceneDirection: rawString(result, ['sceneDirection', 'scene_direction']) || '',
+      interactionHint: rawString(result, ['interactionHint', 'interaction_hint']) || '',
+      colorStyle: rawString(result, ['colorStyle', 'color_style']) || '',
+      modelPersonaPreset: rawString(result, ['modelPersonaPreset', 'model_persona_preset']) || '',
+    };
   } catch (error) {
     console.error('Reference scene analysis failed:', error);
     return null;

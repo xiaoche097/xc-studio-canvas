@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, Loader2, Maximize2, Palette, Plus, RefreshCw, Trash2, Upload, X, Zap, Sparkles, Image as ImageIcon, Ratio, MonitorSmartphone, Cpu, Settings2, Crop } from 'lucide-react';
+import { Download, Info, Loader2, Maximize2, Palette, Plus, RefreshCw, Trash2, Upload, X, Zap, Sparkles, Image as ImageIcon, Ratio, MonitorSmartphone, Cpu, Settings2, Crop } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
@@ -8,6 +8,7 @@ import { DollImageEditor, EditorBox } from '../DollFactory/components/DollImageE
 import { storageService } from '../services/storageService';
 
 type ColorType = 'text' | 'hex' | 'image';
+type RecolorMode = 'single-multi' | 'batch-source' | 'matrix';
 
 interface ColorEntry {
   id: string;
@@ -30,8 +31,11 @@ const BatchRecolorTab: React.FC = () => {
   const [sourceFiles, setSourceFiles] = useState<File[]>([]);
   const [sourceUrls, setSourceUrls] = useState<string[]>([]);
   const MAX_SOURCES = 10;
+  const MAX_REF_IMAGES = 10;
 
   const [colors, setColors] = useState<ColorEntry[]>([]);
+  const [recolorMode, setRecolorMode] = useState<RecolorMode>('single-multi');
+  const [showModeHelp, setShowModeHelp] = useState(false);
   
   const [newColorText, setNewColorText] = useState('');
   const [selectedHex, setSelectedHex] = useState('#fbbf24');
@@ -47,6 +51,57 @@ const BatchRecolorTab: React.FC = () => {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const [isDraggingRef, setIsDraggingRef] = useState(false);
+  const [isRefPasteTarget, setIsRefPasteTarget] = useState(false);
+
+  const modeOptions: Array<{ id: RecolorMode; title: string; desc: string }> = [
+    { id: 'single-multi', title: '\u5355\u56fe\u591a\u8272', desc: '1 \u5f20\u539f\u56fe\u751f\u6210\u591a\u79cd\u989c\u8272' },
+    { id: 'batch-source', title: '\u6279\u91cf\u539f\u56fe', desc: '\u591a\u5f20\u539f\u56fe\u7edf\u4e00\u6539\u8272' },
+    { id: 'matrix', title: '\u77e9\u9635\u6a21\u5f0f', desc: '\u591a\u56fe x \u591a\u8272\u5168\u7ec4\u5408' },
+  ];
+
+  const maxSourcesForMode = recolorMode === 'single-multi' ? 1 : MAX_SOURCES;
+  const generationCount = sourceFiles.length * colors.length;
+  const modeCopy = {
+    'single-multi': {
+      title: '\u5355\u56fe\u591a\u8272\u51fa\u6b3e',
+      description: '\u4e0a\u4f20 1 \u5f20\u670d\u88c5\u539f\u56fe\uff0c\u518d\u6dfb\u52a0\u591a\u4e2a\u76ee\u6807\u989c\u8272\uff0c\u7cfb\u7edf\u4f1a\u5206\u522b\u751f\u6210\u5bf9\u5e94\u989c\u8272\u7248\u672c\u3002',
+      uploadEmptyTitle: '\u4e0a\u4f20 1 \u5f20\u539f\u56fe',
+      uploadHint: '\u5355\u56fe\u591a\u8272\u6a21\u5f0f\u4f1a\u4ee5\u6700\u65b0\u4e0a\u4f20\u7684 1 \u5f20\u56fe\u4e3a\u51c6',
+      button: `\u751f\u6210\u591a\u8272\u7248\u672c (${generationCount}\u5f20)`,
+      emptyTitle: '\u7b49\u5f85\u751f\u6210\u591a\u8272\u7248\u672c',
+      emptyDesc: '\u4e0a\u4f20 1 \u5f20\u670d\u88c5\u539f\u56fe\u5e76\u6dfb\u52a0\u591a\u4e2a\u989c\u8272\uff0c\u7cfb\u7edf\u4f1a\u8f93\u51fa\u540c\u4e00\u5f20\u56fe\u7684\u591a\u79cd\u989c\u8272\u7248\u672c\u3002',
+    },
+    'batch-source': {
+      title: '\u6279\u91cf\u670d\u88c5\u6539\u8272',
+      description: '\u4e0a\u4f20\u591a\u5f20\u670d\u88c5\u539f\u56fe\u5e76\u6307\u5b9a\u76ee\u6807\u989c\u8272\uff0c\u9002\u5408\u628a\u4e00\u7ec4\u56fe\u7247\u7edf\u4e00\u6539\u6210\u540c\u4e00\u4e2a\u989c\u8272\u3002',
+      uploadEmptyTitle: '\u6279\u91cf\u4e0a\u4f20\u539f\u56fe',
+      uploadHint: '\u5efa\u8bae\u53ea\u6dfb\u52a0 1 \u4e2a\u989c\u8272\uff1b\u591a\u4e2a\u989c\u8272\u4f1a\u751f\u6210\u591a\u7ec4\u7ed3\u679c',
+      button: `\u6279\u91cf\u7edf\u4e00\u6539\u8272 (${generationCount}\u5f20)`,
+      emptyTitle: '\u7b49\u5f85\u5f00\u59cb\u6279\u91cf\u6539\u8272',
+      emptyDesc: '\u4e0a\u4f20\u591a\u5f20\u670d\u88c5\u539f\u56fe\u5e76\u5b9a\u4e49\u989c\u8272\uff0c\u7cfb\u7edf\u4f1a\u81ea\u52a8\u4e3a\u6bcf\u5f20\u56fe\u751f\u6210\u6539\u8272\u7ed3\u679c\u3002',
+    },
+    matrix: {
+      title: '\u77e9\u9635\u6539\u8272\u65b9\u6848',
+      description: '\u4e0a\u4f20\u591a\u5f20\u539f\u56fe\u548c\u591a\u4e2a\u76ee\u6807\u989c\u8272\uff0c\u7cfb\u7edf\u4f1a\u751f\u6210\u539f\u56fe\u6570\u91cf x \u989c\u8272\u6570\u91cf\u7684\u5168\u90e8\u7ec4\u5408\u3002',
+      uploadEmptyTitle: '\u4e0a\u4f20\u77e9\u9635\u539f\u56fe',
+      uploadHint: '\u9002\u5408\u4e00\u6b21\u751f\u6210\u5b8c\u6574\u8272\u5361\u7ec4\u5408',
+      button: `\u751f\u6210\u77e9\u9635\u65b9\u6848 (${generationCount}\u5f20)`,
+      emptyTitle: '\u7b49\u5f85\u751f\u6210\u77e9\u9635\u65b9\u6848',
+      emptyDesc: '\u4e0a\u4f20\u591a\u5f20\u539f\u56fe\u5e76\u6dfb\u52a0\u591a\u4e2a\u989c\u8272\uff0c\u7cfb\u7edf\u4f1a\u751f\u6210\u6bcf\u5f20\u539f\u56fe\u5bf9\u5e94\u6bcf\u4e2a\u989c\u8272\u7684\u5168\u90e8\u7ec4\u5408\u3002',
+    },
+  }[recolorMode];
+
+  const sanitizeFilePart = (value: string) => value.replace(/[\\/:*?"<>|#]+/g, '-').replace(/\s+/g, '-').slice(0, 40) || 'color';
+
+  const handleModeChange = (mode: RecolorMode) => {
+    setRecolorMode(mode);
+    setResults([]);
+    if (mode === 'single-multi' && sourceFiles.length > 1) {
+      sourceUrls.slice(1).forEach(url => URL.revokeObjectURL(url));
+      setSourceFiles(prev => prev.slice(0, 1));
+      setSourceUrls(prev => prev.slice(0, 1));
+    }
+  };
 
   // 自定义香蕉图标组件
   const BananaIcon = ({ className }: { className?: string }) => (
@@ -58,7 +113,17 @@ const BatchRecolorTab: React.FC = () => {
 
   const handleFiles = (files: File[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));
-    const remainingCount = MAX_SOURCES - sourceFiles.length;
+    if (recolorMode === 'single-multi') {
+      const latestFile = validFiles[validFiles.length - 1];
+      if (!latestFile) return;
+      sourceUrls.forEach(url => URL.revokeObjectURL(url));
+      setSourceFiles([latestFile]);
+      setSourceUrls([URL.createObjectURL(latestFile)]);
+      setResults([]);
+      return;
+    }
+
+    const remainingCount = maxSourcesForMode - sourceFiles.length;
     const filesToAdd = validFiles.slice(0, remainingCount);
     
     if (filesToAdd.length > 0) {
@@ -77,8 +142,6 @@ const BatchRecolorTab: React.FC = () => {
     e.preventDefault();
     if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
   };
-
-  useImagePaste(handleFiles);
 
   const removeSource = (index: number) => {
     URL.revokeObjectURL(sourceUrls[index]);
@@ -122,7 +185,7 @@ const BatchRecolorTab: React.FC = () => {
       setTimeout(() => {
         const link = document.createElement('a');
         link.href = res.url!;
-        link.download = `recolor-${res.entry.label}-${i + 1}.png`;
+        link.download = `recolor-source-${res.sourceIndex + 1}-${sanitizeFilePart(res.entry.label)}-${i + 1}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -155,12 +218,12 @@ const BatchRecolorTab: React.FC = () => {
 
   const handleImageRefFiles = async (files: File[]) => {
     const existingImageEntries = colors.filter(c => c.type === 'image');
-    if (existingImageEntries.length >= 3) {
-      alert('最多支持 3 张调色参考图');
+    if (existingImageEntries.length >= MAX_REF_IMAGES) {
+      alert(`最多支持 ${MAX_REF_IMAGES} 张调色参考图`);
       return;
     }
 
-    const remainingSlots = 3 - existingImageEntries.length;
+    const remainingSlots = MAX_REF_IMAGES - existingImageEntries.length;
     const validFiles = files.filter(f => f.type.startsWith('image/')).slice(0, remainingSlots);
     
     if (validFiles.length === 0) return;
@@ -182,8 +245,17 @@ const BatchRecolorTab: React.FC = () => {
   const handleRefDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingRef(false);
+    setIsRefPasteTarget(true);
     if (e.dataTransfer.files) handleImageRefFiles(Array.from(e.dataTransfer.files));
   };
+
+  useImagePaste((files) => {
+    if (isRefPasteTarget) {
+      handleImageRefFiles(files);
+    } else {
+      handleFiles(files);
+    }
+  });
 
   const removeColor = (id: string) => {
     setColors(colors.filter(c => c.id !== id));
@@ -347,6 +419,44 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             <p className="text-xs text-pastel-muted leading-relaxed">
               支持批量上传多张服装原图（最多 10 张），每张图将生成定义好的所有颜色版本。
             </p>
+            <div className="rounded-2xl border border-pastel-border bg-white p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-pastel-text">{modeCopy.title}</h3>
+                  <p className="text-[10px] text-pastel-muted mt-0.5">{modeCopy.description}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowModeHelp(true)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-pastel-bg text-[10px] font-black text-pastel-muted hover:text-pastel-highlight transition-colors"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  模式说明
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {modeOptions.map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => handleModeChange(mode.id)}
+                    className={`rounded-xl border p-2 text-left transition-all ${
+                      recolorMode === mode.id
+                        ? 'border-pastel-highlight bg-pastel-highlight/10 text-pastel-highlight shadow-sm'
+                        : 'border-pastel-border bg-pastel-bg text-pastel-muted hover:border-pastel-highlight/40'
+                    }`}
+                  >
+                    <span className="block text-[11px] font-black text-pastel-text">{mode.title}</span>
+                    <span className="mt-1 block text-[8px] leading-snug opacity-70">{mode.desc}</span>
+                  </button>
+                ))}
+              </div>
+              {recolorMode === 'batch-source' && colors.length > 1 && (
+                <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-[10px] font-bold text-orange-600">
+                  当前已添加多个颜色，将按矩阵方式生成 {generationCount} 张结果。
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Multi-Source Upload */}
@@ -354,14 +464,16 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider flex items-center gap-1.5">
                 <Upload className="w-3 h-3" />
-                1. 原图上传 ({sourceFiles.length}/{MAX_SOURCES})
+                1. 原图上传 ({sourceFiles.length}/{maxSourcesForMode})
               </h3>
-              <span className="text-[10px] text-pastel-muted font-medium">支持拖拽与粘贴</span>
+              <span className="text-[10px] text-pastel-muted font-medium">{modeCopy.uploadHint}</span>
             </div>
             
             <div 
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
+              onMouseEnter={() => setIsRefPasteTarget(false)}
+              onFocus={() => setIsRefPasteTarget(false)}
               className="space-y-4"
             >
               {sourceUrls.length > 0 && (
@@ -387,7 +499,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                       </div>
                     </div>
                   ))}
-                  {sourceFiles.length < MAX_SOURCES && (
+                  {sourceFiles.length < maxSourcesForMode && (
                     <button 
                       onClick={() => fileInputRef.current?.click()}
                       className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-all bg-white/50"
@@ -400,16 +512,16 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
 
               {sourceFiles.length === 0 && (
                 <label className="flex flex-col items-center justify-center aspect-[16/9] rounded-2xl border-2 border-dashed border-pastel-border bg-white hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group">
-                  <input type="file" multiple className="hidden" onChange={handleSourceChange} />
+                  <input type="file" multiple={recolorMode !== 'single-multi'} className="hidden" onChange={handleSourceChange} />
                   <div className="w-12 h-12 mb-3 bg-pastel-bg rounded-xl flex items-center justify-center text-pastel-muted group-hover:text-pastel-highlight transition-colors">
                     <Upload className="w-6 h-6" />
                   </div>
-                  <span className="text-sm font-bold">批量上传原图</span>
+                  <span className="text-sm font-bold">{modeCopy.uploadEmptyTitle}</span>
                   <span className="text-[10px] text-pastel-muted mt-1">支持拖拽或 Ctrl+V 粘贴</span>
                 </label>
               )}
               
-              <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleSourceChange} />
+              <input type="file" multiple={recolorMode !== 'single-multi'} ref={fileInputRef} className="hidden" onChange={handleSourceChange} />
             </div>
           </div>
 
@@ -454,12 +566,16 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               <div className="flex items-center justify-between">
                 <h4 className="text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
                   <ImageIcon className="w-3.5 h-3.5" />
-                  调色参考图 ({colors.filter(c => c.type === 'image').length}/3)
+                  调色参考图 ({colors.filter(c => c.type === 'image').length}/{MAX_REF_IMAGES})
                 </h4>
-                <span className="text-[9px] text-pastel-muted font-medium">支持拖拽上传</span>
+                <span className="text-[9px] text-pastel-muted font-medium">支持拖拽、点击和 Ctrl+V 粘贴</span>
               </div>
               
-              <div className="grid grid-cols-3 gap-3">
+              <div
+                className="grid grid-cols-3 gap-3"
+                onMouseEnter={() => setIsRefPasteTarget(true)}
+                onFocus={() => setIsRefPasteTarget(true)}
+              >
                 {colors.filter(c => c.type === 'image').map((c) => (
                   <div key={c.id} className="relative aspect-square rounded-2xl border border-pastel-border overflow-hidden bg-white group shadow-sm animate-in zoom-in-95 duration-200">
                     <img src={c.previewUrl} className="w-full h-full object-cover" alt="ref" />
@@ -471,12 +587,14 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                     </button>
                   </div>
                 ))}
-                {colors.filter(c => c.type === 'image').length < 3 && (
+                {colors.filter(c => c.type === 'image').length < MAX_REF_IMAGES && (
                   <button 
                     onDragOver={(e) => { e.preventDefault(); setIsDraggingRef(true); }}
                     onDragLeave={() => setIsDraggingRef(false)}
                     onDrop={handleRefDrop}
+                    onFocus={() => setIsRefPasteTarget(true)}
                     onClick={() => {
+                      setIsRefPasteTarget(true);
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.multiple = true;
@@ -539,6 +657,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
               </h3>
               <div className="grid grid-cols-3 gap-2">
                 {[
+                  { value: AspectRatio.SQUARE, label: '1:1', desc: '方图' },
                   { value: AspectRatio.PORTRAIT_3_4, label: '3:4', desc: '标准' },
                   { value: AspectRatio.PORTRAIT_2_3, label: '2:3', desc: '修长' },
                   { value: AspectRatio.PORTRAIT_4_5, label: '4:5', desc: 'INS' },
@@ -679,7 +798,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             ) : (
               <>
                 <Zap className="w-5 h-5 fill-white" />
-                生成所有版本 ({sourceFiles.length * colors.length}张)
+                <span>{modeCopy.button}</span>
               </>
             )}
           </button>
@@ -693,9 +812,9 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
             <div className="w-32 h-32 mb-8 bg-white rounded-[40px] shadow-sm border-2 border-dashed border-pastel-border flex items-center justify-center opacity-40">
               <Palette className="w-16 h-16" />
             </div>
-            <h3 className="text-xl font-bold text-pastel-text mb-2">等待开始批量改色</h3>
+            <h3 className="text-xl font-bold text-pastel-text mb-2">{modeCopy.emptyTitle}</h3>
             <p className="text-xs max-w-xs text-center leading-relaxed">
-              上传多张服装原图并定义颜色，系统将自动为每张图生成全套颜色方案。
+              {modeCopy.emptyDesc}
             </p>
           </div>
         ) : (
@@ -755,7 +874,7 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
                       <button onClick={() => handleRegenerateSingle(i)} className="p-2.5 bg-white rounded-full hover:scale-110 transition-transform shadow-xl">
                         <RefreshCw className="w-4 h-4 text-pastel-text" />
                       </button>
-                      <a href={item.url!} download={`recolor-${item.entry.label}.png`} className="p-2.5 bg-pastel-highlight rounded-full hover:scale-110 transition-transform shadow-xl text-white">
+                      <a href={item.url!} download={`recolor-source-${item.sourceIndex + 1}-${sanitizeFilePart(item.entry.label)}.png`} className="p-2.5 bg-pastel-highlight rounded-full hover:scale-110 transition-transform shadow-xl text-white">
                         <Download className="w-4 h-4" />
                       </a>
                     </div>
@@ -789,6 +908,60 @@ ${userGuidance ? `- USER SUPPLEMENT: ${userGuidance}` : ''}`;
           </div>
         )}
       </div>
+
+      {/* Mode Help */}
+      {showModeHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-md" onClick={() => setShowModeHelp(false)}>
+          <div className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl border border-pastel-border overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-pastel-border">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-pastel-highlight/10 text-pastel-highlight flex items-center justify-center">
+                  <Info className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-pastel-text">批量改色模式说明</h3>
+                  <p className="text-xs text-pastel-muted">选择适合的输入方式，生成逻辑会自动计算总张数。</p>
+                </div>
+              </div>
+              <button onClick={() => setShowModeHelp(false)} className="p-2 rounded-full hover:bg-pastel-bg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 grid gap-3">
+              {[
+                {
+                  title: '单图多色',
+                  formula: '1 张原图 x 多个颜色',
+                  desc: '适合给同一件服装快速出一组色卡。上传第二张图时会以最新图片替换当前原图。',
+                },
+                {
+                  title: '批量原图',
+                  formula: '多张原图 x 1 个颜色',
+                  desc: '适合把一批服装图统一改成同一个目标色。若添加多个颜色，会提示并按矩阵方式生成。',
+                },
+                {
+                  title: '矩阵模式',
+                  formula: '多张原图 x 多个颜色',
+                  desc: '适合一次生成完整组合，例如 3 张原图和 4 个颜色会输出 12 张图片。',
+                },
+              ].map((item) => (
+                <div key={item.title} className="rounded-2xl border border-pastel-border bg-pastel-bg/40 p-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <h4 className="text-sm font-black text-pastel-text">{item.title}</h4>
+                    <span className="text-[10px] font-black text-pastel-highlight bg-white px-2 py-1 rounded-full border border-pastel-border">{item.formula}</span>
+                  </div>
+                  <p className="text-xs text-pastel-muted leading-relaxed">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="px-5 py-4 bg-orange-50 border-t border-orange-100 text-xs text-orange-700 leading-relaxed">
+              颜色可以用文字描述、HEX 色值或调色参考图添加；生成数量越多，等待时间越久，下载文件名会包含原图序号和颜色名。
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview */}
       {preview && (

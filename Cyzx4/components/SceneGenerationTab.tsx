@@ -10,7 +10,7 @@ import {
   QUALITY_BOOSTERS
 } from '../services/promptUtils';
 import { STYLE_PACKS, StylePack, StyleVariant } from '../services/stylePacks';
-import { analyzeProductForScene, SceneAnalysisResult, analyzeReferenceScene } from '../services/sceneAnalyzer';
+import { analyzeProductForScene, SceneAnalysisResult, ReferenceSceneAnalysis, analyzeReferenceScene } from '../services/sceneAnalyzer';
 import { getErrorMessage, compressImage } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { AspectRatio, ImageResolution } from '../types';
@@ -191,6 +191,90 @@ const SIZE_CATEGORY_LABELS: Record<string, string> = {
   medium: '中型 (25-50cm)',
   large: '大型 (>50cm)',
   wearable: '穿戴类',
+};
+
+const GENERIC_ANALYSIS_VALUES = new Set([
+  '',
+  '-',
+  '商品',
+  '通用产品',
+  '鍟嗗搧',
+  '閫氱敤浜у搧',
+]);
+
+const isGenericAnalysisValue = (value?: string | null) => {
+  const normalized = String(value || '').trim();
+  return GENERIC_ANALYSIS_VALUES.has(normalized);
+};
+
+const chooseAnalysisValue = (current: string | undefined, next: string | undefined) => {
+  return isGenericAnalysisValue(current) ? (next || '') : (current || next || '');
+};
+
+const inferSceneProductType = (result: SceneAnalysisResult, referenceResult?: ReferenceSceneAnalysis | null): SceneGenerationProductType => {
+  if (result.productType !== 'general') return result.productType;
+
+  const searchableText = [
+    result.productName,
+    result.productCategory,
+    result.material,
+    result.sellingPoints,
+    result.sceneDirection,
+    result.usageScenario,
+    result.interactionHint,
+    referenceResult?.sceneDirection,
+    referenceResult?.interactionHint,
+  ].filter(Boolean).join(' ');
+
+  if (/plush|stuffed|soft\s*toy|doll|mascot|teddy|fuzzy|minky|fleece|bird plush|toy|毛绒|玩偶|公仔|布偶|娃娃|填充|绒毛|抱枕|鍏粩|鐜╁伓|姣涚粧/i.test(searchableText)) {
+    return 'plush';
+  }
+
+  if (/apparel|clothing|garment|shirt|dress|pants|jacket|fashion|服装|衣服|上衣|裤|外套|穿搭|鏈嶈/i.test(searchableText)) {
+    return 'apparel';
+  }
+
+  return 'general';
+};
+
+const completeSceneAnalysisResult = (
+  result: SceneAnalysisResult,
+  referenceResult?: ReferenceSceneAnalysis | null
+): SceneAnalysisResult => {
+  const productType = inferSceneProductType(result, referenceResult);
+  if (productType !== 'plush') {
+    return { ...result, productType };
+  }
+
+  const plushText = [
+    result.productName,
+    result.productCategory,
+    result.sceneDirection,
+    result.interactionHint,
+    referenceResult?.sceneDirection,
+    referenceResult?.interactionHint,
+  ].filter(Boolean).join(' ');
+  const inferredPlushName = /bird|小鸟|鸟|鳥/i.test(plushText)
+    ? '毛绒鸟玩偶 / 毛绒小鸟公仔'
+    : /cat|kitten|猫|貓/i.test(plushText)
+      ? '毛绒猫玩偶 / 毛绒猫咪公仔'
+      : /bear|teddy|熊/i.test(plushText)
+        ? '毛绒熊玩偶 / 泰迪熊公仔'
+        : '毛绒玩偶 / 毛绒动物公仔';
+
+  return {
+    ...result,
+    productType: 'plush',
+    productName: isGenericAnalysisValue(result.productName) ? inferredPlushName : result.productName,
+    productCategory: isGenericAnalysisValue(result.productCategory) ? '毛绒玩具' : result.productCategory,
+    material: isGenericAnalysisValue(result.material) ? '柔软毛绒面料、填充棉、细密纤维绒毛、刺绣或缝线细节' : result.material,
+    sellingPoints: isGenericAnalysisValue(result.sellingPoints) ? '柔软触感、可爱造型、陪伴感、礼物属性、安全治愈' : result.sellingPoints,
+    targetAudience: isGenericAnalysisValue(result.targetAudience) ? '玩偶礼物买家、儿童家庭、治愈系家居用户、社媒内容用户' : result.targetAudience,
+    brandTone: isGenericAnalysisValue(result.brandTone) ? '治愈、柔软、安全、温暖、有陪伴感' : result.brandTone,
+    usageScenario: isGenericAnalysisValue(result.usageScenario) ? '卧室床头、沙发角落、儿童房、礼物场景、家居陪伴' : result.usageScenario,
+    colorStyle: isGenericAnalysisValue(result.colorStyle) ? '奶油暖调、柔和自然光、低饱和家居色、浅木色与棉麻质感' : result.colorStyle,
+    interactionHint: isGenericAnalysisValue(result.interactionHint) ? '产品自然放置在床头、沙发、木桌或儿童房柔光场景中，保持真实比例和柔软触感' : result.interactionHint,
+  };
 };
 
 const PERSONA_PRESETS: Record<string, {
@@ -390,31 +474,42 @@ const SceneGenerationTab: React.FC = () => {
         mimeType: referenceSceneImage.file.type
       } : undefined;
       
-      const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize);
+      const [productResult, referenceResult] = await Promise.all([
+        analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize),
+        refImgData ? analyzeReferenceScene(refImgData) : Promise.resolve(null),
+      ]);
+      const mergedResult = referenceResult ? {
+        ...productResult,
+        sceneDirection: referenceResult.sceneDirection || productResult.sceneDirection,
+        interactionHint: referenceResult.interactionHint || productResult.interactionHint,
+        colorStyle: referenceResult.colorStyle || productResult.colorStyle,
+        modelPersonaPreset: referenceResult.modelPersonaPreset || productResult.modelPersonaPreset,
+      } : productResult;
+      const result = completeSceneAnalysisResult(mergedResult, referenceResult);
       
       // Apply analysis results to form
       setForm(prev => {
         return {
           ...prev,
-          productName: prev.productName || result.productName,
-          productCategory: prev.productCategory || result.productCategory,
+          productName: chooseAnalysisValue(prev.productName, result.productName),
+          productCategory: chooseAnalysisValue(prev.productCategory, result.productCategory),
           productType: result.productType,
-          productSize: prev.productSize || result.productSize,
-          material: prev.material || result.material,
-          sellingPoints: prev.sellingPoints || result.sellingPoints,
+          productSize: chooseAnalysisValue(prev.productSize, result.productSize),
+          material: chooseAnalysisValue(prev.material, result.material),
+          sellingPoints: chooseAnalysisValue(prev.sellingPoints, result.sellingPoints),
           // Now these will reflect the reference image if it was provided
           sceneDirection: result.sceneDirection,
           interactionHint: result.interactionHint,
           colorStyle: result.colorStyle,
           modelPersonaPreset: result.modelPersonaPreset,
           
-          targetAudience: prev.targetAudience || result.targetAudience,
+          targetAudience: chooseAnalysisValue(prev.targetAudience, result.targetAudience),
           modelEthnicity: result.modelEthnicity,
           modelAgeGroup: result.modelAgeGroup,
           modelFamilyStructure: result.modelFamilyStructure,
           modelLifestyle: result.modelLifestyle,
-          usageScenario: prev.usageScenario || result.usageScenario,
-          brandTone: prev.brandTone || result.brandTone,
+          usageScenario: chooseAnalysisValue(prev.usageScenario, result.usageScenario),
+          brandTone: chooseAnalysisValue(prev.brandTone, result.brandTone),
           sizeCategory: prev.productSize ? getSizeCategoryFromStr(prev.productSize) : result.sizeCategory,
           // Auto-fill Camera and Shot Type if they are set to 'auto'
           cameraDevice: prev.cameraDevice === 'auto' ? result.recommendedCamera : prev.cameraDevice,
@@ -435,7 +530,8 @@ const SceneGenerationTab: React.FC = () => {
         targetAudience: form.targetAudience || result.targetAudience || '',
         usageScenario: form.usageScenario || result.usageScenario || '',
       };
-      setAnalysisResult(updatedResult);
+      setAnalysisResult(completeSceneAnalysisResult(updatedResult, referenceResult));
+      setShowAnalysisDetail(true);
     } catch (err: any) {
       console.error('AI analysis failed:', err);
       setError('AI 分析失败，请手动填写信息或重试');
@@ -463,28 +559,39 @@ const SceneGenerationTab: React.FC = () => {
           }))
         );
 
-        const result = await analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize);
+        const [productResult, referenceResult] = await Promise.all([
+          analyzeProductForScene(images, form.userHint, boardType, refImgData, form.productSize),
+          analyzeReferenceScene(refImgData),
+        ]);
+        const mergedResult = referenceResult ? {
+          ...productResult,
+          sceneDirection: referenceResult.sceneDirection || productResult.sceneDirection,
+          interactionHint: referenceResult.interactionHint || productResult.interactionHint,
+          colorStyle: referenceResult.colorStyle || productResult.colorStyle,
+          modelPersonaPreset: referenceResult.modelPersonaPreset || productResult.modelPersonaPreset,
+        } : productResult;
+        const result = completeSceneAnalysisResult(mergedResult, referenceResult);
 
         // Apply analysis results to form
         setForm(prev => ({
           ...prev,
-          productName: prev.productName || result.productName,
-          productCategory: prev.productCategory || result.productCategory,
+          productName: chooseAnalysisValue(prev.productName, result.productName),
+          productCategory: chooseAnalysisValue(prev.productCategory, result.productCategory),
           productType: result.productType,
-          productSize: prev.productSize || result.productSize,
-          material: prev.material || result.material,
-          sellingPoints: prev.sellingPoints || result.sellingPoints,
+          productSize: chooseAnalysisValue(prev.productSize, result.productSize),
+          material: chooseAnalysisValue(prev.material, result.material),
+          sellingPoints: chooseAnalysisValue(prev.sellingPoints, result.sellingPoints),
           sceneDirection: result.sceneDirection,
           interactionHint: result.interactionHint,
           colorStyle: result.colorStyle,
           modelPersonaPreset: result.modelPersonaPreset,
-          targetAudience: prev.targetAudience || result.targetAudience,
+          targetAudience: chooseAnalysisValue(prev.targetAudience, result.targetAudience),
           modelEthnicity: result.modelEthnicity,
           modelAgeGroup: result.modelAgeGroup,
           modelFamilyStructure: result.modelFamilyStructure,
           modelLifestyle: result.modelLifestyle,
-          usageScenario: prev.usageScenario || result.usageScenario,
-          brandTone: prev.brandTone || result.brandTone,
+          usageScenario: chooseAnalysisValue(prev.usageScenario, result.usageScenario),
+          brandTone: chooseAnalysisValue(prev.brandTone, result.brandTone),
           sizeCategory: prev.productSize ? getSizeCategoryFromStr(prev.productSize) : result.sizeCategory,
           cameraDevice: prev.cameraDevice === 'auto' ? result.recommendedCamera : prev.cameraDevice,
           shotType: prev.shotType === 'auto' ? result.recommendedShotType : prev.shotType,
@@ -503,7 +610,7 @@ const SceneGenerationTab: React.FC = () => {
           targetAudience: form.targetAudience || result.targetAudience || '',
           usageScenario: form.usageScenario || result.usageScenario || '',
         };
-        setAnalysisResult(updatedResult);
+        setAnalysisResult(completeSceneAnalysisResult(updatedResult, referenceResult));
         setShowAnalysisDetail(true);
       } else {
         // No product images uploaded yet, analyze reference scene only
@@ -1331,7 +1438,7 @@ const SceneGenerationTab: React.FC = () => {
                               </button>
                             </div>
                           ) : (
-                            <p className="text-xs text-pastel-text truncate" title={displayValue}>{displayValue || '—'}</p>
+                            <p className="text-xs text-pastel-text whitespace-pre-wrap break-words" title={displayValue}>{displayValue || '—'}</p>
                           )}
                         </div>
                       );
