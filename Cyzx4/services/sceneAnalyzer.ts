@@ -127,8 +127,22 @@ ${userProductSize ? `**产品尺寸 (强制约束)**: 用户已明确指定产�
 - 如果产品面向儿童 → 必须确保场景装饰和家具具有“孩童感”（如可爱的地毯、玩具收纳、明亮的软装），增强产品的渲染力和吸引力。
 - 场景推荐必须高度贴合真实的美国本土生活方式，具有顶级商业纪实摄影感，同时兼顾玩具类产品的活泼氛围。
 
+**PLUSH / DOLL SPECIALIST RULES (CRITICAL)**:
+When the product is a plush toy, stuffed animal, doll, soft toy, mascot pillow, collectible plush, or any fuzzy companion product, set "productType" to "plush" unless it is clearly apparel or a hard product.
+
+For plush products, the analysis must NOT behave like a generic Amazon lifestyle agent. It must infer a warm plush photography system:
+- material must name tactile details: short-pile plush, long-pile plush, minky, micro fleece, cotton-linen, knit, stuffing volume, embroidered face, seam lines, pile direction, soft matte surface, fiber density, fuzzy edges.
+- sceneDirection should recommend real photographic plush scenes: companionship, gifting, nursery, bedroom, sofa, bedside, soft play room, warm family corner, holiday gift scene, healing social media scene, parent-child soft daylight scene.
+- colorStyle should prefer cream, oatmeal, milk white, light wood, warm beige, low-saturation pink, soft gray, warm pastel, or tasteful Nordic/MUJI-like home colors when appropriate.
+- brandTone should emphasize emotion + material + safety + softness: healing, huggable, safe, warm, giftable, companion-like, premium but gentle.
+- interactionHint must obey scale: held in palm, hugged to chest, resting on pillow, sitting on sofa/wood table, toddler cuddling under supervision, bedside companion. Avoid giant plush scale unless productSize says large.
+- recommendedCamera should usually be iphone or fuji for social/mobile, canon/sony for A+/asset/story. recommendedShotType should often be close or medium for plush texture, wide only for story scenes.
+
+Avoid recommending hard studio flash, high contrast, plastic toy feeling, empty oversized rooms, messy toy piles, extra background dolls, creepy expressions, gray muddy color, CGI render style, or random unrelated props.
+
 **OUTPUT FORMAT**: 
 返回纯 JSON 对象，不要用 markdown 代码块包裹。确保所有 string value 用双引号。
+Return ONLY one valid JSON object. Do not add explanations before or after the JSON.
 `;
 }
 
@@ -183,24 +197,13 @@ export async function analyzeProductForScene(
       contents: { parts },
     });
     
-    let text = response.text || '{}';
-    // Remove markdown code blocks if present
-    text = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    
+    const text = response.text || '{}';
     try {
-      const result = JSON.parse(text);
+      const result = parseSceneAnalysisJson(text);
       return validateAnalysisResult(result, userHint);
     } catch (parseError) {
-      console.warn('Scene analysis JSON parse failed, attempting sanitization...', parseError);
-      // Try sanitizing
-      const sanitized = text.replace(/[\n\r\t]/g, ' ');
-      try {
-        const result = JSON.parse(sanitized);
-        return validateAnalysisResult(result, userHint);
-      } catch (e2) {
-        console.error('Scene analysis parse completely failed:', e2);
-        return getDefaultAnalysisResult(userHint);
-      }
+      console.error('Scene analysis parse completely failed:', parseError);
+      return getDefaultAnalysisResult(userHint);
     }
   } catch (error) {
     console.error('Scene analysis API call failed:', error);
@@ -213,28 +216,87 @@ export async function analyzeProductForScene(
 const VALID_PRODUCT_TYPES: SceneGenerationProductType[] = ['plush', 'apparel', 'general'];
 const VALID_SIZE_CATEGORIES = ['tiny', 'small', 'medium', 'large', 'wearable'] as const;
 
+function parseSceneAnalysisJson(text: string): any {
+  const withoutFences = text.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+
+  try {
+    return JSON.parse(withoutFences);
+  } catch {
+    const jsonObject = withoutFences.match(/\{[\s\S]*\}/)?.[0];
+    if (jsonObject) {
+      try {
+        return JSON.parse(jsonObject);
+      } catch {
+        // Fall through to sanitized parse below.
+      }
+    }
+  }
+
+  return JSON.parse(withoutFences.replace(/[\n\r\t]/g, ' '));
+}
+
+function rawString(raw: any, keys: string[]): string {
+  for (const key of keys) {
+    const value = raw?.[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+function normalizeProductType(raw: any): SceneGenerationProductType {
+  const explicitType = rawString(raw, ['productType', 'product_type', 'type']).toLowerCase();
+  if (explicitType.includes('plush')) return 'plush';
+  if (explicitType.includes('apparel')) return 'apparel';
+  if (explicitType.includes('general')) return 'general';
+
+  const searchableText = [
+    explicitType,
+    rawString(raw, ['productName', 'product_name', 'name']),
+    rawString(raw, ['productCategory', 'product_category', 'category']),
+    rawString(raw, ['material', 'fabric']),
+    rawString(raw, ['sellingPoints', 'selling_points']),
+    rawString(raw, ['sceneDirection', 'scene_direction']),
+  ].join(' ');
+
+  if (/plush|stuffed|soft\s*toy|doll|mascot|teddy|fuzzy|minky|fleece|毛绒|玩偶|公仔|布偶|娃娃|抱枕|填充|绒|棉花娃娃/i.test(searchableText)) {
+    return 'plush';
+  }
+
+  if (/apparel|clothing|garment|shirt|dress|pants|jacket|fashion|服装|衣服|上衣|裙|裤|外套|穿搭/i.test(searchableText)) {
+    return 'apparel';
+  }
+
+  return 'general';
+}
+
 function validateAnalysisResult(raw: any, userHint: string = ''): SceneAnalysisResult {
+  const recommendedCamera = rawString(raw, ['recommendedCamera', 'recommended_camera', 'camera']);
+  const recommendedShotType = rawString(raw, ['recommendedShotType', 'recommended_shot_type', 'shotType', 'shot_type']);
+  const sizeCategory = rawString(raw, ['sizeCategory', 'size_category']);
+
   return {
-    productName: raw.productName || '商品',
-    productCategory: raw.productCategory || '通用产品',
-    productType: VALID_PRODUCT_TYPES.includes(raw.productType) ? raw.productType : 'general',
-    productSize: raw.productSize || '',
-    material: raw.material || '',
-    sellingPoints: raw.sellingPoints || '',
-    sceneDirection: raw.sceneDirection || userHint || '温暖居家生活场景',
-    targetAudience: raw.targetAudience || '',
-    modelPersonaPreset: raw.modelPersonaPreset || '美国都市女性',
-    modelEthnicity: raw.modelEthnicity || '自动匹配',
-    modelAgeGroup: raw.modelAgeGroup || '20-30岁',
-    modelFamilyStructure: raw.modelFamilyStructure || '单人',
-    modelLifestyle: raw.modelLifestyle || '居家休闲',
-    colorStyle: raw.colorStyle || '',
-    usageScenario: raw.usageScenario || '',
-    brandTone: raw.brandTone || '',
-    interactionHint: raw.interactionHint || 'naturally interacting with the product',
-    recommendedCamera: ['iphone', 'fuji', 'canon', 'sony', 'polaroid'].includes(raw.recommendedCamera) ? raw.recommendedCamera : 'iphone',
-    recommendedShotType: ['wide', 'medium', 'close', 'macro'].includes(raw.recommendedShotType) ? raw.recommendedShotType : 'medium',
-    sizeCategory: VALID_SIZE_CATEGORIES.includes(raw.sizeCategory) ? raw.sizeCategory : 'medium',
+    productName: rawString(raw, ['productName', 'product_name', 'name']) || '商品',
+    productCategory: rawString(raw, ['productCategory', 'product_category', 'category']) || '通用产品',
+    productType: normalizeProductType(raw),
+    productSize: rawString(raw, ['productSize', 'product_size', 'size']) || '',
+    material: rawString(raw, ['material', 'fabric']) || '',
+    sellingPoints: rawString(raw, ['sellingPoints', 'selling_points']) || '',
+    sceneDirection: rawString(raw, ['sceneDirection', 'scene_direction']) || userHint || '温暖居家生活场景',
+    targetAudience: rawString(raw, ['targetAudience', 'target_audience']) || '',
+    modelPersonaPreset: rawString(raw, ['modelPersonaPreset', 'model_persona_preset']) || '美国都市女性',
+    modelEthnicity: rawString(raw, ['modelEthnicity', 'model_ethnicity']) || '自动匹配',
+    modelAgeGroup: rawString(raw, ['modelAgeGroup', 'model_age_group']) || '20-30岁',
+    modelFamilyStructure: rawString(raw, ['modelFamilyStructure', 'model_family_structure']) || '单人',
+    modelLifestyle: rawString(raw, ['modelLifestyle', 'model_lifestyle']) || '居家休闲',
+    colorStyle: rawString(raw, ['colorStyle', 'color_style']) || '',
+    usageScenario: rawString(raw, ['usageScenario', 'usage_scenario']) || '',
+    brandTone: rawString(raw, ['brandTone', 'brand_tone']) || '',
+    interactionHint: rawString(raw, ['interactionHint', 'interaction_hint']) || 'naturally interacting with the product',
+    recommendedCamera: ['iphone', 'fuji', 'canon', 'sony', 'polaroid'].includes(recommendedCamera) ? recommendedCamera as SceneAnalysisResult['recommendedCamera'] : 'iphone',
+    recommendedShotType: ['wide', 'medium', 'close', 'macro'].includes(recommendedShotType) ? recommendedShotType as SceneAnalysisResult['recommendedShotType'] : 'medium',
+    sizeCategory: VALID_SIZE_CATEGORIES.includes(sizeCategory as SceneAnalysisResult['sizeCategory']) ? sizeCategory as SceneAnalysisResult['sizeCategory'] : 'medium',
   };
 }
 
