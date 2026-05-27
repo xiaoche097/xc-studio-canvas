@@ -25,6 +25,144 @@ export interface GenerateContentParams {
     config?: any;
 }
 
+type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato'>;
+
+export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
+export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
+export const YUNWU_ANALYSIS_FALLBACK_MODEL = 'gpt-5.4-mini';
+export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
+export const ANALYSIS_FALLBACK_TIMEOUT_MS = 60000;
+
+/**
+ * 云雾中转站不使用 preview 后缀的 Flash Lite 模型 ID。
+ * Plato 虽复用 Yunwu 兼容通道，但模型 ID 保持原样。
+ */
+export const resolveRuntimeModelId = (
+    modelId: string,
+    config?: RuntimeModelConfig
+): string => {
+    const runtimeConfig = config || {
+        isYunwu:
+            Boolean(localStorage.getItem("yunwu_api_key")) &&
+            localStorage.getItem("yunwu_enabled") !== "false" &&
+            !(
+                Boolean(localStorage.getItem("plato_api_key")) &&
+                localStorage.getItem("plato_enabled") !== "false"
+            ),
+        isPlato:
+            Boolean(localStorage.getItem("plato_api_key")) &&
+            localStorage.getItem("plato_enabled") !== "false",
+    };
+    if (
+        runtimeConfig.isYunwu &&
+        !runtimeConfig.isPlato &&
+        modelId === GEMINI_FLASH_LITE_PREVIEW_MODEL
+    ) {
+        return YUNWU_GEMINI_FLASH_LITE_MODEL;
+    }
+    return modelId;
+};
+
+const isYunwuOnly = (config: RuntimeModelConfig): boolean => (
+    config.isYunwu && !config.isPlato
+);
+
+const isFlashLiteAnalysisModel = (modelId: string): boolean => (
+    modelId === GEMINI_FLASH_LITE_PREVIEW_MODEL ||
+    modelId === YUNWU_GEMINI_FLASH_LITE_MODEL
+);
+
+export const shouldFallbackAnalysisModel = (error: any): boolean => {
+    const message = (error?.message || error?.toString?.() || '').toLowerCase();
+    const status = error?.status || error?.code;
+
+    if (
+        status === 401 ||
+        status === 403 ||
+        message.includes('api key') ||
+        message.includes('permission') ||
+        message.includes('unauthorized') ||
+        message.includes('forbidden') ||
+        message.includes('quota') ||
+        message.includes('billing') ||
+        message.includes('safety') ||
+        message.includes('blocked')
+    ) {
+        return false;
+    }
+
+    return (
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        message.includes('timeout') ||
+        message.includes('timed out') ||
+        message.includes('overloaded') ||
+        message.includes('rate') ||
+        message.includes('empty response') ||
+        message.includes('no response')
+    );
+};
+
+export async function generateContentWithAnalysisFallback<TClient extends {
+    models: {
+        generateContent: (request: any) => Promise<any>;
+    };
+}>(
+    ai: TClient,
+    request: any,
+    options: {
+        config?: RuntimeModelConfig;
+        timeoutMs?: number;
+        fallbackTimeoutMs?: number;
+    } = {}
+): Promise<any> {
+    const runtimeConfig = options.config || getApiConfig();
+    const requestedModel = request.model;
+    const primaryModel = resolveRuntimeModelId(requestedModel, runtimeConfig);
+    const primaryRequest = { ...request, model: primaryModel };
+
+    try {
+        const response = await executeWithTimeout(
+            ai.models.generateContent(primaryRequest),
+            {
+                timeoutMs: options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS,
+                timeoutMessage: `Analysis request timed out (${options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS}ms).`
+            }
+        );
+        if (!response?.text && isYunwuOnly(runtimeConfig) && isFlashLiteAnalysisModel(primaryModel)) {
+            throw new Error('Empty response from primary analysis model.');
+        }
+        return response;
+    } catch (error) {
+        if (
+            !isYunwuOnly(runtimeConfig) ||
+            !isFlashLiteAnalysisModel(primaryModel) ||
+            !shouldFallbackAnalysisModel(error)
+        ) {
+            throw error;
+        }
+
+        console.warn(
+            `[AnalysisFallback] ${primaryModel} failed, retrying with ${YUNWU_ANALYSIS_FALLBACK_MODEL}`,
+            error
+        );
+
+        return executeWithTimeout(
+            ai.models.generateContent({
+                ...request,
+                model: YUNWU_ANALYSIS_FALLBACK_MODEL
+            }),
+            {
+                timeoutMs: options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS,
+                timeoutMessage: `Fallback analysis request timed out (${options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS}ms).`
+            }
+        );
+    }
+}
+
 export interface TimeoutOptions {
     timeoutMs?: number;
     timeoutMessage?: string;

@@ -1,5 +1,5 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { getApiConfig } from "../utils/apiHelpers";
+import { generateContentWithAnalysisFallback, getApiConfig } from "../utils/apiHelpers";
 
 /**
  * VTON Material Analyst (Pass 1 of Dual-Agent architecture)
@@ -31,7 +31,7 @@ export const analyzeVtonMaterials = async (
   parts.push({ text: prompt });
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: { parts },
       config: {
@@ -42,7 +42,7 @@ export const analyzeVtonMaterials = async (
           { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ]
       }
-    });
+    }, { config });
     return response.text || "Analysis unavailable.";
   } catch (e) {
     console.warn("[Analyst Agent] Analysis failed:", e);
@@ -104,7 +104,7 @@ export const analyzeGarmentFeatures = async (
 `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
@@ -120,7 +120,7 @@ export const analyzeGarmentFeatures = async (
           { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ]
       }
-    });
+    }, { config });
 
     let text = response.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -174,7 +174,7 @@ export const analyzeImagePerspective = async (
 `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
@@ -190,7 +190,7 @@ export const analyzeImagePerspective = async (
           { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ]
       }
-    });
+    }, { config });
 
     let text = response.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();

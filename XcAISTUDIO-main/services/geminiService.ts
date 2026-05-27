@@ -2,14 +2,29 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type, Modality, Part, FunctionDeclaration } from "@google/genai";
 import { SmartSequenceItem, VideoGenerationMode } from "../types";
+import { generateContentWithAnalysisFallback, getApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
 
 // --- Initialization ---
 
 const getClient = () => {
-    if (!process.env.API_KEY) {
+    const config = getApiConfig();
+    if (!config.apiKey) {
         throw new Error("API Key is missing. Please select a paid API key via the Google AI Studio button.");
     }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (config.isYunwu && config.baseUrl) {
+        return new GoogleGenAI({
+            apiKey: config.apiKey,
+            httpOptions: {
+                baseUrl: config.baseUrl,
+                headers: { Authorization: `Bearer ${config.apiKey}` }
+            },
+            apiVersion: config.apiVersion as any
+        });
+    }
+    return new GoogleGenAI({
+        apiKey: config.apiKey,
+        apiVersion: config.apiVersion as any
+    });
 };
 
 const getPolloKey = () => {
@@ -331,7 +346,7 @@ export const sendChatMessage = async (
     }
 
     const chat = ai.chats.create({
-        model: modelName,
+        model: resolveRuntimeModelId(modelName),
         config: { systemInstruction },
         history: history
     });
@@ -555,8 +570,8 @@ export const analyzeVideo = async (videoBase64OrUrl: string, prompt: string, mod
         throw new Error("Direct URL analysis not implemented in this demo. Please use uploaded videos.");
     }
 
-    const response = await ai.models.generateContent({
-        model: model,
+    const response = await generateContentWithAnalysisFallback(ai, {
+        model,
         contents: {
             parts: [
                 { inlineData },
@@ -576,7 +591,7 @@ export const editImageWithText = async (imageBase64: string, prompt: string, mod
 
 export const planStoryboard = async (prompt: string, context: string): Promise<string[]> => {
     const ai = getClient();
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
         model: 'gemini-3.1-flash-lite-preview',
         config: {
             responseMimeType: 'application/json',
@@ -598,7 +613,7 @@ export const orchestrateVideoPrompt = async (images: string[], userPrompt: strin
     const parts: Part[] = images.map(img => ({ inlineData: { data: img.replace(/^data:.*;base64,/, ""), mimeType: "image/png" } }));
     parts.push({ text: `Create a single video prompt that transitions between these images. User Intent: ${userPrompt}` });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
         model: 'gemini-3.1-flash-lite-preview',
         config: { systemInstruction: VIDEO_ORCHESTRATOR_INSTRUCTION },
         contents: { parts }
@@ -655,7 +670,7 @@ export const transcribeAudio = async (audioBase64: string): Promise<string> => {
     const mime = audioBase64.match(/^data:(audio\/\w+);base64,/)?.[1] || 'audio/wav';
     const data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
         model: 'gemini-3.1-flash-lite-preview',
         contents: {
             parts: [

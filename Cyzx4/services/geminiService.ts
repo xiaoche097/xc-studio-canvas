@@ -7,6 +7,8 @@ import {
   getApiConfig,
   getAiClient,
   getActiveApiInfo,
+  resolveRuntimeModelId,
+  generateContentWithAnalysisFallback,
   executeWithTimeout,
   blobToBase64,
   compressImage,
@@ -127,7 +129,7 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
     });
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: { parts }
     });
@@ -175,7 +177,7 @@ Your response must be a valid JSON object matching the following structure. Do N
     }));
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: { parts }
     });
@@ -204,7 +206,7 @@ export const generateText = async (
     }));
     parts.push({ text: prompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: modelId,
       contents: { parts }
     });
@@ -261,7 +263,7 @@ export const analyzeProductImage = async (
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
@@ -466,7 +468,7 @@ Respond ONLY with valid JSON.
     }));
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
       contents: { parts }
     });
@@ -582,7 +584,7 @@ export const generateMarketingImage = async (
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: modelId,
+        model: resolveRuntimeModelId(modelId),
         contents: {
           parts: parts,
         },
@@ -804,7 +806,29 @@ export const generateImageToImage = async (
         
         // Build workflow-aware prompt for GPT (since it doesn't get separate system instructions)
         let gptPrompt = forcedPrompt;
-        if (workflowHint === 'hero-pose-lock') {
+        if (workflowHint === 'garment-extraction') {
+          gptPrompt = `[ROLE: Senior fashion image masking and garment extraction specialist]
+[TASK: Perform exact in-place garment extraction from Image 1]
+[ABSOLUTE GOAL]
+- Keep all clothing exactly where it is in the original image.
+- Preserve the original camera angle, pose-driven shape, perspective, folds, stretch, wrinkles, drape, fabric shadows, and occlusion contours.
+- Do NOT straighten, rotate, recenter, resize, redraw, complete, beautify, or redesign the clothing.
+- The output must look like the original image with every non-clothing pixel painted pure white.
+[STRICT KEEP]
+- Preserve all visible clothing pixels exactly as they appear in Image 1: silhouette, color, pattern, trims, buttons, zippers, seams, folds, drape, fabric texture, stitching, labels, and construction details.
+- If multiple garments are worn together, keep their original relative positions, overlap, spacing, and original shapes.
+[STRICT REMOVE]
+- Remove all non-clothing pixels: body, skin, face, head, hair, hands, arms, legs, feet, background, room, studio, floor, props, accessories, jewelry, bags, phones, hanger, mannequin, text, watermark, and logo overlays.
+- Where removed body parts or props occluded the garment, do not hallucinate missing fabric; leave those removed/occluded pixels pure white.
+[OUTPUT]
+- Same garment placement and angle as the original source image.
+- Pure white background (#FFFFFF), not transparent and not checkerboard.
+- No visible person, body parts, mannequin, hanger, or extra objects.
+- Preserve pixel-level alignment as closely as possible; the clothing boundary must match Image 1 with no visible offset.
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
+        } else if (workflowHint === 'hero-pose-lock') {
           gptPrompt = `[ROLE: Senior E-commerce Fashion Director & Product-Fidelity Retoucher]
 [TASK: Generate a new hero image from ordered reference images]
 [INPUT PRIORITY]
@@ -853,7 +877,7 @@ ${forcedPrompt}`;
         }
 
         const payload = {
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           prompt: gptPrompt,
           size: gptSize,
           quality: "auto",
@@ -1095,6 +1119,30 @@ ${forcedPrompt}`;
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
+              : workflowHint === 'garment-extraction'
+                ? `
+        **ROLE**: Senior Fashion Image Masking and Garment Extraction Specialist.
+        **TASK**: Perform exact in-place garment extraction from Image 1.
+        **ABSOLUTE GOAL**:
+        - Keep all clothing exactly where it is in the original image.
+        - Preserve the original camera angle, pose-driven shape, perspective, folds, stretch, wrinkles, drape, fabric shadows, and occlusion contours.
+        - Do NOT straighten, rotate, recenter, resize, redraw, complete, beautify, or redesign the clothing.
+        - The output must look like the original image with every non-clothing pixel painted pure white.
+        **KEEP ONLY**:
+        - All visible clothing pixels exactly as they appear in Image 1: silhouette, neckline, cuffs, sleeves, hem, seams, buttons, zippers, labels, embroidery, prints, color, fabric texture, folds, drape, wrinkles, and construction details.
+        - If multiple garments are worn together, keep their original relative positions, overlap, spacing, and original shapes.
+        **REMOVE COMPLETELY**:
+        - Every non-clothing element: human body, skin, face, head, hair, hands, arms, legs, feet.
+        - Background, room, studio, floor, props, accessories, jewelry, bags, phones, hanger, mannequin, text, watermark, and logo overlays.
+        - For areas hidden by body, hair, arms, hands, face, props, or background, do not hallucinate missing fabric; replace those removed/occluded areas with pure white.
+        **OUTPUT**:
+        - Same garment placement and angle as the original source image.
+        - Pure white background (#FFFFFF), not transparent and not checkerboard.
+        - No person, no body parts, no mannequin, no hanger, no extra objects.
+        - Preserve pixel-level alignment as closely as possible; the garment mask must match the original clothing boundary with no visible offset.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
               : workflowHint === 'clothing-effect'
                 ? `
         **ROLE**: High-end Fashion Photography Retoucher.
@@ -1234,7 +1282,7 @@ ${forcedPrompt}`;
 
       const response = await executeWithTimeout(
         ai.models.generateContent({
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           contents: { parts: parts },
           // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
           // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
@@ -1393,7 +1441,7 @@ export const generateInpainting = async (
         console.warn(`[GPT Image 2 Inpaint] Size: ${gptSize}, Prompt: ${forcedPrompt.substring(0, 50)}...`);
         
         const payload = {
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           prompt: forcedPrompt,
           size: gptSize,
           response_format: "b64_json",
@@ -1531,7 +1579,7 @@ export const generateInpainting = async (
 
       const response = await executeWithTimeout(
         ai.models.generateContent({
-          model: targetModel,
+          model: resolveRuntimeModelId(targetModel),
           contents: { parts: parts },
           config: {
             imageConfig: {
@@ -1664,8 +1712,8 @@ Just the raw text.
     parts.push({ text: userMessage });
 
     // Use gemini-3.1-flash-lite-preview for fast reasoning & text generation
-    const modelName = "gemini-3.1-flash-lite-preview";
-    const response = await ai.models.generateContent({
+    const modelName = resolveRuntimeModelId("gemini-3.1-flash-lite-preview");
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: modelName,
       contents: {
         parts: parts
@@ -1724,8 +1772,8 @@ You must analyze the user's request to identify their core intent:
 `;
 
   try {
-    const modelName = "gemini-3.1-flash-lite-preview"; // Use Flash for speed
-    const response = await ai.models.generateContent({
+    const modelName = resolveRuntimeModelId("gemini-3.1-flash-lite-preview"); // Use Flash for speed
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: modelName,
       contents: {
         parts: [
@@ -2197,7 +2245,7 @@ Generate a **NEW photorealistic image** that:
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: modelName,
+        model: resolveRuntimeModelId(modelName),
         contents: { parts: parts },
         config: {
           imageConfig: {
@@ -2982,7 +3030,7 @@ You MUST process the input through these 8 distinct phases:
     };
 
     return await ai.models.generateContent({
-      model: modelName,
+      model: resolveRuntimeModelId(modelName),
       contents: [{ role: "user", parts }],
       config: config,
     });
@@ -3203,7 +3251,7 @@ Professional commercial photography quality. The result must be indistinguishabl
     };
 
     return await ai.models.generateContent({
-      model: modelName,
+      model: resolveRuntimeModelId(modelName),
       contents: [{ role: "user", parts }],
       config: config,
     });
@@ -3295,7 +3343,7 @@ export const analyzeImageQuality = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
       contents: {
         parts: [
@@ -3371,7 +3419,7 @@ export const analyzeStyle = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: "gemini-3.1-flash-lite-preview",
       contents: {
         parts: [
@@ -3661,7 +3709,7 @@ Respond ONLY with valid JSON.
     }));
     parts.push({ text: analysisPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(ai, {
       model: textModel,
       contents: { parts }
     });
@@ -3773,11 +3821,12 @@ Return ONLY the final enriched English prompt. Do NOT include any preamble or ex
     }));
     parts.push({ text: refinementPrompt });
 
-    const response = await executeWithTimeout(
-      ai.models.generateContent({
+    const response = await generateContentWithAnalysisFallback(
+      ai,
+      {
         model: "gemini-3.1-flash-lite-preview",
         contents: { parts }
-      }),
+      },
       { timeoutMs: 30000 }
     );
 

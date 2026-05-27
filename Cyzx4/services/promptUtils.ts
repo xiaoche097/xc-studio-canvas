@@ -528,7 +528,7 @@ export function buildRealisticInteractionPrompt(input: SceneGenerationPromptInpu
         parts.push(REALISM_PHYSICS_RULES[sizeCategory]);
     }
 
-    const isNoModel = input.modelPersonaPreset === '无模特（纯产品）';
+    const isNoModel = isNoModelPreset(input);
     if (isNoModel) {
         parts.push("The product must sit naturally on a surface or environment, respecting gravity and contact shadows. NO HANDS, NO PEOPLE, AND NO BODY PARTS.");
     } else {
@@ -791,6 +791,11 @@ function buildProductLockPrompt(productType: SceneGenerationProductType) {
 }
 
 function buildMaterialLockPrompt(input: SceneGenerationPromptInput) {
+    if (input.productType === 'plush') {
+        const detectedMaterial = input.material ? `Detected material: ${input.material}. ` : "";
+        return `${detectedMaterial}Plush material fidelity is mandatory: preserve the exact plush pile length, fiber density, embroidery, stitching, seams, cotton-filled volume, soft matte surface, tactile fuzzy texture, natural fabric shading, compression points, and product-specific face/details from the reference. Add ultra soft fabric texture, visible plush fibers, micro fleece detail, real stitching detail, and believable soft stuffing volume.`;
+    }
+
     if (input.material) {
         return `Material fidelity is mandatory: ${input.material}. Preserve the exact surface finish, tactile feel, texture depth, seam definition, embroidery or print sharpness, and physically believable folds or compression from the reference product.`;
     }
@@ -798,8 +803,88 @@ function buildMaterialLockPrompt(input: SceneGenerationPromptInput) {
     return "Material fidelity is mandatory. Preserve the exact surface finish, tactile feel, texture depth, seam definition, embroidery or print sharpness, and physically believable folds or compression from the reference product.";
 }
 
+function isNoModelPreset(input: SceneGenerationPromptInput) {
+    const preset = input.modelPersonaPreset || "";
+    return /no\s*people|no\s*model|product\s*only|dont_allow/i.test(preset) || preset.includes('\u65e0\u6a21\u7279') || preset.includes('\u7eaf\u4ea7\u54c1');
+}
+
+function buildPlushVisualSystemPrompt(input: SceneGenerationPromptInput) {
+    if (input.productType !== 'plush') return "";
+
+    const text = [
+        input.sceneDirection,
+        input.usageScenario,
+        input.colorStyle,
+        input.brandTone,
+        input.extraNotes,
+        input.copyIntent,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    const wantsWhiteOrProductOnly = isNoModelPreset(input) || /white|pure product|product only|no people|no model|catalog|main image/i.test(text) || text.includes('\u767d\u5e95') || text.includes('\u7eaf\u4ea7\u54c1') || text.includes('\u65e0\u6a21\u7279');
+    const wantsHoliday = /christmas|holiday|gift|present|thanksgiving|birthday|valentine|easter/i.test(text) || text.includes('\u8282\u65e5') || text.includes('\u5723\u8bde') || text.includes('\u793c\u7269') || text.includes('\u751f\u65e5') || text.includes('\u9001\u793c');
+    const wantsSleep = /sleep|bed|bedroom|pillow|nightstand|nursery/i.test(text) || text.includes('\u7761\u7720') || text.includes('\u5367\u5ba4') || text.includes('\u5e8a\u5934');
+    const wantsBaby = /baby|toddler|mom|mother|parent|nursery/i.test(text) || text.includes('\u6bcd\u5a74') || text.includes('\u4eb2\u5b50') || text.includes('\u5b9d\u5b9d') || text.includes('\u5a74\u513f') || text.includes('\u513f\u7ae5');
+    let visualDirection = "Creamy healing home photography: warm cream tone, milk-white and oatmeal neutrals, light wood, low-saturation pastel accents, cozy atmosphere, soft emotional companionship.";
+    if (input.boardType === 'aplus' || input.boardType === 'story') {
+        visualDirection = "Premium home editorial advertising: warm Nordic-inspired home, clean cotton-linen textures, white wall, light wood furniture, tasteful negative space, polished but still warm and huggable.";
+    }
+    if (input.boardType === 'social' || input.boardType === 'mobile') {
+        visualDirection = "Authentic cozy social photography: casual real-home moment, soft window light, intimate companionship, gentle imperfect framing, Pinterest-like plush lifestyle photo.";
+    }
+    if (wantsHoliday) {
+        visualDirection = "Warm holiday gifting scene: cozy living room or bedroom corner, gift wrap, soft fairy lights or table lamp glow, cream and warm red accents, emotional giftable companionship without clutter.";
+    }
+    if (wantsSleep) {
+        visualDirection = "Sleep companion scene: bedside, pillow, cotton sheet, knit blanket, small night lamp, soft quiet mood, warm diffused evening/daylight, safe and huggable bedtime feeling.";
+    }
+    if (wantsBaby) {
+        visualDirection = "Soft nursery and parent-child scene: bright neutral nursery, cotton blanket, warm beige and pastel palette, safe gentle atmosphere, plush toy as the emotional centerpiece.";
+    }
+    if (wantsWhiteOrProductOnly) {
+        visualDirection = "Product-only plush catalog scene: pure white or warm off-white background, soft high-key lighting, subtle soft shadow, no people, no hands, no extra toys, plush fibers and stitching sharply visible.";
+    }
+
+    const humanPolicy = wantsWhiteOrProductOnly
+        ? "No people, no hands, no children, no body parts. Keep the plush as the only subject."
+        : "If people appear, use natural gentle interaction only: hugging, holding, resting beside, gifting, or bedside companionship. Human presence must support emotional warmth and never obscure product identity.";
+
+    return [
+        "HIDDEN PLUSH VISUAL SYSTEM: Plush scene images are not ordinary product shots. They must express emotion, softness, safety, warmth, and companionship.",
+        `Auto-selected plush visual direction: ${visualDirection}`,
+        "Material system: ultra soft fabric texture, visible plush fibers, micro fleece detail, cotton-filled volume, soft matte surface, real stitching detail, natural fabric shading, subtle pile direction, clean embroidery, tactile fuzzy edges.",
+        "Lighting system: soft window light, diffused daylight, warm ambient light, soft shadow transition, low contrast, no hard rim light, no flash, no high-contrast commercial hard light.",
+        "Composition system: simple but emotionally warm scene; foreground may contain one softly blurred small object, plush in the middle-ground as the emotional centerpiece, low-information background. Use realistic room proportion and human scale reference.",
+        "Allowed supporting props: knit blanket, light wood table, cotton-linen pillow, small night lamp, simple book, sheer curtain, soft rug, tasteful gift box. Keep props minimal and premium; max 3 supporting props.",
+        "Avoid empty oversized rooms, random toy piles, clutter, hard plastic look, dirty gray color cast, muddy colors, aggressive saturation, CGI render feeling, and cold lifeless studio space.",
+        humanPolicy,
+    ].join(" ");
+}
+
+function buildBoardInstructionForProduct(input: SceneGenerationPromptInput, productTitleContext: string) {
+    if (input.productType === 'plush') {
+        const common = [
+            `The product is a plush/toy item: "${productTitleContext}".`,
+            "The image must feel like premium plush brand photography, not a generic ecommerce scene.",
+            "Prioritize emotional companionship, tactile softness, safety, warm healing atmosphere, and believable home photography.",
+            "Keep the exact plush identity from the reference; do not change the face, embroidery, fur density, silhouette, stitching, color, or stuffing volume.",
+        ].join(" ");
+
+        const map: Record<SceneGenerationBoardType, string> = {
+            main: `${common} Create a clean Amazon secondary image with warm home context, clear product focus, minimal props, realistic scale, and soft natural light.`,
+            aplus: `${common} Create a premium A+ banner-like home editorial image with tasteful negative space, warm cream or light wood palette, refined cotton-linen textures, and strong brand feeling.`,
+            social: `${common} Create an authentic cozy social/Pinterest-style lifestyle photo with gentle real-home companionship, soft window light, shallow depth of field, and natural slightly imperfect framing.`,
+            story: `${common} Create a cinematic brand story image with quiet warm space, plush as the emotional anchor, premium home depth, soft atmospheric daylight, and clean copy-friendly negative space.`,
+            asset: `${common} Create a vertical brand asset card with centered emotional focus, creamy healing palette, soft home styling, realistic plush scale, and minimal elegant decor.`,
+            mobile: `${common} Create a vertical mobile-first cozy plush lifestyle image with strong emotional readability, product-first framing, soft window light, and warm safe atmosphere.`,
+        };
+        return map[input.boardType];
+    }
+
+    return "";
+}
+
 function buildAmericanPersonaPrompt(input: SceneGenerationPromptInput) {
-    if (input.modelPersonaPreset === '无模特（纯产品）') {
+    if (isNoModelPreset(input)) {
         return "ABSOLUTELY NO PEOPLE. NO MODELS. NO HANDS. NO BODY PARTS. ONLY THE PRODUCT IN THE SCENE.";
     }
 
@@ -904,6 +989,9 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     // Product title context — used to anchor all image content to the listing
     const productTitleContext = [input.productName, input.productCategory, input.sellingPoints].filter(Boolean).join(' — ');
 
+    const plushVisualSystem = buildPlushVisualSystemPrompt(input);
+    const plushBoardInstruction = buildBoardInstructionForProduct(input, productTitleContext);
+
     let customLighting = ["main", "social", "aplus", "asset", "mobile"].includes(input.boardType)
         ? "natural ambient lighting, believable shadows, candid lifestyle realism, subtle filmic depth, slightly imperfect lighting like a real phone photo (can be natural window light or outdoor sunlight as appropriate)"
         : "clean commercial lighting, realistic materials, sharp product focus, polished ecommerce look";
@@ -913,16 +1001,18 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     if (input.productType === 'plush') {
         const isCommercialStyle = /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.sceneDirection || '') || /商业|棚拍|精心布置|布景|影棚|摄影棚|高级|ins|马卡龙|糖果/.test(input.extraNotes || '') || /马卡龙|糖果|商业/.test(input.colorStyle || '');
         if (isCommercialStyle) {
-            customLighting = "commercial studio lighting, bright and clean, carefully arranged set design, premium photography style, balanced light";
+            customLighting = "premium soft commercial home lighting, diffused daylight mixed with warm ambient light, creamy high-key exposure, soft matte shadows, no flash, no hard rim light, no high-contrast hard light";
         } else {
-            customLighting = "soft diffused natural light from the window, low contrast soft tone, light ratio 1:2, color temperature 5400K, low saturation warm natural color palette, warm healing daily feeling";
+            customLighting = "soft window light, diffused daylight, warm ambient light, soft shadow transition, low contrast soft tone, color temperature around 5400K, low saturation warm natural color palette, warm healing daily feeling";
         }
         if (input.boardType === 'aplus') {
-            customComposition = "45-degree high-angle full shot, clear presentation of the product and scene, 35mm lens, premium editorial banner composition";
+            customComposition = "35mm lens, premium home editorial banner composition, plush as emotional centerpiece, tasteful negative space, foreground softly blurred small object, low-information background";
         } else if (input.boardType === 'main') {
-            customComposition = "eye-level interactive shot or close-up detail shot, shallow depth of field, blurred background, 50mm standard lens";
+            customComposition = "50mm standard lens, eye-level cozy product-first shot, natural placement, realistic room proportion, plush in middle-ground, shallow depth of field, soft background bokeh";
+        } else if (input.boardType === 'social' || input.boardType === 'mobile') {
+            customComposition = "50mm phone-like lifestyle framing, intimate close-to-medium shot, slightly imperfect Pinterest-style real-home composition, shallow depth of field, plush clearly visible";
         }
-        customQuality = "hyper-detailed fluffy plush texture, natural and transparent baby skin (if people present), 8K, high resolution, film-like texture";
+        customQuality = "hyper-detailed soft plush fibers, micro fleece detail, cotton-filled volume, real stitching detail, soft matte surface, natural fabric shading, crisp embroidery, tactile fuzzy edges, high resolution, film-like texture";
     }
 
 
@@ -1053,12 +1143,13 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
     const realismPrompt = buildRealisticInteractionPrompt(input);
 
     const plushSpecificGuide = input.productType === 'plush' 
-        ? "SCENE RULES FOR PLUSH: Use lively and premium North American home scenes (e.g., cheerful kids bedroom, colorful play room, or sun-drenched family area). The environment must feel child-friendly and energetic with vibrant but tasteful colors. MANDATORY: ONLY the specific toy from the product assets is allowed. ABSOLUTELY NO other toys, other dolls, or background plushies are allowed. Keep background organized and premium. MAX 3 props total. DO NOT add blankets or throws unless specifically requested. Emphasize a warm, healing, and joyful lifestyle narrative." 
+        ? "SCENE RULES FOR PLUSH: Use premium warm North American home scenes such as a creamy bedroom corner, sunlit sofa, tasteful nursery, soft play room, bedside companion setting, or giftable holiday corner. MANDATORY: ONLY the specific toy from the product assets is allowed. ABSOLUTELY NO other toys, other dolls, or background plushies are allowed. Keep background organized, emotionally warm, and premium. MAX 3 supporting props total. Allowed props include knit blanket, light wood table, cotton-linen pillow, small night lamp, book, sheer curtain, soft rug, or gift box when relevant. Emphasize healing companionship, softness, safety, and huggable realism."
         : "";
 
     let finalPromptParts = [
         "Create an ultra realistic commercial lifestyle photograph grounded in real everyday American life.",
-        boardInstructions[input.boardType],
+        plushBoardInstruction || boardInstructions[input.boardType],
+        plushVisualSystem,
         plushSpecificGuide,
         randomizationDirective,
         "All people, styling, interiors, props, neighborhoods, and visual cues must feel authentic to the United States market.",
@@ -1079,7 +1170,7 @@ export function buildSceneGenerationPrompt(input: SceneGenerationPromptInput): s
             : "Make the image look like a premium real photo shot by a top-tier Amazon ecommerce art director, following high-end A+ content standards.",
     ].filter(Boolean);
 
-    const isNoModel = input.modelPersonaPreset === '无模特（纯产品）';
+    const isNoModel = isNoModelPreset(input);
     if (isNoModel) {
         finalPromptParts = finalPromptParts.map(part => {
             return part.split('. ').filter(sentence => {
@@ -1159,9 +1250,9 @@ export function buildSceneGenerationNegativePrompt(input: {
         "tatami floor",
         "shoji screen",
         "Asian furniture style",
-        "Scandinavian minimalism",
-        "MUJI-style decor",
-        "Nordic interior design",
+        input.productType !== "plush" ? "Scandinavian minimalism" : "",
+        input.productType !== "plush" ? "MUJI-style decor" : "",
+        input.productType !== "plush" ? "Nordic interior design" : "",
         "European apartment styling",
         "ikebana flower arrangement",
         "zen garden elements",
@@ -1183,7 +1274,7 @@ export function buildSceneGenerationNegativePrompt(input: {
         "changed trim details",
         "altered silhouette",
         "inaccurate product identity",
-        input.productType === "plush" ? "toy-like hard fabric, synthetic fake fur, stiff plush body, incorrect embroidery, wrong plush pile length, flattened stuffing volume, changed facial embroidery, hard direct light, strong flash, harsh shadows, overexposure, high saturation, neon colors, fluorescent colors, cold gray color cast, stiff posing, cluttered background, too many props" : "",
+        input.productType === "plush" ? "plastic toy texture, hard synthetic fur, glossy fake plush, toy-like hard fabric, synthetic fake fur, stiff plush body, incorrect embroidery, wrong plush pile length, flattened stuffing volume, changed facial embroidery, altered stitching, wrong embroidered face, creepy doll expression, hard direct light, strong flash, harsh flash, harsh shadows, hard rim light, high-contrast commercial hard light, overexposure, high saturation, neon colors, fluorescent colors, cold gray color cast, dirty gray cast, muddy colors, empty oversized room, hollow space, 3D render look, CGI plush, stiff posing, cluttered background, too many props, duplicate background plush toys, extra dolls, other toys, random toy pile" : "",
         input.productType === "apparel" ? "wrong garment structure, melted fabric, impossible folds, broken seams, incorrect fit, changed fabric weight, altered print placement, altered embroidery placement, recolored garment panels" : "",
         input.productType === "general" ? "changed hardware finish, altered edge construction, replaced accessories, changed material gloss" : "",
         input.avoidElements || "",

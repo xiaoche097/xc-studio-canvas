@@ -22,7 +22,7 @@ import {
   X,
   Cpu
 } from 'lucide-react';
-import { getApiConfig } from '../Cyzx4/utils/apiHelpers';
+import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
@@ -51,9 +51,11 @@ const sendToYunwuApi = async (
   apiKey: string,
   model: string,
   prompt: string,
-  images: { base64: string; mimeType: string }[] = []
+  images: { base64: string; mimeType: string }[] = [],
+  isPlato: boolean = false
 ): Promise<{ text: string; images?: string[] }> => {
-  const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const runtimeModel = resolveRuntimeModelId(model, { isYunwu: true, isPlato });
+  const url = `${baseUrl}/v1beta/models/${runtimeModel}:generateContent?key=${apiKey}`;
 
   const parts: any[] = [];
   images.forEach(img => {
@@ -250,7 +252,8 @@ const SettingsTab: React.FC = () => {
         firstKey,
         testModel,
         'Say OK',
-        []
+        [],
+        false
       );
       setTestStatus(result.text ? 'success' : 'error');
       setTestMessage(result.text ? '✅ 连接成功!' : '❌ 无响应');
@@ -299,7 +302,8 @@ const SettingsTab: React.FC = () => {
         firstKey,
         testModel,
         'Say OK',
-        []
+        [],
+        true
       );
       setPlatoTestStatus(result.text ? 'success' : 'error');
       setPlatoTestMessage(result.text ? '✅ 连接成功!' : '❌ 无响应');
@@ -352,7 +356,8 @@ const SettingsTab: React.FC = () => {
         yunwuApiKey.trim(),
         selectedModel,
         userMessage.content,
-        imagesToSend.map(img => ({ base64: img.base64, mimeType: img.mimeType }))
+        imagesToSend.map(img => ({ base64: img.base64, mimeType: img.mimeType })),
+        false
       );
 
       const modelMessage: Message = {

@@ -23,6 +23,7 @@ import {
     Trash2,
     Settings
 } from 'lucide-react';
+import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
@@ -49,6 +50,7 @@ interface ApiConfig {
     baseUrl: string;
     apiKey: string;
     defaultModel: string;
+    isPlato?: boolean;
 }
 
 // ==================== API 客户端 ====================
@@ -60,7 +62,8 @@ class YunwuApiClient {
     }
 
     private buildUrl(model: string): string {
-        return `${this.config.baseUrl}/v1beta/models/${model}:generateContent?key=${this.config.apiKey}`;
+        const runtimeModel = resolveRuntimeModelId(model, { isYunwu: true, isPlato: this.config.isPlato === true });
+        return `${this.config.baseUrl}/v1beta/models/${runtimeModel}:generateContent?key=${this.config.apiKey}`;
     }
 
     async generateContent(
@@ -173,6 +176,7 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
     const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
     const [apiKey, setApiKey] = useState('');
     const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+    const [isPlatoConfig, setIsPlatoConfig] = useState(false);
     const [isKeyVisible, setIsKeyVisible] = useState(false);
 
     // 配置保存状态
@@ -204,10 +208,12 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
         if (platoEnabled && platoKey && platoUrl) {
             setBaseUrl(platoUrl);
             setApiKey(platoKey);
+            setIsPlatoConfig(true);
             setConfigStatus('saved');
         } else {
             if (savedUrl) setBaseUrl(savedUrl);
             if (savedKey) setApiKey(savedKey);
+            setIsPlatoConfig(false);
             if (savedKey && savedUrl) {
                 setConfigStatus('saved');
             } else if (savedKey) {
@@ -230,6 +236,7 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
         localStorage.setItem('yunwu_api_key', apiKey.trim());
         localStorage.setItem('yunwu_base_url', baseUrl.trim() || DEFAULT_BASE_URL);
         localStorage.setItem('yunwu_default_model', selectedModel);
+        setIsPlatoConfig(false);
 
         setConfigStatus('saved');
     };
@@ -258,7 +265,8 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
             const client = new YunwuApiClient({
                 baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
                 apiKey: firstKey,
-                defaultModel: testModel
+                defaultModel: testModel,
+                isPlato: isPlatoConfig
             });
 
             const success = await client.testConnection(testModel);
@@ -329,7 +337,8 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
             const client = new YunwuApiClient({
                 baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
                 apiKey: apiKey.trim(),
-                defaultModel: selectedModel
+                defaultModel: selectedModel,
+                isPlato: isPlatoConfig
             });
 
             const result = await client.generateContent(

@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Download, Loader2, Sparkles, Upload, X, LayoutGrid, CheckCircle2, ChevronRight, AlertCircle, Sparkle, Cpu, Image as ImageIcon, ShoppingCart, Smartphone, RotateCcw } from 'lucide-react';
-import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
+import { compressImage, generateContentWithAnalysisFallback, getAiClient, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
-import { getAiClient } from '../Cyzx4/utils/apiHelpers';
 
 // Types
 
@@ -194,7 +193,7 @@ ${stylePrompt}
 只输出 JSON 代码块，不要包含任何其他文字。
 `;
         
-        const response = await ai.models.generateContent({
+        const response = await generateContentWithAnalysisFallback(ai, {
           model: thinkingModel,
           contents: { parts: [
             { inlineData: { mimeType: img.mime, data: img.base64 } },
