@@ -185,6 +185,7 @@ export type WorkflowHint =
   | 'strict-geometry-lock' 
   | 'clothing-effect' 
   | 'garment-replacement' 
+  | 'garment-extraction'
   | 'magic-mannequin' 
   | 'clothing-modification' 
   | 'doll-modification' 

@@ -806,7 +806,29 @@ export const generateImageToImage = async (
         
         // Build workflow-aware prompt for GPT (since it doesn't get separate system instructions)
         let gptPrompt = forcedPrompt;
-        if (workflowHint === 'hero-pose-lock') {
+        if (workflowHint === 'garment-extraction') {
+          gptPrompt = `[ROLE: Senior fashion image masking and garment extraction specialist]
+[TASK: Perform exact in-place garment extraction from Image 1]
+[ABSOLUTE GOAL]
+- Keep all clothing exactly where it is in the original image.
+- Preserve the original camera angle, pose-driven shape, perspective, folds, stretch, wrinkles, drape, fabric shadows, and occlusion contours.
+- Do NOT straighten, rotate, recenter, resize, redraw, complete, beautify, or redesign the clothing.
+- The output must look like the original image with every non-clothing pixel painted pure white.
+[STRICT KEEP]
+- Preserve all visible clothing pixels exactly as they appear in Image 1: silhouette, color, pattern, trims, buttons, zippers, seams, folds, drape, fabric texture, stitching, labels, and construction details.
+- If multiple garments are worn together, keep their original relative positions, overlap, spacing, and original shapes.
+[STRICT REMOVE]
+- Remove all non-clothing pixels: body, skin, face, head, hair, hands, arms, legs, feet, background, room, studio, floor, props, accessories, jewelry, bags, phones, hanger, mannequin, text, watermark, and logo overlays.
+- Where removed body parts or props occluded the garment, do not hallucinate missing fabric; leave those removed/occluded pixels pure white.
+[OUTPUT]
+- Same garment placement and angle as the original source image.
+- Pure white background (#FFFFFF), not transparent and not checkerboard.
+- No visible person, body parts, mannequin, hanger, or extra objects.
+- Preserve pixel-level alignment as closely as possible; the clothing boundary must match Image 1 with no visible offset.
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
+        } else if (workflowHint === 'hero-pose-lock') {
           gptPrompt = `[ROLE: Senior E-commerce Fashion Director & Product-Fidelity Retoucher]
 [TASK: Generate a new hero image from ordered reference images]
 [INPUT PRIORITY]
@@ -1094,6 +1116,30 @@ ${forcedPrompt}`;
         4. **COLOR & LIGHTING**: Background must be bright, clean, and warm (cream white, soft apricot). Lighting should feel natural, soft, and inviting. NO dark, muddy, or cold backgrounds.
         5. **VISUAL ELEMENTS**: Replace any cheap cartoon icons with ultra-minimal line icons. All supporting graphics must feel premium and cohesive.
         6. **CONVERSION PSYCHOLOGY**: The layout must guide the viewer's eye from the product to the headline to the features, creating a clear purchase rationale.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : workflowHint === 'garment-extraction'
+                ? `
+        **ROLE**: Senior Fashion Image Masking and Garment Extraction Specialist.
+        **TASK**: Perform exact in-place garment extraction from Image 1.
+        **ABSOLUTE GOAL**:
+        - Keep all clothing exactly where it is in the original image.
+        - Preserve the original camera angle, pose-driven shape, perspective, folds, stretch, wrinkles, drape, fabric shadows, and occlusion contours.
+        - Do NOT straighten, rotate, recenter, resize, redraw, complete, beautify, or redesign the clothing.
+        - The output must look like the original image with every non-clothing pixel painted pure white.
+        **KEEP ONLY**:
+        - All visible clothing pixels exactly as they appear in Image 1: silhouette, neckline, cuffs, sleeves, hem, seams, buttons, zippers, labels, embroidery, prints, color, fabric texture, folds, drape, wrinkles, and construction details.
+        - If multiple garments are worn together, keep their original relative positions, overlap, spacing, and original shapes.
+        **REMOVE COMPLETELY**:
+        - Every non-clothing element: human body, skin, face, head, hair, hands, arms, legs, feet.
+        - Background, room, studio, floor, props, accessories, jewelry, bags, phones, hanger, mannequin, text, watermark, and logo overlays.
+        - For areas hidden by body, hair, arms, hands, face, props, or background, do not hallucinate missing fabric; replace those removed/occluded areas with pure white.
+        **OUTPUT**:
+        - Same garment placement and angle as the original source image.
+        - Pure white background (#FFFFFF), not transparent and not checkerboard.
+        - No person, no body parts, no mannequin, no hanger, no extra objects.
+        - Preserve pixel-level alignment as closely as possible; the garment mask must match the original clothing boundary with no visible offset.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
