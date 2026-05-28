@@ -840,6 +840,8 @@ ${forcedPrompt}`;
 - Keep the same pose family, camera angle, crop, body scale, and left/right facing direction as the pose anchors named in the prompt.
 - Do not substitute a front standing catalog pose for a side, back, seated, walking, raised-hand, pocket-hand, or over-shoulder reference.
 - Do not zoom in/out, mirror the pose, drop hand gestures, or change half-body/full-body framing.
+- CROP LOCK: if the pose anchor is half-body, waist-up, thigh-up, knee-up, or otherwise cropped, the output must keep that same visible body extent. Never pull back to reveal full body, legs, or feet that are not visible in the pose anchor.
+- IDENTITY/WARDROBE LOCK: when a model identity reference is provided in the user prompt, preserve the same face, hair, body proportions, and all non-conflicting outfit pieces such as jeans, pants, shoes, belts, and simple styling across every output.
 
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
@@ -1083,7 +1085,13 @@ ${forcedPrompt}`;
         - Do NOT remove raised arms, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning stance, crossed legs, bag-holding arm angles, over-shoulder turns, or visible torso rotation.
         - Do NOT straighten bent elbows, change wrist placement, change shoulder slope, change hip tilt, change knee bend, or alter foot direction.
         - Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, change subject scale, or mirror left/right direction.
+        - CROP LOCK: if the pose anchor is half-body, waist-up, thigh-up, knee-up, or cropped at any point, keep that exact crop boundary. Never reveal full body, legs, or feet outside the reference crop.
         - Ignore pose-reference clothing, face, identity, background, color palette, texture, and lighting.
+
+        **MODEL IDENTITY/WARDROBE LOCK**:
+        - If the user prompt defines a model identity reference, preserve that exact face, hair, skin tone, body proportions, and person identity.
+        - Preserve all model-reference outfit pieces that do not conflict with the product asset, especially jeans/pants/bottoms, shoes, belts, and simple styling.
+        - If the model identity reference wears jeans, the output must keep the same jeans style, wash, fit, and color wherever the crop shows them.
 
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}

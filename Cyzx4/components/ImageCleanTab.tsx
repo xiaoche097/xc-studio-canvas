@@ -25,6 +25,19 @@ interface UploadedImage {
     mime?: string;
 }
 
+interface ModelIdentityAnalysis {
+    identitySignature?: string;
+    faceLock?: string;
+    hairLock?: string;
+    bodyLock?: string;
+    skinLock?: string;
+    outfitLock?: string;
+    bottomLock?: string;
+    shoeLock?: string;
+    forbiddenDrift?: string;
+    promptBlock?: string;
+}
+
 interface HeroFormState {
     productName: string;
     productCategory: string;
@@ -95,6 +108,8 @@ const HeroImageTab: React.FC = () => {
     const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 正在自动净化产品素材图
     const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 是否开启产品图AI去噪净化
     const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 控制AI模特规则上传指南弹窗的显示
+    const [isAnalyzingModelIdentity, setIsAnalyzingModelIdentity] = useState(false);
+    const [modelIdentityAnalysis, setModelIdentityAnalysis] = useState<ModelIdentityAnalysis | null>(null);
     
     // Photo controls
     const [cameraDevice, setCameraDevice] = useState('智能推荐');
@@ -284,7 +299,10 @@ const HeroImageTab: React.FC = () => {
     const handleModelUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
-        if (processed.length > 0) setModelReference(processed[0]);
+        if (processed.length > 0) {
+            setModelReference(processed[0]);
+            setModelIdentityAnalysis(null);
+        }
         setError(null);
     };
 
@@ -397,6 +415,90 @@ User note: ${userPrompt || 'none'}` });
         } catch (err) {
             console.warn('Hero styling plan analysis failed, using fallback.', err);
             return fallback;
+        }
+    };
+
+    const analyzeModelIdentityReference = async (
+        image: UploadedImage | null = modelReference,
+        updateUi: boolean = true
+    ): Promise<ModelIdentityAnalysis | null> => {
+        if (!image?.base64 || !image?.mime) {
+            if (updateUi) setError('请先上传模特身份参考图');
+            return null;
+        }
+
+        if (updateUi) {
+            setIsAnalyzingModelIdentity(true);
+            setError(null);
+        }
+
+        try {
+            const ai = getAiClient();
+            const analysisModeInstruction = isFaceOnly
+                ? `FACE-ONLY MODE IS ENABLED.
+- Analyze ONLY the model's face/head identity needed for face consistency.
+- Fill outfitLock, bottomLock, shoeLock, and bodyLock with "ignored because face-only mode is enabled".
+- The promptBlock MUST explicitly say: preserve only the face identity from the model reference; ignore the model reference clothing, pants, jeans, shoes, body pose, body shape, and accessories.`
+                : `FULL MODEL + WARDROBE MODE IS ENABLED.
+- Analyze the model's face, hair, body proportions, and the complete visible outfit/styling.
+- The model reference outfit pieces that do not conflict with the product asset MUST remain consistent.
+- If jeans/pants are visible, describe them very precisely and lock them across every output.`;
+            const response = await generateContentWithAnalysisFallback(ai, {
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: {
+                    parts: [
+                        { inlineData: { mimeType: image.mime, data: image.base64 } },
+                        {
+                            text: `Analyze this image as the SINGLE FIXED MODEL IDENTITY REFERENCE for a fashion ecommerce image-generation workflow.
+
+${analysisModeInstruction}
+
+Return ONLY valid JSON with these exact string fields:
+{
+  "identitySignature": "one concise unique identity description: apparent age range, gender presentation, face shape, expression, overall model vibe",
+  "faceLock": "precise face features to preserve: face shape, eyes, eyebrows, nose, lips, jaw/chin, expression. Do not identify the person by name.",
+  "hairLock": "hair color, length, parting, texture, styling, volume, hairline/visible shape",
+  "bodyLock": "visible body proportions/build/posture traits that should stay consistent",
+  "skinLock": "skin tone and natural complexion details to preserve without over-smoothing",
+  "outfitLock": "all visible clothing and styling items in the model reference that do NOT conflict with the product asset and should remain consistent",
+  "bottomLock": "precise pants/jeans/skirt/shorts description if visible; if blue jeans are visible, describe wash, rise, fit, leg shape, and color",
+  "shoeLock": "shoe description if visible; otherwise say not visible",
+  "forbiddenDrift": "short comma-separated list of identity/outfit changes to forbid",
+  "promptBlock": "a strong English prompt block for generation. It MUST lock face, hair, body, and all non-conflicting outfit pieces across every output. It MUST explicitly state that if jeans/pants are visible in this reference, generated outputs must keep the same jeans/pants style wherever visible."
+}
+
+Rules:
+- In FACE-ONLY MODE, the model reference controls only face/head identity. Do NOT use its body shape, clothing, jeans/pants, shoes, accessories, or styling as generation constraints.
+- In FULL MODEL + WARDROBE MODE, the model reference controls identity and non-conflicting wardrobe consistency. The product asset may replace only the product garment area. Do not let the product asset change the model's face, hair, body shape, jeans/pants, shoes, or other non-conflicting styling.
+- If the model image is cropped, still analyze all visible identity and wardrobe cues.
+- Do not mention uncertainty unless an item is truly not visible.`
+                        }
+                    ]
+                }
+            });
+
+            const raw = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(raw) as ModelIdentityAnalysis;
+            const normalized: ModelIdentityAnalysis = {
+                ...parsed,
+                promptBlock: parsed.promptBlock || (isFaceOnly
+                    ? 'FACE-ONLY MODEL LOCK: Preserve only the same face/head identity from the model reference. Ignore model-reference clothing, jeans/pants, shoes, accessories, pose, and body styling.'
+                    : [
+                        'MODEL IDENTITY LOCK: Preserve the same face, hair, skin tone, body proportions, and person identity from the model reference.',
+                        parsed.outfitLock ? `WARDROBE LOCK: ${parsed.outfitLock}` : '',
+                        parsed.bottomLock ? `BOTTOM LOCK: ${parsed.bottomLock}` : '',
+                        'Do not change jeans/pants/shoes or non-conflicting styling wherever visible.'
+                    ].filter(Boolean).join('\n'))
+            };
+
+            if (updateUi) setModelIdentityAnalysis(normalized);
+            return normalized;
+        } catch (err) {
+            console.error('Model identity analysis failed:', err);
+            if (updateUi) setError('模特身份解析失败，请检查图片后重试');
+            return null;
+        } finally {
+            if (updateUi) setIsAnalyzingModelIdentity(false);
         }
     };
 
@@ -565,6 +667,39 @@ User note: ${userPrompt || 'none'}` });
 
             const platformPrompt = selectedPlatform ? PLATFORM_STYLES.find(p => p.id === selectedPlatform)?.prompt : "";
             const unifiedStylingPlan = await analyzeHeroStylingPlan(productImages);
+            const activeModelIdentityAnalysis = modelReference
+                ? (modelIdentityAnalysis || await analyzeModelIdentityReference(modelReference, false))
+                : null;
+            if (activeModelIdentityAnalysis && !modelIdentityAnalysis) {
+                setModelIdentityAnalysis(activeModelIdentityAnalysis);
+            }
+            const modelWardrobeLock = modelReference
+                ? (isFaceOnly
+                    ? [
+                        '# MODEL FACE-ONLY LOCK (HIGHEST PRIORITY AFTER PRODUCT):',
+                        `- Images ${modelIndexStart}-${modelIndexEnd} are FACE IDENTITY references only.`,
+                        '- Preserve only the model face/head identity: face shape, facial proportions, eyes, eyebrows, nose, lips, jaw/chin, expression, and visible skin tone.',
+                        activeModelIdentityAnalysis?.promptBlock ? `- AI analyzed face contract: ${activeModelIdentityAnalysis.promptBlock}` : '',
+                        activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
+                        '- Do NOT use the model reference clothing, jeans/pants, shoes, accessories, body pose, body shape, or outfit styling as constraints.',
+                        '- Clothing and styling must come from the product asset, accessory references, user prompt, and platform styling only.'
+                    ].filter(Boolean).join('\n')
+                    : [
+                        '# MODEL IDENTITY + WARDROBE LOCK (HIGHEST PRIORITY AFTER PRODUCT):',
+                        `- Images ${modelIndexStart}-${modelIndexEnd} are the fixed model identity references. Preserve the same face, facial proportions, hair color/style, skin tone, body proportions, and overall person identity in EVERY output.`,
+                        activeModelIdentityAnalysis?.promptBlock ? `- AI analyzed identity contract: ${activeModelIdentityAnalysis.promptBlock}` : '',
+                        activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
+                        activeModelIdentityAnalysis?.hairLock ? `- Hair lock: ${activeModelIdentityAnalysis.hairLock}` : '',
+                        activeModelIdentityAnalysis?.bodyLock ? `- Body lock: ${activeModelIdentityAnalysis.bodyLock}` : '',
+                        activeModelIdentityAnalysis?.bottomLock ? `- Bottom lock: ${activeModelIdentityAnalysis.bottomLock}` : '',
+                        activeModelIdentityAnalysis?.shoeLock ? `- Shoe lock: ${activeModelIdentityAnalysis.shoeLock}` : '',
+                        '- Preserve the model reference outfit pieces that do NOT conflict with the product asset: bottoms/pants/jeans/skirt/shorts, shoes, belt, visible simple styling, and the overall fit/color/material logic.',
+                        '- If the model reference shows jeans, EVERY generated image must keep the same jeans style, wash, rise, fit, and color unless that area is outside the pose crop.',
+                        '- If the product asset is an upper garment, replace only the upper garment with Image 1 product; keep the model reference bottoms/shoes consistent across all generated results.',
+                        '- Do not treat the model reference clothing as noise. Only ignore clothing that directly conflicts with the product asset being generated.',
+                        activeModelIdentityAnalysis?.forbiddenDrift ? `- Forbidden drift: ${activeModelIdentityAnalysis.forbiddenDrift}` : ''
+                    ].filter(Boolean).join('\n'))
+                : '';
 
             const prompt = `
             # AGENT STRATEGY: ${strategy}
@@ -580,9 +715,9 @@ User note: ${userPrompt || 'none'}` });
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
             ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (OPTIONAL BUT STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, hat, belt, scarf, or handheld prop, include it only when naturally compatible with the selected pose, and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, jewelry, handheld props, or decorative accessories unless they are already part of the product asset. Keep styling clean and product-focused.'}
-            ${modelReference ? `# MODEL IDENTITY AND BODY SHAPE FIDELITY (CRITICAL): The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided model reference images at Image ${modelIndexStart} and Image ${modelIndexEnd}. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in Image ${modelIndexStart} and Image ${modelIndexEnd}. The clothing on the generated model MUST be the product asset from Image 1, and the pose must follow the pose directive.` : ''}
+            ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReferences.length > 0 ? `# EXACT POSE TRANSFER DIRECTIVE (ABSOLUTE): Images ${actionIndex}-${actionIndex + 1} are duplicated original pose anchors. Images ${actionLineartIndex}-${actionLineartIndex + 1} are duplicated lineart/silhouette pose maps. These four images are the strongest geometry constraint for this output. Match the reference pose's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette. Product fidelity from Image 1 controls the clothing identity only; it must NOT override the body pose geometry. The final body must be a near one-to-one pose transfer from Images ${actionIndex}-${actionIndex + 1} and ${actionLineartIndex}-${actionLineartIndex + 1}. Do NOT replace a side/back/three-quarter pose with a front standing pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, bag-holding arm position, or asymmetric limb angle. Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, shift the subject scale, mirror left/right direction, straighten a bent limb, or invent a different standard catalog pose. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in the pose anchors. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
+            ${actionReferences.length > 0 ? `# EXACT POSE TRANSFER DIRECTIVE (ABSOLUTE): Images ${actionIndex}-${actionIndex + 1} are duplicated original pose anchors. Images ${actionLineartIndex}-${actionLineartIndex + 1} are duplicated lineart/silhouette pose maps. These four images are the strongest geometry constraint for this output. Match the reference pose's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette. CROP LOCK IS MANDATORY: match the visible body extent and crop boundary of the pose anchor exactly. If the pose anchor is half-body, waist-up, thigh-up, or cropped at the knees, the output MUST use the same crop and MUST NOT pull back to show a full body or feet. Do not reveal any body area outside the pose reference crop. Product fidelity from Image 1 controls the clothing identity only; it must NOT override the body pose geometry. The final body must be a near one-to-one pose transfer from Images ${actionIndex}-${actionIndex + 1} and ${actionLineartIndex}-${actionLineartIndex + 1}. Do NOT replace a side/back/three-quarter pose with a front standing pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, bag-holding arm position, or asymmetric limb angle. Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, shift the subject scale, mirror left/right direction, straighten a bent limb, or invent a different standard catalog pose. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in the pose anchors. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
             ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference images from Image ${sceneIndexStart} to Image ${sceneIndexEnd} EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
@@ -689,7 +824,7 @@ User note: ${userPrompt || 'none'}` });
                     resolution,
                     modelId: selectedModel,
                     negativePrompt: actionReferences.length > 0 
-                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in'
+                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift'
                         : undefined,
                     hasModelRef: !!modelReference,
                     workflowHint: actionReferences.length > 0 ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock')
@@ -912,7 +1047,7 @@ User note: ${userPrompt || 'none'}` });
                                                 <div key={idx} className="relative group/action aspect-[3/4] bg-pastel-bg/30 rounded border border-purple-200 overflow-hidden">
                                                     <img src={img.preview} className="w-full h-full object-cover" alt="action" />
                                                     <span className="absolute bottom-0.5 left-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">#{idx+1}</span>
-                                                    <button onClick={(e) => { e.stopPropagation(); setActionReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/action:opacity-100 transition-opacity"><X className="w-2.5 h-2.5" /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setActionReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute top-1 right-1 z-20 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/action:opacity-100 transition-opacity shadow-sm"><X className="w-2.5 h-2.5" /></button>
                                                 </div>
                                             ))}
                                             {actionReferences.length < 10 && (
@@ -1064,12 +1199,15 @@ User note: ${userPrompt || 'none'}` });
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，AI 将仅提取模特图的脸型与五官特征，忽略图中原有姿态">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={isFaceOnly}
-                                            onChange={(e) => setIsFaceOnly(e.target.checked)}
-                                            className="w-3.5 h-3.5 text-blue-500 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
-                                        />
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isFaceOnly}
+                                                onChange={(e) => {
+                                                    setIsFaceOnly(e.target.checked);
+                                                    setModelIdentityAnalysis(null);
+                                                }}
+                                                className="w-3.5 h-3.5 text-blue-500 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                                            />
                                         <span className="text-[10px] text-gray-500 group-hover:text-blue-600 transition-colors font-medium">仅脸型</span>
                                     </label>
                                     <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，模特参考图将自动转化为线稿，以绕过敏感人物拦截">
@@ -1081,7 +1219,9 @@ User note: ${userPrompt || 'none'}` });
                                         />
                                         <span className="text-[10px] text-gray-500 group-hover:text-blue-600 transition-colors font-medium">安全脱敏</span>
                                     </label>
-                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">固定长相</span>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${modelIdentityAnalysis ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                                        {modelIdentityAnalysis ? '已解析' : '固定长相'}
+                                    </span>
                                 </div>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
@@ -1102,7 +1242,7 @@ User note: ${userPrompt || 'none'}` });
                                     {modelReference ? (
                                         <div className="relative group/model">
                                             <img src={modelReference.preview} className="w-full h-24 object-cover rounded-lg border-2 border-blue-200" alt="model" />
-                                            <button onClick={(e) => { e.stopPropagation(); setModelReference(null); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X className="w-2 h-2" /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); setModelReference(null); setModelIdentityAnalysis(null); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X className="w-2 h-2" /></button>
                                         </div>
                                     ) : (
                                         <div className="text-center py-2">
@@ -1145,6 +1285,22 @@ User note: ${userPrompt || 'none'}` });
                                 </div>
                             </div>
                             
+                            {modelIdentityAnalysis && (
+                                <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 px-3.5 py-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                                        <span className="text-[11px] font-bold text-blue-700">模特身份解析已锁定</span>
+                                    </div>
+                                    <div className="space-y-1 text-[10px] leading-relaxed text-slate-600">
+                                        {modelIdentityAnalysis.identitySignature && <p><span className="font-bold text-slate-700">身份：</span>{modelIdentityAnalysis.identitySignature}</p>}
+                                        {modelIdentityAnalysis.faceLock && <p><span className="font-bold text-slate-700">脸部：</span>{modelIdentityAnalysis.faceLock}</p>}
+                                        {!isFaceOnly && modelIdentityAnalysis.hairLock && <p><span className="font-bold text-slate-700">发型：</span>{modelIdentityAnalysis.hairLock}</p>}
+                                        {!isFaceOnly && modelIdentityAnalysis.bottomLock && <p><span className="font-bold text-slate-700">下装：</span>{modelIdentityAnalysis.bottomLock}</p>}
+                                        {isFaceOnly && <p><span className="font-bold text-slate-700">模式：</span>仅锁定脸部，不读取模特穿搭。</p>}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* 模特图上传指南展示，平时只显示一个AI模特规则，点击可以放大查看 */}
                             <div className="mt-3 bg-purple-50/40 border border-purple-100/60 rounded-xl px-3.5 py-2.5 flex items-center justify-between shadow-sm">
                                 <div className="flex items-center gap-2">
@@ -1156,14 +1312,25 @@ User note: ${userPrompt || 'none'}` });
                                         如何上传以达到最高准确度？
                                     </span>
                                 </div>
-                                <button 
-                                    type="button"
-                                    onClick={() => setShowModelGuideModal(true)} 
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg text-[10px] font-bold shadow-sm hover:from-purple-600 hover:to-indigo-600 transition-all hover:scale-[1.02] active:scale-95"
-                                >
-                                    <Sparkles className="w-3 h-3 text-white animate-pulse" />
-                                    AI模特规则
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={!modelReference || isAnalyzingModelIdentity}
+                                        onClick={() => analyzeModelIdentityReference()}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-bold shadow-sm hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all active:scale-95"
+                                    >
+                                        {isAnalyzingModelIdentity ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+                                        {isAnalyzingModelIdentity ? '解析中' : modelIdentityAnalysis ? '重新解析' : '解析身份'}
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowModelGuideModal(true)} 
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg text-[10px] font-bold shadow-sm hover:from-purple-600 hover:to-indigo-600 transition-all hover:scale-[1.02] active:scale-95"
+                                    >
+                                        <Sparkles className="w-3 h-3 text-white animate-pulse" />
+                                        AI模特规则
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
