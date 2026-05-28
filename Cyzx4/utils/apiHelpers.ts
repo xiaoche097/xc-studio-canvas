@@ -29,7 +29,8 @@ type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato'>;
 
 export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
 export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
-export const YUNWU_ANALYSIS_FALLBACK_MODEL = 'gpt-5.4-mini';
+export const YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL = 'gemini-3.5-flash';
+export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL;
 export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
 export const ANALYSIS_FALLBACK_TIMEOUT_MS = 60000;
 
@@ -150,7 +151,7 @@ export async function generateContentWithAnalysisFallback<TClient extends {
             error
         );
 
-        return executeWithTimeout(
+        const fallbackResponse = await executeWithTimeout(
             ai.models.generateContent({
                 ...request,
                 model: YUNWU_ANALYSIS_FALLBACK_MODEL
@@ -160,6 +161,12 @@ export async function generateContentWithAnalysisFallback<TClient extends {
                 timeoutMessage: `Fallback analysis request timed out (${options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS}ms).`
             }
         );
+
+        if (!fallbackResponse?.text) {
+            throw new Error(`Empty response from fallback analysis model ${YUNWU_ANALYSIS_FALLBACK_MODEL}.`);
+        }
+
+        return fallbackResponse;
     }
 }
 
