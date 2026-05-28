@@ -216,6 +216,11 @@ const FusionTab: React.FC = () => {
 
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
+  const selectedImageModelName = selectedModel === 'gpt-image-2'
+    ? 'GPT Image 2'
+    : selectedModel === 'gemini-3-pro-image-preview'
+      ? 'Banana Pro'
+      : 'Banana 2';
 
   // 当切换到 gpt-image-2 时，自动修正不兼容的参数
   useEffect(() => {
@@ -239,6 +244,7 @@ const FusionTab: React.FC = () => {
   // Style Model State
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<StylePreset | null>(null);
+  const isWhiteBackgroundProduction = selectedStyle?.id === 'white-background-production';
 
   // For 'clothing-to-3d-mannequin' style parameters
   const [viewAngle, setViewAngle] = useState<'front' | 'three_quarter'>('three_quarter');
@@ -403,6 +409,10 @@ const FusionTab: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!description && !selectedStyle) return; // Allow empty description if style is selected
+    if (isWhiteBackgroundProduction && selectedFiles.length === 0) {
+      setError('请先上传需要制作白底图的图片');
+      return;
+    }
     setError(null);
     setProgress('');
     if ((window as any).aistudio) {
@@ -411,6 +421,8 @@ const FusionTab: React.FC = () => {
 
     setIsGenerating(true);
     setGeneratedImages([]);
+    setOriginalImages({});
+    setIsComparing({});
 
     try {
       // Step 0: Auto-Optimize Prompt (Nano Banana Agent)
@@ -455,9 +467,13 @@ const FusionTab: React.FC = () => {
       }));
 
       const images = await Promise.all(imagePromises);
+      const useWhiteBackgroundBatch = isWhiteBackgroundProduction && images.length > 0;
 
       // Step 2: 发送到AI服务器
-      setProgress(`正在请求并发生成 ${imageCount} 张图片...`);
+      setProgress(useWhiteBackgroundBatch
+        ? `正在批量制作白底图 ${images.length} 张...`
+        : `正在请求并发生成 ${imageCount} 张图片...`
+      );
 
       // Inject Style Prompt if selected
       let generationPrompt = finalPrompt;
@@ -493,28 +509,57 @@ const FusionTab: React.FC = () => {
           negativePrompt = selectedStyle.negativePrompt;
       }
 
-      // 并发执行多个生成任务
-      const generationTasks = Array.from({ length: imageCount }).map((_, index) => {
-        return generateImageToImage(images, generationPrompt, { 
-          aspectRatio, 
-          resolution,
-          modelId: selectedModel,
-          negativePrompt,
-          workflowHint: selectedStyle?.id === 'magic-mannequin-pose-transfer' 
-            ? 'magic-mannequin' 
-            : selectedStyle?.id === 'model-reference-generation'
-              ? 'face-lock'
-              : selectedStyle?.id?.includes('strict-angle') 
-                ? 'strict-geometry-lock' 
-                : undefined
+      const baseWorkflowHint = selectedStyle?.id === 'magic-mannequin-pose-transfer'
+        ? 'magic-mannequin'
+        : selectedStyle?.id === 'model-reference-generation'
+          ? 'face-lock'
+          : selectedStyle?.id?.includes('strict-angle') || useWhiteBackgroundBatch
+            ? 'strict-geometry-lock'
+            : undefined;
+
+      // White background production is a per-image batch workflow. Other styles keep
+      // the original multi-reference, multi-variant behavior.
+      const generationTasks = useWhiteBackgroundBatch
+        ? images.map((image, index) => {
+          const batchPrompt = `${generationPrompt}
+
+WHITE BACKGROUND BATCH ITEM ${index + 1}/${images.length}
+Use ONLY the single uploaded image in this request as the source.
+Convert this product/person/object photo into a clean ecommerce white-background image.
+Preserve the original subject identity, pose, shape, angle, crop relationship, material texture, color, details, edges, and visible shadows on the subject.
+Replace every background, floor, wall, scene prop, and unrelated element with pure white #FFFFFF.
+Do not combine this image with any other uploaded image. Do not create extra variants. Output exactly one finished white-background result.`;
+
+          return generateImageToImage([image], batchPrompt, {
+            aspectRatio,
+            resolution,
+            modelId: selectedModel,
+            negativePrompt,
+            workflowHint: baseWorkflowHint
+          });
+        })
+        : Array.from({ length: imageCount }).map(() => {
+          return generateImageToImage(images, generationPrompt, {
+            aspectRatio,
+            resolution,
+            modelId: selectedModel,
+            negativePrompt,
+            workflowHint: baseWorkflowHint
+          });
         });
-      });
 
       const resultsArrays = await Promise.all(generationTasks);
       const allResults = resultsArrays.flat();
 
       setProgress('生成完成！');
       setGeneratedImages(allResults);
+      if (useWhiteBackgroundBatch) {
+        const comparisonMap = previewUrls.reduce<Record<number, string>>((acc, url, index) => {
+          if (index < allResults.length) acc[index] = url;
+          return acc;
+        }, {});
+        setOriginalImages(comparisonMap);
+      }
 
       // Save to Project History
       allResults.forEach((url, i) => {
@@ -671,6 +716,16 @@ const FusionTab: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  const downloadAllWhiteBackgroundImages = () => {
+    generatedImages.forEach((url, index) => {
+      window.setTimeout(() => {
+        downloadImage(url, `white-bg-${index + 1}-${Date.now()}.png`);
+      }, index * 120);
+    });
+  };
+
+  const isGenerateDisabled = (!description && !selectedStyle) || isGenerating || (isWhiteBackgroundProduction && selectedFiles.length === 0);
 
   return (
 
@@ -1218,16 +1273,21 @@ const FusionTab: React.FC = () => {
                     <button
                       key={num}
                       onClick={() => setImageCount(num)}
+                      disabled={isWhiteBackgroundProduction}
                       className={`w-8 h-8 rounded-md text-xs font-bold transition-all ${
-                        imageCount === num
+                        imageCount === num && !isWhiteBackgroundProduction
                           ? 'bg-white text-orange-600 shadow-sm border border-orange-100'
-                          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                          : isWhiteBackgroundProduction
+                            ? 'text-gray-300 cursor-not-allowed'
+                            : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
                       }`}
                     >
                       {num}
                     </button>
                   ))}
-                  <span className="text-[10px] text-gray-400 font-medium px-1">张</span>
+                  <span className="text-[10px] text-gray-400 font-medium px-1">
+                    {isWhiteBackgroundProduction ? `${selectedFiles.length || 0}张白底` : '张'}
+                  </span>
                 </div>
 
                 <button
@@ -1246,14 +1306,20 @@ const FusionTab: React.FC = () => {
 
                 <button
                   onClick={handleGenerate}
-                  disabled={(!description && !selectedStyle) || isGenerating}
-                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${((!description && !selectedStyle) || isGenerating)
+                  disabled={isGenerateDisabled}
+                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${isGenerateDisabled
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'
                     : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-orange-500/25 hover:shadow-orange-500/40 hover:brightness-105'
                     }`}
                 >
                   {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                  {isGenerating ? '正在生成... (Working)' : isAutoOptimize ? '智能生成 (Smart Generate)' : '开始生成 (Generate)'}
+                  {isGenerating
+                    ? '正在生成... (Working)'
+                    : isWhiteBackgroundProduction
+                      ? `批量制作白底图 (${selectedFiles.length || 1}张)`
+                      : isAutoOptimize
+                        ? '智能生成 (Smart Generate)'
+                        : '开始生成 (Generate)'}
                 </button>
               </div>
             </div>
@@ -1268,17 +1334,28 @@ const FusionTab: React.FC = () => {
                 生成结果
               </h3>
               {generatedImages.length > 0 && (
-                <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
-                  完成
-                </span>
+                <div className="flex items-center gap-2">
+                  {isWhiteBackgroundProduction && generatedImages.length > 1 && (
+                    <button
+                      onClick={downloadAllWhiteBackgroundImages}
+                      className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 bg-white border border-pastel-border text-pastel-text rounded-lg shadow-sm hover:border-pastel-highlight hover:text-pastel-highlight transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      全部下载
+                    </button>
+                  )}
+                  <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full">
+                    完成
+                  </span>
+                </div>
               )}
             </div>
 
             <div className="flex-1 flex items-center justify-center bg-pastel-bg rounded-lg border-2 border-dashed border-pastel-border overflow-hidden relative">
               {generatedImages.length > 0 ? (
-                <div className="w-full h-full overflow-y-auto p-4 custom-scrollbar">
+                <div className={`w-full h-full overflow-y-auto p-4 custom-scrollbar ${isWhiteBackgroundProduction && generatedImages.length > 1 ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 content-start' : ''}`}>
                   {generatedImages.map((imgSrc, idx) => (
-                    <div key={idx} className="mb-6 last:mb-0 group/card relative animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div key={idx} className={`${isWhiteBackgroundProduction && generatedImages.length > 1 ? '' : 'mb-6 last:mb-0'} group/card relative animate-in fade-in slide-in-from-bottom-4 duration-500`}>
 
                       {/* Image Area with Selection */}
                       <div
@@ -1336,7 +1413,7 @@ const FusionTab: React.FC = () => {
                             放大
                           </button>
                           <button
-                            onClick={() => downloadImage(imgSrc, `i2i-gen-${Date.now()}.png`)}
+                            onClick={() => downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}.png`)}
                             className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
                             title="下载原图"
                           >
@@ -1470,8 +1547,8 @@ const FusionTab: React.FC = () => {
                       </p>
                       <p className="text-sm text-pastel-muted mt-2">
                         {progress.includes('生成图片')
-                          ? 'Gemini Pro 正在分析参考图并进行创作，请耐心等待'
-                          : 'Gemini Pro 正在处理您的请求'}
+                          ? `${selectedImageModelName} 正在分析参考图并进行创作，请耐心等待`
+                          : `${selectedImageModelName} 正在处理您的请求`}
                       </p>
                     </div>
                   ) : (
