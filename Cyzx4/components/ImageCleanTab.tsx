@@ -5,7 +5,7 @@ import {
     ChevronDown, Package, Store, Ruler, MessageSquare, 
     Zap, RefreshCw, ZoomIn, Download, Brain, Layers,
     Camera, UserCircle, Cpu, ChevronUp, Edit3, Settings,
-    FileText, Smartphone, Film, Eye, Maximize, Scan, Target
+    FileText, Smartphone, Film, Eye, Maximize, Scan, Target, ShoppingBag
 } from 'lucide-react';
 import { generateImageToImage, blobToBase64, compressImage, editGeneratedImage } from '../services/geminiService';
 import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
@@ -105,6 +105,7 @@ const HeroImageTab: React.FC = () => {
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
     const [actionReferences, setActionReferences] = useState<UploadedImage[]>([]);
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
+    const [accessoryReferences, setAccessoryReferences] = useState<UploadedImage[]>([]);
     const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
     const [measurements, setMeasurements] = useState({ bust: '', waist: '', hips: '' });
     const [userPrompt, setUserPrompt] = useState('');
@@ -141,8 +142,9 @@ const HeroImageTab: React.FC = () => {
     const productInputRef = useRef<HTMLInputElement>(null);
     const actionInputRef = useRef<HTMLInputElement>(null);
     const sceneInputRef = useRef<HTMLInputElement>(null);
+    const accessoryInputRef = useRef<HTMLInputElement>(null);
     const modelInputRef = useRef<HTMLInputElement>(null);
-    const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | 'model' | null>(null);
+    const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | 'accessory' | 'model' | null>(null);
     const [isDragging, setIsDragging] = useState<string | null>(null);
 
     // Image processing
@@ -296,7 +298,7 @@ const HeroImageTab: React.FC = () => {
         setIsDragging(null);
     };
 
-    const handleDrop = async (e: React.DragEvent, slot: 'product' | 'action' | 'scene' | 'model') => {
+    const handleDrop = async (e: React.DragEvent, slot: 'product' | 'action' | 'scene' | 'accessory' | 'model') => {
         e.preventDefault();
         setIsDragging(null);
         const files = Array.from(e.dataTransfer.files);
@@ -305,6 +307,7 @@ const HeroImageTab: React.FC = () => {
         if (slot === 'product') handleProductUpload(files);
         else if (slot === 'action') handleActionUpload(files);
         else if (slot === 'scene') handleSceneUpload(files);
+        else if (slot === 'accessory') handleAccessoryUpload(files);
         else if (slot === 'model') handleModelUpload(files);
     };
 
@@ -313,6 +316,7 @@ const HeroImageTab: React.FC = () => {
         if (files.length === 0) return;
         if (hoveredSlot === 'action') handleActionUpload(files);
         else if (hoveredSlot === 'scene') handleSceneUpload(files);
+        else if (hoveredSlot === 'accessory') handleAccessoryUpload(files);
         else if (hoveredSlot === 'model') handleModelUpload(files);
         else handleProductUpload(files);
         setError(null);
@@ -346,7 +350,7 @@ const HeroImageTab: React.FC = () => {
             '# UNIFIED STYLING PLAN:',
             '- If the product image does not show pants, use one consistent clean light-wash straight-leg denim jean style across every generated image.',
             '- If shoes are visible, use one consistent minimal neutral shoe style across every generated image.',
-            '- If bags or jewelry are needed, keep them minimal, commercially realistic, and consistent across the batch.',
+            '- Do not add bags, purses, hats, scarves, jewelry, handheld props, or extra accessories unless the user uploaded accessory reference images.',
             '- Never replace, redesign, recolor, simplify, or reinterpret the product garment from Image 1.'
         ].join('\n');
         try {
@@ -368,7 +372,7 @@ Return ONLY valid JSON with these string fields:
 }
 Rules:
 - If pants/bottoms are not clearly part of the product asset, recommend a unified bottom to use across ALL generated outputs.
-- If bags, shoes, belts, jewelry, or props are not in the product asset, recommend a consistent minimal set or explicitly say none.
+- If bags, shoes, belts, jewelry, or props are not in the product asset, recommend none unless the user has uploaded separate accessory reference images.
 - The product garment itself is highest priority and must remain identical to the reference.
 - Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy.
 User note: ${userPrompt || 'none'}` });
@@ -385,8 +389,8 @@ User note: ${userPrompt || 'none'}` });
                 `- Bottom coverage need: ${parsed.needsBottom || 'infer from product image'}`,
                 `- Unified bottom for ALL images: ${parsed.unifiedBottom || 'consistent light-wash straight-leg denim jeans if bottom is not part of the product asset'}`,
                 `- Unified shoes for ALL images: ${parsed.unifiedShoes || 'minimal neutral shoes only when visible'}`,
-                `- Unified bag for ALL images: ${parsed.unifiedBag || 'none unless pose requires a handheld accessory'}`,
-                `- Unified jewelry/accessories for ALL images: ${parsed.unifiedJewelry || 'minimal small earrings or a delicate necklace, consistent across the batch'}`,
+                `- Unified bag for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedBag || 'follow uploaded accessory reference images exactly') : 'none; do not invent bags or handheld props'}`,
+                `- Unified jewelry/accessories for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedJewelry || 'follow uploaded accessory reference images exactly') : 'none unless already visible in the product asset'}`,
                 `- Avoid styling: ${parsed.avoidStyling || 'avoid changing the product garment or adding distracting accessories'}`,
                 '- CONSISTENCY RULE: pants, shoes, bags, belts, jewelry, and visible accessories must stay the same style/color/material across every image in this batch unless they are physically hidden by the crop.'
             ].join('\n');
@@ -394,6 +398,13 @@ User note: ${userPrompt || 'none'}` });
             console.warn('Hero styling plan analysis failed, using fallback.', err);
             return fallback;
         }
+    };
+
+    const handleAccessoryUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
+        const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
+        const processed = await processFiles(files);
+        setAccessoryReferences(prev => [...prev, ...processed].slice(0, 10));
+        setError(null);
     };
 
     const handleGenerate = async (regenerateIndex?: number) => {
@@ -449,6 +460,9 @@ User note: ${userPrompt || 'none'}` });
             const processedScenes = await Promise.all(
                 sceneReferences.map(img => processRefImage(img, isSafeModeScene))
             );
+            const processedAccessories = await Promise.all(
+                accessoryReferences.map(img => processRefImage(img, false))
+            );
 
             // 2. 构建图片序列 (支持根据动作图索引进行动态独立对齐)
             // 严格匹配 API 与 Prompt 契约：产品图必须作为 Image 1 (首张图片) 传入以确保 100% 一致性锁定！
@@ -464,6 +478,10 @@ User note: ${userPrompt || 'none'}` });
                 });
 
                 // [第二优先级] 添加模特图，作为人脸特征和长相的绝对参考（传入两次以双倍增强 AI 的注意力长相锁定权重）
+                processedAccessories.forEach(img => {
+                    if (img) list.push(img);
+                });
+
                 if (processedModel) {
                     list.push(processedModel);
                     list.push(processedModel);
@@ -475,8 +493,10 @@ User note: ${userPrompt || 'none'}` });
                     : processedActions[0];
                 if (selectedAction?.original) {
                     list.push(selectedAction.original);
+                    list.push(selectedAction.original);
                 }
                 if (selectedAction?.lineart) {
+                    list.push(selectedAction.lineart);
                     list.push(selectedAction.lineart);
                 }
                 
@@ -491,25 +511,29 @@ User note: ${userPrompt || 'none'}` });
             // 3. 构建 Prompt 策略与参考图 1-based 动态索引计算以解决 Gemini 多模态映射错位问题
             const productIndexStart = 1;
             const productIndexEnd = productImages.length;
+            const accessoryCount = processedAccessories.length;
+            const accessoryIndexStart = accessoryCount > 0 ? productIndexEnd + 1 : 0;
+            const accessoryIndexEnd = accessoryCount > 0 ? productIndexEnd + accessoryCount : 0;
             
             let modelIndexStart = 0;
             let modelIndexEnd = 0;
             if (processedModel) {
-                modelIndexStart = productIndexEnd + 1;
-                modelIndexEnd = productIndexEnd + 2;
+                modelIndexStart = productIndexEnd + accessoryCount + 1;
+                modelIndexEnd = productIndexEnd + accessoryCount + 2;
             }
             
             let actionIndex = 0;
             let actionLineartIndex = 0;
+            const actionAnchorCount = actionReferences.length > 0 ? 4 : 0;
             if (actionReferences.length > 0) {
-                actionIndex = (processedModel ? productIndexEnd + 2 : productIndexEnd) + 1;
-                actionLineartIndex = actionIndex + 1;
+                actionIndex = (processedModel ? productIndexEnd + accessoryCount + 2 : productIndexEnd + accessoryCount) + 1;
+                actionLineartIndex = actionIndex + 2;
             }
             
             let sceneIndexStart = 0;
             let sceneIndexEnd = 0;
             if (processedScenes.length > 0) {
-                const prevCount = (processedModel ? productIndexEnd + 2 : productIndexEnd) + (actionReferences.length > 0 ? 2 : 0);
+                const prevCount = (processedModel ? productIndexEnd + accessoryCount + 2 : productIndexEnd + accessoryCount) + actionAnchorCount;
                 sceneIndexStart = prevCount + 1;
                 sceneIndexEnd = prevCount + processedScenes.length;
             }
@@ -555,15 +579,17 @@ User note: ${userPrompt || 'none'}` });
             ${unifiedStylingPlan}
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
+            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (OPTIONAL BUT STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, hat, belt, scarf, or handheld prop, include it only when naturally compatible with the selected pose, and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, jewelry, handheld props, or decorative accessories unless they are already part of the product asset. Keep styling clean and product-focused.'}
             ${modelReference ? `# MODEL IDENTITY AND BODY SHAPE FIDELITY (CRITICAL): The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided model reference images at Image ${modelIndexStart} and Image ${modelIndexEnd}. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in Image ${modelIndexStart} and Image ${modelIndexEnd}. The clothing on the generated model MUST be the product asset from Image 1, and the pose must follow the pose directive.` : ''}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReferences.length > 0 ? `# POSE ANCHOR DIRECTIVE (CRITICAL): Images ${actionIndex} and ${actionLineartIndex} are the ONLY pose anchors for this output. Image ${actionIndex} is the original pose reference for crop, framing, camera angle, body scale, subject placement, lens distance, and left/right facing direction. Image ${actionLineartIndex} is the lineart/silhouette pose map for skeletal alignment, limb angles, hand positions, head direction, torso rotation, leg stance, and body proportions. Product fidelity from Image 1 has higher priority than pose if there is a conflict, but the output MUST keep the same overall pose family, crop, angle, body scale, and composition as Images ${actionIndex}-${actionLineartIndex}. Do NOT replace a side/back/three-quarter pose with a front standing pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, or over-shoulder direction. Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, shift the subject scale, mirror left/right direction, or invent a different standard catalog pose. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in Images ${actionIndex}-${actionLineartIndex}. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
+            ${actionReferences.length > 0 ? `# EXACT POSE TRANSFER DIRECTIVE (ABSOLUTE): Images ${actionIndex}-${actionIndex + 1} are duplicated original pose anchors. Images ${actionLineartIndex}-${actionLineartIndex + 1} are duplicated lineart/silhouette pose maps. These four images are the strongest geometry constraint for this output. Match the reference pose's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette. Product fidelity from Image 1 controls the clothing identity only; it must NOT override the body pose geometry. The final body must be a near one-to-one pose transfer from Images ${actionIndex}-${actionIndex + 1} and ${actionLineartIndex}-${actionLineartIndex + 1}. Do NOT replace a side/back/three-quarter pose with a front standing pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, bag-holding arm position, or asymmetric limb angle. Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, shift the subject scale, mirror left/right direction, straighten a bent limb, or invent a different standard catalog pose. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in the pose anchors. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
             ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference images from Image ${sceneIndexStart} to Image ${sceneIndexEnd} EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
             
             # DESCRIPTION: ${basePrompt}
+            ${form.extraNotes.trim() ? `# USER SUPPLEMENTARY NOTES (MUST FOLLOW): ${form.extraNotes.trim()}` : ''}
             # FINAL OUTPUT: High-fidelity, commercial-grade asset with strict geometric locking for the product.
             `;
 
@@ -663,7 +689,7 @@ User note: ${userPrompt || 'none'}` });
                     resolution,
                     modelId: selectedModel,
                     negativePrompt: actionReferences.length > 0 
-                        ? 'wrong pose, different pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, mirrored pose, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, standing pose when reference is seated, seated pose when reference is standing, zoomed out, zoomed in'
+                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in'
                         : undefined,
                     hasModelRef: !!modelReference,
                     workflowHint: actionReferences.length > 0 ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock')
@@ -971,6 +997,64 @@ User note: ${userPrompt || 'none'}` });
                             </div>
                         </div>
 
+                        {/* 3.05 Accessory References */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <ShoppingBag className="w-4 h-4 text-pink-500" />
+                                    <h3 className="font-bold text-pastel-text text-xs text-nowrap">配饰参考图（可选）</h3>
+                                    <span className="text-[10px] bg-pink-50 text-pink-600 px-2 py-0.5 rounded-full border border-pink-100">包包/首饰/帽子/道具</span>
+                                </div>
+                                {accessoryReferences.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setAccessoryReferences([])}
+                                        className="text-[10px] text-red-500 hover:text-red-600 font-bold"
+                                    >
+                                        清空
+                                    </button>
+                                )}
+                            </div>
+                            <div
+                                onClick={() => accessoryInputRef.current?.click()}
+                                onMouseEnter={() => setHoveredSlot('accessory')}
+                                onMouseLeave={() => setHoveredSlot(null)}
+                                onDragOver={(e) => handleDragOver(e, 'accessory')}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, 'accessory')}
+                                className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all ${
+                                    isDragging === 'accessory' || hoveredSlot === 'accessory'
+                                    ? 'border-pink-300 bg-pink-50/20'
+                                    : 'border-pastel-border'
+                                }`}
+                            >
+                                <input ref={accessoryInputRef} type="file" multiple className="hidden" onChange={handleAccessoryUpload} accept="image/*" />
+                                {accessoryReferences.length > 0 ? (
+                                    <div className="grid grid-cols-5 gap-2">
+                                        {accessoryReferences.map((img, idx) => (
+                                            <div key={idx} className="relative group/accessory aspect-square bg-pastel-bg/30 rounded-lg border border-pink-100 overflow-hidden">
+                                                <img src={img.preview} className="w-full h-full object-cover" alt="accessory" />
+                                                <span className="absolute bottom-0.5 left-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">#{idx + 1}</span>
+                                                <button onClick={(e) => { e.stopPropagation(); setAccessoryReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/accessory:opacity-100 transition-opacity"><X className="w-2.5 h-2.5" /></button>
+                                            </div>
+                                        ))}
+                                        {accessoryReferences.length < 10 && (
+                                            <div className="aspect-square border border-dashed border-pink-200 rounded-lg flex flex-col items-center justify-center text-pink-400 hover:border-pink-300">
+                                                <Upload className="w-4 h-4" />
+                                                <span className="text-[8px] scale-90 mt-0.5 text-pink-600 font-semibold">继续添加</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-4">
+                                        <ShoppingBag className="w-6 h-6 mx-auto mb-1 text-pink-300" />
+                                        <p className="text-[10px] text-pink-600 font-medium">没有上传则默认不添加包包和配饰</p>
+                                        <p className="text-[9px] text-pastel-muted mt-1">支持点击、拖拽、Ctrl+V 粘贴，最多 10 张</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
                         {/* 3.1 Model Identity Locking (Face & Body) */}
                         <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
@@ -1201,6 +1285,15 @@ User note: ${userPrompt || 'none'}` });
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">品类</label><input value={form.productCategory} onChange={e => setForm({...form, productCategory: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs" placeholder="AI 推断" /></div>
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">人群</label><select value={form.personaTemplate} onChange={e => setForm({...form, personaTemplate: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs">{PERSONA_PRESETS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">卖点</label><input value={form.sellingPoints} onChange={e => setForm({...form, sellingPoints: e.target.value})} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs" placeholder="AI 推断" /></div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-pastel-muted font-bold block mb-1">补充说明</label>
+                                        <textarea
+                                            value={form.extraNotes}
+                                            onChange={e => setForm({ ...form, extraNotes: e.target.value })}
+                                            className="w-full min-h-[76px] bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-orange-200"
+                                            placeholder="更多运营信息、动作细节、参考关键词、希望突出的镜头语言等"
+                                        />
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">清晰度</label><select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select></div>

@@ -1062,24 +1062,26 @@ ${forcedPrompt}`;
               : workflowHint === 'hero-pose-lock'
                 ? `
         **ROLE**: Senior E-commerce Hero Image Director & Product-Fidelity Retoucher.
-        **MISSION**: Generate ONE professional fashion hero image with PRODUCT-FIRST fidelity and strict pose/framing lock.
+        **MISSION**: Generate ONE professional fashion hero image with exact pose/framing transfer and strict product fidelity.
 
         **INPUT CONTRACT**:
         - Image 1 and any subsequent product images named in the user prompt are the PRODUCT SOURCE OF TRUTH.
         - The user prompt identifies the POSE ANCHOR original image and its LINEART/SILHOUETTE companion by exact Image number.
-        - The pose original controls crop, framing, camera angle, lens distance, body scale, subject placement, and left/right facing direction.
-        - The lineart/silhouette companion controls skeletal alignment, limb angles, hand positions, head direction, torso rotation, leg stance, and body proportions.
+        - The pose original controls crop, framing, camera angle, lens distance, body scale, subject placement, left/right facing direction, hands, arms, shoulders, head direction, torso rotation, hips, knees, feet, and body silhouette.
+        - The lineart/silhouette companion controls skeletal alignment, limb angles, hand positions, head direction, torso rotation, leg stance, body proportions, and negative-space shape.
 
         **PRIORITY ORDER**:
-        1. Product structure, silhouette, fabric, trim, seams, prints, and material details from the product image(s).
-        2. Pose anchor geometry: same pose family, crop, camera angle, body scale, and composition.
+        1. Pose anchor body geometry: exact pose, crop, camera angle, body scale, body orientation, limb angles, hands, head, torso, hips, legs, and composition.
+        2. Product clothing identity: structure, silhouette, fabric, trim, seams, prints, and material details from the product image(s).
         3. Model identity/body reference, if provided.
         4. Scene/background instructions.
+        Product clothing fidelity must never be used as a reason to change the pose geometry. If there is tension, keep the pose geometry and adapt the garment naturally onto that body posture.
 
         **STRICT POSE FAILURE BLOCKLIST**:
         - Do NOT replace the reference pose with a generic front-facing standing catalog pose.
         - Do NOT change side/back/three-quarter direction into a front view, or front view into side/back.
-        - Do NOT remove raised arms, pocket hands, hand-to-face gestures, seated stance, walking stance, over-shoulder turns, or visible torso rotation.
+        - Do NOT remove raised arms, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning stance, crossed legs, bag-holding arm angles, over-shoulder turns, or visible torso rotation.
+        - Do NOT straighten bent elbows, change wrist placement, change shoulder slope, change hip tilt, change knee bend, or alter foot direction.
         - Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, change subject scale, or mirror left/right direction.
         - Ignore pose-reference clothing, face, identity, background, color palette, texture, and lighting.
 
