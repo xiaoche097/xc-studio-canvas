@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { storageService, Project } from '../services/storageService';
+import { storageService, Project, ProjectSummary } from '../services/storageService';
 import { ProjectCard } from './ProjectCard';
 import { Loader2, Filter, Inbox, Search, CheckSquare, Trash2, X, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,8 +10,8 @@ interface ProjectGalleryProps {
 }
 
 export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject, className = "" }) => {
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [filteredProjects, setFilteredProjects] = useState<Project[]>([]);
+    const [projects, setProjects] = useState<ProjectSummary[]>([]);
+    const [filteredProjects, setFilteredProjects] = useState<ProjectSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentFilter, setCurrentFilter] = useState<string>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
@@ -35,7 +35,7 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
     const loadProjects = async () => {
         setLoading(true);
         try {
-            const allProjects = await storageService.getAllProjects();
+            const allProjects = await storageService.getProjectSummaries();
             setProjects(allProjects);
             filterProjects(allProjects, currentFilter, searchQuery);
         } catch (error) {
@@ -47,6 +47,8 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
 
     useEffect(() => {
         loadProjects();
+        window.addEventListener('project-cache-updated', loadProjects);
+        return () => window.removeEventListener('project-cache-updated', loadProjects);
     }, []);
 
     useEffect(() => {
@@ -58,7 +60,7 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
         setSelectedIds(new Set());
     }, [currentFilter, searchQuery]);
 
-    const filterProjects = (allProjects: Project[], filterType: string, query: string) => {
+    const filterProjects = (allProjects: ProjectSummary[], filterType: string, query: string) => {
         let result = allProjects;
 
         // Type Filter
@@ -249,7 +251,10 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
                                 >
                                     <ProjectCard
                                         project={project}
-                                        onClick={onSelectProject}
+                                        onClick={async (project) => {
+                                            const fullProject = await storageService.getProject(project.id);
+                                            if (fullProject) onSelectProject(fullProject);
+                                        }}
                                         onDelete={handleDelete}
                                         selectable={isSelectionMode}
                                         selected={selectedIds.has(project.id)}

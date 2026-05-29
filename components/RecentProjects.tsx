@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { storageService, Project } from '../services/storageService';
+import { storageService, Project, ProjectSummary } from '../services/storageService';
 import { ProjectCard } from './ProjectCard';
 import { ArrowRight, Clock } from 'lucide-react';
 
@@ -10,14 +10,14 @@ interface RecentProjectsProps {
 }
 
 export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject, onViewAll, onOpenSettings }) => {
-    const [recentProjects, setRecentProjects] = useState<Project[]>([]);
+    const [recentProjects, setRecentProjects] = useState<ProjectSummary[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const loadRecent = async () => {
             try {
-                const all = await storageService.getAllProjects();
-                setRecentProjects(all.slice(0, 10)); // Get top 10
+                const all = await storageService.getProjectSummaries(10);
+                setRecentProjects(all);
             } catch (e) {
                 console.error("Failed to load recent projects", e);
             } finally {
@@ -25,6 +25,8 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject,
             }
         };
         loadRecent();
+        window.addEventListener('project-cache-updated', loadRecent);
+        return () => window.removeEventListener('project-cache-updated', loadRecent);
     }, []);
 
     if (loading) return null;
@@ -50,7 +52,10 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({ onSelectProject,
                     <div key={project.id} className="min-w-[200px] md:min-w-[240px] snap-start">
                         <ProjectCard
                             project={project}
-                            onClick={onSelectProject}
+                            onClick={async (project) => {
+                                const fullProject = await storageService.getProject(project.id);
+                                if (fullProject) onSelectProject(fullProject);
+                            }}
                             onDelete={async (e, id) => {
                                 e.stopPropagation();
                                 if (confirm("确定删除？")) {

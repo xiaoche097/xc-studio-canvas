@@ -5,10 +5,9 @@ import DollDesignOptimizeTab from './DollDesignOptimizeTab';
 import DollAnglePresetsTab from './DollAnglePresetsTab';
 import DollAngleReferenceTab from './DollAngleReferenceTab';
 import DollBatchRetouchTab from './DollBatchRetouchTab';
-import SettingsTab from '../Cyzx4/components/SettingsTab';
-import { ArrowLeft, UserCircle2, Settings, Sparkles, Wand2, Camera, Zap } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Sparkles, Wand2, Camera, Zap } from 'lucide-react';
 
-type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'batch-retouch' | 'design-optimize' | 'angle-presets' | 'angle-reference' | 'settings';
+type DollFactoryMode = 'main-adjust' | 'main-retouch' | 'batch-retouch' | 'design-optimize' | 'angle-presets' | 'angle-reference';
 
 const DollFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DollFactoryMode>('main-adjust');
@@ -68,15 +67,6 @@ const DollFactoryApp: React.FC = () => {
               label="可爱角度转变"
             />
           </div>
-
-          <div className="mt-4 pt-4 border-t border-pastel-border/50">
-            <NavButton
-              active={activeTab === 'settings'}
-              onClick={() => setActiveTab('settings')}
-              icon={<Settings className="w-5 h-5" />}
-              label="设置 (Settings)"
-            />
-          </div>
         </nav>
       </aside>
 
@@ -90,7 +80,6 @@ const DollFactoryApp: React.FC = () => {
             {activeTab === 'design-optimize' && "玩偶设计优化"}
             {activeTab === 'angle-reference' && "角度参考"}
             {activeTab === 'angle-presets' && "可爱角度转变"}
-            {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
 
@@ -113,9 +102,6 @@ const DollFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'angle-presets' ? 'block' : 'none', height: '100%' }}>
               <DollAnglePresetsTab />
-            </div>
-            <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
-              <SettingsTab />
             </div>
           </div>
         </div>
