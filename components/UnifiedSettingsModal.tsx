@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, 
@@ -20,14 +20,18 @@ import {
   MessageCircle,
   Trash2,
   CheckCircle2,
-  Copy
+  Copy,
+  HelpCircle,
+  HardDrive,
+  Database
 } from 'lucide-react';
 import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
+import { storageService, CacheStats } from '../services/storageService';
 
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'model' | 'agent';
+  initialTab?: 'model' | 'agent' | 'cache';
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
@@ -75,7 +79,7 @@ const sendTestRequest = async (
 };
 
 export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOpen, onClose, initialTab = 'model' }) => {
-  const [activeTab, setActiveTab] = useState<'model' | 'agent'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'cache'>(initialTab);
 
   // Agent Settings State
   const [agentName, setAgentName] = useState('XcAI 首席电商视觉策划师');
@@ -110,9 +114,39 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
   const [nativeTestStatus, setNativeTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [nativeTestMessage, setNativeTestMessage] = useState('');
+  const [showUsageGuide, setShowUsageGuide] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
+  const [cacheMessage, setCacheMessage] = useState('');
+
+  const nativeAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const yunwuAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const platoAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAutoNativeKeyRef = useRef('');
+  const lastAutoYunwuKeyRef = useRef('');
+  const lastAutoPlatoKeyRef = useRef('');
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes <= 0) return '0 MB';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  };
+
+  const loadCacheStats = async () => {
+    const stats = await storageService.getCacheStats();
+    setCacheStats(stats);
+  };
 
   useEffect(() => {
     if (!isOpen) return;
+    setSettingsLoaded(false);
 
     // Load Agent Settings
     const savedName = localStorage.getItem('agentName');
@@ -126,6 +160,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedNativeKey = localStorage.getItem('user_api_key');
     const savedNativeEnabled = localStorage.getItem('native_enabled');
     if (savedNativeKey) setNativeApiKey(savedNativeKey);
+    lastAutoNativeKeyRef.current = savedNativeKey || '';
     setNativeEnabled(savedNativeEnabled !== 'false');
 
     const savedYunwuKey = localStorage.getItem('yunwu_api_key');
@@ -133,6 +168,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedModel = localStorage.getItem('yunwu_default_model');
     const savedYunwuEnabled = localStorage.getItem('yunwu_enabled');
     if (savedYunwuKey) setYunwuApiKey(savedYunwuKey);
+    lastAutoYunwuKeyRef.current = savedYunwuKey || '';
     if (savedYunwuUrl) setYunwuBaseUrl(savedYunwuUrl);
     if (savedModel) setSelectedModel(savedModel);
     else setSelectedModel('gemini-3.1-flash-lite-preview');
@@ -142,9 +178,49 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedPlatoUrl = localStorage.getItem('plato_base_url');
     const savedPlatoEnabled = localStorage.getItem('plato_enabled');
     if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
+    lastAutoPlatoKeyRef.current = savedPlatoKey || '';
     if (savedPlatoUrl) setPlatoBaseUrl(savedPlatoUrl);
     setPlatoEnabled(savedPlatoEnabled === 'true');
+    setSettingsLoaded(true);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'cache') return;
+    void loadCacheStats();
+  }, [isOpen, activeTab]);
+
+  const runCacheCleanup = async (mode: 'older7' | 'older30' | 'keep50' | 'all') => {
+    const confirmText = {
+      older7: '确定清理 7 天前的项目历史吗？API Key 和当前配置不会被删除。',
+      older30: '确定清理 30 天前的项目历史吗？API Key 和当前配置不会被删除。',
+      keep50: '确定只保留最近 50 个项目吗？更早的项目历史会被删除。',
+      all: '确定清空全部项目历史吗？生成记录和图片缓存会被删除，但 API Key 和模型配置会保留。',
+    }[mode];
+
+    if (!confirm(confirmText)) return;
+
+    setCacheBusy(true);
+    setCacheMessage('正在清理缓存...');
+    try {
+      let deleted = 0;
+      const now = Date.now();
+      if (mode === 'older7') deleted = await storageService.deleteProjectsOlderThan(now - 7 * 24 * 60 * 60 * 1000);
+      if (mode === 'older30') deleted = await storageService.deleteProjectsOlderThan(now - 30 * 24 * 60 * 60 * 1000);
+      if (mode === 'keep50') deleted = await storageService.keepLatestProjects(50);
+      if (mode === 'all') {
+        const before = await storageService.getCacheStats();
+        await storageService.deleteAllProjects();
+        deleted = before.projectCount;
+      }
+      await loadCacheStats();
+      window.dispatchEvent(new Event('project-cache-updated'));
+      setCacheMessage(`已清理 ${deleted} 个项目`);
+    } catch (error: any) {
+      setCacheMessage(`清理失败：${error?.message || '未知错误'}`);
+    } finally {
+      setCacheBusy(false);
+    }
+  };
 
   const handleSaveAll = () => {
     // Save Agent
@@ -237,6 +313,76 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     }
   };
 
+  useEffect(() => {
+    if (!isOpen || !settingsLoaded || !nativeEnabled) return;
+    const key = nativeApiKey.trim();
+    if (key === lastAutoNativeKeyRef.current) return;
+    if (nativeAutoTestTimerRef.current) clearTimeout(nativeAutoTestTimerRef.current);
+    lastAutoNativeKeyRef.current = key;
+    if (!key) {
+      setNativeTestStatus('idle');
+      setNativeTestMessage('');
+      return;
+    }
+    setNativeTestStatus('testing');
+    setNativeTestMessage('输入已更新，正在自动测试...');
+    nativeAutoTestTimerRef.current = setTimeout(() => {
+      void handleTestNative();
+    }, 900);
+    return () => {
+      if (nativeAutoTestTimerRef.current) clearTimeout(nativeAutoTestTimerRef.current);
+    };
+  }, [nativeApiKey, nativeEnabled, isOpen, settingsLoaded]);
+
+  useEffect(() => {
+    if (!isOpen || !settingsLoaded || !yunwuEnabled) return;
+    const key = yunwuApiKey.trim();
+    if (key === lastAutoYunwuKeyRef.current) return;
+    if (yunwuAutoTestTimerRef.current) clearTimeout(yunwuAutoTestTimerRef.current);
+    lastAutoYunwuKeyRef.current = key;
+    if (!key) {
+      setYunwuTestStatus('idle');
+      setYunwuTestMessage('');
+      return;
+    }
+    setYunwuTestStatus('testing');
+    setYunwuTestMessage('输入已更新，正在自动测试...');
+    yunwuAutoTestTimerRef.current = setTimeout(() => {
+      void handleTestYunwu();
+    }, 900);
+    return () => {
+      if (yunwuAutoTestTimerRef.current) clearTimeout(yunwuAutoTestTimerRef.current);
+    };
+  }, [yunwuApiKey, yunwuEnabled, isOpen, settingsLoaded]);
+
+  useEffect(() => {
+    if (!isOpen || !settingsLoaded || !platoEnabled) return;
+    const key = platoApiKey.trim();
+    if (key === lastAutoPlatoKeyRef.current) return;
+    if (platoAutoTestTimerRef.current) clearTimeout(platoAutoTestTimerRef.current);
+    lastAutoPlatoKeyRef.current = key;
+    if (!key) {
+      setPlatoTestStatus('idle');
+      setPlatoTestMessage('');
+      return;
+    }
+    setPlatoTestStatus('testing');
+    setPlatoTestMessage('输入已更新，正在自动测试...');
+    platoAutoTestTimerRef.current = setTimeout(() => {
+      void handleTestPlato();
+    }, 900);
+    return () => {
+      if (platoAutoTestTimerRef.current) clearTimeout(platoAutoTestTimerRef.current);
+    };
+  }, [platoApiKey, platoEnabled, isOpen, settingsLoaded]);
+
+  const activeTitle = activeTab === 'model' ? '模型配置' : activeTab === 'agent' ? '智能体设定' : '缓存磁盘';
+  const activeSubtitle = activeTab === 'model'
+    ? '配置 API 中转站与模型参数'
+    : activeTab === 'agent'
+      ? '定义智能体的角色、身份与核心能力'
+      : '管理本地项目历史与浏览器存储占用';
+
   if (!isOpen) return null;
 
   return (
@@ -254,23 +400,23 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-5xl h-[85vh] bg-white dark:bg-[#121212] rounded-[2rem] shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden flex flex-col md:flex-row"
+          className="relative w-full max-w-7xl h-[92vh] bg-white dark:bg-[#121212] rounded-[2rem] shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden flex flex-col md:flex-row"
         >
           {/* Sidebar */}
-          <div className="w-full md:w-64 bg-gray-50/50 dark:bg-black/20 border-r border-gray-200 dark:border-white/5 p-6 flex flex-col gap-2 shrink-0">
+          <div className="w-full md:w-72 bg-gray-50/50 dark:bg-black/20 border-r border-gray-200 dark:border-white/5 p-7 flex flex-col gap-3 shrink-0">
             <div className="flex items-center gap-3 mb-8 px-2">
-              <div className="w-10 h-10 rounded-2xl bg-brand-orange flex items-center justify-center shadow-lg shadow-orange-500/20">
-                <Shield className="w-6 h-6 text-white" />
+              <div className="w-12 h-12 rounded-2xl bg-brand-orange flex items-center justify-center shadow-lg shadow-orange-500/20">
+                <Shield className="w-7 h-7 text-white" />
               </div>
               <div>
-                <h2 className="font-bold text-gray-900 dark:text-white leading-tight">全局设置</h2>
-                <p className="text-[10px] text-gray-500">XcAI Agent Settings</p>
+                <h2 className="font-black text-lg text-gray-900 dark:text-white leading-tight">全局设置</h2>
+                <p className="text-xs text-gray-500">XcAI Agent Settings</p>
               </div>
             </div>
 
             <button
               onClick={() => setActiveTab('model')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${activeTab === 'model' ? 'bg-white dark:bg-white/10 shadow-md text-brand-orange' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-white/5'}`}
+              className={`flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${activeTab === 'model' ? 'bg-white dark:bg-white/10 shadow-md text-brand-orange' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-white/5'}`}
             >
               <Cpu className="w-5 h-5" />
               <span className="text-sm font-bold">模型配置</span>
@@ -278,16 +424,24 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
             <button
               onClick={() => setActiveTab('agent')}
-              className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${activeTab === 'agent' ? 'bg-white dark:bg-white/10 shadow-md text-brand-orange' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-white/5'}`}
+              className={`flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${activeTab === 'agent' ? 'bg-white dark:bg-white/10 shadow-md text-brand-orange' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-white/5'}`}
             >
               <Bot className="w-5 h-5" />
               <span className="text-sm font-bold">智能体设定</span>
             </button>
 
+            <button
+              onClick={() => setActiveTab('cache')}
+              className={`flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${activeTab === 'cache' ? 'bg-white dark:bg-white/10 shadow-md text-brand-orange' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-white/5'}`}
+            >
+              <HardDrive className="w-5 h-5" />
+              <span className="text-sm font-bold">缓存磁盘</span>
+            </button>
+
             <div className="mt-auto pt-6 border-t border-gray-200 dark:border-white/5">
               <button
                 onClick={onClose}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-gray-400 hover:text-gray-600 dark:hover:text-white transition-all text-sm font-medium"
+                className="w-full flex items-center gap-3 px-5 py-4 rounded-2xl text-gray-400 hover:text-gray-600 dark:hover:text-white transition-all text-sm font-medium"
               >
                 <X className="w-5 h-5" />
                 返回主页
@@ -298,16 +452,31 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
           {/* Main Content */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="p-8 border-b border-gray-100 dark:border-white/5 flex items-center justify-between">
+            <div className="p-8 lg:p-10 border-b border-gray-100 dark:border-white/5 flex items-center justify-between gap-6">
               <div>
-                <h3 className="text-2xl font-black text-gray-900 dark:text-white">
+                {activeTab === 'cache' && (
+                  <>
+                    <h3 className="text-3xl font-black text-gray-900 dark:text-white">缓存磁盘</h3>
+                    <p className="text-base text-gray-500 mt-2">管理本地项目历史与浏览器存储占用</p>
+                  </>
+                )}
+                <h3 className={`text-3xl font-black text-gray-900 dark:text-white ${activeTab === 'cache' ? 'hidden' : ''}`}>
                   {activeTab === 'model' ? '模型配置' : '智能体设定'}
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className={`text-base text-gray-500 mt-2 ${activeTab === 'cache' ? 'hidden' : ''}`}>
                   {activeTab === 'model' ? '配置 API 中转站与模型参数' : '定义智能体的角色、身份与核心能力'}
                 </p>
               </div>
               <div className="hidden sm:flex items-center gap-3">
+                 {activeTab === 'model' && (
+                   <button
+                     onClick={() => setShowUsageGuide(true)}
+                     className="flex items-center gap-2 px-4 py-2 rounded-full bg-white dark:bg-white/5 text-gray-600 dark:text-gray-300 text-xs font-bold border border-gray-200 dark:border-white/10 hover:text-brand-orange hover:border-orange-200 transition-all"
+                   >
+                     <HelpCircle className="w-4 h-4" />
+                     使用说明
+                   </button>
+                 )}
                  <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 dark:bg-orange-500/10 text-brand-orange text-xs font-bold border border-orange-100 dark:border-orange-500/20">
                     <Sparkles className="w-3 h-3" />
                     AI Powered
@@ -316,19 +485,19 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
             </div>
 
             {/* Scrollable Area */}
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-8 lg:p-10 custom-scrollbar">
               {activeTab === 'model' ? (
-                <div className="space-y-8 max-w-3xl">
+                <div className="space-y-8 max-w-4xl">
                   {/* Plato Config */}
-                  <div className={`p-6 rounded-3xl border transition-all ${platoEnabled ? 'bg-white dark:bg-white/5 border-rose-200 dark:border-rose-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${platoEnabled ? 'bg-white dark:bg-white/5 border-rose-200 dark:border-rose-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className={`p-2.5 rounded-xl ${platoEnabled ? 'bg-rose-100 text-rose-600' : 'bg-gray-200 text-gray-500'}`}>
-                          <Zap className="w-5 h-5" />
+                        <div className={`p-3 rounded-2xl ${platoEnabled ? 'bg-rose-100 text-rose-600' : 'bg-gray-200 text-gray-500'}`}>
+                          <Zap className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`font-bold ${platoEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>柏拉图 API 中转站 (推荐)</h4>
-                          <p className="text-[10px] text-gray-500">高性能多节点 Gemini 中转服务</p>
+                          <h4 className={`text-lg font-black ${platoEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>柏拉图 API 中转站 (推荐)</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">高性能多节点 Gemini 中转服务</p>
                         </div>
                       </div>
                       <button
@@ -342,34 +511,28 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     {platoEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Globe className="w-3 h-3" /> API 节点地址</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
                           <div className="flex flex-wrap gap-2 mb-2">
                             {['https://api.bltcy.ai', 'https://api.gptbest.vip', 'https://hk-api.gptbest.vip'].map(url => (
                               <button
                                 key={url}
                                 onClick={() => setPlatoBaseUrl(url)}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${platoBaseUrl === url ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${platoBaseUrl === url ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                               >
                                 {url.includes('bltcy') ? '主站节点' : url.includes('hk') ? '香港节点' : '美国节点'}
                               </button>
                             ))}
                           </div>
-                          <input
-                            type="text"
-                            value={platoBaseUrl}
-                            onChange={(e) => setPlatoBaseUrl(e.target.value)}
-                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-rose-500/20 outline-none"
-                          />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Key className="w-3 h-3" /> API Key</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">
                             <textarea
                               value={platoApiKey}
                               onChange={(e) => setPlatoApiKey(e.target.value)}
                               rows={4}
                               style={{ WebkitTextSecurity: isPlatoKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-rose-500/20 outline-none font-mono resize-none"
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-rose-500/20 outline-none font-mono resize-none"
                               placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                             />
                             <button onClick={() => setIsPlatoKeyVisible(!isPlatoKeyVisible)} className="absolute right-3 top-3 text-gray-400">
@@ -381,15 +544,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
                              {platoTestStatus !== 'idle' && (
-                               <span className={`text-[10px] font-bold ${platoTestStatus === 'success' ? 'text-green-500' : platoTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
-                                 {platoTestMessage}
+                                <span className={`text-xs font-bold ${platoTestStatus === 'success' ? 'text-green-500' : platoTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                 {platoTestStatus === 'success' ? '连接成功' : platoTestStatus === 'testing' ? '正在自动测试...' : platoTestMessage}
                                </span>
                              )}
                            </div>
                            <button
                              onClick={handleTestPlato}
                              disabled={platoTestStatus === 'testing'}
-                             className="px-4 py-1.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-gray-500 hover:text-rose-600 text-xs font-bold transition-all border border-gray-200 dark:border-white/10"
+                             className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-gray-500 hover:text-rose-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
                            >
                              {platoTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
@@ -399,15 +562,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                   </div>
 
                   {/* Native Gemini Config */}
-                  <div className={`p-6 rounded-3xl border transition-all ${nativeEnabled ? 'bg-white dark:bg-white/5 border-blue-200 dark:border-blue-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${nativeEnabled ? 'bg-white dark:bg-white/5 border-blue-200 dark:border-blue-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className={`p-2.5 rounded-xl ${nativeEnabled ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
-                          <Cpu className="w-5 h-5" />
+                        <div className={`p-3 rounded-2xl ${nativeEnabled ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
+                          <Cpu className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`font-bold ${nativeEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>Google Gemini 原生 API</h4>
-                          <p className="text-[10px] text-gray-500">直接使用 Google 官方 API 接口</p>
+                          <h4 className={`text-lg font-black ${nativeEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>Google Gemini 原生 API</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">直接使用 Google 官方 API 接口</p>
                         </div>
                       </div>
                       <button
@@ -421,14 +584,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     {nativeEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Key className="w-3 h-3" /> API Key</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">
                             <textarea
                               value={nativeApiKey}
                               onChange={(e) => setNativeApiKey(e.target.value)}
                               rows={4}
                               style={{ WebkitTextSecurity: isNativeKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none font-mono resize-none"
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-blue-500/20 outline-none font-mono resize-none"
                               placeholder="AIzaSy..."
                             />
                             <button onClick={() => setIsNativeKeyVisible(!isNativeKeyVisible)} className="absolute right-3 top-3 text-gray-400">
@@ -440,15 +603,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
                              {nativeTestStatus !== 'idle' && (
-                               <span className={`text-[10px] font-bold ${nativeTestStatus === 'success' ? 'text-green-500' : nativeTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
-                                 {nativeTestMessage}
+                                <span className={`text-xs font-bold ${nativeTestStatus === 'success' ? 'text-green-500' : nativeTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                 {nativeTestStatus === 'success' ? '连接成功' : nativeTestStatus === 'testing' ? '正在自动测试...' : nativeTestMessage}
                                </span>
                              )}
                            </div>
                            <button
                              onClick={handleTestNative}
                              disabled={nativeTestStatus === 'testing'}
-                             className="px-4 py-1.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-blue-50 dark:hover:bg-blue-500/10 text-gray-500 hover:text-blue-600 text-xs font-bold transition-all border border-gray-200 dark:border-white/10"
+                             className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-blue-50 dark:hover:bg-blue-500/10 text-gray-500 hover:text-blue-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
                            >
                              {nativeTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
@@ -458,15 +621,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                   </div>
 
                   {/* Yunwu Config */}
-                  <div className={`p-6 rounded-3xl border transition-all ${yunwuEnabled ? 'bg-white dark:bg-white/5 border-brand-orange/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${yunwuEnabled ? 'bg-white dark:bg-white/5 border-brand-orange/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className={`p-2.5 rounded-xl ${yunwuEnabled ? 'bg-orange-100 text-brand-orange' : 'bg-gray-200 text-gray-500'}`}>
-                          <Cloud className="w-5 h-5" />
+                        <div className={`p-3 rounded-2xl ${yunwuEnabled ? 'bg-orange-100 text-brand-orange' : 'bg-gray-200 text-gray-500'}`}>
+                          <Cloud className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`font-bold ${yunwuEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>云雾 API 中转站</h4>
-                          <p className="text-[10px] text-gray-500">标准兼容型 Gemini 中转服务</p>
+                          <h4 className={`text-lg font-black ${yunwuEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>云雾 API 中转站</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">标准兼容型 Gemini 中转服务</p>
                         </div>
                       </div>
                       <button
@@ -480,49 +643,43 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     {yunwuEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500">API Base URL</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点选择</label>
                           <div className="flex flex-wrap gap-2 mb-2">
                             <button
                               onClick={() => setYunwuBaseUrl('https://yunwu.ai')}
-                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://yunwu.ai' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                              className={`px-4 py-2 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://yunwu.ai' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
                             >
                               主站节点
                             </button>
                             <button
                               onClick={() => setYunwuBaseUrl('https://api.apiplus.org')}
-                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://api.apiplus.org' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                              className={`px-4 py-2 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api.apiplus.org' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
                             >
                               CF站节点
                             </button>
                             <button
                               onClick={() => setYunwuBaseUrl('https://api3.wlai.vip')}
-                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://api3.wlai.vip' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                              className={`px-4 py-2 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api3.wlai.vip' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
                             >
                               国内节点
                             </button>
                             <button
                               onClick={() => setYunwuBaseUrl('https://api.zhongzhuan.chat')}
-                              className={`px-3 py-1 text-[10px] rounded-full border transition-all ${yunwuBaseUrl === 'https://api.zhongzhuan.chat' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                              className={`px-4 py-2 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api.zhongzhuan.chat' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
                             >
                               中转节点
                             </button>
                           </div>
-                          <input
-                            type="text"
-                            value={yunwuBaseUrl}
-                            onChange={(e) => setYunwuBaseUrl(e.target.value)}
-                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
-                          />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-gray-500 flex items-center gap-2"><Key className="w-3 h-3" /> API Key</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">
                             <textarea
                               value={yunwuApiKey}
                               onChange={(e) => setYunwuApiKey(e.target.value)}
                               rows={4}
                               style={{ WebkitTextSecurity: isYunwuKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none font-mono resize-none"
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-orange-500/20 outline-none font-mono resize-none"
                               placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                             />
                             <button onClick={() => setIsYunwuKeyVisible(!isYunwuKeyVisible)} className="absolute right-3 top-3 text-gray-400">
@@ -535,19 +692,119 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
                              {yunwuTestStatus !== 'idle' && (
-                               <span className={`text-[10px] font-bold ${yunwuTestStatus === 'success' ? 'text-green-500' : yunwuTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
-                                 {yunwuTestMessage}
+                                <span className={`text-xs font-bold ${yunwuTestStatus === 'success' ? 'text-green-500' : yunwuTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                 {yunwuTestStatus === 'success' ? '连接成功' : yunwuTestStatus === 'testing' ? '正在自动测试...' : yunwuTestMessage}
                                </span>
                              )}
                            </div>
                            <button
                              onClick={handleTestYunwu}
                              disabled={yunwuTestStatus === 'testing'}
-                             className="px-4 py-1.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-orange-50 dark:hover:bg-orange-500/10 text-gray-500 hover:text-orange-600 text-xs font-bold transition-all border border-gray-200 dark:border-white/10"
+                             className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-orange-50 dark:hover:bg-orange-500/10 text-gray-500 hover:text-orange-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
                            >
                              {yunwuTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
                         </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : activeTab === 'cache' ? (
+                <div className="space-y-8 max-w-4xl">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-6 rounded-3xl border border-orange-100 dark:border-orange-500/20 bg-orange-50/60 dark:bg-orange-500/10">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-11 h-11 rounded-2xl bg-white dark:bg-white/10 text-brand-orange flex items-center justify-center">
+                          <Database className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-500">项目历史</p>
+                          <h4 className="text-2xl font-black text-gray-900 dark:text-white">{cacheStats?.projectCount ?? 0}</h4>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">保存在浏览器 IndexedDB 中。</p>
+                    </div>
+
+                    <div className="p-6 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 text-gray-500 flex items-center justify-center">
+                          <HardDrive className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-500">项目估算占用</p>
+                          <h4 className="text-2xl font-black text-gray-900 dark:text-white">{formatBytes(cacheStats?.estimatedProjectBytes)}</h4>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">仅统计本应用项目图片与历史。</p>
+                    </div>
+
+                    <div className="p-6 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 text-gray-500 flex items-center justify-center">
+                          <Cloud className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-500">浏览器总占用</p>
+                          <h4 className="text-2xl font-black text-gray-900 dark:text-white">{formatBytes(cacheStats?.storageUsage)}</h4>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">浏览器提供的站点存储估算值。</p>
+                    </div>
+                  </div>
+
+                  <div className="p-7 lg:p-8 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
+                    <div className="flex items-start justify-between gap-4 mb-6">
+                      <div>
+                        <h4 className="text-lg font-black text-gray-900 dark:text-white">安全清理</h4>
+                        <p className="text-sm text-gray-500 mt-1">只清理项目历史和生成图片缓存，不会删除 API Key、模型配置和智能体设定。</p>
+                      </div>
+                      <button
+                        onClick={loadCacheStats}
+                        disabled={cacheBusy}
+                        className="px-4 py-2 rounded-xl text-xs font-bold border border-gray-200 dark:border-white/10 text-gray-500 hover:text-brand-orange hover:border-orange-200 transition-all disabled:opacity-50"
+                      >
+                        刷新容量
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        onClick={() => runCacheCleanup('older7')}
+                        disabled={cacheBusy}
+                        className="p-4 rounded-2xl bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 text-left hover:border-orange-200 hover:bg-orange-50/60 transition-all disabled:opacity-50"
+                      >
+                        <p className="text-sm font-black text-gray-900 dark:text-white">清理 7 天前项目</p>
+                        <p className="text-xs text-gray-500 mt-1">适合频繁生成时快速释放空间。</p>
+                      </button>
+                      <button
+                        onClick={() => runCacheCleanup('older30')}
+                        disabled={cacheBusy}
+                        className="p-4 rounded-2xl bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 text-left hover:border-orange-200 hover:bg-orange-50/60 transition-all disabled:opacity-50"
+                      >
+                        <p className="text-sm font-black text-gray-900 dark:text-white">清理 30 天前项目</p>
+                        <p className="text-xs text-gray-500 mt-1">保留最近一个月的工作记录。</p>
+                      </button>
+                      <button
+                        onClick={() => runCacheCleanup('keep50')}
+                        disabled={cacheBusy}
+                        className="p-4 rounded-2xl bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 text-left hover:border-orange-200 hover:bg-orange-50/60 transition-all disabled:opacity-50"
+                      >
+                        <p className="text-sm font-black text-gray-900 dark:text-white">只保留最近 50 个</p>
+                        <p className="text-xs text-gray-500 mt-1">历史很多时优先保留最新项目。</p>
+                      </button>
+                      <button
+                        onClick={() => runCacheCleanup('all')}
+                        disabled={cacheBusy}
+                        className="p-4 rounded-2xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 text-left hover:border-red-300 transition-all disabled:opacity-50"
+                      >
+                        <p className="text-sm font-black text-red-600">清空全部项目历史</p>
+                        <p className="text-xs text-red-500/80 mt-1">仅在浏览器已经明显卡顿时使用。</p>
+                      </button>
+                    </div>
+
+                    {cacheMessage && (
+                      <div className="mt-5 rounded-2xl bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-white/10 px-4 py-3 text-sm font-bold text-gray-600 dark:text-gray-300">
+                        {cacheBusy ? '正在处理，请稍等...' : cacheMessage}
                       </div>
                     )}
                   </div>
@@ -615,6 +872,60 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
               </div>
             </div>
           </div>
+
+          {showUsageGuide && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/35 backdrop-blur-sm p-6">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 12 }}
+                className="w-full max-w-xl rounded-[1.75rem] bg-white dark:bg-[#181818] border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden"
+              >
+                <div className="p-7 border-b border-gray-100 dark:border-white/5 flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-orange-50 text-brand-orange flex items-center justify-center border border-orange-100">
+                      <HelpCircle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-black text-gray-900 dark:text-white">模型配置使用说明</h4>
+                      <p className="text-sm text-gray-500 mt-1">首页保存一次，所有工作区都会自动读取。</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowUsageGuide(false)}
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-white/10 transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-7 space-y-4">
+                  {[
+                    '先开启要使用的服务：柏拉图、Google Gemini 原生 API 或云雾。',
+                    '柏拉图和云雾只需要选择站点节点，再填写 API Key；节点地址会在后台保留。',
+                    '输入或修改 Key 后会自动检测连接状态，也可以点击“测试连接”手动重试。',
+                    '确认连接成功后点击“保存配置”，模特工厂、AI 创意视频、玩偶工厂和创意中心会共用这套配置。'
+                  ].map((item, index) => (
+                    <div key={item} className="flex gap-4 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/5 p-4">
+                      <div className="w-7 h-7 rounded-full bg-brand-orange text-white flex items-center justify-center text-xs font-black shrink-0">
+                        {index + 1}
+                      </div>
+                      <p className="text-sm leading-6 text-gray-700 dark:text-gray-300">{item}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="px-7 pb-7 flex justify-end">
+                  <button
+                    onClick={() => setShowUsageGuide(false)}
+                    className="px-6 py-3 rounded-2xl text-sm font-bold bg-brand-orange text-white shadow-lg shadow-orange-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    我知道了
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>

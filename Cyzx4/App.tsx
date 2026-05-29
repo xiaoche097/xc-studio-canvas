@@ -11,8 +11,7 @@ import InpaintingTab from './components/InpaintingTab';
 import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
 import ProductRepairTab from './components/ProductRepairTab';
-import SettingsTab from './components/SettingsTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Settings, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Hammer } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Hammer } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.FUSION);
@@ -109,12 +108,6 @@ const App: React.FC = () => {
             icon={<Activity className="w-5 h-5" />}
             label="比例查询"
           />
-          <NavButton
-            active={activeTab === AppMode.SETTINGS}
-            onClick={() => setActiveTab(AppMode.SETTINGS)}
-            icon={<Settings className="w-5 h-5" />}
-            label="设置"
-          />
         </nav>
 
 
@@ -135,7 +128,6 @@ const App: React.FC = () => {
             {activeTab === AppMode.IMAGE_CLEAN && "主图生成 (Hero Image)"}
             {activeTab === AppMode.PRODUCT_REPAIR && "产品修复 (Product Repair)"}
             {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
-            {activeTab === AppMode.SETTINGS && "设置 (Settings)"}
           </h1>
         </header>
 
@@ -188,7 +180,6 @@ const App: React.FC = () => {
               <ProductRepairTab />
             </div>
             {activeTab === AppMode.RATIO_QUERY && <AspectRatioTab />}
-            {activeTab === AppMode.SETTINGS && <SettingsTab />}
           </div>
         </div>
       </main>

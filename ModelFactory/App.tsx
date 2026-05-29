@@ -7,13 +7,12 @@ import OriginalGarmentExtractTab from './OriginalGarmentExtractTab.tsx';
 import BatchRecolorTab from './BatchRecolorTab.tsx';
 import ClothingModificationTab from './ClothingModificationTab.tsx';
 import BatchPropsModifierTab from './BatchPropsModifierTab.tsx';
-import SettingsTab from '../AIVideo/SettingsTab';
-import { ArrowLeft, UserCircle2, Wand2, Move, Settings, Shirt, Palette, Scissors, ImageIcon } from 'lucide-react';
+import { ArrowLeft, UserCircle2, Wand2, Move, Shirt, Palette, Scissors, ImageIcon } from 'lucide-react';
 
 import ModelMainAdjustTab from './ModelMainAdjustTab.tsx';
 import ModelGenerationTab from './ModelGenerationTab.tsx';
 
-type ModelFactoryMode = 'model-main-adjust' | 'pose-fission' | 'model-adjust' | 'model-generation' | 'action-reference' | 'garment-replacement' | 'original-garment-extract' | 'batch-recolor' | 'clothing-modification' | 'batch-props-modifier' | 'settings';
+type ModelFactoryMode = 'model-main-adjust' | 'pose-fission' | 'model-adjust' | 'model-generation' | 'action-reference' | 'garment-replacement' | 'original-garment-extract' | 'batch-recolor' | 'clothing-modification' | 'batch-props-modifier';
 
 const ModelFactoryApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelFactoryMode>('model-main-adjust');
@@ -104,13 +103,6 @@ const ModelFactoryApp: React.FC = () => {
             icon={<Scissors className="w-5 h-5" />}
             label="批量修改道具 (Props Modifier)"
           />
-
-          <NavButton
-            active={activeTab === 'settings'}
-            onClick={() => setActiveTab('settings')}
-            icon={<Settings className="w-5 h-5" />}
-            label="设置 (Settings)"
-          />
         </nav>
       </aside>
 
@@ -128,7 +120,6 @@ const ModelFactoryApp: React.FC = () => {
             {activeTab === 'batch-recolor' && "批量改色 (Batch Recolor)"}
             {activeTab === 'clothing-modification' && "服装改款 (Clothing Modify)"}
             {activeTab === 'batch-props-modifier' && "批量修改道具 (Props Modifier)"}
-            {activeTab === 'settings' && "设置 (Settings)"}
           </h1>
         </header>
 
@@ -163,9 +154,6 @@ const ModelFactoryApp: React.FC = () => {
             </div>
             <div style={{ display: activeTab === 'batch-props-modifier' ? 'block' : 'none', height: '100%' }}>
               <BatchPropsModifierTab />
-            </div>
-            <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
-              <SettingsTab />
             </div>
           </div>
         </div>
