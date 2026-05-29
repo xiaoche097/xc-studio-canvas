@@ -49,6 +49,8 @@ interface UploadedImage {
     mime?: string;
 }
 
+const PRODUCT_IMAGE_LIMIT = 10;
+
 const COT_STEPS = [
     { id: 1, label: "全案设计解构", desc: "正在深度解析网格与色彩基因...", icon: "🔍" },
     { id: 2, label: "骨架重构", desc: "正在构建像素级排版骨架...", icon: "📐" },
@@ -173,7 +175,7 @@ const StyleReplicateTab: React.FC = () => {
         }
         // 否则如果产品图为空，则加入产品图
         else if (productImages.length === 0) {
-            const processed = await processFiles(files);
+            const processed = await processFiles(files.slice(0, PRODUCT_IMAGE_LIMIT));
             setProductImages(processed);
         }
         // 否则默认加入风格参考（追加或替换，根据模式）
@@ -204,9 +206,12 @@ const StyleReplicateTab: React.FC = () => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
 
+        const remaining = PRODUCT_IMAGE_LIMIT - productImages.length;
+        if (remaining <= 0) return;
+
         const newImages: UploadedImage[] = [];
 
-        for (const file of files) {
+        for (const file of files.slice(0, remaining)) {
             const preview = URL.createObjectURL(file);
             const compressed = await compressImage(file);
             newImages.push({
@@ -217,9 +222,9 @@ const StyleReplicateTab: React.FC = () => {
             });
         }
 
-        setProductImages(prev => [...prev, ...newImages].slice(0, 5)); // Max 5 images
+        setProductImages(prev => [...prev, ...newImages].slice(0, PRODUCT_IMAGE_LIMIT));
         setError(null);
-    }, []);
+    }, [productImages.length]);
 
     // Handle Style Drop
     const handleStyleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
@@ -270,9 +275,12 @@ const StyleReplicateTab: React.FC = () => {
         const files = await compressImageFiles(Array.from(e.dataTransfer.files));
         if (files.length === 0) return;
 
+        const remaining = PRODUCT_IMAGE_LIMIT - productImages.length;
+        if (remaining <= 0) return;
+
         const newImages: UploadedImage[] = [];
 
-        for (const file of files) {
+        for (const file of files.slice(0, remaining)) {
             if (!file.type.startsWith('image/')) continue;
 
             const preview = URL.createObjectURL(file);
@@ -285,9 +293,9 @@ const StyleReplicateTab: React.FC = () => {
             });
         }
 
-        setProductImages(prev => [...prev, ...newImages].slice(0, 5));
+        setProductImages(prev => [...prev, ...newImages].slice(0, PRODUCT_IMAGE_LIMIT));
         setError(null);
-    }, []);
+    }, [productImages.length]);
 
     // Remove product image
     const removeProductImage = (index: number) => {
@@ -608,7 +616,7 @@ const StyleReplicateTab: React.FC = () => {
                                                 </button>
                                             </div>
                                         ))}
-                                        {productImages.length < 5 && (
+                                        {productImages.length < PRODUCT_IMAGE_LIMIT && (
                                             <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
                                                 <Upload className="w-5 h-5" />
                                             </div>
@@ -617,7 +625,7 @@ const StyleReplicateTab: React.FC = () => {
                                 ) : (
                                     <div className="text-center py-6">
                                         <Upload className="w-8 h-8 mx-auto mb-2 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
-                                        <p className="text-sm text-pastel-highlight">上传产品图片 (最多5张)</p>
+                                        <p className="text-sm text-pastel-highlight">上传产品图片 (最多{PRODUCT_IMAGE_LIMIT}张)</p>
                                         <p className="text-xs text-pastel-muted mt-1">支持多选</p>
                                     </div>
                                 )}

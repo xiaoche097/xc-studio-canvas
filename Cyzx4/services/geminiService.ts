@@ -859,6 +859,26 @@ ${forcedPrompt}`;
 
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'structural-repair-v2') {
+          gptPrompt = `[ROLE: Senior Product Repair Retoucher]
+[TASK: Perform localized product repair on the target image]
+[INPUT MAPPING]
+- Image 1 is the target scene to repair.
+- The following reference images are product standards.
+- If the last image contains red painted areas, it is an edit map. Red marks identify the only repair area and must not appear in the final output.
+
+[STRICT REPAIR RULES]
+- Do not return the target unchanged.
+- Preserve the target scene, person, hands, background, lighting, camera angle, crop, and composition.
+- Treat red-marked areas as unwanted artifacts unless the user explicitly says they are damaged product details.
+- Remove unrelated extra structures, hallucinated blobs, duplicated parts, wrong accessories, and any product pieces that do not exist in the standard references.
+- After removal, rebuild the clean product edge/surface and any revealed background, hand, clothing, or occlusion naturally.
+- Remove all red annotations from the final image.
+- Keep unmarked areas unchanged.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
         } else if (workflowHint) {
           gptPrompt = `[ROLE: Professional Fashion AI Artist]
 [TASK: Generate a new image based on reference images and the prompt below]
@@ -996,6 +1016,26 @@ ${forcedPrompt}`;
         
         Final Parameters: --ar ${aspectRatio} --v 6.0 --q 2 --style raw
         `;
+
+        if (workflowHint === 'structural-repair-v2') {
+          gptContext = `[IMAGE EDITING TASK]
+          Role: Senior Product Repair Retoucher.
+          Reference Images:
+          - Image 1: Target scene/image to repair.
+          - Images 2+: Product standard references and possibly a final red-mask edit map.
+
+          Mandatory requirements:
+          1. Preserve Image 1's scene, person, hands, background, lighting, camera angle, crop, and composition.
+          2. If a red mask is present, treat the red-painted region as unwanted extra structure/artifact by default. Remove hallucinated blobs, duplicate parts, wrong accessories, and non-reference product pieces, then fill the area naturally.
+          3. Remove the red paint from the final image.
+          4. Do not return Image 1 unchanged. The defective or marked product area must visibly improve and match the standard references.
+          5. Keep unmarked/non-product areas unchanged.
+          6. Output MUST be ${arDescription} with aspect ratio ${aspectRatio}.
+
+          User Description: ${prompt.trim()}
+          Final Parameters: --ar ${aspectRatio} --v 6.0 --q 2 --style raw
+          `;
+        }
 
         parts.push({ text: gptContext });
         
@@ -1150,6 +1190,24 @@ ${forcedPrompt}`;
         - Pure white background (#FFFFFF), not transparent and not checkerboard.
         - No person, no body parts, no mannequin, no hanger, no extra objects.
         - Preserve pixel-level alignment as closely as possible; the garment mask must match the original clothing boundary with no visible offset.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+              : workflowHint === 'structural-repair-v2'
+                ? `
+        **ROLE**: Senior Product Repair Retoucher and Localized Reconstruction Specialist.
+        **TASK**: Repair the product inside the target image while preserving everything else.
+        **INPUT MAPPING**:
+        - Image 1 = TARGET SCENE / image to repair.
+        - Images 2+ = product standard references and, if present, a final red-mask edit map.
+        **MANDATORY LOCAL EDIT RULES**:
+        1. Do NOT return Image 1 unchanged.
+        2. If a red-mask edit map is present, treat red painted regions as unwanted artifacts or wrong extra structures unless the user explicitly says otherwise.
+        3. Remove hallucinated product parts, duplicate structures, wrong accessories, stray blobs, and any non-reference pieces inside the red area.
+        4. After removing artifacts, restore the clean product silhouette, correct surface, and naturally revealed background/hand/clothing occlusion.
+        5. The red mask is only an instruction map; remove all red paint, labels, and annotations from the final output.
+        6. Preserve the target scene, person, hands, background, camera angle, crop, lighting, and all unmarked areas exactly.
+        7. Match product structure, color, material, fur/fabric texture, edges, seams, eyes, accessories, and fine details from the standard references.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

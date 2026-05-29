@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
     Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
     Layers, Brain, Camera, MessageSquare, Zap, 
     ShieldCheck, RefreshCw, ZoomIn, Download, Hammer,
     CheckCircle2, ChevronDown, ChevronUp, Image as ImageIcon,
-    Lightbulb, User, MapPin, ListTodo, Info
+    Lightbulb, User, MapPin, ListTodo, Info, Brush, Eraser
 } from 'lucide-react';
 import { generateImageToImage, compressImage } from '../services/geminiService';
 import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
@@ -39,16 +39,42 @@ const MODEL_OPTIONS = [
     { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra', desc: '极致细节，追求高保真画质' },
 ];
 
+const STANDARD_IMAGE_LIMIT = 6;
+
+const REPAIR_TYPES = [
+    { id: 'artifacts', label: '移除多余结构', prompt: 'Remove unrelated extra objects, hallucinated parts, wrong accessories, duplicated product pieces, stray blobs, and any structure that does not exist in the standard product references. Reconstruct clean product edges and the underlying scene naturally.' },
+    { id: 'structure', label: '结构变形', prompt: 'Fix distorted geometry, warped silhouette, incorrect proportions, or collapsed structure.' },
+    { id: 'texture', label: '纹理模糊', prompt: 'Restore blurry surface texture, material grain, plush fur, fabric weave, leather grain, or fine product detail.' },
+    { id: 'color', label: '颜色偏差', prompt: 'Correct color mismatch, hue drift, saturation mismatch, and inconsistent product tone.' },
+    { id: 'edge', label: '边缘破损', prompt: 'Repair broken edges, jagged contours, missing trim, cut-off seams, and damaged boundaries.' },
+    { id: 'detail', label: '细节缺失', prompt: 'Reconstruct missing product details, accessories, embroidery, buttons, stitching, labels, or hardware.' },
+    { id: 'material', label: '材质错误', prompt: 'Correct wrong material appearance and match the reference material finish, reflectivity, density, and tactile texture.' },
+];
+
 const ProductRepairTab: React.FC = () => {
     // Image states
-    const [standardImage, setStandardImage] = useState<UploadedImage | null>(null);
+    const [standardImages, setStandardImages] = useState<UploadedImage[]>([]);
     const [targetImage, setTargetImage] = useState<UploadedImage | null>(null);
+    const standardImage = standardImages[0] || null;
     
     // Config states
     const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
     const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-image-preview');
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+    const [selectedRepairTypes, setSelectedRepairTypes] = useState<string[]>(['artifacts', 'structure', 'detail']);
+    const [repairScopeMode, setRepairScopeMode] = useState<'auto' | 'manual'>('auto');
+    const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
+    const [maskOverlayDataUrl, setMaskOverlayDataUrl] = useState<string | null>(null);
+    const [maskRegionSummary, setMaskRegionSummary] = useState<string>('');
+    const [isMaskEditorOpen, setIsMaskEditorOpen] = useState(false);
+    const [isDrawingMask, setIsDrawingMask] = useState(false);
+    const [brushSize, setBrushSize] = useState(28);
+    const [brushPreview, setBrushPreview] = useState<{ x: number; y: number; visible: boolean }>({
+        x: 0,
+        y: 0,
+        visible: false
+    });
 
     // Status states
     const [isLoading, setIsLoading] = useState(false);
@@ -106,8 +132,35 @@ const ProductRepairTab: React.FC = () => {
     // Refs
     const standardInputRef = useRef<HTMLInputElement>(null);
     const targetInputRef = useRef<HTMLInputElement>(null);
+    const maskCanvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        if (!isMaskEditorOpen || !maskCanvasRef.current) return;
+        const canvas = maskCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!maskOverlayDataUrl) return;
+
+        const img = new Image();
+        img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = maskOverlayDataUrl;
+    }, [isMaskEditorOpen, maskOverlayDataUrl]);
 
     // Image processing
+    const processUploadFile = async (file: File): Promise<UploadedImage> => {
+        const { base64, mime } = await compressImage(file, 2048, 0.9);
+        return {
+            file,
+            preview: URL.createObjectURL(file),
+            base64,
+            mime
+        };
+    };
+
     const handleUpload = async (file: File, type: 'standard' | 'target') => {
         if (!file || !file.type.startsWith('image/')) return;
         setIsLoading(true);
@@ -117,18 +170,16 @@ const ProductRepairTab: React.FC = () => {
             const detectedRatio = autoDetectRatio(dims.width, dims.height);
             setSelectedRatio(detectedRatio);
 
-            const { base64, mime } = await compressImage(file, 2048, 0.9);
-            const uploaded = {
-                file,
-                preview: URL.createObjectURL(file),
-                base64,
-                mime
-            };
+            const uploaded = await processUploadFile(file);
             if (type === 'standard') {
-                setStandardImage(uploaded);
-                setTimeout(() => runStructuralAnalysis(uploaded), 500);
+                const nextImages = [...standardImages, uploaded].slice(0, STANDARD_IMAGE_LIMIT);
+                setStandardImages(nextImages);
+                setTimeout(() => runStructuralAnalysis(nextImages), 500);
             } else {
                 setTargetImage(uploaded);
+                setMaskDataUrl(null);
+                setMaskOverlayDataUrl(null);
+                setMaskRegionSummary('');
             }
             setError(null);
         } catch (err) {
@@ -143,9 +194,35 @@ const ProductRepairTab: React.FC = () => {
         e.stopPropagation();
     };
 
+    const handleStandardFiles = async (files: FileList | File[]) => {
+        const allowed = Array.from(files)
+            .filter(file => file.type.startsWith('image/'))
+            .slice(0, STANDARD_IMAGE_LIMIT - standardImages.length);
+        if (allowed.length === 0) return;
+        setIsLoading(true);
+        try {
+            const processed: UploadedImage[] = [];
+            for (const file of allowed) {
+                processed.push(await processUploadFile(file));
+            }
+            const nextImages = [...standardImages, ...processed].slice(0, STANDARD_IMAGE_LIMIT);
+            setStandardImages(nextImages);
+            setTimeout(() => runStructuralAnalysis(nextImages), 500);
+            setError(null);
+        } catch {
+            setError("图片处理失败");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleDrop = (e: React.DragEvent, type: 'standard' | 'target') => {
         e.preventDefault();
         e.stopPropagation();
+        if (type === 'standard') {
+            void handleStandardFiles(e.dataTransfer.files);
+            return;
+        }
         const file = e.dataTransfer.files?.[0];
         if (file) handleUpload(file, type);
     };
@@ -158,8 +235,9 @@ const ProductRepairTab: React.FC = () => {
         }
     };
 
-    const runStructuralAnalysis = async (img: UploadedImage) => {
-        if (!img) return;
+    const runStructuralAnalysis = async (imgs: UploadedImage[] | UploadedImage) => {
+        const images = Array.isArray(imgs) ? imgs : [imgs];
+        if (images.length === 0) return;
         setIsAnalyzing(true);
         setError(null);
         try {
@@ -173,8 +251,9 @@ const ProductRepairTab: React.FC = () => {
             ` : "";
 
             const prompt = `
-                As a Professional Product Structure Auditor, analyze this [STANDARD REFERENCE IMAGE].
+                As a Professional Product Structure Auditor, analyze these [STANDARD REFERENCE IMAGES].
                 ${wizardContext}
+                The first image is the primary standard image. Additional images provide alternate angles, back/side views, and close-up details.
                 
                 Focus on two main categories:
                 1. IF PLUSH/DOLL: Analyze facial symmetry, fur texture, limb proportions, and specific embroidery/seams.
@@ -194,7 +273,7 @@ const ProductRepairTab: React.FC = () => {
                 model: 'gemini-3.1-flash-lite-preview',
                 contents: {
                     parts: [
-                        { inlineData: { mimeType: img.mime!, data: img.base64! } },
+                        ...images.map(img => ({ inlineData: { mimeType: img.mime!, data: img.base64! } })),
                         { text: prompt }
                     ]
                 }
@@ -210,8 +289,181 @@ const ProductRepairTab: React.FC = () => {
         }
     };
 
+    const getMaskPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = maskCanvasRef.current;
+        if (!canvas) return null;
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+            y: ((e.clientY - rect.top) / rect.height) * canvas.height,
+        };
+    };
+
+    const updateBrushPreview = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = maskCanvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        setBrushPreview({
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+            visible: true
+        });
+    };
+
+    const drawMaskPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = maskCanvasRef.current;
+        const point = getMaskPoint(e);
+        if (!canvas || !point) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.fillStyle = 'rgba(255, 32, 32, 0.82)';
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, brushSize, 0, Math.PI * 2);
+        ctx.fill();
+    };
+
+    const startMaskDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        updateBrushPreview(e);
+        setIsDrawingMask(true);
+        drawMaskPoint(e);
+    };
+
+    const moveMaskDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        updateBrushPreview(e);
+        if (!isDrawingMask) return;
+        drawMaskPoint(e);
+    };
+
+    const endMaskDrawing = () => {
+        setIsDrawingMask(false);
+    };
+
+    const hideBrushPreview = () => {
+        setIsDrawingMask(false);
+        setBrushPreview(prev => ({ ...prev, visible: false }));
+    };
+
+    const clearMask = () => {
+        const canvas = maskCanvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx?.clearRect(0, 0, canvas.width, canvas.height);
+        setMaskDataUrl(null);
+        setMaskOverlayDataUrl(null);
+        setMaskRegionSummary('');
+    };
+
+    const summarizeMaskRegions = (canvas: HTMLCanvasElement) => {
+        const sampleSize = 256;
+        const temp = document.createElement('canvas');
+        temp.width = sampleSize;
+        temp.height = sampleSize;
+        const tempCtx = temp.getContext('2d');
+        if (!tempCtx) return '';
+        tempCtx.drawImage(canvas, 0, 0, sampleSize, sampleSize);
+        const data = tempCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+        const occupied = new Uint8Array(sampleSize * sampleSize);
+        for (let y = 0; y < sampleSize; y++) {
+            for (let x = 0; x < sampleSize; x++) {
+                const i = (y * sampleSize + x) * 4;
+                if (data[i + 3] > 40 && data[i] > 150) occupied[y * sampleSize + x] = 1;
+            }
+        }
+
+        const visited = new Uint8Array(sampleSize * sampleSize);
+        const regions: Array<{ minX: number; maxX: number; minY: number; maxY: number; area: number }> = [];
+        const queue: number[] = [];
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+        for (let start = 0; start < occupied.length; start++) {
+            if (!occupied[start] || visited[start]) continue;
+            let head = 0;
+            let area = 0;
+            let minX = sampleSize;
+            let maxX = 0;
+            let minY = sampleSize;
+            let maxY = 0;
+            queue.length = 0;
+            queue.push(start);
+            visited[start] = 1;
+
+            while (head < queue.length) {
+                const current = queue[head++];
+                const x = current % sampleSize;
+                const y = Math.floor(current / sampleSize);
+                area++;
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+
+                for (const [dx, dy] of dirs) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= sampleSize || ny >= sampleSize) continue;
+                    const next = ny * sampleSize + nx;
+                    if (occupied[next] && !visited[next]) {
+                        visited[next] = 1;
+                        queue.push(next);
+                    }
+                }
+            }
+
+            if (area > 10) regions.push({ minX, maxX, minY, maxY, area });
+        }
+
+        const positionName = (min: number, max: number, axis: 'x' | 'y') => {
+            const center = ((min + max) / 2) / sampleSize;
+            if (axis === 'x') return center < 0.33 ? 'left' : center < 0.66 ? 'center' : 'right';
+            return center < 0.33 ? 'upper' : center < 0.66 ? 'middle' : 'lower';
+        };
+
+        return regions
+            .sort((a, b) => b.area - a.area)
+            .slice(0, 12)
+            .map((region, index) => {
+                const xPos = positionName(region.minX, region.maxX, 'x');
+                const yPos = positionName(region.minY, region.maxY, 'y');
+                const width = Math.round(((region.maxX - region.minX + 1) / sampleSize) * 100);
+                const height = Math.round(((region.maxY - region.minY + 1) / sampleSize) * 100);
+                return `Region ${index + 1}: ${yPos}-${xPos} red painted area, approximately ${width}% wide by ${height}% tall.`;
+            })
+            .join('\n');
+    };
+
+    const saveMask = () => {
+        const canvas = maskCanvasRef.current;
+        if (!canvas || !targetImage) return;
+        const overlayDataUrl = canvas.toDataURL('image/png');
+        const regionSummary = summarizeMaskRegions(canvas);
+        const mergedCanvas = document.createElement('canvas');
+        mergedCanvas.width = canvas.width;
+        mergedCanvas.height = canvas.height;
+        const ctx = mergedCanvas.getContext('2d');
+        const img = new Image();
+        img.onload = () => {
+            if (!ctx) return;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, mergedCanvas.width, mergedCanvas.height);
+            const scale = Math.min(mergedCanvas.width / img.width, mergedCanvas.height / img.height);
+            const width = img.width * scale;
+            const height = img.height * scale;
+            const x = (mergedCanvas.width - width) / 2;
+            const y = (mergedCanvas.height - height) / 2;
+            ctx.drawImage(img, x, y, width, height);
+            ctx.drawImage(canvas, 0, 0);
+            setMaskOverlayDataUrl(overlayDataUrl);
+            setMaskDataUrl(mergedCanvas.toDataURL('image/png'));
+            setMaskRegionSummary(regionSummary);
+            setRepairScopeMode('manual');
+            setIsMaskEditorOpen(false);
+        };
+        img.src = targetImage.preview;
+    };
+
     const handleRepair = async () => {
-        if (!standardImage || !targetImage) {
+        if (standardImages.length === 0 || !targetImage) {
             setError("请同时上传标准图和待修复图");
             return;
         }
@@ -228,9 +480,15 @@ const ProductRepairTab: React.FC = () => {
         }, 2000);
 
         try {
+            const maskImage = repairScopeMode === 'manual' && maskDataUrl ? {
+                base64: maskDataUrl.split(',')[1] || maskDataUrl,
+                mimeType: 'image/png'
+            } : null;
+
             const inputImages = [
-                { base64: standardImage.base64!, mimeType: standardImage.mime! },
-                { base64: targetImage.base64!, mimeType: targetImage.mime! }
+                { base64: targetImage.base64!, mimeType: targetImage.mime! },
+                ...standardImages.map(img => ({ base64: img.base64!, mimeType: img.mime! })),
+                ...(maskImage ? [maskImage] : [])
             ];
 
             const categoryHint = analysisResult?.category === 'plush' ? 
@@ -246,19 +504,49 @@ const ProductRepairTab: React.FC = () => {
                 ${wizardData.scenarios ? `- Usage Scenarios: ${wizardData.scenarios}` : ''}
             ` : "";
 
+            const selectedRepairInstructions = REPAIR_TYPES
+                .filter(type => selectedRepairTypes.includes(type.id))
+                .map(type => `- ${type.label}: ${type.prompt}`)
+                .join('\n');
+
+            const targetImageIndex = 1;
+            const standardStartIndex = 2;
+            const standardEndIndex = standardImages.length + 1;
+            const maskImageIndex = maskImage ? standardImages.length + 2 : null;
+            const maskRegionInstruction = maskRegionSummary
+                ? `Detected separate red mask regions:\n${maskRegionSummary}\nYou must process EVERY listed region. Do not stop after fixing only one region.`
+                : `If multiple red painted areas are visible, treat each separated red area as an independent required edit region and process all of them.`;
+            const scopeInstruction = repairScopeMode === 'manual' && maskImageIndex
+                ? `A manual red mask overlay is provided as Image ${maskImageIndex}. The RED painted areas are a mandatory edit map. ${maskRegionInstruction} Treat the red-painted areas primarily as wrong/unwanted product artifacts unless the user context says otherwise: remove unrelated extra structures, blobs, duplicate parts, wrong accessories, and non-standard product pieces. Then reconstruct the clean product silhouette, correct product surface, and any revealed background/hand occlusion naturally. The red marks are NOT part of the final image and must be removed. Preserve all unpainted areas exactly.`
+                : `No manual mask was provided. First identify extra/unrelated product artifacts and defective product areas in Image ${targetImageIndex} by comparing it with all standard reference images, then remove or repair only those issues.`;
+
             const prompt = `
                 # REPAIR AGENT: High-Fidelity Structural Restoration
-                # TARGET: Image 2 (Modified Scene)
-                # SOURCE TRUTH: Image 1 (Product Standard)
+                # TARGET: Image 1 (scene/image to repair)
+                # SOURCE TRUTH: Images ${standardStartIndex}-${standardEndIndex} (product standards, multiple angles/details)
+                ${maskImageIndex ? `# MANUAL EDIT MAP: Image ${maskImageIndex} (target image with red painted repair region)` : ''}
                 
                 ${wizardContext}
 
                 # INSTRUCTIONS:
-                1. Image 1 is the MASTER REFERENCE for product structure, geometry, and materials.
-                2. Image 2 is the TARGET. Maintain its pose, scene, model identity, and lighting 100%.
-                3. RECONSTRUCT the product area in Image 2 using pixels/features from Image 1.
+                1. Image 1 is the TARGET. Maintain its pose, scene, model identity, background, camera angle, crop, and lighting 100%.
+                2. Images ${standardStartIndex}-${standardEndIndex} are the MASTER REFERENCES for product structure, geometry, materials, colors, and details.
+                3. RECONSTRUCT the product area in Image 1 using features from all standard references.
                 4. ${analysisResult?.repairPrompt || "Ensure structural integrity."}
                 5. ${categoryHint}
+                6. ${scopeInstruction}
+                7. Repair focus:
+                ${selectedRepairInstructions || '- General product structure and texture consistency.'}
+                8. Do NOT return Image 1 unchanged. The marked/defective product area must be visibly corrected: remove non-reference artifacts, eliminate extra unrelated structures, and make the product closer to the standard reference product.
+                9. If there are multiple red regions, complete all of them in the same output. A result that fixes only one red region is incomplete.
+                
+                # HARD PRESERVATION RULES:
+                - Do not redesign the product.
+                - Do not alter non-defective background, model, hands, props, or composition.
+                - If the manual mask is present, only red painted areas are editable.
+                - If a red area covers something that is not part of the standard product, delete it rather than beautifying it.
+                - After deleting an artifact, fill the area with the correct neighboring background, hand, clothing, or product edge so the result looks natural.
+                - The final image must contain no red mask paint, no labels, and no annotation overlay.
                 
                 # FINAL QUALITY: Commercial-grade, 1:1 structural replication.
             `;
@@ -346,8 +634,8 @@ const ProductRepairTab: React.FC = () => {
                                         <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
                                         1. 产品标准基准图
                                     </h3>
-                                    {standardImage && (
-                                        <button onClick={() => runStructuralAnalysis(standardImage)} disabled={isAnalyzing} className="p-1 bg-purple-50 text-purple-600 rounded-md hover:bg-purple-100 transition-colors">
+                                    {standardImages.length > 0 && (
+                                        <button onClick={() => runStructuralAnalysis(standardImages)} disabled={isAnalyzing} className="p-1 bg-purple-50 text-purple-600 rounded-md hover:bg-purple-100 transition-colors">
                                             <RefreshCw className={`w-3 h-3 ${isAnalyzing ? 'animate-spin' : ''}`} />
                                         </button>
                                     )}
@@ -359,16 +647,44 @@ const ProductRepairTab: React.FC = () => {
                                     onPaste={(e) => handlePaste(e, 'standard')}
                                     tabIndex={0}
                                     className={`relative flex-1 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 ${
-                                        standardImage ? 'border-green-100 bg-green-50/5' : 'border-pastel-border hover:border-pastel-highlight bg-pastel-bg/10'
+                                        standardImages.length > 0 ? 'border-green-100 bg-green-50/5' : 'border-pastel-border hover:border-pastel-highlight bg-pastel-bg/10'
                                     }`}
                                 >
-                                    <input ref={standardInputRef} type="file" className="hidden" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0], 'standard')} accept="image/*" />
-                                    {standardImage ? (
-                                        <div className="relative group w-full h-full p-1.5">
-                                            <img src={standardImage.preview} className="w-full h-full object-contain rounded-xl" alt="standard" />
-                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center">
-                                                <button onClick={(e) => { e.stopPropagation(); setStandardImage(null); }} className="p-1.5 bg-red-500 text-white rounded-full shadow-lg"><X className="w-3.5 h-3.5" /></button>
+                                    <input ref={standardInputRef} type="file" multiple className="hidden" onChange={(e) => e.target.files && handleStandardFiles(e.target.files)} accept="image/*" />
+                                    {standardImages.length > 0 ? (
+                                        <div className="w-full h-full p-1.5 flex flex-col gap-2">
+                                            <div className="grid grid-cols-3 gap-1.5">
+                                                {standardImages.map((img, idx) => (
+                                                    <div key={`${img.preview}-${idx}`} className="relative group aspect-square rounded-lg overflow-hidden border border-green-100 bg-white">
+                                                        <img src={img.preview} className="w-full h-full object-cover" alt={`standard-${idx + 1}`} />
+                                                        <span className="absolute left-1 top-1 px-1.5 py-0.5 rounded bg-black/50 text-white text-[8px] font-black">
+                                                            #{idx + 1}
+                                                        </span>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const nextImages = standardImages.filter((_, i) => i !== idx);
+                                                                setStandardImages(nextImages);
+                                                                if (nextImages.length > 0) runStructuralAnalysis(nextImages);
+                                                                else setAnalysisResult(null);
+                                                            }}
+                                                            className="absolute right-1 top-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        >
+                                                            <X className="w-3 h-3" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                {standardImages.length < STANDARD_IMAGE_LIMIT && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); standardInputRef.current?.click(); }}
+                                                        className="aspect-square rounded-lg border border-dashed border-green-200 bg-white/70 flex flex-col items-center justify-center text-green-600 text-[9px] font-bold"
+                                                    >
+                                                        <Upload className="w-4 h-4 mb-1" />
+                                                        添加
+                                                    </button>
+                                                )}
                                             </div>
+                                            <p className="text-[9px] text-pastel-muted text-center">已上传 {standardImages.length}/{STANDARD_IMAGE_LIMIT} 张标准参考图</p>
                                         </div>
                                     ) : (
                                         <div className="text-center p-4">
@@ -400,9 +716,23 @@ const ProductRepairTab: React.FC = () => {
                                     <input ref={targetInputRef} type="file" className="hidden" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0], 'target')} accept="image/*" />
                                     {targetImage ? (
                                         <div className="relative group w-full h-full p-1.5">
-                                            <img src={targetImage.preview} className="w-full h-full object-contain rounded-xl" alt="target" />
+                                            <img src={maskDataUrl || targetImage.preview} className="w-full h-full object-contain rounded-xl" alt="target" />
+                                            {maskDataUrl && (
+                                                <div className="absolute left-3 top-3 px-2 py-1 rounded-lg bg-red-500 text-white text-[9px] font-black shadow">
+                                                    已标记修复区域
+                                                </div>
+                                            )}
                                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center">
-                                                <button onClick={(e) => { e.stopPropagation(); setTargetImage(null); }} className="p-1.5 bg-red-500 text-white rounded-full shadow-lg"><X className="w-3.5 h-3.5" /></button>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); setIsMaskEditorOpen(true); }}
+                                                        className="px-3 py-1.5 bg-white text-pastel-text rounded-full shadow-lg text-[10px] font-bold flex items-center gap-1"
+                                                    >
+                                                        <Brush className="w-3 h-3" />
+                                                        标记区域
+                                                    </button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setTargetImage(null); setMaskDataUrl(null); setMaskOverlayDataUrl(null); setMaskRegionSummary(''); }} className="p-1.5 bg-red-500 text-white rounded-full shadow-lg"><X className="w-3.5 h-3.5" /></button>
+                                                </div>
                                             </div>
                                         </div>
                                     ) : (
@@ -414,6 +744,57 @@ const ProductRepairTab: React.FC = () => {
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+
+                        {/* Repair Targeting */}
+                        <div className="bg-white rounded-[1.5rem] border border-pastel-border p-4 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h3 className="font-bold text-pastel-text text-xs flex items-center gap-2">
+                                        <Brush className="w-4 h-4 text-orange-500" />
+                                        修复定位与问题类型
+                                    </h3>
+                                    <p className="text-[9px] text-pastel-muted mt-1">手动标记区域时，AI 会优先只修红色涂抹区域。</p>
+                                </div>
+                                <div className="flex rounded-full bg-pastel-bg p-1 border border-pastel-border">
+                                    <button
+                                        onClick={() => setRepairScopeMode('auto')}
+                                        className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${repairScopeMode === 'auto' ? 'bg-white text-pastel-text shadow-sm' : 'text-pastel-muted'}`}
+                                    >
+                                        自动识别
+                                    </button>
+                                    <button
+                                        onClick={() => targetImage && setIsMaskEditorOpen(true)}
+                                        disabled={!targetImage}
+                                        className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all disabled:opacity-40 ${repairScopeMode === 'manual' ? 'bg-orange-500 text-white shadow-sm' : 'text-pastel-muted'}`}
+                                    >
+                                        手动涂抹
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {REPAIR_TYPES.map(type => {
+                                    const selected = selectedRepairTypes.includes(type.id);
+                                    return (
+                                        <button
+                                            key={type.id}
+                                            onClick={() => {
+                                                setSelectedRepairTypes(prev =>
+                                                    selected ? prev.filter(id => id !== type.id) : [...prev, type.id]
+                                                );
+                                            }}
+                                            className={`px-3 py-2 rounded-xl border text-[10px] font-bold transition-all ${
+                                                selected
+                                                    ? 'bg-orange-50 border-orange-200 text-orange-600'
+                                                    : 'bg-gray-50 border-gray-100 text-pastel-muted hover:border-orange-100'
+                                            }`}
+                                        >
+                                            {type.label}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 
@@ -759,6 +1140,88 @@ const ProductRepairTab: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Mask Editor Modal */}
+            {isMaskEditorOpen && targetImage && (
+                <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-6 backdrop-blur-xl" onClick={() => setIsMaskEditorOpen(false)}>
+                    <div className="w-full max-w-5xl bg-white rounded-[2rem] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b border-pastel-border flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-black text-pastel-text flex items-center gap-2">
+                                    <Brush className="w-5 h-5 text-orange-500" />
+                                    手动标记修复区域
+                                </h3>
+                                <p className="text-xs text-pastel-muted mt-1">在待修复图上涂红色区域。生成时仅允许 AI 修复红色标记位置。</p>
+                            </div>
+                            <button onClick={() => setIsMaskEditorOpen(false)} className="p-2 rounded-full hover:bg-pastel-bg text-pastel-muted">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-5 grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-5">
+                            <div className="relative rounded-2xl overflow-hidden bg-black/5 border border-pastel-border aspect-square w-full max-h-[70vh] max-w-[70vh] mx-auto">
+                                <img src={targetImage.preview} className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none" alt="mask-target" />
+                                <canvas
+                                    ref={maskCanvasRef}
+                                    width={1024}
+                                    height={1024}
+                                    className="absolute inset-0 w-full h-full cursor-none touch-none"
+                                    onPointerDown={startMaskDrawing}
+                                    onPointerMove={moveMaskDrawing}
+                                    onPointerUp={endMaskDrawing}
+                                    onPointerEnter={updateBrushPreview}
+                                    onPointerLeave={hideBrushPreview}
+                                />
+                                {brushPreview.visible && (
+                                    <div
+                                        className="pointer-events-none absolute rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(255,96,32,0.95),0_0_12px_rgba(255,96,32,0.45)] bg-orange-500/10"
+                                        style={{
+                                            width: brushSize * 2,
+                                            height: brushSize * 2,
+                                            left: brushPreview.x - brushSize,
+                                            top: brushPreview.y - brushSize
+                                        }}
+                                    />
+                                )}
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="p-4 rounded-2xl bg-orange-50 border border-orange-100">
+                                    <p className="text-xs font-black text-orange-600 mb-2">涂抹原则</p>
+                                    <p className="text-[11px] text-orange-700 leading-relaxed">只涂需要修复的商品区域，不要涂背景、手、人物或不需要变化的地方。</p>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-pastel-muted mb-2 block">画笔大小：{brushSize}px</label>
+                                    <input
+                                        type="range"
+                                        min={8}
+                                        max={64}
+                                        value={brushSize}
+                                        onChange={(e) => setBrushSize(Number(e.target.value))}
+                                        className="w-full accent-orange-500"
+                                    />
+                                </div>
+
+                                <button
+                                    onClick={clearMask}
+                                    className="w-full py-3 rounded-xl border border-pastel-border text-pastel-text hover:bg-pastel-bg flex items-center justify-center gap-2 text-sm font-bold"
+                                >
+                                    <Eraser className="w-4 h-4" />
+                                    清除涂抹
+                                </button>
+                                <button
+                                    onClick={saveMask}
+                                    className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 text-white flex items-center justify-center gap-2 text-sm font-black shadow-lg"
+                                >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    保存修复区域
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Preview Modal */}
             {selectedPreview && (
