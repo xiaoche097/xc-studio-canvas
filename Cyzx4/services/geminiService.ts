@@ -704,6 +704,99 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
   return `${w}x${h}`;
 };
 
+const joinApiUrl = (baseUrl: string, path: string): string => {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+};
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const withDataUrlPrefix = (image: { base64: string; mimeType?: string }): string => {
+  const base64 = image.base64 || '';
+  if (base64.startsWith('data:')) return base64;
+  return `data:${image.mimeType || 'image/png'};base64,${base64}`;
+};
+
+const buildMidjourneyPrompt = (prompt: string, aspectRatio: string): string => {
+  const cleanPrompt = prompt.trim();
+  if (!aspectRatio || /(?:^|\s)--ar\s+\d+:\d+(?:\s|$)/i.test(cleanPrompt)) {
+    return cleanPrompt;
+  }
+  return `${cleanPrompt} --ar ${aspectRatio}`;
+};
+
+const generateMidjourneyImagine = async (
+  config: ReturnType<typeof getApiConfig>,
+  images: { base64: string; mimeType: string }[],
+  prompt: string,
+  aspectRatio: AspectRatio
+): Promise<string[]> => {
+  if (!config.baseUrl) {
+    throw new Error('Midjourney 需要使用支持 /mj 接口的中转 API，请在设置中启用 Plato 或 Yunwu baseUrl。');
+  }
+
+  const submitResponse = await executeWithTimeout(
+    fetch(joinApiUrl(config.baseUrl, '/mj/submit/imagine'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        botType: 'MID_JOURNEY',
+        prompt: buildMidjourneyPrompt(prompt, aspectRatio),
+        base64Array: images.map(withDataUrlPrefix),
+        notifyHook: '',
+        state: '',
+      }),
+    }),
+    { timeoutMs: 120000, timeoutMessage: 'Midjourney imagine submit timed out.' }
+  );
+
+  if (!submitResponse.ok) {
+    const errText = await submitResponse.text();
+    throw new Error(`Midjourney submit failed: ${submitResponse.status} ${errText}`);
+  }
+
+  const submitData = await submitResponse.json();
+  const taskId = submitData?.result || submitData?.id;
+  if (!taskId || submitData?.code === 0) {
+    throw new Error(`Midjourney submit did not return a task id: ${JSON.stringify(submitData)}`);
+  }
+
+  const maxPolls = 100;
+  for (let i = 0; i < maxPolls; i++) {
+    await wait(i < 2 ? 1500 : 3000);
+
+    const taskResponse = await executeWithTimeout(
+      fetch(joinApiUrl(config.baseUrl, `/mj/task/${taskId}/fetch`), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+        },
+      }),
+      { timeoutMs: 30000, timeoutMessage: 'Midjourney task polling timed out.' }
+    );
+
+    if (!taskResponse.ok) {
+      const errText = await taskResponse.text();
+      throw new Error(`Midjourney task fetch failed: ${taskResponse.status} ${errText}`);
+    }
+
+    const taskData = await taskResponse.json();
+    const status = String(taskData?.status || '').toUpperCase();
+
+    if (status === 'SUCCESS' && taskData?.imageUrl) {
+      return [taskData.imageUrl];
+    }
+
+    if (['FAILURE', 'FAILED', 'FAIL'].includes(status)) {
+      throw new Error(`Midjourney generation failed: ${taskData?.failReason || taskData?.description || 'unknown error'}`);
+    }
+  }
+
+  throw new Error('Midjourney generation timed out before returning an image.');
+};
+
 /**
  * 2.1.1 Image-to-Image Generation (Multi-Image Support)
  * Supports dynamic model selection and automatic API key rotation on failure.
@@ -758,6 +851,7 @@ export const generateImageToImage = async (
 
   const isGptModel = targetModel.toLowerCase().includes('gpt');
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all';
+  const isMidjourneyModel = targetModel === 'mj_imagine';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -799,6 +893,16 @@ export const generateImageToImage = async (
     });
 
     try {
+      if (isMidjourneyModel) {
+        console.warn(`[Midjourney Imagine] Submit. Ratio: ${aspectRatio}, References: ${images.length}`);
+        return await generateMidjourneyImagine(
+          config,
+          images,
+          prompt.trim(),
+          aspectRatio as AspectRatio
+        );
+      }
+
       // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
       if (isGptImage2) {
         const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
@@ -1461,6 +1565,12 @@ export const generateInpainting = async (
     refImages?: { base64: string; mimeType: string }[];
     fabricRefImages?: { base64: string; mimeType: string }[];
     colorRefImages?: { base64: string; mimeType: string }[];
+    structureRefImages?: { base64: string; mimeType: string }[];
+    cropPaste?: {
+      padding: number;
+      blend: number;
+      expand: number;
+    };
   } = {}
 ) => {
   const retryLimit = 3;
@@ -1604,10 +1714,23 @@ export const generateInpainting = async (
         });
       }
 
+      // 2.8 Structure reference images for crop-and-paste-back replacement.
+      if (options.structureRefImages && options.structureRefImages.length > 0) {
+        options.structureRefImages.forEach((img) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType,
+              data: img.base64,
+            },
+          });
+        });
+      }
+
       // 3. 构造局部替换提示词
       const hasRefImages = options.refImages && options.refImages.length > 0;
       const hasFabricRefImages = options.fabricRefImages && options.fabricRefImages.length > 0;
       const hasColorRefImages = options.colorRefImages && options.colorRefImages.length > 0;
+      const hasStructureRefImages = options.structureRefImages && options.structureRefImages.length > 0;
 
       const refImageInstruction = hasRefImages
         ? `\n      5. Additional reference images (Image 3+) are provided as VISUAL GUIDES for the replacement content (style / what to replace into). The generated content in the white mask area should look like or be inspired by these images.`
@@ -1621,6 +1744,10 @@ export const generateInpainting = async (
         ? `\n      7. Color reference images are provided. These are STRICT guides for the target garment color palette (hue/saturation/value). When generating clothing in the WHITE mask area, keep the garment color consistent with these references and avoid unwanted color shifts.`
         : '';
 
+      const cropPasteInstruction = hasStructureRefImages
+        ? `\n      8. CROP-AND-PASTE-BACK STRUCTURE LOCK: Structure reference images are provided as the exact blueprint for the replacement inside the WHITE mask. Treat the WHITE mask as a crop region, regenerate only that crop, then paste it back into Image 1. The replacement must match the structure reference's silhouette, garment panel layout, neckline, sleeves, hems, seams, folds, pattern placement, and proportions as closely as possible. Do not invent a different garment shape. Use padding=${options.cropPaste?.padding ?? 5}, blend=${options.cropPaste?.blend ?? 1}, expand=${options.cropPaste?.expand ?? 0.3} as conceptual paste-back controls: enough padding to include complete edges, soft blending at the boundary, and slight crop expansion to avoid seams while preserving the original outside pixels.`
+        : '';
+
       const systemPrompt = `
       **ROLE**: Professional Image Inpainting Specialist.
       **TASK**: Partial Image Replacement (Inpainting).
@@ -1630,7 +1757,7 @@ export const generateInpainting = async (
       1. You MUST ONLY modify the areas marked as WHITE in the mask image.
       2. The BLACK areas in the mask MUST remain PIXEL-PERFECT IDENTICAL to the source image. No changes whatsoever.
       3. The newly generated content in the white areas must seamlessly blend with the surrounding preserved areas in terms of lighting, perspective, color temperature, and style.
-      4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}
+      4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}${cropPasteInstruction}
 
       **USER DESCRIPTION**: ${forcedPrompt}
 
