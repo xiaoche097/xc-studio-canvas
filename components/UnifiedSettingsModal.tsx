@@ -35,6 +35,7 @@ interface UnifiedSettingsModalProps {
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const DEFAULT_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
 const AVAILABLE_MODELS = [
@@ -102,12 +103,20 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isPlatoKeyVisible, setIsPlatoKeyVisible] = useState(false);
   const [platoEnabled, setPlatoEnabled] = useState(false);
 
+  const [jijingApiKey, setJijingApiKey] = useState('');
+  const [jijingBaseUrl, setJijingBaseUrl] = useState(DEFAULT_JIJING_BASE_URL);
+  const [isJijingKeyVisible, setIsJijingKeyVisible] = useState(false);
+  const [jijingEnabled, setJijingEnabled] = useState(false);
+
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
   // Individual section test statuses
   const [platoTestStatus, setPlatoTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [platoTestMessage, setPlatoTestMessage] = useState('');
+
+  const [jijingTestStatus, setJijingTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [jijingTestMessage, setJijingTestMessage] = useState('');
   
   const [yunwuTestStatus, setYunwuTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [yunwuTestMessage, setYunwuTestMessage] = useState('');
@@ -123,9 +132,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const nativeAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const yunwuAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const platoAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jijingAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAutoNativeKeyRef = useRef('');
   const lastAutoYunwuKeyRef = useRef('');
   const lastAutoPlatoKeyRef = useRef('');
+  const lastAutoJijingKeyRef = useRef('');
 
   const formatBytes = (bytes?: number) => {
     if (!bytes || bytes <= 0) return '0 MB';
@@ -181,6 +192,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     lastAutoPlatoKeyRef.current = savedPlatoKey || '';
     if (savedPlatoUrl) setPlatoBaseUrl(savedPlatoUrl);
     setPlatoEnabled(savedPlatoEnabled === 'true');
+
+    const savedJijingKey = localStorage.getItem('jijing_api_key');
+    const savedJijingUrl = localStorage.getItem('jijing_base_url');
+    const savedJijingEnabled = localStorage.getItem('jijing_enabled');
+    if (savedJijingKey) setJijingApiKey(savedJijingKey);
+    lastAutoJijingKeyRef.current = savedJijingKey || '';
+    if (savedJijingUrl) setJijingBaseUrl(savedJijingUrl);
+    setJijingEnabled(savedJijingEnabled === 'true');
     setSettingsLoaded(true);
   }, [isOpen]);
 
@@ -243,6 +262,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('plato_base_url', platoBaseUrl.trim() || 'https://api.bltcy.ai');
     localStorage.setItem('plato_enabled', String(platoEnabled));
 
+    localStorage.setItem('jijing_api_key', jijingApiKey.trim());
+    localStorage.setItem('jijing_base_url', jijingBaseUrl.trim() || DEFAULT_JIJING_BASE_URL);
+    localStorage.setItem('jijing_enabled', String(jijingEnabled));
+
     window.dispatchEvent(new Event('agent-settings-updated'));
     window.dispatchEvent(new Event('api-settings-updated'));
     
@@ -271,6 +294,25 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     } catch (e: any) {
       setPlatoTestStatus('error');
       setPlatoTestMessage(`❌ ${e.message}`);
+    }
+  };
+
+  const handleTestJijing = async () => {
+    const key = jijingApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
+    if (!key) {
+      setJijingTestStatus('error');
+      setJijingTestMessage('请输入 API Key');
+      return;
+    }
+    setJijingTestStatus('testing');
+    setJijingTestMessage('正在测试...');
+    try {
+      const res = await sendTestRequest(jijingBaseUrl || DEFAULT_JIJING_BASE_URL, key, 'gemini-3.1-flash-lite-preview', 'Say OK');
+      setJijingTestStatus(res.text ? 'success' : 'error');
+      setJijingTestMessage(res.text ? '✅ 连接成功' : '❌ 无响应');
+    } catch (e: any) {
+      setJijingTestStatus('error');
+      setJijingTestMessage(`❌ ${e.message}`);
     }
   };
 
@@ -375,6 +417,27 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       if (platoAutoTestTimerRef.current) clearTimeout(platoAutoTestTimerRef.current);
     };
   }, [platoApiKey, platoEnabled, isOpen, settingsLoaded]);
+
+  useEffect(() => {
+    if (!isOpen || !settingsLoaded || !jijingEnabled) return;
+    const key = jijingApiKey.trim();
+    if (key === lastAutoJijingKeyRef.current) return;
+    if (jijingAutoTestTimerRef.current) clearTimeout(jijingAutoTestTimerRef.current);
+    lastAutoJijingKeyRef.current = key;
+    if (!key) {
+      setJijingTestStatus('idle');
+      setJijingTestMessage('');
+      return;
+    }
+    setJijingTestStatus('testing');
+    setJijingTestMessage('输入已更新，正在自动测试...');
+    jijingAutoTestTimerRef.current = setTimeout(() => {
+      void handleTestJijing();
+    }, 900);
+    return () => {
+      if (jijingAutoTestTimerRef.current) clearTimeout(jijingAutoTestTimerRef.current);
+    };
+  }, [jijingApiKey, jijingEnabled, isOpen, settingsLoaded]);
 
   const activeTitle = activeTab === 'model' ? '模型配置' : activeTab === 'agent' ? '智能体设定' : '缓存磁盘';
   const activeSubtitle = activeTab === 'model'
@@ -555,6 +618,83 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                              className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-gray-500 hover:text-rose-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
                            >
                              {platoTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
+                           </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Jijing Config */}
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${jijingEnabled ? 'bg-white dark:bg-white/5 border-orange-200 dark:border-orange-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-3 rounded-2xl ${jijingEnabled ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'}`}>
+                          <Sparkles className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className={`text-lg font-black ${jijingEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>极境 API 中转站</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">Gemini 兼容中转服务</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setJijingEnabled(!jijingEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${jijingEnabled ? 'bg-orange-500' : 'bg-gray-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${jijingEnabled ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {jijingEnabled && (
+                      <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            <button
+                              onClick={() => setJijingBaseUrl(DEFAULT_JIJING_BASE_URL)}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${jijingBaseUrl === DEFAULT_JIJING_BASE_URL ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                            >
+                              主站节点
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={jijingBaseUrl}
+                            onChange={(e) => setJijingBaseUrl(e.target.value)}
+                            placeholder={DEFAULT_JIJING_BASE_URL}
+                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
+                          <div className="relative">
+                            <textarea
+                              value={jijingApiKey}
+                              onChange={(e) => setJijingApiKey(e.target.value)}
+                              rows={4}
+                              style={{ WebkitTextSecurity: isJijingKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-orange-500/20 outline-none font-mono resize-none"
+                              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                            />
+                            <button onClick={() => setIsJijingKeyVisible(!isJijingKeyVisible)} className="absolute right-3 top-3 text-gray-400">
+                              {isJijingKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-gray-500">支持多 Key 轮询，请使用逗号或换行分隔。</p>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 mt-2">
+                           <div className="flex-1">
+                             {jijingTestStatus !== 'idle' && (
+                                <span className={`text-xs font-bold ${jijingTestStatus === 'success' ? 'text-green-500' : jijingTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                 {jijingTestStatus === 'success' ? '连接成功' : jijingTestStatus === 'testing' ? '正在自动测试...' : jijingTestMessage}
+                               </span>
+                             )}
+                           </div>
+                           <button
+                             onClick={handleTestJijing}
+                             disabled={jijingTestStatus === 'testing'}
+                             className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-orange-50 dark:hover:bg-orange-500/10 text-gray-500 hover:text-orange-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
+                           >
+                             {jijingTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
                         </div>
                       </div>
