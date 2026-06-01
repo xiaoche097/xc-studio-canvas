@@ -3,6 +3,7 @@ import { Download, Loader2, Upload, X, Camera, Zap, CheckCircle2, Image as Image
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 interface ImageItem {
   id: string;
@@ -166,6 +167,23 @@ const DollAngleReferenceTab: React.FC = () => {
 
       if (successfulImages.length > 0) {
         setResultImages(successfulImages);
+        await saveGeneratedProject({
+          type: 'RETOUCHING',
+          generated: successfulImages,
+          original: [
+            ...productImages.map(img => `data:${img.mimeType};base64,${img.base64}`),
+            ...angleImages.map(img => `data:${img.mimeType};base64,${img.base64}`)
+          ],
+          prompt: `[DOLL POSE & VIEWPOINT TRANSFER]\n${detailDescription || ''}`,
+          params: {
+            source: 'DollFactory/DollAngleReferenceTab',
+            model: selectedModel,
+            aspectRatio: outputAspectRatio,
+            resolution,
+            productCount: productImages.length,
+            angleCount: angleImages.length
+          }
+        });
       } else {
         throw new Error('所有并行生成任务均失败，未能返回图片');
       }

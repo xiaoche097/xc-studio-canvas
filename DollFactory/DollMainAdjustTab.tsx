@@ -3,6 +3,7 @@ import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 // --- Multi-Angle Ecommerce Prompts ---
 const ANGLE_TEMPLATES = {
@@ -313,6 +314,23 @@ const DollMainAdjustTab: React.FC = () => {
       if (flattenedResult.length > 0) {
         setResultImages(flattenedResult);
         setSelectedResultIndex(0);
+        await saveGeneratedProject({
+          type: 'RETOUCHING',
+          generated: flattenedResult,
+          original: [
+            `data:${compressedImage.mime};base64,${compressedImage.base64}`,
+            ...refInputImages.map(img => `data:${img.mimeType};base64,${img.base64}`)
+          ],
+          prompt,
+          params: {
+            source: 'DollFactory/DollMainAdjustTab',
+            model: selectedModel,
+            aspectRatio: outputAspectRatio,
+            resolution,
+            variantCount,
+            selectedAngle
+          }
+        });
         setStatusMessage(selectedAngle ? '视角转换方案已生成！请从变体中挑选最准确的一张。' : '精修图已生成！');
       } else {
         throw new Error('未返回任何图片');

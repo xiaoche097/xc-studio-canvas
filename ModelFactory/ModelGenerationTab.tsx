@@ -13,6 +13,7 @@ import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../Cyzx4/services/promptUtils';
 import { extractEdges } from '../Cyzx4/utils/imageProcessor';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 interface UploadedImage {
     file: File;
@@ -283,6 +284,26 @@ const ModelGenerationTab: React.FC = () => {
                 progress: 100,
                 resultImage: results[0]
             } : t));
+            await saveGeneratedProject({
+                type: 'MODEL',
+                generated: [results[0]],
+                original: [
+                    `data:${ref.mime};base64,${ref.base64}`,
+                    ...primaryModelImages.map(img => `data:${img.mime};base64,${img.base64}`)
+                ],
+                prompt,
+                params: {
+                    source: 'ModelFactory/ModelGenerationTab',
+                    model: selectedModel,
+                    aspectRatio,
+                    resolution,
+                    taskIndex: taskIdx,
+                    strictFaceLock,
+                    keepBackground,
+                    allowProps,
+                    lockCropScale
+                }
+            });
 
         } catch (err) {
             clearInterval(interval);

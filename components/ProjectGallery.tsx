@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { storageService, Project, ProjectSummary } from '../services/storageService';
 import { ProjectCard } from './ProjectCard';
-import { Loader2, Filter, Inbox, Search, CheckSquare, Trash2, X, Square } from 'lucide-react';
+import { Loader2, Inbox, Search, CheckSquare, Trash2, X, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ProjectGalleryProps {
@@ -11,10 +11,13 @@ interface ProjectGalleryProps {
 
 export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject, className = "" }) => {
     const [projects, setProjects] = useState<ProjectSummary[]>([]);
-    const [filteredProjects, setFilteredProjects] = useState<ProjectSummary[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const [nextOffset, setNextOffset] = useState(0);
     const [currentFilter, setCurrentFilter] = useState<string>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
+    const scrollRef = useRef<HTMLDivElement | null>(null);
 
     // Selection Mode State
     const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -32,52 +35,55 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
         { id: 'ANALYSIS', label: '分析专家' },
     ];
 
-    const loadProjects = async () => {
-        setLoading(true);
+    const loadProjects = useCallback(async (reset = true, offsetOverride?: number) => {
+        if (reset) {
+            setLoading(true);
+        } else {
+            setLoadingMore(true);
+        }
         try {
-            const allProjects = await storageService.getProjectSummaries();
-            setProjects(allProjects);
-            filterProjects(allProjects, currentFilter, searchQuery);
+            const page = await storageService.getProjectSummaryPage({
+                offset: reset ? 0 : (offsetOverride ?? nextOffset),
+                type: currentFilter as Project['type'] | 'ALL',
+                query: searchQuery,
+            });
+            setProjects(prev => reset ? page.projects : [...prev, ...page.projects]);
+            setHasMore(page.hasMore);
+            setNextOffset(page.nextOffset);
         } catch (error) {
             console.error("Failed to load projects:", error);
         } finally {
-            setLoading(false);
+            if (reset) {
+                setLoading(false);
+            } else {
+                setLoadingMore(false);
+            }
         }
-    };
+    }, [currentFilter, nextOffset, searchQuery]);
 
     useEffect(() => {
-        loadProjects();
-        window.addEventListener('project-cache-updated', loadProjects);
-        return () => window.removeEventListener('project-cache-updated', loadProjects);
-    }, []);
+        const handleRefresh = () => loadProjects(true);
+        window.addEventListener('project-cache-updated', handleRefresh);
+        return () => window.removeEventListener('project-cache-updated', handleRefresh);
+    }, [loadProjects]);
 
     useEffect(() => {
-        filterProjects(projects, currentFilter, searchQuery);
-    }, [currentFilter, searchQuery, projects]);
+        setProjects([]);
+        setNextOffset(0);
+        loadProjects(true, 0);
+    }, [currentFilter, searchQuery]);
 
     // Clear selection when filter changes
     useEffect(() => {
         setSelectedIds(new Set());
     }, [currentFilter, searchQuery]);
 
-    const filterProjects = (allProjects: ProjectSummary[], filterType: string, query: string) => {
-        let result = allProjects;
-
-        // Type Filter
-        if (filterType !== 'ALL') {
-            result = result.filter(p => p.type === filterType);
+    const handleScroll = () => {
+        const el = scrollRef.current;
+        if (!el || loadingMore || loading || !hasMore) return;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 600) {
+            loadProjects(false);
         }
-
-        // Search Query (matches prompt or ID)
-        if (query) {
-            const lowerQuery = query.toLowerCase();
-            result = result.filter(p =>
-                (p.metadata.prompt && p.metadata.prompt.toLowerCase().includes(lowerQuery)) ||
-                (p.metadata.params && JSON.stringify(p.metadata.params).toLowerCase().includes(lowerQuery))
-            );
-        }
-
-        setFilteredProjects(result);
     };
 
     const handleDelete = async (e: React.MouseEvent, id: string) => {
@@ -86,7 +92,6 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
             await storageService.deleteProject(id);
             const newProjects = projects.filter(p => p.id !== id);
             setProjects(newProjects);
-            filterProjects(newProjects, currentFilter, searchQuery);
         }
     };
 
@@ -107,10 +112,10 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
     };
 
     const handleSelectAll = () => {
-        if (selectedIds.size === filteredProjects.length && filteredProjects.length > 0) {
+        if (selectedIds.size === projects.length && projects.length > 0) {
             setSelectedIds(new Set()); // Deselect all
         } else {
-            const newSet = new Set(filteredProjects.map(p => p.id));
+            const newSet = new Set(projects.map(p => p.id));
             setSelectedIds(newSet);
         }
     };
@@ -170,7 +175,7 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
                             onClick={handleSelectAll}
                             className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-brand-orange px-3 py-1.5 rounded hover:bg-white/50"
                         >
-                            {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? (
+                            {selectedIds.size === projects.length && projects.length > 0 ? (
                                 <><CheckSquare className="w-4 h-4" /> 取消全选</>
                             ) : (
                                 <><Square className="w-4 h-4" /> 全选本页</>
@@ -236,11 +241,12 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
             </div>
 
             {/* Gallery Grid */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar">
-                {filteredProjects.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                        <AnimatePresence>
-                            {filteredProjects.map((project) => (
+            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar">
+                {projects.length > 0 ? (
+                    <>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                            <AnimatePresence>
+                                {projects.map((project) => (
                                 <motion.div
                                     key={project.id}
                                     layout
@@ -261,9 +267,21 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
                                         onToggleSelect={toggleSelect}
                                     />
                                 </motion.div>
-                            ))}
-                        </AnimatePresence>
-                    </div>
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                        {hasMore && (
+                            <div className="flex justify-center py-6">
+                                <button
+                                    onClick={() => loadProjects(false)}
+                                    disabled={loadingMore}
+                                    className="px-4 py-2 rounded-full text-sm font-medium bg-white dark:bg-white/5 text-gray-500 hover:text-brand-orange hover:bg-gray-100 dark:hover:bg-white/10 border border-gray-100 dark:border-white/10 transition-colors disabled:opacity-60"
+                                >
+                                    {loadingMore ? '加载中...' : '加载更多'}
+                                </button>
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                         <div className="w-16 h-16 bg-gray-100 dark:bg-white/5 rounded-full flex items-center justify-center mb-4">

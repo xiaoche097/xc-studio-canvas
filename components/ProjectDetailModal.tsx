@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Project } from '../services/storageService';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, Tag, FileText, Download, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Calendar, Tag, FileText, Download, Trash2, Copy, Check } from 'lucide-react';
 
 interface ProjectDetailModalProps {
     project: Project | null;
@@ -10,6 +10,8 @@ interface ProjectDetailModalProps {
 }
 
 export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({ project, onClose, onDelete }) => {
+    const [copiedPrompt, setCopiedPrompt] = useState(false);
+
     if (!project) return null;
 
     const formatDate = (timestamp: number) => {
@@ -23,6 +25,17 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({ project,
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    };
+
+    const handleCopyPrompt = async () => {
+        if (!project.metadata.prompt) return;
+        try {
+            await navigator.clipboard.writeText(project.metadata.prompt);
+            setCopiedPrompt(true);
+            window.setTimeout(() => setCopiedPrompt(false), 1500);
+        } catch (error) {
+            console.error('Failed to copy prompt:', error);
+        }
     };
 
     return (
@@ -132,10 +145,20 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({ project,
                             {/* Prompt/Params */}
                             {project.metadata.prompt && (
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                                        <FileText className="w-3 h-3" /> 提示词 / 描述
-                                    </label>
-                                    <div className="p-3 bg-gray-50 dark:bg-black/20 rounded-lg text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-mono break-words">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                                            <FileText className="w-3 h-3" /> 提示词 / 描述
+                                        </label>
+                                        <button
+                                            onClick={handleCopyPrompt}
+                                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-gray-500 hover:text-brand-orange hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+                                            title="复制提示词"
+                                        >
+                                            {copiedPrompt ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                            {copiedPrompt ? '已复制' : '复制'}
+                                        </button>
+                                    </div>
+                                    <div className="max-h-40 md:max-h-56 overflow-y-auto custom-scrollbar p-3 bg-gray-50 dark:bg-black/20 rounded-lg text-xs text-gray-600 dark:text-gray-400 leading-relaxed font-mono break-words whitespace-pre-wrap">
                                         {project.metadata.prompt}
                                     </div>
                                 </div>

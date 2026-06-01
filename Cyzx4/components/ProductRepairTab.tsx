@@ -9,6 +9,7 @@ import {
 import { generateImageToImage, compressImage } from '../services/geminiService';
 import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
+import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 interface UploadedImage {
     file: File;
@@ -559,6 +560,23 @@ const ProductRepairTab: React.FC = () => {
             });
 
             setGeneratedImages(results);
+            await saveGeneratedProject({
+                type: 'RETOUCHING',
+                generated: results,
+                original: [
+                    ...(targetImage ? [`data:${targetImage.mime};base64,${targetImage.base64}`] : []),
+                    ...standardImages.map(img => `data:${img.mime};base64,${img.base64}`)
+                ],
+                prompt,
+                params: {
+                    source: 'Cyzx4/components/ProductRepairTab',
+                    model: selectedModel,
+                    aspectRatio: selectedRatio,
+                    resolution: selectedResolution,
+                    repairTypes: selectedRepairTypes,
+                    scope: repairScopeMode
+                }
+            });
         } catch (err) {
             setError(getErrorMessage(err));
         } finally {

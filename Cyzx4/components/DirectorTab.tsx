@@ -3,6 +3,7 @@ import { analyzeProductImage, generateMarketingImage, blobToBase64, inpaintImage
 import { AspectRatio, ImageResolution } from '../types';
 import { Camera, Image as ImageIcon, Loader2, Sparkles, Wand2, Check, AlignLeft, AlertCircle, User, ToggleLeft, ToggleRight, X, Clock, Trash2, RotateCcw, Brush, Eraser, Download, MousePointer2, Ruler, Palette, Key, Cpu } from 'lucide-react';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 interface DirectorTabProps {
   onImageGenerated: (url: string) => void;
@@ -351,6 +352,22 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
         setActiveImage(images[0]);
         onImageGenerated(images[0]);
         addToHistory(images[0], prompt);
+        await saveGeneratedProject({
+          type: 'MARKETING',
+          generated: [images[0]],
+          original: [
+            ...(referenceImage ? [`data:${referenceImage.mimeType};base64,${referenceImage.base64}`] : []),
+            ...(modelReferenceImage ? [`data:${modelReferenceImage.mimeType};base64,${modelReferenceImage.base64}`] : [])
+          ],
+          prompt,
+          params: {
+            source: 'Cyzx4/components/DirectorTab',
+            model: selectedModel,
+            aspectRatio,
+            resolution,
+            fixedModel: isFixModel
+          }
+        });
       }
     } catch (error: any) {
       const isPermissionError = error.status === 403 || (error.message && error.message.includes("permission"));
