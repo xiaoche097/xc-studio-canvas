@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { 
     Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
     Layout, Sun, Image as ImageIcon, CheckCircle2, 
@@ -17,6 +17,9 @@ import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 import { extractEdges } from '../utils/imageProcessor';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
+import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
+import { MENS_KNIT_POSES } from '../constants/mensKnitPosePresets';
+import { MENS_TEE_POSES } from '../constants/mensTeePosePresets';
 
 interface UploadedImage {
     file: File;
@@ -47,8 +50,10 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee';
+
 const PERSONA_PRESETS = [
-    '美国都市女性', '美国职场女性', '美国瑜伽/健身女性', '美国居家主妇', 
+    '美国都市女性', '美国职场女性', '美国瑜伽/健身女性', '美国居家主妇',
     '美国都市男性', '美国运动型男性', '美国户外冒险男性',
     '美国年轻情侣', '美国郊区家庭', '美国校园学生', '无模特（纯产品）'
 ];
@@ -74,21 +79,21 @@ const ACTION_TAGS = ['自然站姿', '街拍走路', '坐姿休闲', '侧身回�
 const SCENE_TAGS = ['纯白棚拍', '城市街头', '咖啡店', '海边度假', '居家客厅', '现代简约', '复古花园'];
 
 const PLATFORM_STYLES = [
-    { id: 'amazon', label: 'Amazon', icon: '🅰️', desc: '纯白背景 / 极简', prompt: 'Amazon professional main image, pure white background (#FFFFFF), high clarity, centered composition, clean edges, professional studio photography.' },
-    { id: 'shein', label: 'SHEIN', icon: '👗', desc: '潮流街拍 / 灵动', prompt: 'SHEIN trendy lifestyle photography, bright natural lighting, youthful vibe, fashionable outdoor or minimalist indoor setting, high-end editorial.' },
-    { id: 'temu', label: 'Temu', icon: '🧡', desc: '高饱和 / 抓眼', prompt: 'Temu commercial style, high contrast, vibrant colors, sharp focus, attention-grabbing composition, clean modern commercial setting.' },
-    { id: 'tmall', label: '天猫淘宝', icon: '🐈', desc: '高级感 / 质感', prompt: 'Tmall/Taobao premium luxury photography, sophisticated soft lighting, elegant composition, rich textures, high-end commercial studio aesthetic.' },
-    { id: 'shopify', label: '独立站', icon: '🛒', desc: '品牌感 / 极简', prompt: 'Minimalist brand photography for independent stores, artistic lighting, soft shadows, clean aesthetic, high-end lifestyle atmosphere.' }
+    { id: 'amazon', label: 'Amazon', icon: '🅰️', desc: '纯白背景', prompt: 'Amazon professional main image, pure white background (#FFFFFF), high clarity, centered composition, clean edges, professional studio photography.' },
+    { id: 'shein', label: 'SHEIN', icon: '👗', desc: '潮流街拍', prompt: 'SHEIN trendy lifestyle photography, bright natural lighting, youthful vibe, fashionable outdoor or minimalist indoor setting, high-end editorial.' },
+    { id: 'temu', label: 'Temu', icon: '🧡', desc: '高饱和', prompt: 'Temu commercial style, high contrast, vibrant colors, sharp focus, attention-grabbing composition, clean modern commercial setting.' },
+    { id: 'tmall', label: '天猫淘宝', icon: '🏬', desc: '高级质感', prompt: 'Tmall/Taobao premium luxury photography, sophisticated soft lighting, elegant composition, rich textures, high-end commercial studio aesthetic.' },
+    { id: 'shopify', label: '独立站', icon: '🛒', desc: '品牌感', prompt: 'Minimalist brand photography for independent stores, artistic lighting, soft shadows, clean aesthetic, high-end lifestyle atmosphere.' }
 ];
 
 const COT_STEPS = [
-    { id: 1, label: "视觉语义解析", desc: "正在分析产品材质与剪裁特征...", icon: "🔍" },
-    { id: 2, label: "AI Agent 策略制定", desc: "正在根据产品卖点规划生成策略...", icon: "🧠" },
-    { id: 3, label: "构图与景别对齐", desc: "正在设置相机参数与景别...", icon: "📸" },
-    { id: 4, label: "模特动作复刻", desc: "正在同步参考图中的姿态特征...", icon: "👤" },
+    { id: 1, label: "视觉语义解析", desc: "正在分析产品材质与剪裁特征...", icon: "🔎" },
+    { id: 2, label: "AI Agent 策略制定", desc: "正在根据产品卖点规划生成策略...", icon: "🤖" },
+    { id: 3, label: "构图与景别对齐", desc: "正在设置相机参数与景别...", icon: "📷" },
+    { id: 4, label: "模特动作复刻", desc: "正在同步参考图中的姿态特征...", icon: "🧍" },
     { id: 5, label: "光影物理映射", desc: "正在计算环境光与织物反射...", icon: "💡" },
-    { id: 6, label: "高保真渲染", desc: "正在生成 8K 级超清纹理细节...", icon: "🖌️" },
-    { id: 7, label: "商业级调色", desc: "正在注入电商高转化色彩基因...", icon: "🌈" },
+    { id: 6, label: "高保真渲染", desc: "正在生成高清纹理细节...", icon: "🖼️" },
+    { id: 7, label: "商业级调色", desc: "正在注入电商高转化色彩基因...", icon: "🎨" },
 ];
 
 const HeroImageTab: React.FC = () => {
@@ -98,16 +103,16 @@ const HeroImageTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
-    const [isSafeMode, setIsSafeMode] = useState(false); // 动作安全模式
-    const [isPoseOnly, setIsPoseOnly] = useState(true); // 仅参考姿态 (默认开启，自动提取线稿以消除背景干扰)
-    const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 场景安全模式
-    const [isSafeModeModel, setIsSafeModeModel] = useState(false); // 模特安全模式
-    const [isFaceOnly, setIsFaceOnly] = useState(false); // 仅参考脸型
-    const [isSceneOnly, setIsSceneOnly] = useState(false); // 仅参考场景
-    const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 正在自动净化场景图
-    const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 正在自动净化产品素材图
-    const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 是否开启产品图AI去噪净化
-    const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 控制AI模特规则上传指南弹窗的显示
+    const [isSafeMode, setIsSafeMode] = useState(false); // 鍔ㄤ綔瀹夊叏妯″紡
+    const [isPoseOnly, setIsPoseOnly] = useState(true); // 浠呭弬鑰冨Э鎬?(榛樿寮€鍚紝鑷姩鎻愬彇绾跨浠ユ秷闄よ儗鏅共鎵?
+    const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 鍦烘櫙瀹夊叏妯″紡
+    const [isSafeModeModel, setIsSafeModeModel] = useState(false); // 妯＄壒瀹夊叏妯″紡
+    const [isFaceOnly, setIsFaceOnly] = useState(false); // 浠呭弬鑰冭劯鍨?
+    const [isSceneOnly, setIsSceneOnly] = useState(false); // 浠呭弬鑰冨満鏅?
+    const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 姝ｅ湪鑷姩鍑€鍖栧満鏅浘
+    const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 姝ｅ湪鑷姩鍑€鍖栦骇鍝佺礌鏉愬浘
+    const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 鏄惁寮€鍚骇鍝佸浘AI鍘诲櫔鍑€鍖?
+    const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 鎺у埗AI妯＄壒瑙勫垯涓婁紶鎸囧崡寮圭獥鐨勬樉绀?
     const [isAnalyzingModelIdentity, setIsAnalyzingModelIdentity] = useState(false);
     const [modelIdentityAnalysis, setModelIdentityAnalysis] = useState<ModelIdentityAnalysis | null>(null);
     
@@ -119,18 +124,12 @@ const HeroImageTab: React.FC = () => {
     // Image states
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
     const [actionReferences, setActionReferences] = useState<UploadedImage[]>([]);
+    const [autoPoseLibrary, setAutoPoseLibrary] = useState<AutoPoseLibrary>('none');
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
     const [accessoryReferences, setAccessoryReferences] = useState<UploadedImage[]>([]);
     const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
     const [measurements, setMeasurements] = useState({ bust: '', waist: '', hips: '' });
     const [userPrompt, setUserPrompt] = useState('');
-    
-    // 自动同步动作参考图的数量到批量生成数量 (当数量 > 1 时自动锁定对齐)
-    useEffect(() => {
-        if (actionReferences.length > 1) {
-            setGenerateCount(actionReferences.length);
-        }
-    }, [actionReferences]);
     
     // Form
     const [form, setForm] = useState<HeroFormState>({
@@ -151,7 +150,7 @@ const HeroImageTab: React.FC = () => {
     const [generatedImages, setGeneratedImages] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
-    const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+    const [regeneratingIndices, setRegeneratingIndices] = useState<number[]>([]);
     
     // Refs
     const productInputRef = useRef<HTMLInputElement>(null);
@@ -167,7 +166,7 @@ const HeroImageTab: React.FC = () => {
         const results: UploadedImage[] = [];
         for (const file of files) {
             if (!file.type.startsWith('image/')) continue;
-            // 使用压缩逻辑减小负载，避免 4K/2K 超时
+            // 浣跨敤鍘嬬缉閫昏緫鍑忓皬璐熻浇锛岄伩鍏?4K/2K 瓒呮椂
             const { base64, mime } = await compressImage(file, 2048, 0.9);
             results.push({
                 file,
@@ -179,6 +178,51 @@ const HeroImageTab: React.FC = () => {
         return results;
     };
 
+    const detectAutoPoseLibrary = async (images: UploadedImage[]) => {
+        if (images.length === 0) {
+            setAutoPoseLibrary('none');
+            return;
+        }
+
+        const normalizeLibrary = (value: string): AutoPoseLibrary => {
+            const normalized = value.trim().toLowerCase();
+            if (normalized.includes('tee') || normalized.includes('tshirt') || normalized.includes('t-shirt')) return 'mensTee';
+            if (normalized.includes('knit') || normalized.includes('polo')) return 'mensKnit';
+            if (normalized.includes('shirt')) return 'mensShirt';
+            return 'none';
+        };
+
+        try {
+            const ai = getAiClient();
+            const parts: any[] = images.slice(0, 2).map(img => ({
+                inlineData: { mimeType: img.mime!, data: img.base64! }
+            }));
+            parts.push({
+                text: `Classify these uploaded product images for an ecommerce menswear pose library.
+Return ONLY valid JSON: {"library":"mensShirt|mensKnit|mensTee|none","reason":"short reason"}.
+
+Choose:
+- mensShirt: men's woven button shirt, resort shirt, linen shirt, Hawaiian shirt, button-up shirt.
+- mensKnit: men's knit polo, textured knit polo, knitted top, sweater-like short sleeve, ribbed knit menswear.
+- mensTee: men's T-shirt, oversized tee, graphic tee, cotton short-sleeve tee.
+- none: not one of the above or uncertain.
+
+Use visual garment structure first. User note: ${userPrompt || 'none'}`
+            });
+
+            const response = await generateContentWithAnalysisFallback(ai, {
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: { parts }
+            }, { timeoutMs: 30000, fallbackTimeoutMs: 45000 });
+            const text = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(text);
+            setAutoPoseLibrary(normalizeLibrary(parsed.library || 'none'));
+        } catch (err) {
+            console.warn('Auto pose library detection failed, using no built-in library.', err);
+            setAutoPoseLibrary('none');
+        }
+    };
+
     const handleProductUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
@@ -188,7 +232,7 @@ const HeroImageTab: React.FC = () => {
             setError(null);
             try {
                 const purified = await Promise.all(processed.map(async (img) => {
-                    // 1. 快速检测产品图背景中是否包含衣架、画框、挂钩等干扰
+                    // 1. 蹇€熸娴嬩骇鍝佸浘鑳屾櫙涓槸鍚﹀寘鍚。鏋躲€佺敾妗嗐€佹寕閽╃瓑骞叉壈
                     const ai = getAiClient();
                     const checkPrompt = "Analyze this product photo. Does the background contain any distracting items such as clothes hangers, hooks, picture frames on the wall, stands, furniture, or complex messy background? Respond with ONLY 'yes' or 'no' in lowercase.";
                     const response = await generateContentWithAnalysisFallback(ai, {
@@ -204,7 +248,7 @@ const HeroImageTab: React.FC = () => {
                     
                     if (answer.includes('yes')) {
                         console.log("[Product Purify] Distractions detected in product image. Purifying product background...");
-                        // 2. 调用 editGeneratedImage 擦除衣服以外的背景、衣架和画框
+                        // 2. 璋冪敤 editGeneratedImage 鎿﹂櫎琛ｆ湇浠ュ鐨勮儗鏅€佽。鏋跺拰鐢绘
                         const editPrompt = "Selectively remove all background noise, hangers, wall hooks, wall frames, art frames, picture borders, stands, and messy environment shadows. Do not touch or modify the clothing garment product itself. Replace the background with a completely solid, clean, seamless studio light gray or white background. Keep the exact fabric texture, print pattern, and shape of the clothing perfectly.";
                         const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
                         if (results && results.length > 0) {
@@ -223,15 +267,18 @@ const HeroImageTab: React.FC = () => {
                     return img;
                 }));
                 setProductImages(prev => [...prev, ...purified].slice(0, 4));
+                void detectAutoPoseLibrary(purified);
             } catch (err) {
                 console.error("Purify product image failed:", err);
-                // 降级回退到原始图片
+                // 闄嶇骇鍥為€€鍒板師濮嬪浘鐗?
                 setProductImages(prev => [...prev, ...processed].slice(0, 4));
+                void detectAutoPoseLibrary(processed);
             } finally {
                 setIsPurifyingProduct(false);
             }
         } else {
             setProductImages(prev => [...prev, ...processed].slice(0, 4));
+            void detectAutoPoseLibrary(processed);
         }
         setError(null);
     };
@@ -251,7 +298,7 @@ const HeroImageTab: React.FC = () => {
         setError(null);
         try {
             const purified = await Promise.all(processed.map(async (img) => {
-                // 1. 快速检测图片中是否包含人物
+                // 1. 蹇€熸娴嬪浘鐗囦腑鏄惁鍖呭惈浜虹墿
                 const ai = getAiClient();
                 const checkPrompt = "Analyze this image. Does it contain any humans, models, people, or persons? Respond with ONLY 'yes' or 'no' in lowercase.";
                 const response = await generateContentWithAnalysisFallback(ai, {
@@ -267,7 +314,7 @@ const HeroImageTab: React.FC = () => {
                 
                 if (answer.includes('yes')) {
                     console.log("[Scene Purify] Person detected in scene reference. Purifying background...");
-                    // 2. 调用 editGeneratedImage 去除人物主体，净化背景
+                    // 2. 璋冪敤 editGeneratedImage 鍘婚櫎浜虹墿涓讳綋锛屽噣鍖栬儗鏅?
                     const editPrompt = "Remove all people, persons, models, and humans from the image, and naturally fill in and inpaint the background details behind them to create a clean, empty room/space scene. Keep all other furniture, lighting, walls, windows, and architectural elements exactly identical.";
                     const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
                     if (results && results.length > 0) {
@@ -288,7 +335,7 @@ const HeroImageTab: React.FC = () => {
             setSceneReferences(prev => [...prev, ...purified].slice(0, 3));
         } catch (err) {
             console.error("Purify scene image failed:", err);
-            // 回退到原始图片
+            // 鍥為€€鍒板師濮嬪浘鐗?
             setSceneReferences(prev => [...prev, ...processed].slice(0, 3));
         } finally {
             setIsPurifyingScene(false);
@@ -354,10 +401,10 @@ const HeroImageTab: React.FC = () => {
                 sellingPoints: result.sellingPoints || '',
                 avoidElements: '',
                 extraNotes: '',
-                personaTemplate: result.modelPersonaPreset || '美国都市女性'
+                personaTemplate: result.modelPersonaPreset || 'US urban woman'
             });
         } catch (err) {
-            setError("AI 分析失败");
+            setError("AI 鍒嗘瀽澶辫触");
         } finally {
             setIsAnalyzing(false);
         }
@@ -464,12 +511,13 @@ Return ONLY valid JSON with these exact string fields:
   "bottomLock": "precise pants/jeans/skirt/shorts description if visible; if blue jeans are visible, describe wash, rise, fit, leg shape, and color",
   "shoeLock": "shoe description if visible; otherwise say not visible",
   "forbiddenDrift": "short comma-separated list of identity/outfit changes to forbid",
-  "promptBlock": "a strong English prompt block for generation. It MUST lock face, hair, body, and all non-conflicting outfit pieces across every output. It MUST explicitly state that if jeans/pants are visible in this reference, generated outputs must keep the same jeans/pants style wherever visible."
+  "promptBlock": "a strong English prompt block for generation. It MUST lock face, hair, skin tone, and body identity. It may describe visible wardrobe only as low-priority styling context, and MUST state that product garments from Image 1 override model-reference clothing wherever they occupy the same garment area."
 }
 
 Rules:
 - In FACE-ONLY MODE, the model reference controls only face/head identity. Do NOT use its body shape, clothing, jeans/pants, shoes, accessories, or styling as generation constraints.
-- In FULL MODEL + WARDROBE MODE, the model reference controls identity and non-conflicting wardrobe consistency. The product asset may replace only the product garment area. Do not let the product asset change the model's face, hair, body shape, jeans/pants, shoes, or other non-conflicting styling.
+- In FULL MODEL + WARDROBE MODE, the model reference controls identity, hair, skin tone, and body proportions. Product assets control all product garment areas. If the product asset includes a matching bottom, shorts, pants, skirt, set, suit, pajama set, or coordinated outfit, that product bottom MUST replace the model reference bottom. Do not preserve jeans/pants/shorts from the model reference when they conflict with the product asset.
+- Never instruct generation to layer the model's original pants under or over product shorts/pants. Avoid duplicate waistbands, duplicate hems, double drawstrings, and mixed original-model bottom + product bottom artifacts.
 - If the model image is cropped, still analyze all visible identity and wardrobe cues.
 - Do not mention uncertainty unless an item is truly not visible.`
                         }
@@ -485,9 +533,9 @@ Rules:
                     ? 'FACE-ONLY MODEL LOCK: Preserve only the same face/head identity from the model reference. Ignore model-reference clothing, jeans/pants, shoes, accessories, pose, and body styling.'
                     : [
                         'MODEL IDENTITY LOCK: Preserve the same face, hair, skin tone, body proportions, and person identity from the model reference.',
-                        parsed.outfitLock ? `WARDROBE LOCK: ${parsed.outfitLock}` : '',
-                        parsed.bottomLock ? `BOTTOM LOCK: ${parsed.bottomLock}` : '',
-                        'Do not change jeans/pants/shoes or non-conflicting styling wherever visible.'
+                        parsed.outfitLock ? `LOW-PRIORITY MODEL WARDROBE OBSERVATION: ${parsed.outfitLock}` : '',
+                        parsed.bottomLock ? `LOW-PRIORITY MODEL BOTTOM OBSERVATION: ${parsed.bottomLock}` : '',
+                        'PRODUCT GARMENT OVERRIDE: Product asset garments override model-reference clothing in any overlapping garment area. If the product asset includes shorts, pants, skirt, or a matching set bottom, replace the model reference bottom completely and do not layer or mix both bottoms.'
                     ].filter(Boolean).join('\n'))
             };
 
@@ -511,13 +559,13 @@ Rules:
 
     const handleGenerate = async (regenerateIndex?: number) => {
         if (productImages.length === 0) {
-            setError('请上传产品图素材');
+            setError('璇蜂笂浼犱骇鍝佸浘绱犳潗');
             return;
         }
 
         const isSingleRegenerate = typeof regenerateIndex === 'number';
         if (isSingleRegenerate) {
-            setRegeneratingIndex(regenerateIndex);
+            setRegeneratingIndices(prev => prev.includes(regenerateIndex) ? prev : [...prev, regenerateIndex]);
         } else {
             setIsLoading(true);
         }
@@ -534,7 +582,7 @@ Rules:
         }, 1200);
 
         try {
-            // 1. 预处理所有图片（如果开启安全模式或仅参考姿态，则动作图转换为线稿线段以剔除背景干扰）
+            // 1. 棰勫鐞嗘墍鏈夊浘鐗囷紙濡傛灉寮€鍚畨鍏ㄦā寮忔垨浠呭弬鑰冨Э鎬侊紝鍒欏姩浣滃浘杞崲涓虹嚎绋跨嚎娈典互鍓旈櫎鑳屾櫙骞叉壈锛?
             const processRefImage = async (img: UploadedImage | null, isSafeOrPoseOnly: boolean) => {
                 if (!img) return null;
                 let b64 = img.base64!;
@@ -566,12 +614,12 @@ Rules:
                 accessoryReferences.map(img => processRefImage(img, false))
             );
 
-            // 2. 构建图片序列 (支持根据动作图索引进行动态独立对齐)
-            // 严格匹配 API 与 Prompt 契约：产品图必须作为 Image 1 (首张图片) 传入以确保 100% 一致性锁定！
+            // 2. 鏋勫缓鍥剧墖搴忓垪 (鏀寔鏍规嵁鍔ㄤ綔鍥剧储寮曡繘琛屽姩鎬佺嫭绔嬪榻?
+            // 涓ユ牸鍖归厤 API 涓?Prompt 濂戠害锛氫骇鍝佸浘蹇呴』浣滀负 Image 1 (棣栧紶鍥剧墖) 浼犲叆浠ョ‘淇?100% 涓€鑷存€ч攣瀹氾紒
             const getInputImagesForIndex = (actionIndex?: number) => {
                 const list: { base64: string; mimeType: string }[] = [];
                 
-                // [第一优先级] 添加产品图作为首张图片 (Image 1)，这与 Prompt 中的 "# CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]" 完美对齐
+                // [绗竴浼樺厛绾 娣诲姞浜у搧鍥句綔涓洪寮犲浘鐗?(Image 1)锛岃繖涓?Prompt 涓殑 "# CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]" 瀹岀編瀵归綈
                 productImages.forEach(img => {
                     const isAlreadyAdded = actionReferences.some(ar => ar.base64 === img.base64);
                     if (!isAlreadyAdded) {
@@ -579,7 +627,7 @@ Rules:
                     }
                 });
 
-                // [第二优先级] 添加模特图，作为人脸特征和长相的绝对参考（传入两次以双倍增强 AI 的注意力长相锁定权重）
+                // [绗簩浼樺厛绾 娣诲姞妯＄壒鍥撅紝浣滀负浜鸿劯鐗瑰緛鍜岄暱鐩哥殑缁濆鍙傝€冿紙浼犲叆涓ゆ浠ュ弻鍊嶅寮?AI 鐨勬敞鎰忓姏闀跨浉閿佸畾鏉冮噸锛?
                 processedAccessories.forEach(img => {
                     if (img) list.push(img);
                 });
@@ -589,10 +637,10 @@ Rules:
                     list.push(processedModel);
                 }
                 
-                // [第三优先级] 添加特定的动作姿态参考图，作为姿态对齐的构图锚点
+                // [绗笁浼樺厛绾 娣诲姞鐗瑰畾鐨勫姩浣滃Э鎬佸弬鑰冨浘锛屼綔涓哄Э鎬佸榻愮殑鏋勫浘閿氱偣
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
                     ? processedActions[actionIndex]
-                    : processedActions[0];
+                    : null;
                 if (selectedAction?.original) {
                     list.push(selectedAction.original);
                     list.push(selectedAction.original);
@@ -602,7 +650,7 @@ Rules:
                     list.push(selectedAction.lineart);
                 }
                 
-                // [第四优先级] 添加背景场景参考图
+                // [绗洓浼樺厛绾 娣诲姞鑳屾櫙鍦烘櫙鍙傝€冨浘
                 processedScenes.forEach(img => {
                     if (img) list.push(img);
                 });
@@ -610,7 +658,7 @@ Rules:
                 return list;
             };
 
-            // 3. 构建 Prompt 策略与参考图 1-based 动态索引计算以解决 Gemini 多模态映射错位问题
+            // 3. 鏋勫缓 Prompt 绛栫暐涓庡弬鑰冨浘 1-based 鍔ㄦ€佺储寮曡绠椾互瑙ｅ喅 Gemini 澶氭ā鎬佹槧灏勯敊浣嶉棶棰?
             const productIndexStart = 1;
             const productIndexEnd = productImages.length;
             const accessoryCount = processedAccessories.length;
@@ -644,24 +692,24 @@ Rules:
                 ? `Model Measurements: Bust ${measurements.bust || 'N/A'}, Waist ${measurements.waist || 'N/A'}, Hips ${measurements.hips || 'N/A'}.` 
                 : "";
 
-            const photoStrategy = `相机预设: ${cameraDevice} | 景别: ${shotType}`;
-            const sceneStrategy = sceneReferences.length > 0 ? "根据参考图复刻背景场景" : (userPrompt || "摄影棚拍摄背景 (Studio lighting, minimal background)");
+            const photoStrategy = `Camera preset: ${cameraDevice} | Shot type: ${shotType}`;
+            const sceneStrategy = sceneReferences.length > 0 ? "Replicate background scene from reference images" : (userPrompt || "Studio lighting, minimal background");
 
             const strategy = [
-                `产品：${form.productName}`,
-                `人群：${form.personaTemplate}`,
-                `场景：${sceneStrategy}`,
+                `Product: ${form.productName}`,
+                `Persona: ${form.personaTemplate}`,
+                `Scene: ${sceneStrategy}`,
                 photoStrategy,
-                actionReferences.length > 0 ? `动作：复刻姿态参考图` : `动作：智能匹配姿态`,
-                `画质：${QUALITY_BOOSTERS.EDITORIAL}`
+                actionReferences.length > 0 ? `Action: copy pose reference image` : `Action: intelligent pose matching`,
+                `Quality: ${QUALITY_BOOSTERS.EDITORIAL}`
             ].join(' | ');
 
             let basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
             
-            // 任意一种安全模式开启均执行 Prompt 净化
+            // 浠绘剰涓€绉嶅畨鍏ㄦā寮忓紑鍚潎鎵ц Prompt 鍑€鍖?
             if (isSafeMode || isSafeModeScene || isSafeModeModel) {
-                basePrompt = basePrompt.replace(/情趣|性感|透视|诱惑|sexy|erotic/gi, '时尚');
-                basePrompt = basePrompt.replace(/内衣|睡衣|lingerie/gi, '高定泳装');
+                basePrompt = basePrompt.replace(/鎯呰叮|鎬ф劅|閫忚|璇辨儜|sexy|erotic/gi, '鏃跺皻');
+                basePrompt = basePrompt.replace(/鍐呰。|鐫¤。|lingerie/gi, '楂樺畾娉宠');
                 basePrompt += " # SAFE MODE: High-end Fashion Editorial, elegant styling.";
             }
 
@@ -685,18 +733,18 @@ Rules:
                         '- Clothing and styling must come from the product asset, accessory references, user prompt, and platform styling only.'
                     ].filter(Boolean).join('\n')
                     : [
-                        '# MODEL IDENTITY + WARDROBE LOCK (HIGHEST PRIORITY AFTER PRODUCT):',
+                        '# MODEL IDENTITY LOCK + LOW-PRIORITY WARDROBE CONTEXT:',
                         `- Images ${modelIndexStart}-${modelIndexEnd} are the fixed model identity references. Preserve the same face, facial proportions, hair color/style, skin tone, body proportions, and overall person identity in EVERY output.`,
-                        activeModelIdentityAnalysis?.promptBlock ? `- AI analyzed identity contract: ${activeModelIdentityAnalysis.promptBlock}` : '',
                         activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
                         activeModelIdentityAnalysis?.hairLock ? `- Hair lock: ${activeModelIdentityAnalysis.hairLock}` : '',
                         activeModelIdentityAnalysis?.bodyLock ? `- Body lock: ${activeModelIdentityAnalysis.bodyLock}` : '',
-                        activeModelIdentityAnalysis?.bottomLock ? `- Bottom lock: ${activeModelIdentityAnalysis.bottomLock}` : '',
-                        activeModelIdentityAnalysis?.shoeLock ? `- Shoe lock: ${activeModelIdentityAnalysis.shoeLock}` : '',
-                        '- Preserve the model reference outfit pieces that do NOT conflict with the product asset: bottoms/pants/jeans/skirt/shorts, shoes, belt, visible simple styling, and the overall fit/color/material logic.',
-                        '- If the model reference shows jeans, EVERY generated image must keep the same jeans style, wash, rise, fit, and color unless that area is outside the pose crop.',
-                        '- If the product asset is an upper garment, replace only the upper garment with Image 1 product; keep the model reference bottoms/shoes consistent across all generated results.',
-                        '- Do not treat the model reference clothing as noise. Only ignore clothing that directly conflicts with the product asset being generated.',
+                        activeModelIdentityAnalysis?.outfitLock ? `- Low-priority model outfit observation, NOT a lock: ${activeModelIdentityAnalysis.outfitLock}` : '',
+                        activeModelIdentityAnalysis?.bottomLock ? `- Low-priority model bottom observation, NOT a lock: ${activeModelIdentityAnalysis.bottomLock}` : '',
+                        activeModelIdentityAnalysis?.shoeLock ? `- Low-priority model shoe observation, NOT a lock: ${activeModelIdentityAnalysis.shoeLock}` : '',
+                        '- Product garments from Image 1 and all uploaded product assets have absolute priority over model-reference clothing.',
+                        '- If the product asset includes shorts, pants, skirt, bottom piece, matching set, pajama set, suit set, or coordinated outfit bottom, replace the model reference bottom completely.',
+                        '- Never render the original model jeans/pants/shorts underneath or overlapping the product bottom. Never create double waistbands, duplicate hems, double drawstrings, or mixed original-bottom + product-bottom artifacts.',
+                        '- If the product is clearly upper-body only, the model reference bottom may be used only as compatible low-priority styling, never as a hard lock.',
                         activeModelIdentityAnalysis?.forbiddenDrift ? `- Forbidden drift: ${activeModelIdentityAnalysis.forbiddenDrift}` : ''
                     ].filter(Boolean).join('\n'))
                 : '';
@@ -708,6 +756,9 @@ Rules:
             # CRITICAL REQUIREMENT - MAXIMUM PRODUCT FIDELITY (HIGHEST PRIORITY): 
             The FIRST IMAGE (Image 1) is the [PRODUCT ASSET]. You MUST preserve its exact structural design, clothing shape, collar style, neck cuts, sleeves, pockets, fabric texture, prints/patterns (e.g. leopard print or stripes), stitching, and materials perfectly. 
             The clothing on the generated model MUST be a 100% pixel-accurate high-fidelity replica of this product asset, with ZERO structure changes or textile/fabric details loss. 
+            # PRODUCT GARMENT SUPREMACY / NO LAYERING:
+            The uploaded product images may include a full coordinated set, matching shorts, pants, skirt, suit bottom, pajama bottom, or other lower-body garment. If any product image shows such a bottom piece, it is part of the product and MUST replace any pants/jeans/shorts from the model identity reference.
+            Never combine, stack, or blend the model reference bottom with the product bottom. Do NOT render original model pants visible underneath product shorts/pants. Do NOT create duplicate waistbands, duplicate hems, double drawstrings, double leg openings, or a layered pants-under-shorts artifact.
             **BACKGROUND NOISE ISOLATION (STRICT)**: You MUST completely and absolutely ignore, block, and discard any background elements present in the product asset image, including clothes hangers, hooks, picture frames on the wall, hanging art, wall stripes, wooden frames, shadow boards, stands, or room walls. 
             DO NOT generate or allow ANY of these product background items to appear in the final model's scene background. You must isolate ONLY the clothing itself from the product asset.
             
@@ -717,24 +768,40 @@ Rules:
             ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (OPTIONAL BUT STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, hat, belt, scarf, or handheld prop, include it only when naturally compatible with the selected pose, and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, jewelry, handheld props, or decorative accessories unless they are already part of the product asset. Keep styling clean and product-focused.'}
             ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${actionReferences.length > 0 ? `# EXACT POSE TRANSFER DIRECTIVE (ABSOLUTE): Images ${actionIndex}-${actionIndex + 1} are duplicated original pose anchors. Images ${actionLineartIndex}-${actionLineartIndex + 1} are duplicated lineart/silhouette pose maps. These four images are the strongest geometry constraint for this output. Match the reference pose's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette. CROP LOCK IS MANDATORY: match the visible body extent and crop boundary of the pose anchor exactly. If the pose anchor is half-body, waist-up, thigh-up, or cropped at the knees, the output MUST use the same crop and MUST NOT pull back to show a full body or feet. Do not reveal any body area outside the pose reference crop. Product fidelity from Image 1 controls the clothing identity only; it must NOT override the body pose geometry. The final body must be a near one-to-one pose transfer from Images ${actionIndex}-${actionIndex + 1} and ${actionLineartIndex}-${actionLineartIndex + 1}. Do NOT replace a side/back/three-quarter pose with a front standing pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, bag-holding arm position, or asymmetric limb angle. Do NOT zoom in/out, change half-body to full-body, change full-body to half-body, shift the subject scale, mirror left/right direction, straighten a bent limb, or invent a different standard catalog pose. You MUST completely IGNORE, DISCARD, and BYPASS any background elements, clothing, outfits, faces, colors, textures, lighting, or scene details present in the pose anchors. The scene background of the output MUST be determined SOLELY by the scene reference images or scene prompt, with absolutely zero influence from the action reference's background.` : ''}
-            ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the background scene, environment, layout, walls, props, ambient lighting, shadows, and architectural details of the scene reference images from Image ${sceneIndexStart} to Image ${sceneIndexEnd} EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
+            ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the uploaded scene reference background, environment, layout, walls, props, ambient lighting, shadows, and architectural details EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
             
             # DESCRIPTION: ${basePrompt}
-            ${form.extraNotes.trim() ? `# USER SUPPLEMENTARY NOTES (MUST FOLLOW): ${form.extraNotes.trim()}` : ''}
+            ${form.extraNotes.trim() ? `# USER SUPPLEMENTARY NOTES (MUST FOLLOW): ${form.extraNotes.trim()}
+# USER REQUESTED ANGLES / FRAMING PRIORITY: If the user notes mention specific angles, views, camera framing, crop, front/back/side/three-quarter view, walking/sitting/standing states, or required shot sequence, obey those instructions with high priority. For outputs without a matching uploaded action reference, choose random/auto poses that satisfy these user-requested angles and framing as closely as possible. Uploaded action references still control only their matching output index.` : ''}
             # FINAL OUTPUT: High-fidelity, commercial-grade asset with strict geometric locking for the product.
             `;
 
-            const countToGenerate = actionReferences.length > 1 ? actionReferences.length : generateCount;
+            const countToGenerate = Math.max(generateCount, actionReferences.length);
 
-            // 检查是否为睡衣/家居服系列产品
-            const keywords = ['睡衣', 'pajama', 'sleepwear', '家居服', 'loungewear', '睡裤', '睡袍', 'nightgown', 'bathrobe'];
+            // 妫€鏌ユ槸鍚︿负鐫¤。/瀹跺眳鏈嶇郴鍒椾骇鍝?
+            const keywords = ['pajama', 'sleepwear', 'loungewear', 'nightgown', 'bathrobe'];
             const productNameLower = (form.productName || '').toLowerCase();
             const productCategoryLower = (form.productCategory || '').toLowerCase();
             const isSleepwear = keywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const mensShirtKeywords = ['mens shirt', "men's shirt", 'resort shirt', 'linen shirt', 'button shirt', 'button-up shirt', 'hawaiian shirt'];
+            const isMensShirt = mensShirtKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const mensKnitKeywords = ['knit', 'knitwear', 'knit polo', 'textured knit', 'polo shirt'];
+            const isMensKnit = mensKnitKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const mensTeeKeywords = ['tee', 't-shirt', 't shirt', 'oversized tee', 'oversized t-shirt'];
+            const isMensTee = mensTeeKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+
+            const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
+                ? autoPoseLibrary
+                : isMensTee
+                    ? 'mensTee'
+                    : isMensKnit
+                        ? 'mensKnit'
+                        : isMensShirt
+                            ? 'mensShirt'
+                            : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
 
@@ -752,7 +819,7 @@ Rules:
                 "medium shot from high-angle perspective, showing the model walking forward with relaxed shoulders, looking forward"
             ];
 
-            // 彻底洗牌打乱 230 个睡衣姿态预设列表，确保批量生成的每一张图分配到的睡衣姿态都是绝对随机且不重复的
+            // 褰诲簳娲楃墝鎵撲贡 230 涓潯琛ｅЭ鎬侀璁惧垪琛紝纭繚鎵归噺鐢熸垚鐨勬瘡涓€寮犲浘鍒嗛厤鍒扮殑鐫¤。濮挎€侀兘鏄粷瀵归殢鏈轰笖涓嶉噸澶嶇殑
             let shuffledSleepwearPoses = [...SLEEPWEAR_POSES];
             if (isSleepwear) {
                 for (let k = shuffledSleepwearPoses.length - 1; k > 0; k--) {
@@ -761,7 +828,7 @@ Rules:
                 }
             }
 
-            // 彻底洗牌打乱 160 个普通服装姿态预设列表，确保批量生成的每一张图分配到的姿态都是绝对随机且不重复的
+            // 褰诲簳娲楃墝鎵撲贡 160 涓櫘閫氭湇瑁呭Э鎬侀璁惧垪琛紝纭繚鎵归噺鐢熸垚鐨勬瘡涓€寮犲浘鍒嗛厤鍒扮殑濮挎€侀兘鏄粷瀵归殢鏈轰笖涓嶉噸澶嶇殑
             let shuffledClothingPoses = [...CLOTHING_POSES];
             if (shouldUseClothingPoseLibrary) {
                 for (let k = shuffledClothingPoses.length - 1; k > 0; k--) {
@@ -770,29 +837,80 @@ Rules:
                 }
             }
 
+            let shuffledMensShirtPoses = [...MENS_SHIRT_POSES];
+            for (let k = shuffledMensShirtPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledMensShirtPoses[k], shuffledMensShirtPoses[r]] = [shuffledMensShirtPoses[r], shuffledMensShirtPoses[k]];
+            }
+
+            let shuffledMensKnitPoses = [...MENS_KNIT_POSES];
+            for (let k = shuffledMensKnitPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledMensKnitPoses[k], shuffledMensKnitPoses[r]] = [shuffledMensKnitPoses[r], shuffledMensKnitPoses[k]];
+            }
+
+            let shuffledMensTeePoses = [...MENS_TEE_POSES];
+            for (let k = shuffledMensTeePoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledMensTeePoses[k], shuffledMensTeePoses[r]] = [shuffledMensTeePoses[r], shuffledMensTeePoses[k]];
+            }
+
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
             const batchPromises = generationIndices.map((i) => {
-                const specificInputImages = getInputImagesForIndex(actionReferences.length > 1 ? i : undefined);
+                const actionReferenceIndex = i < actionReferences.length ? i : undefined;
+                const hasOutputActionReference = typeof actionReferenceIndex === 'number';
+                const specificInputImages = getInputImagesForIndex(actionReferenceIndex);
                 
                 let finalPrompt = prompt;
                 let selectedPoseHeader = '';
-                if (actionReferences.length === 0) {
-                    if (isSleepwear) {
-                        // 顺序从洗牌后的列表中抽取动作，实现“100%彻底打乱且不重复用到”
+                if (hasOutputActionReference) {
+                    selectedPoseHeader = `# EXACT USER ACTION REFERENCE FOR THIS OUTPUT (ABSOLUTE):
+This output index has a matching uploaded action reference at action slot #${actionReferenceIndex + 1}. The action reference images included in this input are the strongest geometry constraint for THIS IMAGE ONLY.
+Match the uploaded action reference's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette.
+CROP LOCK IS MANDATORY: if the action reference is half-body, waist-up, thigh-up, full-body, seated, walking, leaning, or cropped at the knees, this output MUST use the same body extent and crop boundary.
+Do NOT replace the referenced pose with a generic catalog pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, or asymmetric limb angle.
+Use the product asset only for clothing identity and the scene reference/user prompt for background. Completely ignore the action reference background, face, clothing, colors, texture, lighting, and scene details.
+`;
+                    finalPrompt += `\n# MATCHING ACTION REFERENCE ROUTING: This is generated from uploaded action reference #${actionReferenceIndex + 1}. Other outputs without their own uploaded action reference must use random/auto poses instead.\n`;
+                } else {
+                    if (activeAutoPoseLibrary === 'mensTee') {
+                        const posePreset = shuffledMensTeePoses[i % shuffledMensTeePoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED MENS OVERSIZED TEE POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's oversized T-shirt hero image with the EXACT California summer lifestyle pose and camera framing described here: ${poseSpec}. Preserve product fidelity from Image 1, but pose, body posture, hand placement, oversized tee drape, hem interaction, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
+# TEE-SPECIFIC FIT RULE: Render natural masculine shoulders, relaxed torso, oversized tee silhouette, realistic cotton fabric weight, sleeve drop, hem drape, soft wrinkles, and movement. Do not turn the pose into a stiff catalog mannequin stance.
+`;
+                        finalPrompt += `\n# MENS TEE ACTION LIBRARY DIRECTIVE: Use this selected oversized tee action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The T-shirt product must remain the same product from Image 1 while naturally adapting to the selected California summer lifestyle movement.\n`;
+                    } else if (activeAutoPoseLibrary === 'mensKnit') {
+                        const posePreset = shuffledMensKnitPoses[i % shuffledMensKnitPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED MENS KNIT POLO POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's knitwear hero image with the EXACT old-money resort pose and camera framing described here: ${poseSpec}. Preserve product fidelity from Image 1, but pose, body posture, hand placement, knit polo drape, collar/hem interaction, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
+# KNITWEAR-SPECIFIC FIT RULE: Render natural masculine shoulders, relaxed torso, premium textured knit surface, realistic polo collar, sleeve cuff, hem, button placket, ribbed structure, and soft fabric weight. Do not turn the pose into a stiff catalog mannequin stance.
+`;
+                        finalPrompt += `\n# MENS KNIT ACTION LIBRARY DIRECTIVE: Use this selected men's knit polo action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The knitwear product must remain the same product from Image 1 while naturally adapting to the selected body movement and luxury resort lifestyle context.\n`;
+                    } else if (activeAutoPoseLibrary === 'mensShirt') {
+                        const posePreset = shuffledMensShirtPoses[i % shuffledMensShirtPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED MENS SHIRT POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's shirt hero image with the EXACT resort menswear pose and camera framing described here: ${poseSpec}. Preserve product fidelity from Image 1, but pose, body posture, hand placement, shirt drape, collar/hem interaction, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
+# SHIRT-SPECIFIC FIT RULE: Render natural masculine shoulders, relaxed torso, realistic shirt placket, collar, hem, sleeves, buttons, fabric drape, and breeze movement when requested. Do not turn the pose into a stiff catalog mannequin stance.
+`;
+                        
+                        finalPrompt += `\n# MENS SHIRT ACTION LIBRARY DIRECTIVE: Use this selected men's resort shirt action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The shirt must remain the same product from Image 1 while naturally adapting to the selected body movement and lifestyle context.\n`;
+                    } else if (isSleepwear) {
+                        // 椤哄簭浠庢礂鐗屽悗鐨勫垪琛ㄤ腑鎶藉彇鍔ㄤ綔锛屽疄鐜扳€?00%褰诲簳鎵撲贡涓斾笉閲嶅鐢ㄥ埌鈥?
                         const posePreset = shuffledSleepwearPoses[i % shuffledSleepwearPoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED RANDOM POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this image with the EXACT lifestyle pajama pose and camera framing described here: ${poseSpec}. This selected preset is mandatory for this output and must override generic catalog standing angles.
 `;
                         
-                        finalPrompt = finalPrompt.replace(
-                            "动作：智能匹配姿态",
-                            `动作：睡衣预设姿态 - ${posePreset.name} (${poseSpec})`
-                        );
-                        // 极大强化对于动作姿态的描述，赋予最高权重与优先级，彻底规避呆板普通的站姿
+                        finalPrompt += `\n# SELECTED PAJAMA POSE: ${posePreset.name} (${poseSpec})\n`;
+                        // 鏋佸ぇ寮哄寲瀵逛簬鍔ㄤ綔濮挎€佺殑鎻忚堪锛岃祴浜堟渶楂樻潈閲嶄笌浼樺厛绾э紝褰诲簳瑙勯伩鍛嗘澘鏅€氱殑绔欏Э
                         finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT lifestyle pajama pose and body posture described here: ${poseSpec}. Completely ignore, bypass, and discard standard, rigid, artificial standing model poses. Focus heavily and render the relaxed limb angles, cozy physical twists, soft pajama creases, leg bends, and comfy sleepy lifestyle poses with 100% fidelity. The final image pose must strictly mirror this directive.\n`;
                     } else if (shouldUseClothingPoseLibrary) {
-                        // 顺序从洗牌后的列表中抽取普通服装主图姿态，实现“100%彻底打乱且不重复用到”
+                        // 椤哄簭浠庢礂鐗屽悗鐨勫垪琛ㄤ腑鎶藉彇鏅€氭湇瑁呬富鍥惧Э鎬侊紝瀹炵幇鈥?00%褰诲簳鎵撲贡涓斾笉閲嶅鐢ㄥ埌鈥?
                         const posePreset = shuffledClothingPoses[i % shuffledClothingPoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED RANDOM CLOTHING POSE PRESET: ${posePreset.name} / ${posePreset.id}
@@ -800,34 +918,34 @@ Rules:
 # RANDOMIZATION RULE: Each batch item receives a different shuffled preset. Do not reuse the same default front/side/back/seated four-angle pattern unless those exact presets were selected.
 `;
                         
-                        finalPrompt = finalPrompt.replace(
-                            "动作：智能匹配姿态",
-                            `动作：服装预设姿态 - ${posePreset.name} (${poseSpec})`
-                        );
-                        // 强化普通服装动作渲染指令，高权重锁定，杜绝死板姿势，强化开衫/针织衫等日常成衣的质感与版型展现
+                        finalPrompt += `\n# SELECTED CLOTHING POSE: ${posePreset.name} (${poseSpec})\n`;
+                        // 寮哄寲鏅€氭湇瑁呭姩浣滄覆鏌撴寚浠わ紝楂樻潈閲嶉攣瀹氾紝鏉滅粷姝绘澘濮垮娍锛屽己鍖栧紑琛?閽堢粐琛瓑鏃ュ父鎴愯。鐨勮川鎰熶笌鐗堝瀷灞曠幇
                         finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT commercial fashion display pose described here: ${poseSpec}. Completely ignore and bypass awkward, rigid, standard dummy postures. Ensure the sweater/knitwear/clothing draping, hem adjustment, pocket insertions, shoulder exposure, or bag carrying action is rendered with 100% realism. The final model's pose and garment geometry must strictly adhere to this directive.\n`;
                     } else if (countToGenerate > 1) {
                         const poseSpec = DIVERSE_POSES[i % DIVERSE_POSES.length];
-                        finalPrompt = finalPrompt.replace(
-                            "动作：智能匹配姿态",
-                            `动作：智能变化 (${poseSpec})`
-                        );
+                        finalPrompt += `\n# SELECTED DIVERSE POSE: ${poseSpec}\n`;
                         finalPrompt += `\n# POSE AND ANGLE DIVERSIFICATION: For this specific image out of the batch, you MUST generate the model in this pose and camera angle: ${poseSpec}. Keep the face structure and environment identical, but vary the body position and shot perspective strictly to match this directive.\n`;
                     }
                 }
                 if (selectedPoseHeader) {
                     finalPrompt = `${selectedPoseHeader}\n${finalPrompt}`;
                 }
+                const negativePrompt = [
+                    hasOutputActionReference || activeAutoPoseLibrary !== 'none'
+                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift'
+                        : '',
+                    modelReference
+                        ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
+                        : ''
+                ].filter(Boolean).join(', ') || undefined;
 
                 return generateImageToImage(specificInputImages, finalPrompt, {
                     aspectRatio,
                     resolution,
                     modelId: selectedModel,
-                    negativePrompt: actionReferences.length > 0 
-                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift'
-                        : undefined,
+                    negativePrompt,
                     hasModelRef: !!modelReference,
-                    workflowHint: actionReferences.length > 0 ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock')
+                    workflowHint: hasOutputActionReference || activeAutoPoseLibrary !== 'none' ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock')
                 });
             });
 
@@ -865,7 +983,7 @@ Rules:
         } finally {
             if (stepInterval) clearInterval(stepInterval);
             if (isSingleRegenerate) {
-                setRegeneratingIndex(null);
+                setRegeneratingIndices(prev => prev.filter(idx => idx !== regenerateIndex));
             } else {
                 setIsLoading(false);
                 setProgress(100);
@@ -956,13 +1074,14 @@ Rules:
                         <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-2">
+                                    <Package className="w-4 h-4 text-pastel-highlight" />
                                     <h3 className="font-bold text-pastel-text text-sm">产品素材图</h3>
                                     <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full border border-green-100 flex items-center gap-1 animate-pulse">
                                         <CheckCircle2 className="w-2.5 h-2.5" />
                                         产品一致性已锁定
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-2 bg-purple-50/50 px-2 py-0.5 rounded-lg border border-purple-100 shadow-sm" title="开启后，AI在您上传图片时将自动检测并移除背景里的画框、相框、衣架、挂钩等干扰元素，只保留衣服主体">
+                                <div className="flex items-center gap-2 bg-purple-50/50 px-2 py-0.5 rounded-lg border border-purple-100 shadow-sm" title="开启后，AI 会自动检测并移除产品图背景里的画框、相框、衣架、挂钩等干扰元素，只保留产品主体">
                                     <input 
                                         type="checkbox" 
                                         id="product-purify-toggle"
@@ -1028,7 +1147,7 @@ Rules:
                                         <h3 className="font-bold text-pastel-text text-xs text-nowrap">动作参考图</h3>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="仅提取动作姿态，自动过滤和消除动作图中的背景与场景元素干扰（推荐开启）">
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="仅提取动作姿态，自动过滤动作图里的背景和场景元素">
                                             <input 
                                                 type="checkbox" 
                                                 checked={isPoseOnly}
@@ -1037,7 +1156,7 @@ Rules:
                                             />
                                             <span className="text-[10px] text-gray-500 group-hover:text-purple-600 transition-colors font-medium">仅参考姿态</span>
                                         </label>
-                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，动作图将自动转化为线稿，并净化Prompt，以绕过敏感词拦截">
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="Enable safe pose preprocessing">
                                             <input 
                                                 type="checkbox" 
                                                 checked={isSafeMode}
@@ -1081,7 +1200,7 @@ Rules:
                                     ) : (
                                         <div className="text-center py-4">
                                             <Wand2 className="w-6 h-6 mx-auto mb-1 text-purple-300" />
-                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态 (最多10张)</p>
+                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态（最多10张）</p>
                                         </div>
                                     )}
                                 </div>
@@ -1094,7 +1213,7 @@ Rules:
                                         <h3 className="font-bold text-pastel-text text-xs text-nowrap">场景参考图</h3>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，AI 将仅提取场景图的构图与光影，忽略图中原有主体">
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，AI 仅提取场景图的构图与光影，忽略原有主体">
                                             <input 
                                                 type="checkbox" 
                                                 checked={isSceneOnly}
@@ -1103,7 +1222,7 @@ Rules:
                                             />
                                             <span className="text-[10px] text-gray-500 group-hover:text-orange-600 transition-colors font-medium">仅场景</span>
                                         </label>
-                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，场景图将自动转化为线稿，以绕过敏感场景拦截">
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，场景图会自动转为线稿，降低敏感场景拦截">
                                             <input 
                                                 type="checkbox" 
                                                 checked={isSafeModeScene}
@@ -1146,7 +1265,7 @@ Rules:
                                     ) : (
                                         <div className="text-center py-4">
                                             <ImageIcon className="w-6 h-6 mx-auto mb-1 text-orange-300" />
-                                            <p className="text-[10px] text-orange-600 font-medium">复刻背景与光影</p>
+                                            <p className="text-[10px] text-orange-600 font-medium">复制背景与光影</p>
                                         </div>
                                     )}
                                 </div>
@@ -1188,10 +1307,10 @@ Rules:
                                 {accessoryReferences.length > 0 ? (
                                     <div className="grid grid-cols-5 gap-2">
                                         {accessoryReferences.map((img, idx) => (
-                                            <div key={idx} className="relative group/accessory aspect-square bg-pastel-bg/30 rounded-lg border border-pink-100 overflow-hidden">
-                                                <img src={img.preview} className="w-full h-full object-cover" alt="accessory" />
+                                            <div key={idx} className="relative group/accessory aspect-square bg-pastel-bg/30 rounded-lg border border-pink-100 overflow-visible">
+                                                <img src={img.preview} className="w-full h-full object-cover rounded-lg" alt="accessory" />
                                                 <span className="absolute bottom-0.5 left-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">#{idx + 1}</span>
-                                                <button onClick={(e) => { e.stopPropagation(); setAccessoryReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/accessory:opacity-100 transition-opacity"><X className="w-2.5 h-2.5" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); setAccessoryReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-2 -right-2 z-20 bg-red-500 text-white rounded-full p-0.5 shadow-md opacity-100 hover:bg-red-600 transition-colors"><X className="w-2.5 h-2.5" /></button>
                                             </div>
                                         ))}
                                         {accessoryReferences.length < 10 && (
@@ -1205,7 +1324,7 @@ Rules:
                                     <div className="text-center py-4">
                                         <ShoppingBag className="w-6 h-6 mx-auto mb-1 text-pink-300" />
                                         <p className="text-[10px] text-pink-600 font-medium">没有上传则默认不添加包包和配饰</p>
-                                        <p className="text-[9px] text-pastel-muted mt-1">支持点击、拖拽、Ctrl+V 粘贴，最多 10 张</p>
+                                        <p className="text-[9px] text-pastel-muted mt-1">支持点击、拖拽、Ctrl+V 粘贴，最多10张</p>
                                     </div>
                                 )}
                             </div>
@@ -1219,7 +1338,7 @@ Rules:
                                     <h3 className="font-bold text-pastel-text text-sm">模特身份固定 (Face & Body)</h3>
                                 </div>
                                 <div className="flex items-center gap-3">
-                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，AI 将仅提取模特图的脸型与五官特征，忽略图中原有姿态">
+                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="Only extract model facial identity">
                                             <input 
                                                 type="checkbox" 
                                                 checked={isFaceOnly}
@@ -1231,7 +1350,7 @@ Rules:
                                             />
                                         <span className="text-[10px] text-gray-500 group-hover:text-blue-600 transition-colors font-medium">仅脸型</span>
                                     </label>
-                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，模特参考图将自动转化为线稿，以绕过敏感人物拦截">
+                                    <label className="flex items-center gap-1.5 cursor-pointer group" title="开启后，模特参考图将自动转为线稿，降低敏感人物拦截">
                                         <input 
                                             type="checkbox" 
                                             checked={isSafeModeModel}
@@ -1268,13 +1387,13 @@ Rules:
                                     ) : (
                                         <div className="text-center py-2">
                                             <UserCircle className="w-6 h-6 mx-auto mb-1 text-blue-300" />
-                                            <p className="text-[9px] text-blue-600 font-medium">指定长相</p>
+                                            <p className="text-[9px] text-blue-600 font-medium">鎸囧畾闀跨浉</p>
                                         </div>
                                     )}
                                 </div>
                                 <div className="col-span-2 grid grid-cols-1 gap-2">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-pastel-muted font-bold w-12">胸围</span>
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">鑳稿洿</span>
                                         <input 
                                             type="text" 
                                             value={measurements.bust} 
@@ -1284,7 +1403,7 @@ Rules:
                                         />
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-pastel-muted font-bold w-12">腰围</span>
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">鑵板洿</span>
                                         <input 
                                             type="text" 
                                             value={measurements.waist} 
@@ -1322,7 +1441,7 @@ Rules:
                                 </div>
                             )}
 
-                            {/* 模特图上传指南展示，平时只显示一个AI模特规则，点击可以放大查看 */}
+                            {/* 妯＄壒鍥句笂浼犳寚鍗楀睍绀猴紝骞虫椂鍙樉绀轰竴涓狝I妯＄壒瑙勫垯锛岀偣鍑诲彲浠ユ斁澶ф煡鐪?*/}
                             <div className="mt-3 bg-purple-50/40 border border-purple-100/60 rounded-xl px-3.5 py-2.5 flex items-center justify-between shadow-sm">
                                 <div className="flex items-center gap-2">
                                     <span className="flex h-2 w-2 relative">
@@ -1429,7 +1548,7 @@ Rules:
                             <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between p-4 border-b border-pastel-border hover:bg-pastel-bg/30">
                                 <div className="flex items-center gap-2">
                                     <Settings className="w-4 h-4 text-pastel-highlight" />
-                                    <h3 className="font-bold text-pastel-text text-sm">高级参数与手动覆盖</h3>
+                                    <h3 className="font-bold text-pastel-text text-sm">高级参数与手动覆写</h3>
                                 </div>
                                 {showAdvanced ? <ChevronUp className="w-4 h-4 text-pastel-muted" /> : <ChevronDown className="w-4 h-4 text-pastel-muted" />}
                             </button>
@@ -1437,7 +1556,7 @@ Rules:
                             {showAdvanced && (
                                 <div className="p-4 space-y-4">
                                     {/* Model Selector */}
-                                    {/* 图像模型选择 Section */}
+                                    {/* 鍥惧儚妯″瀷閫夋嫨 Section */}
                                     <div className="mb-4">
                                         <div className="flex items-center gap-2 mb-3">
                                             <Cpu className="w-4 h-4 text-pastel-highlight" />
@@ -1487,26 +1606,20 @@ Rules:
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">清晰度</label><select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select></div>
                                         <div>
                                             <label className="text-[10px] text-pastel-muted font-bold block mb-1">
-                                                批量 {actionReferences.length > 1 && <span className="text-[8px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded font-normal border border-purple-100 animate-pulse">自动对齐动作</span>}
+                                                批量 {actionReferences.length > 0 && <span className="text-[8px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded font-normal border border-purple-100 animate-pulse">前{actionReferences.length}张对齐动作</span>}
                                             </label>
                                             <select 
                                                 value={generateCount} 
                                                 onChange={e => setGenerateCount(Number(e.target.value))} 
-                                                disabled={actionReferences.length > 1}
+                                                disabled={false}
                                                 className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs disabled:opacity-85 disabled:bg-purple-50/10 disabled:border-purple-200 transition-all cursor-pointer disabled:cursor-not-allowed"
                                             >
-                                                {actionReferences.length > 1 ? (
-                                                    <option value={actionReferences.length}>{actionReferences.length}张 (等同于参考图数)</option>
-                                                ) : (
-                                                    <>
-                                                        <option value={1}>1张</option>
-                                                        <option value={2}>2张</option>
-                                                        <option value={4}>4张</option>
-                                                        <option value={6}>6张</option>
-                                                        <option value={8}>8张</option>
-                                                        <option value={10}>10张</option>
-                                                    </>
-                                                )}
+                                                <option value={1}>1张</option>
+                                                <option value={2}>2张</option>
+                                                <option value={4}>4张</option>
+                                                <option value={6}>6张</option>
+                                                <option value={8}>8张</option>
+                                                <option value={10}>10张</option>
                                             </select>
                                         </div>
                                     </div>
@@ -1514,7 +1627,7 @@ Rules:
                             )}
                         </div>
 
-                        <button onClick={() => handleGenerate()} disabled={isLoading || productImages.length === 0} className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
+                        <button onClick={() => handleGenerate()} disabled={isLoading || productImages.length === 0 || regeneratingIndices.length > 0} className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 || regeneratingIndices.length > 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
                             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
                             {isLoading ? 'Agent 正在绘制...' : '一键生成高品质主图'}
                         </button>
@@ -1566,10 +1679,10 @@ Rules:
                                                 </div>
                                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 backdrop-blur-[2px]">
                                                     <button onClick={() => setSelectedPreview(img)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform"><ZoomIn className="w-6 h-6" /></button>
-                                                    <button onClick={() => handleGenerate(idx)} disabled={regeneratingIndex !== null || isLoading} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform disabled:opacity-50 disabled:cursor-not-allowed" title="重新生成这张"><RefreshCw className={`w-6 h-6 ${regeneratingIndex === idx ? 'animate-spin' : ''}`} /></button>
+                                                    <button onClick={() => handleGenerate(idx)} disabled={isLoading || regeneratingIndices.includes(idx)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform disabled:opacity-50 disabled:cursor-not-allowed" title="重新生成这张"><RefreshCw className={`w-6 h-6 ${regeneratingIndices.includes(idx) ? 'animate-spin' : ''}`} /></button>
                                                     <button onClick={() => handleDownload(img, idx)} className="p-3 bg-white/20 hover:bg-white/40 rounded-full text-white transform hover:scale-110 transition-transform"><Download className="w-6 h-6" /></button>
                                                 </div>
-                                                {regeneratingIndex === idx && (
+                                                {regeneratingIndices.includes(idx) && (
                                                     <div className="absolute inset-0 bg-white/75 backdrop-blur-sm flex flex-col items-center justify-center gap-2 text-orange-600 font-bold text-xs">
                                                         <RefreshCw className="w-6 h-6 animate-spin" />
                                                         <span>正在重新生成...</span>
@@ -1602,7 +1715,7 @@ Rules:
                 </div>
             )}
 
-            {/* AI模特规则放大查看弹窗 */}
+            {/* AI妯＄壒瑙勫垯鏀惧ぇ鏌ョ湅寮圭獥 */}
             {showModelGuideModal && (
                 <div 
                     className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300 animate-fade-in"
@@ -1612,7 +1725,7 @@ Rules:
                         className="relative max-w-md w-full bg-white rounded-3xl p-7 shadow-2xl border border-purple-50 flex flex-col gap-5 transform transition-all duration-300 scale-100 hover:shadow-purple-100/40"
                         onClick={e => e.stopPropagation()}
                     >
-                        {/* 头部标题区 */}
+                        {/* 澶撮儴鏍囬鍖?*/}
                         <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
                             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-purple-200 shrink-0">
                                 <Sparkles className="w-4.5 h-4.5 animate-pulse" />
@@ -1622,36 +1735,36 @@ Rules:
                                     AI 模特身份固定上传规则
                                 </h3>
                                 <p className="text-[10px] text-gray-400 font-medium">
-                                    遵循以下高精度提取准则，可让生成的商拍模特质量达到极致
+                                    遵循以下高精度提取准则，可提升生成模特的一致性与质感
                                 </p>
                             </div>
                         </div>
 
-                        {/* 规则条目卡片列表 */}
+                        {/* 瑙勫垯鏉＄洰鍗＄墖鍒楄〃 */}
                         <div className="space-y-3">
                             {[
                                 {
                                     num: "01",
                                     title: "纯色或简单背景",
-                                    desc: "优先提供干净、白墙或单色背景的图片。避免背景中有复杂的货架、多人环境，有利于 AI 更加聚焦并提取模特五官与体态曲线。",
+                                    desc: "优先提供干净白墙或单色背景的图片，让 AI 更专注提取脸部和体型比例。",
                                     badgeColor: "bg-purple-50 text-purple-600 border border-purple-100"
                                 },
                                 {
                                     num: "02",
-                                    title: "清晰正面半身特写",
-                                    desc: "推荐使用五官及发型清晰无遮挡、光线均匀的正面半身照片。避开强逆光、浓重侧光阴影或低头/仰头角度，保证长相提取准确度最高。",
+                                    title: "清晰正面半身照",
+                                    desc: "建议五官和发型清晰无遮挡，光线均匀，避免强逆光或低头仰头角度。",
                                     badgeColor: "bg-blue-50 text-blue-600 border border-blue-100"
                                 },
                                 {
                                     num: "03",
-                                    title: "穿着素色或紧身衣服",
-                                    desc: "强烈推荐让参考模特穿着紧身吊带、背心或贴身衣物。这能帮助 AI 完美且精准地提取模特的体型比例，不受宽大衣服误导。",
+                                    title: "穿着素色或紧身衣物",
+                                    desc: "贴身衣物能帮助 AI 准确提取体型比例，减少宽大衣服造成的误导。",
                                     badgeColor: "bg-emerald-50 text-emerald-600 border border-emerald-100"
                                 },
                                 {
                                     num: "04",
                                     title: "避免首饰与配饰遮挡",
-                                    desc: "参考照片中严禁佩戴大镜框墨镜、大型项链、挂饰或遮阳帽等配饰。避免面部和颈部特征受干扰产生畸变。",
+                                    desc: "避免大墨镜、项链、围巾或帽子遮挡脸部和颈部特征。",
                                     badgeColor: "bg-amber-50 text-amber-600 border border-amber-100"
                                 }
                             ].map((item, idx) => (
@@ -1667,7 +1780,7 @@ Rules:
                             ))}
                         </div>
 
-                        {/* 底部按钮区 */}
+                        {/* 搴曢儴鎸夐挳鍖?*/}
                         <div className="flex gap-3 mt-1">
                             <button 
                                 onClick={() => setShowModelGuideModal(false)}
@@ -1677,7 +1790,7 @@ Rules:
                             </button>
                         </div>
 
-                        {/* 关闭按钮 */}
+                        {/* 鍏抽棴鎸夐挳 */}
                         <button 
                             onClick={() => setShowModelGuideModal(false)} 
                             className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"

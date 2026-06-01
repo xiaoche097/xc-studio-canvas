@@ -16,6 +16,7 @@ export interface ApiConfig {
     baseUrl?: string;
     isYunwu: boolean;
     isPlato: boolean;
+    isJijing?: boolean;
     apiVersion?: string;
 }
 
@@ -49,10 +50,20 @@ export const resolveRuntimeModelId = (
             !(
                 Boolean(localStorage.getItem("plato_api_key")) &&
                 localStorage.getItem("plato_enabled") !== "false"
+            ) &&
+            !(
+                Boolean(localStorage.getItem("jijing_api_key")) &&
+                localStorage.getItem("jijing_enabled") !== "false"
             ),
         isPlato:
-            Boolean(localStorage.getItem("plato_api_key")) &&
-            localStorage.getItem("plato_enabled") !== "false",
+            (
+                Boolean(localStorage.getItem("plato_api_key")) &&
+                localStorage.getItem("plato_enabled") !== "false"
+            ) ||
+            (
+                Boolean(localStorage.getItem("jijing_api_key")) &&
+                localStorage.getItem("jijing_enabled") !== "false"
+            ),
     };
     if (
         runtimeConfig.isYunwu &&
@@ -182,6 +193,43 @@ export interface TimeoutOptions {
  * @param forceIndex 强制使用的 Key 索引（用于自动重试）
  */
 export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: number, currentIndex: number } => {
+    // 1. Jijing API
+    const jijingKey = localStorage.getItem("jijing_api_key");
+    const jijingBaseUrl = localStorage.getItem("jijing_base_url");
+    const jijingEnabled = localStorage.getItem("jijing_enabled") !== "false";
+
+    if (jijingKey && jijingEnabled) {
+        const keys = jijingKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
+        const keyCount = keys.length;
+
+        let activeKey = keys[0];
+        let currentIndex = 0;
+
+        if (keyCount > 1) {
+            const lastIndexKey = "jijing_api_key_last_index";
+            if (forceIndex !== undefined) {
+                currentIndex = forceIndex % keyCount;
+            } else {
+                const lastIndex = parseInt(localStorage.getItem(lastIndexKey) || "-1");
+                currentIndex = (lastIndex + 1) % keyCount;
+                localStorage.setItem(lastIndexKey, currentIndex.toString());
+            }
+            activeKey = keys[currentIndex];
+            console.log(`[Jijing API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+        }
+
+        return {
+            apiKey: activeKey,
+            baseUrl: jijingBaseUrl || "https://api.jijing.ai",
+            isYunwu: true,
+            isPlato: true,
+            isJijing: true,
+            apiVersion: 'v1beta',
+            keyCount,
+            currentIndex
+        };
+    }
+
     // 1. Plato API (柏拉图)
     const platoKey = localStorage.getItem("plato_api_key");
     const platoBaseUrl = localStorage.getItem("plato_base_url");
@@ -212,6 +260,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             baseUrl: platoBaseUrl || "https://api.bltcy.ai",
             isYunwu: true, // 柏拉图也使用标准的 OpenAI/Gemini 兼容中转格式，这里复用 isYunwu 逻辑
             isPlato: true,
+            isJijing: false,
             apiVersion: 'v1beta', // 恢复 v1beta，因为部分中转站对 2k/4k 这种自定义模型 ID 仅在测试版路径开放
             keyCount,
             currentIndex
@@ -251,6 +300,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             baseUrl: yunwuBaseUrl || "https://yunwu.ai",
             isYunwu: true,
             isPlato: false,
+            isJijing: false,
             keyCount,
             currentIndex
         };
@@ -265,6 +315,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             apiKey: nativeKey,
             isYunwu: false,
             isPlato: false,
+            isJijing: false,
             keyCount: 1,
             currentIndex: 0
         };
@@ -277,12 +328,13 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
             apiKey: envKey,
             isYunwu: false,
             isPlato: false,
+            isJijing: false,
             keyCount: 1,
             currentIndex: 0
         };
     }
 
-    throw new Error("No active API configuration found. Please enable Plato, Yunwu or Native API in Settings.");
+    throw new Error("No active API configuration found. Please enable Jijing, Plato, Yunwu or Native API in Settings.");
 };
 
 /**
@@ -313,9 +365,12 @@ export const getAiClient = (): GoogleGenAI => {
 /**
  * 获取当前激活的API信息（用于调试）
  */
-export const getActiveApiInfo = (): { type: 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+export const getActiveApiInfo = (): { type: 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
         const config = getApiConfig();
+        if (localStorage.getItem("jijing_api_key") && (localStorage.getItem("jijing_enabled") !== "false")) {
+            return { type: 'jijing', baseUrl: config.baseUrl };
+        }
         if (localStorage.getItem("plato_api_key") && (localStorage.getItem("plato_enabled") !== "false")) {
             return { type: 'plato', baseUrl: config.baseUrl };
         }

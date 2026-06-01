@@ -104,6 +104,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     baseUrl: ''
   });
 
+  const [jijingConfig, setJijingConfig] = useState({
+    enabled: false,
+    apiKey: '',
+    baseUrl: 'https://api.jijing.ai'
+  });
+
   // Global Status
   const [status, setStatus] = useState<{ type: 'idle' | 'testing' | 'success' | 'error'; message: string }>({
     type: 'idle',
@@ -129,6 +135,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
       const pUrl = localStorage.getItem('plato_base_url') || '';
       const pEnabled = localStorage.getItem('plato_enabled') === 'true';
       setPlatoConfig({ enabled: pEnabled, apiKey: pKey, baseUrl: pUrl });
+
+      // Load Jijing
+      const jKey = localStorage.getItem('jijing_api_key') || '';
+      const jUrl = localStorage.getItem('jijing_base_url') || 'https://api.jijing.ai';
+      const jEnabled = localStorage.getItem('jijing_enabled') === 'true';
+      setJijingConfig({ enabled: jEnabled, apiKey: jKey, baseUrl: jUrl });
     }
   }, [isOpen]);
 
@@ -146,11 +158,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     localStorage.setItem('plato_base_url', platoConfig.baseUrl);
     localStorage.setItem('plato_enabled', String(platoConfig.enabled));
 
+    localStorage.setItem('jijing_api_key', jijingConfig.apiKey);
+    localStorage.setItem('jijing_base_url', jijingConfig.baseUrl || 'https://api.jijing.ai');
+    localStorage.setItem('jijing_enabled', String(jijingConfig.enabled));
+
     // Determine active provider
     let activeKey = geminiConfig.apiKey;
     let activeUrl = geminiConfig.baseUrl;
 
-    if (platoConfig.enabled && platoConfig.apiKey) {
+    if (jijingConfig.enabled && jijingConfig.apiKey) {
+        activeKey = jijingConfig.apiKey;
+        activeUrl = jijingConfig.baseUrl || 'https://api.jijing.ai';
+    } else if (platoConfig.enabled && platoConfig.apiKey) {
         activeKey = platoConfig.apiKey;
         activeUrl = platoConfig.baseUrl;
     } else if (yunwuConfig.enabled && yunwuConfig.apiKey) {
@@ -165,7 +184,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     setTimeout(() => setStatus({ type: 'idle', message: '' }), 2000);
   };
 
-  const testConnection = async (type: 'gemini' | 'yunwu' | 'plato') => {
+  const testConnection = async (type: 'gemini' | 'yunwu' | 'plato' | 'jijing') => {
     setStatus({ type: 'testing', message: `正在连接 ${type}...` });
     
     let key = '';
@@ -174,6 +193,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     if (type === 'gemini') { key = geminiConfig.apiKey; url = geminiConfig.baseUrl; }
     if (type === 'yunwu') { key = yunwuConfig.apiKey; url = yunwuConfig.baseUrl; }
     if (type === 'plato') { key = platoConfig.apiKey; url = platoConfig.baseUrl; }
+    if (type === 'jijing') { key = jijingConfig.apiKey; url = jijingConfig.baseUrl; }
 
     if (!key) {
         setStatus({ type: 'error', message: '请输入 API Key 后再测试' });
@@ -399,6 +419,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                             </div>
                             <div className="flex justify-end mt-4">
                                 <button onClick={() => testConnection('plato')} className="text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors">
+                                    测试连接
+                                </button>
+                            </div>
+                        </ProviderCard>
+
+                        {/* Jijing API */}
+                        <ProviderCard 
+                          title="极境 API 中转站"
+                          description="使用极境 Gemini 兼容中转服务，默认 Base URL 为 https://api.jijing.ai。"
+                          icon={<Zap className="text-orange-500" />}
+                          enabled={jijingConfig.enabled}
+                          onToggle={(v) => setJijingConfig(c => ({ ...c, enabled: v }))}
+                        >
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <ConfigInput 
+                                  label="Base URL"
+                                  value={jijingConfig.baseUrl}
+                                  onChange={(v) => setJijingConfig(c => ({ ...c, baseUrl: v }))}
+                                  placeholder="https://api.jijing.ai"
+                                  icon={<Globe size={16} />}
+                                />
+                                <ConfigInput 
+                                  label="API Key"
+                                  value={jijingConfig.apiKey}
+                                  onChange={(v) => setJijingConfig(c => ({ ...c, apiKey: v }))}
+                                  placeholder="sk-..."
+                                  type="password"
+                                  icon={<Key size={16} />}
+                                />
+                            </div>
+                            <div className="flex justify-end mt-4">
+                                <button onClick={() => testConnection('jijing')} className="text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors">
                                     测试连接
                                 </button>
                             </div>
