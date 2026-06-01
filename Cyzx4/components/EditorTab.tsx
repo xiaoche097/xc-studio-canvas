@@ -5,6 +5,7 @@ import { ImageResolution, AspectRatio, EditPoint } from '../types';
 import EditorCanvas from './editor/EditorCanvas';
 import EditorSidebar from './editor/EditorSidebar';
 import EditorToolbar from './editor/EditorToolbar';
+import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 interface EditorTabProps {
   initialImage: string | null;
@@ -284,6 +285,18 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
         setCurrentImage(resultImages[0]);
         setPoints([]);
         clearMask();
+        await saveGeneratedProject({
+          type: 'RETOUCHING',
+          generated: [resultImages[0]],
+          original: currentImage ? [currentImage] : [],
+          prompt: finalPrompt,
+          params: {
+            source: 'Cyzx4/components/EditorTab',
+            mode: effectiveMaskBase64 ? 'inpaint' : 'edit',
+            resolution: selectedResolution,
+            aspectRatio: selectedAspectRatio
+          }
+        });
       } else {
         throw new Error("Generation failed.");
       }
@@ -315,6 +328,18 @@ const EditorTab: React.FC<EditorTabProps> = ({ initialImage }) => {
         if (result.length > 0) {
           setPreEditImage(currentImage);
           setCurrentImage(result[0]);
+          await saveGeneratedProject({
+            type: 'RETOUCHING',
+            generated: [result[0]],
+            original: [currentImage],
+            prompt,
+            params: {
+              source: 'Cyzx4/components/EditorTab',
+              mode: 'camera-shift',
+              resolution: selectedResolution,
+              aspectRatio: selectedAspectRatio
+            }
+          });
         }
       }
     } catch (e: any) {

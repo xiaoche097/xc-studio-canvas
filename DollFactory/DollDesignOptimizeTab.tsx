@@ -3,6 +3,7 @@ import { Download, Loader2, Sparkles, Upload, X, LayoutGrid, CheckCircle2, Chevr
 import { compressImage, generateContentWithAnalysisFallback, getAiClient, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { generateImageToImage } from '../Cyzx4/services/geminiService';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 // Types
 
@@ -277,6 +278,21 @@ ${guidance ? `USER GUIDANCE: ${guidance}` : ''}
         
         if (resUrls && resUrls.length > 0) {
           setImages(prev => prev.map(p => p.id === img.id ? { ...p, status: 'done', optimizedUrl: resUrls[0] } : p));
+          await saveGeneratedProject({
+            type: 'MARKETING',
+            generated: [resUrls[0]],
+            original: [`data:${compressed.mime};base64,${compressed.base64}`],
+            prompt,
+            params: {
+              source: 'DollFactory/DollDesignOptimizeTab',
+              model: selectedModel,
+              thinkingModel,
+              aspectRatio: outputAspectRatio,
+              resolution,
+              sceneType: diag.scene_type,
+              score: diag.overall_score
+            }
+          });
         } else {
           throw new Error("No image generated");
         }

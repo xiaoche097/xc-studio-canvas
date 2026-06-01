@@ -3,6 +3,7 @@ import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 // --- Reference Refinement Prompt ---
 const REFINEMENT_PROMPT = {
@@ -442,6 +443,23 @@ ${styleAnalysis.overall_atmosphere || ''}
       if (flattenedResult.length > 0) {
         setResultImages(flattenedResult);
         setSelectedResultIndex(0);
+        await saveGeneratedProject({
+          type: 'RETOUCHING',
+          generated: flattenedResult,
+          original: [
+            `data:${compressedImage.mime};base64,${compressedImage.base64}`,
+            ...refInputImages.map(img => `data:${img.mimeType};base64,${img.base64}`)
+          ],
+          prompt,
+          params: {
+            source: 'DollFactory/DollMainRetouchTab',
+            model: selectedModel,
+            aspectRatio: outputAspectRatio,
+            resolution,
+            intensity,
+            variantCount
+          }
+        });
         setStatusMessage('参考精修完成！请查看生成效果。');
       } else {
         throw new Error('未返回任何图片');

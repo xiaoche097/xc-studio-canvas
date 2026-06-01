@@ -33,6 +33,12 @@ export interface CacheStats {
     storageQuota?: number;
 }
 
+export interface ProjectSummaryPage {
+    projects: ProjectSummary[];
+    hasMore: boolean;
+    nextOffset: number;
+}
+
 interface SkysperDB extends DBSchema {
     projects: {
         key: string;
@@ -43,6 +49,9 @@ interface SkysperDB extends DBSchema {
 
 const DB_NAME = 'skysper-projects';
 const STORE_NAME = 'projects';
+const DEFAULT_PAGE_SIZE = 60;
+const THUMBNAIL_SIZE = 480;
+const THUMBNAIL_QUALITY = 0.72;
 
 class StorageService {
     private dbPromise: Promise<IDBPDatabase<SkysperDB>>;
@@ -59,7 +68,12 @@ class StorageService {
 
     async saveProject(project: Project): Promise<string> {
         const db = await this.dbPromise;
-        await db.put(STORE_NAME, project);
+        const projectToSave = {
+            ...project,
+            thumbnail: await this.createThumbnail(project.thumbnail || project.assets.generated[0]),
+        };
+        await db.put(STORE_NAME, projectToSave);
+        window.dispatchEvent(new CustomEvent('project-cache-updated'));
         return project.id;
     }
 
@@ -82,8 +96,35 @@ class StorageService {
                 original: project.assets.original?.length || 0,
                 generated: project.assets.generated.length,
             },
-            estimatedBytes: this.estimateProjectBytes(project),
+            estimatedBytes: 0,
         };
+    }
+
+    private async createThumbnail(imageUrl?: string): Promise<string> {
+        if (!imageUrl || typeof window === 'undefined') return imageUrl || '';
+        if (!imageUrl.startsWith('data:image/') && !imageUrl.startsWith('blob:')) return imageUrl;
+
+        try {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = reject;
+                image.src = imageUrl;
+            });
+
+            const scale = Math.min(1, THUMBNAIL_SIZE / Math.max(img.width, img.height));
+            const width = Math.max(1, Math.round(img.width * scale));
+            const height = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return imageUrl;
+            ctx.drawImage(img, 0, 0, width, height);
+            return canvas.toDataURL('image/webp', THUMBNAIL_QUALITY);
+        } catch {
+            return imageUrl;
+        }
     }
 
     async getAllProjects(): Promise<Project[]> {
@@ -92,20 +133,71 @@ class StorageService {
         return (await db.getAllFromIndex(STORE_NAME, 'by-date')).reverse();
     }
 
-    async getProjectSummaries(limit?: number): Promise<ProjectSummary[]> {
+    async getProjectSummaryPage(options: {
+        limit?: number;
+        offset?: number;
+        type?: Project['type'] | 'ALL';
+        query?: string;
+    } = {}): Promise<ProjectSummaryPage> {
         const db = await this.dbPromise;
         const summaries: ProjectSummary[] = [];
+        const limit = options.limit || DEFAULT_PAGE_SIZE;
+        const offset = options.offset || 0;
+        const type = options.type && options.type !== 'ALL' ? options.type : undefined;
+        const query = options.query?.trim().toLowerCase();
         const tx = db.transaction(STORE_NAME, 'readonly');
         let cursor = await tx.store.index('by-date').openCursor(null, 'prev');
+        let matched = 0;
+        let hasMore = false;
 
         while (cursor) {
-            summaries.push(this.toSummary(cursor.value));
-            if (limit && summaries.length >= limit) break;
+            const project = cursor.value;
+            const matchesType = !type || project.type === type;
+            const matchesQuery = !query ||
+                project.id.toLowerCase().includes(query) ||
+                project.metadata.prompt?.toLowerCase().includes(query) ||
+                JSON.stringify(project.metadata.params || {}).toLowerCase().includes(query);
+
+            if (matchesType && matchesQuery) {
+                if (matched >= offset && summaries.length < limit) {
+                    summaries.push(this.toSummary(project));
+                } else if (matched >= offset + limit) {
+                    hasMore = true;
+                    break;
+                }
+                matched += 1;
+            }
             cursor = await cursor.continue();
         }
 
         await tx.done;
-        return summaries;
+        return {
+            projects: summaries,
+            hasMore,
+            nextOffset: offset + summaries.length,
+        };
+    }
+
+    async getProjectSummaries(limit?: number): Promise<ProjectSummary[]> {
+        const page = await this.getProjectSummaryPage({ limit });
+        return page.projects;
+    }
+
+    async getProjectCountAndEstimatedBytes(): Promise<{ count: number; estimatedBytes: number }> {
+        const db = await this.dbPromise;
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        let cursor = await tx.store.openCursor();
+        let count = 0;
+        let estimatedBytes = 0;
+
+        while (cursor) {
+            count += 1;
+            estimatedBytes += this.estimateProjectBytes(cursor.value);
+            cursor = await cursor.continue();
+        }
+
+        await tx.done;
+        return { count, estimatedBytes };
     }
 
     async getProjectsByType(type: Project['type']): Promise<Project[]> {
@@ -167,12 +259,12 @@ class StorageService {
     }
 
     async getCacheStats(): Promise<CacheStats> {
-        const summaries = await this.getProjectSummaries();
+        const stats = await this.getProjectCountAndEstimatedBytes();
         const storage = await navigator.storage?.estimate?.().catch(() => undefined);
 
         return {
-            projectCount: summaries.length,
-            estimatedProjectBytes: summaries.reduce((sum, project) => sum + project.estimatedBytes, 0),
+            projectCount: stats.count,
+            estimatedProjectBytes: stats.estimatedBytes,
             storageUsage: storage?.usage,
             storageQuota: storage?.quota,
         };

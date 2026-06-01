@@ -3,6 +3,7 @@ import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, X, M
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 // --- Cute Angle Presets Configuration ---
 const ANGLE_PRESETS = [
@@ -164,6 +165,20 @@ const DollAnglePresetsTab: React.FC = () => {
       if (flattenedResult.length > 0) {
         setResultImages(flattenedResult);
         setSelectedResultIndex(0);
+        await saveGeneratedProject({
+          type: 'RETOUCHING',
+          generated: flattenedResult,
+          original: [`data:${compressedImage.mime};base64,${compressedImage.base64}`],
+          prompt,
+          params: {
+            source: 'DollFactory/DollAnglePresetsTab',
+            model: selectedModel,
+            preset: selectedPresetId,
+            resolution,
+            variantCount,
+            intensity
+          }
+        });
       } else {
         throw new Error('未返回任何图片');
       }

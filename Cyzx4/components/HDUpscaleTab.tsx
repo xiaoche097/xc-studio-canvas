@@ -3,6 +3,7 @@ import { analyzeImageQuality, analyzeStyle, generateColorMap, generateLineArt, g
 import { getErrorMessage } from '../utils/apiHelpers';
 import { Upload, Loader2, AlertCircle, X, Download, Maximize2, RotateCcw, Image as ImageIcon, CheckCircle2, ChevronRight, Zap, Target } from 'lucide-react';
 import { ImageResolution, AspectRatio } from '../types';
+import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 // ==================== Steps & State ====================
 const PROCESS_STEPS = [
@@ -159,6 +160,18 @@ const HDUpscaleTab: React.FC = () => {
                 setResults(prev => ({ ...prev, upscaled: upscaledUrl }));
                 setPreviewMode('upscaled');
                 setCurrentStep(5); // Completed
+                await saveGeneratedProject({
+                    type: 'RETOUCHING',
+                    generated: [upscaledUrl],
+                    original: [`data:${originalImage.mime};base64,${originalImage.base64}`],
+                    prompt: styleRes.positive_prompt,
+                    params: {
+                        source: 'Cyzx4/components/HDUpscaleTab',
+                        aspectRatio,
+                        upscaleFactor,
+                        negativePrompt: styleRes.negative_prompt
+                    }
+                });
             } else {
                 throw new Error("Upscale generation returned no image.");
             }

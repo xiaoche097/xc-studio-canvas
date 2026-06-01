@@ -12,7 +12,7 @@ import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAn
 import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
-import { storageService } from '../../services/storageService';
+import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 import { extractEdges } from '../utils/imageProcessor';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
@@ -838,6 +838,27 @@ Rules:
             } else {
                 setGeneratedImages(flatResults);
             }
+            await saveGeneratedProject({
+                type: 'RETOUCHING',
+                generated: flatResults,
+                original: [
+                    ...productImages.map(img => `data:${img.mime};base64,${img.base64}`),
+                    ...actionReferences.map(img => `data:${img.mime};base64,${img.base64}`),
+                    ...sceneReferences.map(img => `data:${img.mime};base64,${img.base64}`),
+                    ...accessoryReferences.map(img => `data:${img.mime};base64,${img.base64}`),
+                    ...(modelReference ? [`data:${modelReference.mime};base64,${modelReference.base64}`] : [])
+                ],
+                prompt,
+                params: {
+                    source: 'Cyzx4/components/ImageCleanTab',
+                    model: selectedModel,
+                    aspectRatio,
+                    resolution,
+                    count: flatResults.length,
+                    singleRegenerate: isSingleRegenerate,
+                    platform: selectedPlatform
+                }
+            });
 
         } catch (err) {
             setError(getErrorMessage(err));

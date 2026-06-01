@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2, Trash2, CheckCircle2, AlertCircle, Bot, Layout, Store, RefreshCw } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 const PLATFORM_STYLES = [
     { id: 'amazon', label: 'Amazon', icon: '🅰️', desc: '纯白背景 / 极简', prompt: 'Amazon professional main image, pure white background (#FFFFFF), high clarity, centered composition, clean edges, professional studio photography.' },
@@ -361,6 +362,7 @@ const DollBatchRetouchTab: React.FC = () => {
         }
       }
 
+      const savedGenerated: string[] = [];
       for (let i = 0; i < sources.length; i++) {
         setStatusMessage(`正在处理第 ${i + 1}/${sources.length} 张图片...`);
         setResults(prev => {
@@ -399,6 +401,7 @@ const DollBatchRetouchTab: React.FC = () => {
         );
 
         if (result && result.length > 0) {
+          savedGenerated.push(result[0]);
           setResults(prev => {
             const next = [...prev];
             next[i].resultUrl = result[0];
@@ -410,6 +413,26 @@ const DollBatchRetouchTab: React.FC = () => {
         }
         
         setProgress(Math.round(((i + 1) / sources.length) * 100));
+      }
+      if (savedGenerated.length > 0) {
+        await saveGeneratedProject({
+          type: 'RETOUCHING',
+          generated: savedGenerated,
+          original: [
+            ...sources.map(source => `data:${source.mime};base64,${source.base64}`),
+            ...refs.map(ref => `data:${ref.mime};base64,${ref.base64}`)
+          ],
+          prompt: `${BATCH_RETOUCH_PROMPT}\n${guidance.trim() ? `\n[USER REQUEST]: ${guidance.trim()}` : ''}`,
+          params: {
+            source: 'DollFactory/DollBatchRetouchTab',
+            model: selectedModel,
+            aspectRatio,
+            resolution,
+            intensity,
+            platform: selectedPlatform,
+            count: savedGenerated.length
+          }
+        });
       }
       setStatusMessage('批量精修全部完成！');
     } catch (err) {
