@@ -657,6 +657,7 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
     if (aspectRatio === '2:3') return '768x1152';
     if (aspectRatio === '4:3') return '1152x864';
     if (aspectRatio === '3:4') return '864x1152';
+    if (aspectRatio === '4:5') return '1024x1280';
     if (aspectRatio === '16:9') return '1280x720';
     if (aspectRatio === '9:16') return '720x1280';
   } else if (resolution === '2K') {
@@ -665,6 +666,7 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
     if (aspectRatio === '9:16') return '1152x2048';
     if (aspectRatio === '4:3') return '2048x1536';
     if (aspectRatio === '3:4') return '1536x2048';
+    if (aspectRatio === '4:5') return '1638x2048';
     if (aspectRatio === '3:2') return '2304x1536';
     if (aspectRatio === '2:3') return '1536x2304';
   } else if (resolution === '4K') {
@@ -672,6 +674,7 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
     if (aspectRatio === '9:16') return '2160x3840';
     if (aspectRatio === '4:3') return '3200x2400';
     if (aspectRatio === '3:4') return '2400x3200';
+    if (aspectRatio === '4:5') return '2560x3200';
     if (aspectRatio === '1:1') return '2880x2880';
   }
 
@@ -1096,7 +1099,11 @@ ${forcedPrompt}`;
       // Specialized handling for GPT-based proxy models (OpenAI/DALL-E/Midjourney style)
       if (isGptModel) {
         const resHint = resolution === '4K' ? '8k resolution, cinematic, hyper-detailed' : resolution === '2K' ? '4k high resolution, high quality' : 'high quality';
-        const arDescription = aspectRatio === '9:16' || aspectRatio === '2:3' ? 'vertical portrait' : aspectRatio === '16:9' || aspectRatio === '3:2' ? 'wide landscape' : 'square';
+        const arDescription = aspectRatio === '9:16' || aspectRatio === '2:3' || aspectRatio === '3:4' || aspectRatio === '4:5'
+          ? 'vertical portrait'
+          : aspectRatio === '16:9' || aspectRatio === '3:2' || aspectRatio === '4:3' || aspectRatio === '21:9'
+            ? 'wide landscape'
+            : 'square';
         
         // Build a more descriptive prompt for GPT models to ensure they look at the reference images
         let gptContext = `[IMAGE GENERATION TASK]
@@ -1436,12 +1443,43 @@ ${forcedPrompt}`;
 
       // Map resolution to explicit dimensions for proxy compatibility
       const getDimensions = (ar: string, res: string) => {
-        const isTall = ar === '9:16' || ar === '2:3' || ar === '3:4';
-        const isWide = ar === '16:9' || ar === '3:2' || ar === '4:3' || ar === '21:9';
-        
-        if (res === '4K') return isTall ? '1536x2048' : isWide ? '2048x1536' : '2048x2048';
-        if (res === '2K') return isTall ? '1024x1792' : isWide ? '1792x1024' : '1024x1024';
-        return isTall ? '768x1024' : isWide ? '1024x768' : '1024x1024';
+        const dimensionsByResolution: Record<string, Record<string, string>> = {
+          '4K': {
+            '1:1': '2048x2048',
+            '2:3': '1365x2048',
+            '3:4': '1536x2048',
+            '4:5': '1638x2048',
+            '9:16': '1152x2048',
+            '16:9': '2048x1152',
+            '3:2': '2048x1365',
+            '4:3': '2048x1536',
+            '21:9': '2048x878',
+          },
+          '2K': {
+            '1:1': '1024x1024',
+            '2:3': '1024x1536',
+            '3:4': '960x1280',
+            '4:5': '1024x1280',
+            '9:16': '1024x1792',
+            '16:9': '1792x1024',
+            '3:2': '1536x1024',
+            '4:3': '1280x960',
+            '21:9': '1792x768',
+          },
+          '1K': {
+            '1:1': '1024x1024',
+            '2:3': '682x1024',
+            '3:4': '768x1024',
+            '4:5': '819x1024',
+            '9:16': '576x1024',
+            '16:9': '1024x576',
+            '3:2': '1024x682',
+            '4:3': '1024x768',
+            '21:9': '1024x439',
+          },
+        };
+
+        return dimensionsByResolution[res]?.[ar] || dimensionsByResolution['1K'][ar] || '1024x1024';
       };
       const explicitDimensions = getDimensions(aspectRatio, resolution);
 

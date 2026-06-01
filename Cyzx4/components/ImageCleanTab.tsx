@@ -20,12 +20,15 @@ import { CLOTHING_POSES } from '../constants/clothingPresets';
 import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
 import { MENS_KNIT_POSES } from '../constants/mensKnitPosePresets';
 import { MENS_TEE_POSES } from '../constants/mensTeePosePresets';
+import { SWIM_SHORTS_POSES } from '../constants/swimShortsPosePresets';
 
 interface UploadedImage {
     file: File;
     preview: string;
     base64?: string;
     mime?: string;
+    width?: number;
+    height?: number;
 }
 
 interface ModelIdentityAnalysis {
@@ -50,7 +53,7 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'swimShorts';
 
 const PERSONA_PRESETS = [
     '美国都市女性', '美国职场女性', '美国瑜伽/健身女性', '美国居家主妇',
@@ -77,6 +80,171 @@ const SHOT_TYPES = [
 
 const ACTION_TAGS = ['自然站姿', '街拍走路', '坐姿休闲', '侧身回头', '转身展示背面', '手扶墨镜', '插兜造型'];
 const SCENE_TAGS = ['纯白棚拍', '城市街头', '咖啡店', '海边度假', '居家客厅', '现代简约', '复古花园'];
+
+const getImageDimensions = (src: string): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
+        img.onerror = () => resolve({ width: 0, height: 0 });
+        img.src = src;
+    });
+};
+
+const parseRatioValue = (ratio: string) => {
+    const [w, h] = ratio.split(':').map(Number);
+    return w && h ? w / h : 1;
+};
+
+const normalizeGeneratedImageToAspectRatio = (src: string, targetAspectRatio: AspectRatio): Promise<string> => {
+    if (!src.startsWith('data:image')) return Promise.resolve(src);
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const sourceWidth = img.naturalWidth || img.width;
+            const sourceHeight = img.naturalHeight || img.height;
+            if (!sourceWidth || !sourceHeight) {
+                resolve(src);
+                return;
+            }
+
+            const scanCanvas = document.createElement('canvas');
+            scanCanvas.width = sourceWidth;
+            scanCanvas.height = sourceHeight;
+            const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+            if (!scanCtx) {
+                resolve(src);
+                return;
+            }
+
+            scanCtx.drawImage(img, 0, 0, sourceWidth, sourceHeight);
+
+            let bounds = { x: 0, y: 0, width: sourceWidth, height: sourceHeight };
+            try {
+                const data = scanCtx.getImageData(0, 0, sourceWidth, sourceHeight).data;
+                const rowHits = new Uint16Array(sourceHeight);
+                const colHits = new Uint16Array(sourceWidth);
+
+                for (let y = 0; y < sourceHeight; y += 1) {
+                    for (let x = 0; x < sourceWidth; x += 1) {
+                        const idx = (y * sourceWidth + x) * 4;
+                        const alpha = data[idx + 3];
+                        const isBlank = alpha < 10 || (data[idx] > 248 && data[idx + 1] > 248 && data[idx + 2] > 248);
+                        if (!isBlank) {
+                            rowHits[y] += 1;
+                            colHits[x] += 1;
+                        }
+                    }
+                }
+
+                const minRowHits = Math.max(2, Math.floor(sourceWidth * 0.01));
+                const minColHits = Math.max(2, Math.floor(sourceHeight * 0.01));
+                let top = 0;
+                let bottom = sourceHeight - 1;
+                let left = 0;
+                let right = sourceWidth - 1;
+
+                while (top < sourceHeight && rowHits[top] < minRowHits) top += 1;
+                while (bottom > top && rowHits[bottom] < minRowHits) bottom -= 1;
+                while (left < sourceWidth && colHits[left] < minColHits) left += 1;
+                while (right > left && colHits[right] < minColHits) right -= 1;
+
+                const detectedWidth = right - left + 1;
+                const detectedHeight = bottom - top + 1;
+                const detectedArea = detectedWidth * detectedHeight;
+                const sourceArea = sourceWidth * sourceHeight;
+                if (detectedArea > sourceArea * 0.12 && detectedWidth > 32 && detectedHeight > 32) {
+                    const marginX = Math.round(detectedWidth * 0.045);
+                    const marginY = Math.round(detectedHeight * 0.045);
+                    const paddedLeft = Math.max(0, left - marginX);
+                    const paddedTop = Math.max(0, top - marginY);
+                    const paddedRight = Math.min(sourceWidth - 1, right + marginX);
+                    const paddedBottom = Math.min(sourceHeight - 1, bottom + marginY);
+                    bounds = {
+                        x: paddedLeft,
+                        y: paddedTop,
+                        width: paddedRight - paddedLeft + 1,
+                        height: paddedBottom - paddedTop + 1,
+                    };
+                }
+            } catch {
+                bounds = { x: 0, y: 0, width: sourceWidth, height: sourceHeight };
+            }
+
+            const targetRatio = parseRatioValue(targetAspectRatio);
+            let cropX = bounds.x;
+            let cropY = bounds.y;
+            let cropWidth = bounds.width;
+            let cropHeight = bounds.height;
+            const cropRatio = cropWidth / cropHeight;
+
+            if (cropRatio > targetRatio) {
+                const adjustedWidth = cropHeight * targetRatio;
+                cropX += (cropWidth - adjustedWidth) / 2;
+                cropWidth = adjustedWidth;
+            } else if (cropRatio < targetRatio) {
+                const adjustedHeight = cropWidth / targetRatio;
+                cropY += (cropHeight - adjustedHeight) / 2;
+                cropHeight = adjustedHeight;
+            }
+
+            const maxOutputSide = 2048;
+            let outputWidth: number;
+            let outputHeight: number;
+            if (targetRatio >= 1) {
+                outputWidth = Math.min(maxOutputSide, Math.max(sourceWidth, sourceHeight));
+                outputHeight = Math.round(outputWidth / targetRatio);
+            } else {
+                outputHeight = Math.min(maxOutputSide, Math.max(sourceWidth, sourceHeight));
+                outputWidth = Math.round(outputHeight * targetRatio);
+            }
+
+            const outCanvas = document.createElement('canvas');
+            outCanvas.width = outputWidth;
+            outCanvas.height = outputHeight;
+            const outCtx = outCanvas.getContext('2d');
+            if (!outCtx) {
+                resolve(src);
+                return;
+            }
+
+            outCtx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, outputWidth, outputHeight);
+            resolve(outCanvas.toDataURL('image/png'));
+        };
+        img.onerror = () => resolve(src);
+        img.src = src;
+    });
+};
+
+const normalizeGeneratedImagesToAspectRatio = (images: string[], targetAspectRatio: AspectRatio) => {
+    return Promise.all(images.map((img) => normalizeGeneratedImageToAspectRatio(img, targetAspectRatio)));
+};
+
+const closestAspectRatioForImage = (image?: UploadedImage | null, fallback: AspectRatio = AspectRatio.PORTRAIT_3_4): AspectRatio => {
+    if (!image?.width || !image?.height) return fallback;
+    const sourceRatio = image.width / image.height;
+    const supported = Object.values(AspectRatio);
+    return supported.reduce((best, current) => {
+        const bestDiff = Math.abs(parseRatioValue(best) - sourceRatio);
+        const currentDiff = Math.abs(parseRatioValue(current) - sourceRatio);
+        return currentDiff < bestDiff ? current : best;
+    }, fallback);
+};
+
+const describeImageFraming = (image?: UploadedImage | null) => {
+    if (!image?.width || !image?.height) return 'unknown source dimensions';
+    const orientation = image.width > image.height ? 'landscape' : image.width < image.height ? 'portrait' : 'square';
+    return `${image.width}x${image.height}px, ${orientation}, source ratio ${(image.width / image.height).toFixed(3)}`;
+};
+
+const sanitizeSwimShortsPosePrompt = (prompt: string) => {
+    return prompt
+        .replace(/\b(on|near|beside|along|at)\s+(the\s+)?(beach|shoreline|pool|ocean|sea|sand)\b/gi, '')
+        .replace(/\b(beach|shoreline|pool|poolside|ocean|sea|sand|water|wave|waves|surfboard|background|scene|lifestyle)\b/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/\s+,/g, ',')
+        .trim();
+};
 
 const PLATFORM_STYLES = [
     { id: 'amazon', label: 'Amazon', icon: '🅰️', desc: '纯白背景', prompt: 'Amazon professional main image, pure white background (#FFFFFF), high clarity, centered composition, clean edges, professional studio photography.' },
@@ -168,11 +336,15 @@ const HeroImageTab: React.FC = () => {
             if (!file.type.startsWith('image/')) continue;
             // 浣跨敤鍘嬬缉閫昏緫鍑忓皬璐熻浇锛岄伩鍏?4K/2K 瓒呮椂
             const { base64, mime } = await compressImage(file, 2048, 0.9);
+            const preview = URL.createObjectURL(file);
+            const { width, height } = await getImageDimensions(preview);
             results.push({
                 file,
-                preview: URL.createObjectURL(file),
+                preview,
                 base64: base64,
-                mime: mime
+                mime: mime,
+                width,
+                height
             });
         }
         return results;
@@ -186,6 +358,7 @@ const HeroImageTab: React.FC = () => {
 
         const normalizeLibrary = (value: string): AutoPoseLibrary => {
             const normalized = value.trim().toLowerCase();
+            if (normalized.includes('swim') || normalized.includes('boardshort') || normalized.includes('board short') || normalized.includes('trunk')) return 'swimShorts';
             if (normalized.includes('tee') || normalized.includes('tshirt') || normalized.includes('t-shirt')) return 'mensTee';
             if (normalized.includes('knit') || normalized.includes('polo')) return 'mensKnit';
             if (normalized.includes('shirt')) return 'mensShirt';
@@ -199,12 +372,13 @@ const HeroImageTab: React.FC = () => {
             }));
             parts.push({
                 text: `Classify these uploaded product images for an ecommerce menswear pose library.
-Return ONLY valid JSON: {"library":"mensShirt|mensKnit|mensTee|none","reason":"short reason"}.
+Return ONLY valid JSON: {"library":"mensShirt|mensKnit|mensTee|swimShorts|none","reason":"short reason"}.
 
 Choose:
 - mensShirt: men's woven button shirt, resort shirt, linen shirt, Hawaiian shirt, button-up shirt.
 - mensKnit: men's knit polo, textured knit polo, knitted top, sweater-like short sleeve, ribbed knit menswear.
 - mensTee: men's T-shirt, oversized tee, graphic tee, cotton short-sleeve tee.
+- swimShorts: men's swim shorts, swim trunks, board shorts, beach shorts, quick-dry swimwear shorts, bathing trunks, swimwear bottom with drawstring or liner.
 - none: not one of the above or uncertain.
 
 Use visual garment structure first. User note: ${userPrompt || 'none'}`
@@ -559,7 +733,7 @@ Rules:
 
     const handleGenerate = async (regenerateIndex?: number) => {
         if (productImages.length === 0) {
-            setError('璇蜂笂浼犱骇鍝佸浘绱犳潗');
+            setError('请上传产品图素材');
             return;
         }
 
@@ -641,12 +815,15 @@ Rules:
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
                     ? processedActions[actionIndex]
                     : null;
-                if (selectedAction?.original) {
+                const shouldUseActionOriginal = !!selectedAction?.original && !isPoseOnly && activeAutoPoseLibrary !== 'swimShorts';
+                const actionOriginalStart = shouldUseActionOriginal ? list.length + 1 : 0;
+                if (shouldUseActionOriginal && selectedAction?.original) {
+                    list.push(selectedAction.original);
                     list.push(selectedAction.original);
                     list.push(selectedAction.original);
                 }
+                const actionLineartStart = selectedAction?.lineart ? list.length + 1 : 0;
                 if (selectedAction?.lineart) {
-                    list.push(selectedAction.lineart);
                     list.push(selectedAction.lineart);
                 }
                 
@@ -655,7 +832,13 @@ Rules:
                     if (img) list.push(img);
                 });
                 
-                return list;
+                return {
+                    images: list,
+                    actionOriginalStart,
+                    actionOriginalEnd: actionOriginalStart ? actionOriginalStart + 2 : 0,
+                    actionLineartStart,
+                    actionLineartEnd: actionLineartStart ? actionLineartStart : 0
+                };
             };
 
             // 3. 鏋勫缓 Prompt 绛栫暐涓庡弬鑰冨浘 1-based 鍔ㄦ€佺储寮曡绠椾互瑙ｅ喅 Gemini 澶氭ā鎬佹槧灏勯敊浣嶉棶棰?
@@ -752,6 +935,8 @@ Rules:
             const prompt = `
             # AGENT STRATEGY: ${strategy}
             # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
+            # ABSOLUTE CANVAS RULE:
+            The final output MUST be exactly ${aspectRatio}. Fill the ${aspectRatio} canvas with one continuous image. No nested photo, no framed image inside a white page, no letterbox, no pillarbox, no top/bottom blank bands, no side blank bands, no white empty lower half, no collage, no split screen, no comparison grid.
             
             # CRITICAL REQUIREMENT - MAXIMUM PRODUCT FIDELITY (HIGHEST PRIORITY): 
             The FIRST IMAGE (Image 1) is the [PRODUCT ASSET]. You MUST preserve its exact structural design, clothing shape, collar style, neck cuts, sleeves, pockets, fabric texture, prints/patterns (e.g. leopard print or stripes), stitching, and materials perfectly. 
@@ -768,7 +953,11 @@ Rules:
             ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (OPTIONAL BUT STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, hat, belt, scarf, or handheld prop, include it only when naturally compatible with the selected pose, and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, jewelry, handheld props, or decorative accessories unless they are already part of the product asset. Keep styling clean and product-focused.'}
             ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
-            ${sceneReferences.length > 0 ? `# SCENE FIDELITY (MANDATORY): You MUST replicate the uploaded scene reference background, environment, layout, walls, props, ambient lighting, shadows, and architectural details EXACTLY. Replicate the scene background with 100% precision. The generated subject must be placed seamlessly into this exact scene environment. Any alteration of the background environment is STRICTLY PROHIBITED.` : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
+            # OUTPUT FORMAT LOCK: Generate exactly one image in the user-selected ${aspectRatio} aspect ratio. No collage, no split-screen, no side-by-side images, no before/after layout, no horizontal strip, no letterbox/pillarbox, no large blank white canvas.
+            ${actionReferences.length > 0 ? '# ACTION REFERENCE IS POSE ONLY: Uploaded action references control only body pose and gesture. They must NOT control background, environment, lighting, product color, or output aspect ratio.' : ''}
+            ${sceneReferences.length > 0
+                ? `# SCENE FIDELITY (MANDATORY BACKGROUND SOURCE): You MUST replicate the uploaded scene reference background, environment, layout, walls, props, ambient lighting, shadows, and architectural details EXACTLY. The generated subject must be placed seamlessly into this exact scene environment. Action references must not override this background.`
+                : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
@@ -792,16 +981,20 @@ Rules:
             const isMensKnit = mensKnitKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const mensTeeKeywords = ['tee', 't-shirt', 't shirt', 'oversized tee', 'oversized t-shirt'];
             const isMensTee = mensTeeKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const swimShortsKeywords = ['swim shorts', 'swim trunks', 'board shorts', 'boardshorts', 'beach shorts', 'bathing trunks', 'swimwear shorts', 'quick dry shorts', 'quick-dry shorts', '泳裤', '沙滩裤'];
+            const isSwimShorts = swimShortsKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
 
             const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
                 ? autoPoseLibrary
-                : isMensTee
-                    ? 'mensTee'
-                    : isMensKnit
-                        ? 'mensKnit'
-                        : isMensShirt
-                            ? 'mensShirt'
-                            : 'none';
+                : isSwimShorts
+                    ? 'swimShorts'
+                    : isMensTee
+                        ? 'mensTee'
+                        : isMensKnit
+                            ? 'mensKnit'
+                            : isMensShirt
+                                ? 'mensShirt'
+                                : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
 
@@ -855,25 +1048,56 @@ Rules:
                 [shuffledMensTeePoses[k], shuffledMensTeePoses[r]] = [shuffledMensTeePoses[r], shuffledMensTeePoses[k]];
             }
 
+            let shuffledSwimShortsPoses = [...SWIM_SHORTS_POSES];
+            for (let k = shuffledSwimShortsPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledSwimShortsPoses[k], shuffledSwimShortsPoses[r]] = [shuffledSwimShortsPoses[r], shuffledSwimShortsPoses[k]];
+            }
+
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
             const batchPromises = generationIndices.map((i) => {
                 const actionReferenceIndex = i < actionReferences.length ? i : undefined;
                 const hasOutputActionReference = typeof actionReferenceIndex === 'number';
-                const specificInputImages = getInputImagesForIndex(actionReferenceIndex);
+                const inputPack = getInputImagesForIndex(actionReferenceIndex);
+                const specificInputImages = inputPack.images;
+                const matchedActionReference = hasOutputActionReference ? actionReferences[actionReferenceIndex!] : null;
+                const outputAspectRatio = aspectRatio;
+                const actionReferenceInputDescription = inputPack.actionOriginalStart
+                    ? `Original action reference images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the master image; use the edge map only as supporting pose clarification.`
+                    : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because pose-only mode is enabled; use these edge maps as the clean skeleton/gesture blueprint.`;
                 
                 let finalPrompt = prompt;
                 let selectedPoseHeader = '';
                 if (hasOutputActionReference) {
                     selectedPoseHeader = `# EXACT USER ACTION REFERENCE FOR THIS OUTPUT (ABSOLUTE):
 This output index has a matching uploaded action reference at action slot #${actionReferenceIndex + 1}. The action reference images included in this input are the strongest geometry constraint for THIS IMAGE ONLY.
-Match the uploaded action reference's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette.
-CROP LOCK IS MANDATORY: if the action reference is half-body, waist-up, thigh-up, full-body, seated, walking, leaning, or cropped at the knees, this output MUST use the same body extent and crop boundary.
-Do NOT replace the referenced pose with a generic catalog pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, or asymmetric limb angle.
-Use the product asset only for clothing identity and the scene reference/user prompt for background. Completely ignore the action reference background, face, clothing, colors, texture, lighting, and scene details.
+${actionReferenceInputDescription}
+Reference geometry: ${describeImageFraming(matchedActionReference)}. Output aspect ratio MUST be the USER SELECTED ratio ${outputAspectRatio}. Never override it with the action reference ratio.
+CANVAS FILL LOCK: create a single full-frame ${outputAspectRatio} image. The generated photo must touch the intended canvas boundaries naturally and must not sit as a smaller horizontal image inside a larger white/blank canvas.
+ACTION ONLY LOCK: use the uploaded action reference only for pose geometry: hand placement, arm bend, shoulder tilt, torso rotation, hip angle, leg stance, knee bend, foot direction, body silhouette and product-display crop idea.
+BACKGROUND SOURCE LOCK: do NOT copy the action reference background, lighting, beach, pool, ocean, sand, walls, props, model identity, face, skin tone, or old swim shorts. Background must come from the uploaded scene reference if present; otherwise from the user's platform/style/background settings.
+GARMENT REPLACEMENT ONLY: the product asset controls only the swim shorts/garment design, color, material, pattern, waistband, drawstring, pockets, liner, seams, hem and fit.
+SINGLE IMAGE OUTPUT: generate one normal ${outputAspectRatio} image only. Do NOT create a collage, split screen, side-by-side comparison, before/after layout, two images in one canvas, horizontal strip, letterbox, pillarbox, or a large blank white area.
 `;
+                    if (activeAutoPoseLibrary === 'swimShorts') {
+                        selectedPoseHeader += `
+# SWIM SHORTS OVERRIDE FOR UPLOADED ACTION REFERENCE (HIGHEST PRIORITY):
+Uploaded action references provide ONLY body pose and product-display crop. Do not copy their background or old swim shorts. Keep the user-selected ${outputAspectRatio} canvas. If the action pose shows swim-shorts product framing, preserve the upper-chest/pectorals-to-feet subject display inside the selected ${outputAspectRatio} image.
+`;
+                    }
                     finalPrompt += `\n# MATCHING ACTION REFERENCE ROUTING: This is generated from uploaded action reference #${actionReferenceIndex + 1}. Other outputs without their own uploaded action reference must use random/auto poses instead.\n`;
                 } else {
-                    if (activeAutoPoseLibrary === 'mensTee') {
+                    if (activeAutoPoseLibrary === 'swimShorts') {
+                        const posePreset = shuffledSwimShortsPoses[i % shuffledSwimShortsPoses.length];
+                        const poseSpec = sanitizeSwimShortsPosePrompt(posePreset.prompt);
+                        selectedPoseHeader = `# SELECTED SWIM SHORTS POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# SWIM SHORTS SUBJECT FRAMING (CRITICAL - MANDATORY): This is NOT a fixed numeric aspect-ratio requirement. Keep the selected output canvas ratio, but compose the male model like the user's swim-shorts reference: visible from upper chest/pectorals down to feet/slides, no face and no head. Keep torso, arms, swim shorts, legs, socks and footwear in frame. The swim shorts must be the central product focus, with waistband, drawstring, pockets, side seams, hem, liner, and fabric texture clearly visible.
+# CANVAS FILL LOCK: The entire ${outputAspectRatio} canvas must be one complete image. Do not place a landscape crop inside a portrait canvas. Do not leave blank white bands above or below.
+# POSE ONLY DIRECTIVE: You MUST generate this men's swim shorts image with the EXACT pose described here: ${poseSpec}. This pose description contains NO background instruction. Preserve product fidelity from Image 1, but pose, hand placement, waistband interaction, pocket/liner demonstration, body angle, and crop must follow this preset as closely as possible.
+# SWIM SHORTS FIT RULE: Render realistic male torso-to-feet anatomy only as needed to sell the shorts; keep attention on the shorts. Avoid face identity emphasis, avoid unrelated tops, hats, sunglasses, bags, and extra accessories unless directly requested. Footwear/slides are allowed when they match the reference crop or scene.
+`;
+                        finalPrompt += `\n# SWIM SHORTS ACTION LIBRARY DIRECTIVE: Use this selected swim shorts action exactly: ${poseSpec}. Do not force a numeric 4:5 ratio; keep the selected canvas ratio while framing the subject from upper chest/pectorals to feet/slides, matching the provided swim-shorts display effect. The shorts product must remain the same product from Image 1 while naturally adapting to the selected beach/pool/detail demonstration pose.\n`;
+                    } else if (activeAutoPoseLibrary === 'mensTee') {
                         const posePreset = shuffledMensTeePoses[i % shuffledMensTeePoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED MENS OVERSIZED TEE POSE PRESET: ${posePreset.name} / ${posePreset.id}
@@ -932,7 +1156,7 @@ Use the product asset only for clothing identity and the scene reference/user pr
                 }
                 const negativePrompt = [
                     hasOutputActionReference || activeAutoPoseLibrary !== 'none'
-                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift'
+                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, beach background from pose library, pool background from pose library, ocean background from pose library'
                         : '',
                     modelReference
                         ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
@@ -940,7 +1164,7 @@ Use the product asset only for clothing identity and the scene reference/user pr
                 ].filter(Boolean).join(', ') || undefined;
 
                 return generateImageToImage(specificInputImages, finalPrompt, {
-                    aspectRatio,
+                    aspectRatio: outputAspectRatio,
                     resolution,
                     modelId: selectedModel,
                     negativePrompt,
@@ -951,14 +1175,15 @@ Use the product asset only for clothing identity and the scene reference/user pr
 
             const batchResults = await Promise.all(batchPromises);
             const flatResults = batchResults.flat();
+            const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio);
             if (isSingleRegenerate) {
-                setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (flatResults[0] || img) : img));
+                setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (normalizedResults[0] || img) : img));
             } else {
-                setGeneratedImages(flatResults);
+                setGeneratedImages(normalizedResults);
             }
             await saveGeneratedProject({
                 type: 'RETOUCHING',
-                generated: flatResults,
+                generated: normalizedResults,
                 original: [
                     ...productImages.map(img => `data:${img.mime};base64,${img.base64}`),
                     ...actionReferences.map(img => `data:${img.mime};base64,${img.base64}`),
@@ -972,7 +1197,7 @@ Use the product asset only for clothing identity and the scene reference/user pr
                     model: selectedModel,
                     aspectRatio,
                     resolution,
-                    count: flatResults.length,
+                    count: normalizedResults.length,
                     singleRegenerate: isSingleRegenerate,
                     platform: selectedPlatform
                 }
@@ -1187,6 +1412,11 @@ Use the product asset only for clothing identity and the scene reference/user pr
                                                 <div key={idx} className="relative group/action aspect-[3/4] bg-pastel-bg/30 rounded border border-purple-200 overflow-hidden">
                                                     <img src={img.preview} className="w-full h-full object-cover" alt="action" />
                                                     <span className="absolute bottom-0.5 left-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">#{idx+1}</span>
+                                                    {img.width && img.height && (
+                                                        <span className="absolute top-0.5 left-1 bg-purple-600/80 text-white text-[7px] px-1 rounded font-bold">
+                                                            精确 {closestAspectRatioForImage(img)}
+                                                        </span>
+                                                    )}
                                                     <button onClick={(e) => { e.stopPropagation(); setActionReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute top-1 right-1 z-20 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/action:opacity-100 transition-opacity shadow-sm"><X className="w-2.5 h-2.5" /></button>
                                                 </div>
                                             ))}
@@ -1200,7 +1430,7 @@ Use the product asset only for clothing identity and the scene reference/user pr
                                     ) : (
                                         <div className="text-center py-4">
                                             <Wand2 className="w-6 h-6 mx-auto mb-1 text-purple-300" />
-                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态（最多10张）</p>
+                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态与画幅（最多10张）</p>
                                         </div>
                                     )}
                                 </div>
@@ -1387,13 +1617,13 @@ Use the product asset only for clothing identity and the scene reference/user pr
                                     ) : (
                                         <div className="text-center py-2">
                                             <UserCircle className="w-6 h-6 mx-auto mb-1 text-blue-300" />
-                                            <p className="text-[9px] text-blue-600 font-medium">鎸囧畾闀跨浉</p>
+                                            <p className="text-[9px] text-blue-600 font-medium">指定长相</p>
                                         </div>
                                     )}
                                 </div>
                                 <div className="col-span-2 grid grid-cols-1 gap-2">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-pastel-muted font-bold w-12">鑳稿洿</span>
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">胸围</span>
                                         <input 
                                             type="text" 
                                             value={measurements.bust} 
@@ -1403,7 +1633,7 @@ Use the product asset only for clothing identity and the scene reference/user pr
                                         />
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-pastel-muted font-bold w-12">鑵板洿</span>
+                                        <span className="text-[10px] text-pastel-muted font-bold w-12">腰围</span>
                                         <input 
                                             type="text" 
                                             value={measurements.waist} 
