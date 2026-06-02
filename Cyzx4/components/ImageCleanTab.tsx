@@ -287,16 +287,16 @@ const HeroImageTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [showAdvanced, setShowAdvanced] = useState(true);
-    const [isSafeMode, setIsSafeMode] = useState(false); // 鍔ㄤ綔瀹夊叏妯″紡
-    const [isPoseOnly, setIsPoseOnly] = useState(true); // 浠呭弬鑰冨Э鎬?(榛樿寮€鍚紝鑷姩鎻愬彇绾跨浠ユ秷闄よ儗鏅共鎵?
-    const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 鍦烘櫙瀹夊叏妯″紡
+    const [isSafeMode, setIsSafeMode] = useState(false); // 动作安全模式
+    const [isPoseOnly, setIsPoseOnly] = useState(true); // 仅参考姿态（默认开启，自动提取线稿以消除背景干扰）
+    const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 场景安全模式
     const [isSafeModeModel, setIsSafeModeModel] = useState(false); // 妯＄壒瀹夊叏妯″紡
-    const [isFaceOnly, setIsFaceOnly] = useState(false); // 浠呭弬鑰冭劯鍨?
-    const [isSceneOnly, setIsSceneOnly] = useState(false); // 浠呭弬鑰冨満鏅?
-    const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 姝ｅ湪鑷姩鍑€鍖栧満鏅浘
-    const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 姝ｅ湪鑷姩鍑€鍖栦骇鍝佺礌鏉愬浘
-    const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 鏄惁寮€鍚骇鍝佸浘AI鍘诲櫔鍑€鍖?
-    const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 鎺у埗AI妯＄壒瑙勫垯涓婁紶鎸囧崡寮圭獥鐨勬樉绀?
+    const [isFaceOnly, setIsFaceOnly] = useState(false); // 仅参考脸型
+    const [isSceneOnly, setIsSceneOnly] = useState(false); // 仅参考场景
+    const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 正在自动净化场景图
+    const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 正在自动净化产品素材图
+    const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 是否开启产品图 AI 去噪净化
+    const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 控制 AI 模特规则上传指南弹窗的显示
     const [isAnalyzingModelIdentity, setIsAnalyzingModelIdentity] = useState(false);
     const [modelIdentityAnalysis, setModelIdentityAnalysis] = useState<ModelIdentityAnalysis | null>(null);
     
@@ -422,7 +422,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
             setError(null);
             try {
                 const purified = await Promise.all(processed.map(async (img) => {
-                    // 1. 蹇€熸娴嬩骇鍝佸浘鑳屾櫙涓槸鍚﹀寘鍚。鏋躲€佺敾妗嗐€佹寕閽╃瓑骞叉壈
+                    // 1. 快速检测产品图背景中是否包含衣架、画框、挂钩等干扰
                     const ai = getAiClient();
                     const checkPrompt = "Analyze this product photo. Does the background contain any distracting items such as clothes hangers, hooks, picture frames on the wall, stands, furniture, or complex messy background? Respond with ONLY 'yes' or 'no' in lowercase.";
                     const response = await generateContentWithAnalysisFallback(ai, {
@@ -438,7 +438,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                     
                     if (answer.includes('yes')) {
                         console.log("[Product Purify] Distractions detected in product image. Purifying product background...");
-                        // 2. 璋冪敤 editGeneratedImage 鎿﹂櫎琛ｆ湇浠ュ鐨勮儗鏅€佽。鏋跺拰鐢绘
+                        // 2. 调用 editGeneratedImage 擦除衣服以外的背景、衣架和画框
                         const editPrompt = "Selectively remove all background noise, hangers, wall hooks, wall frames, art frames, picture borders, stands, and messy environment shadows. Do not touch or modify the clothing garment product itself. Replace the background with a completely solid, clean, seamless studio light gray or white background. Keep the exact fabric texture, print pattern, and shape of the clothing perfectly.";
                         const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
                         if (results && results.length > 0) {
@@ -460,7 +460,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                 void detectAutoPoseLibrary(purified);
             } catch (err) {
                 console.error("Purify product image failed:", err);
-                // 闄嶇骇鍥為€€鍒板師濮嬪浘鐗?
+                // 降级回退到原始图片
                 setProductImages(prev => [...prev, ...processed].slice(0, 4));
                 void detectAutoPoseLibrary(processed);
             } finally {
@@ -488,7 +488,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
         setError(null);
         try {
             const purified = await Promise.all(processed.map(async (img) => {
-                // 1. 蹇€熸娴嬪浘鐗囦腑鏄惁鍖呭惈浜虹墿
+                // 1. 快速检测图片中是否包含人物
                 const ai = getAiClient();
                 const checkPrompt = "Analyze this image. Does it contain any humans, models, people, or persons? Respond with ONLY 'yes' or 'no' in lowercase.";
                 const response = await generateContentWithAnalysisFallback(ai, {
@@ -504,7 +504,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                 
                 if (answer.includes('yes')) {
                     console.log("[Scene Purify] Person detected in scene reference. Purifying background...");
-                    // 2. 璋冪敤 editGeneratedImage 鍘婚櫎浜虹墿涓讳綋锛屽噣鍖栬儗鏅?
+                    // 2. 调用 editGeneratedImage 去除人物主体，净化背景
                     const editPrompt = "Remove all people, persons, models, and humans from the image, and naturally fill in and inpaint the background details behind them to create a clean, empty room/space scene. Keep all other furniture, lighting, walls, windows, and architectural elements exactly identical.";
                     const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
                     if (results && results.length > 0) {
@@ -525,7 +525,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
             setSceneReferences(prev => [...prev, ...purified].slice(0, 3));
         } catch (err) {
             console.error("Purify scene image failed:", err);
-            // 鍥為€€鍒板師濮嬪浘鐗?
+            // 回退到原始图片
             setSceneReferences(prev => [...prev, ...processed].slice(0, 3));
         } finally {
             setIsPurifyingScene(false);
@@ -595,7 +595,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                 personaTemplate: result.modelPersonaPreset || 'US urban woman'
             });
         } catch (err) {
-            setError("AI 鍒嗘瀽澶辫触");
+            setError("AI 分析失败");
         } finally {
             setIsAnalyzing(false);
         }
@@ -773,7 +773,7 @@ Rules:
         }, 1200);
 
         try {
-            // 1. 棰勫鐞嗘墍鏈夊浘鐗囷紙濡傛灉寮€鍚畨鍏ㄦā寮忔垨浠呭弬鑰冨Э鎬侊紝鍒欏姩浣滃浘杞崲涓虹嚎绋跨嚎娈典互鍓旈櫎鑳屾櫙骞叉壈锛?
+            // 1. 预处理所有图片：安全模式或仅参考姿态开启时，将动作图转换为线稿以剔除背景干扰
             const processRefImage = async (img: UploadedImage | null, isSafeOrPoseOnly: boolean) => {
                 if (!img) return null;
                 let b64 = img.base64!;
@@ -805,12 +805,12 @@ Rules:
                 accessoryReferences.map(img => processRefImage(img, false))
             );
 
-            // 2. 鏋勫缓鍥剧墖搴忓垪 (鏀寔鏍规嵁鍔ㄤ綔鍥剧储寮曡繘琛屽姩鎬佺嫭绔嬪榻?
-            // 涓ユ牸鍖归厤 API 涓?Prompt 濂戠害锛氫骇鍝佸浘蹇呴』浣滀负 Image 1 (棣栧紶鍥剧墖) 浼犲叆浠ョ‘淇?100% 涓€鑷存€ч攣瀹氾紒
+            // 2. 构建图片序列：支持根据动作图索引进行动态独立对齐
+            // 严格匹配 API 与 Prompt 契约：产品图必须作为 Image 1（首张图片）传入以确保 100% 一致性锁定
             const getInputImagesForIndex = (actionIndex?: number) => {
                 const list: { base64: string; mimeType: string }[] = [];
                 
-                // [绗竴浼樺厛绾 娣诲姞浜у搧鍥句綔涓洪寮犲浘鐗?(Image 1)锛岃繖涓?Prompt 涓殑 "# CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]" 瀹岀編瀵归綈
+                // 第一优先级：添加产品图作为首张图片（Image 1），与 Prompt 中的 "# CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]" 对齐
                 productImages.forEach(img => {
                     const isAlreadyAdded = actionReferences.some(ar => ar.base64 === img.base64);
                     if (!isAlreadyAdded) {
@@ -818,7 +818,7 @@ Rules:
                     }
                 });
 
-                // [绗簩浼樺厛绾 娣诲姞妯＄壒鍥撅紝浣滀负浜鸿劯鐗瑰緛鍜岄暱鐩哥殑缁濆鍙傝€冿紙浼犲叆涓ゆ浠ュ弻鍊嶅寮?AI 鐨勬敞鎰忓姏闀跨浉閿佸畾鏉冮噸锛?
+                // 第二优先级：添加模特图，作为人脸特征和长相参考
                 processedAccessories.forEach(img => {
                     if (img) list.push(img);
                 });
@@ -828,7 +828,7 @@ Rules:
                     list.push(processedModel);
                 }
                 
-                // [绗笁浼樺厛绾 娣诲姞鐗瑰畾鐨勫姩浣滃Э鎬佸弬鑰冨浘锛屼綔涓哄Э鎬佸榻愮殑鏋勫浘閿氱偣
+                // 第三优先级：添加特定动作姿态参考图，作为姿态对齐的构图锚点
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
                     ? processedActions[actionIndex]
                     : null;
@@ -845,7 +845,7 @@ Rules:
                     list.push(selectedAction.lineart);
                 }
                 
-                // [绗洓浼樺厛绾 娣诲姞鑳屾櫙鍦烘櫙鍙傝€冨浘
+                // 第四优先级：添加背景场景参考图
                 processedScenes.forEach(img => {
                     if (img) list.push(img);
                 });
@@ -859,7 +859,7 @@ Rules:
                 };
             };
 
-            // 3. 鏋勫缓 Prompt 绛栫暐涓庡弬鑰冨浘 1-based 鍔ㄦ€佺储寮曡绠椾互瑙ｅ喅 Gemini 澶氭ā鎬佹槧灏勯敊浣嶉棶棰?
+            // 3. 构建 Prompt 策略与参考图 1-based 动态索引，避免 Gemini 多模态映射错位
             const productIndexStart = 1;
             const productIndexEnd = productImages.length;
             const accessoryCount = processedAccessories.length;
@@ -909,10 +909,10 @@ Rules:
 
             let basePrompt = enhancePrompt(userPrompt || `High-end fashion photography, ${form.personaTemplate} wearing ${form.productName}, studio background.`, 'PRODUCT');
             
-            // 浠绘剰涓€绉嶅畨鍏ㄦā寮忓紑鍚潎鎵ц Prompt 鍑€鍖?
+            // 任意一种安全模式开启时均执行 Prompt 净化
             if (isSafeMode || isSafeModeScene || isSafeModeModel) {
-                basePrompt = basePrompt.replace(/鎯呰叮|鎬ф劅|閫忚|璇辨儜|sexy|erotic/gi, '鏃跺皻');
-                basePrompt = basePrompt.replace(/鍐呰。|鐫¤。|lingerie/gi, '楂樺畾娉宠');
+                basePrompt = basePrompt.replace(/情趣|性感|透视|诱惑|sexy|erotic/gi, '时尚');
+                basePrompt = basePrompt.replace(/内衣|睡衣|lingerie/gi, '高定泳装');
                 basePrompt += " # SAFE MODE: High-end Fashion Editorial, elegant styling.";
             }
 
@@ -1000,7 +1000,7 @@ Rules:
 
             const countToGenerate = Math.max(generateCount, actionReferences.length);
 
-            // 妫€鏌ユ槸鍚︿负鐫¤。/瀹跺眳鏈嶇郴鍒椾骇鍝?
+            // 检查是否为睡衣/家居服系列产品
             const keywords = ['pajama', 'sleepwear', 'loungewear', 'nightgown', 'bathrobe'];
             const productNameLower = (form.productName || '').toLowerCase();
             const productCategoryLower = (form.productCategory || '').toLowerCase();
@@ -1042,7 +1042,7 @@ Rules:
                 "medium shot from high-angle perspective, showing the model walking forward with relaxed shoulders, looking forward"
             ];
 
-            // 褰诲簳娲楃墝鎵撲贡 230 涓潯琛ｅЭ鎬侀璁惧垪琛紝纭繚鎵归噺鐢熸垚鐨勬瘡涓€寮犲浘鍒嗛厤鍒扮殑鐫¤。濮挎€侀兘鏄粷瀵归殢鏈轰笖涓嶉噸澶嶇殑
+            // 彻底洗牌打乱睡衣姿态预设列表，确保批量生成的每张图都随机且不重复
             let shuffledSleepwearPoses = [...SLEEPWEAR_POSES];
             if (isSleepwear) {
                 for (let k = shuffledSleepwearPoses.length - 1; k > 0; k--) {
@@ -1051,7 +1051,7 @@ Rules:
                 }
             }
 
-            // 褰诲簳娲楃墝鎵撲贡 160 涓櫘閫氭湇瑁呭Э鎬侀璁惧垪琛紝纭繚鎵归噺鐢熸垚鐨勬瘡涓€寮犲浘鍒嗛厤鍒扮殑濮挎€侀兘鏄粷瀵归殢鏈轰笖涓嶉噸澶嶇殑
+            // 彻底洗牌打乱普通服装姿态预设列表，确保批量生成的每张图都随机且不重复
             let shuffledClothingPoses = [...CLOTHING_POSES];
             if (shouldUseClothingPoseLibrary) {
                 for (let k = shuffledClothingPoses.length - 1; k > 0; k--) {
@@ -1170,7 +1170,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                         
                         finalPrompt += `\n# MENS SHIRT ACTION LIBRARY DIRECTIVE: Use this selected men's resort shirt action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The shirt must remain the same product from Image 1 while naturally adapting to the selected body movement and lifestyle context.\n`;
                     } else if (isSleepwear) {
-                        // 椤哄簭浠庢礂鐗屽悗鐨勫垪琛ㄤ腑鎶藉彇鍔ㄤ綔锛屽疄鐜扳€?00%褰诲簳鎵撲贡涓斾笉閲嶅鐢ㄥ埌鈥?
+                        // 从洗牌后的列表中抽取动作，尽量做到彻底打乱且不重复
                         const posePreset = shuffledSleepwearPoses[i % shuffledSleepwearPoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED RANDOM POSE PRESET: ${posePreset.name} / ${posePreset.id}
@@ -1178,10 +1178,10 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         
                         finalPrompt += `\n# SELECTED PAJAMA POSE: ${posePreset.name} (${poseSpec})\n`;
-                        // 鏋佸ぇ寮哄寲瀵逛簬鍔ㄤ綔濮挎€佺殑鎻忚堪锛岃祴浜堟渶楂樻潈閲嶄笌浼樺厛绾э紝褰诲簳瑙勯伩鍛嗘澘鏅€氱殑绔欏Э
+                        // 强化动作姿态描述，提升优先级，规避呆板站姿
                         finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT lifestyle pajama pose and body posture described here: ${poseSpec}. Completely ignore, bypass, and discard standard, rigid, artificial standing model poses. Focus heavily and render the relaxed limb angles, cozy physical twists, soft pajama creases, leg bends, and comfy sleepy lifestyle poses with 100% fidelity. The final image pose must strictly mirror this directive.\n`;
                     } else if (shouldUseClothingPoseLibrary) {
-                        // 椤哄簭浠庢礂鐗屽悗鐨勫垪琛ㄤ腑鎶藉彇鏅€氭湇瑁呬富鍥惧Э鎬侊紝瀹炵幇鈥?00%褰诲簳鎵撲贡涓斾笉閲嶅鐢ㄥ埌鈥?
+                        // 从洗牌后的列表中抽取普通服装主图姿态，尽量做到彻底打乱且不重复
                         const posePreset = shuffledClothingPoses[i % shuffledClothingPoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED RANDOM CLOTHING POSE PRESET: ${posePreset.name} / ${posePreset.id}
@@ -1190,7 +1190,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         
                         finalPrompt += `\n# SELECTED CLOTHING POSE: ${posePreset.name} (${poseSpec})\n`;
-                        // 寮哄寲鏅€氭湇瑁呭姩浣滄覆鏌撴寚浠わ紝楂樻潈閲嶉攣瀹氾紝鏉滅粷姝绘澘濮垮娍锛屽己鍖栧紑琛?閽堢粐琛瓑鏃ュ父鎴愯。鐨勮川鎰熶笌鐗堝瀷灞曠幇
+                        // 强化普通服装动作渲染指令，锁定高权重动作并突出成衣质感与版型
                         finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT commercial fashion display pose described here: ${poseSpec}. Completely ignore and bypass awkward, rigid, standard dummy postures. Ensure the sweater/knitwear/clothing draping, hem adjustment, pocket insertions, shoulder exposure, or bag carrying action is rendered with 100% realism. The final model's pose and garment geometry must strictly adhere to this directive.\n`;
                     } else if (countToGenerate > 1) {
                         const poseSpec = DIVERSE_POSES[i % DIVERSE_POSES.length];
@@ -1721,7 +1721,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                 </div>
                             )}
 
-                            {/* 妯＄壒鍥句笂浼犳寚鍗楀睍绀猴紝骞虫椂鍙樉绀轰竴涓狝I妯＄壒瑙勫垯锛岀偣鍑诲彲浠ユ斁澶ф煡鐪?*/}
+                            {/* 模特图上传指南展示，平时只显示一个 AI 模特规则，点击可以放大查看 */}
                             <div className="mt-3 bg-purple-50/40 border border-purple-100/60 rounded-xl px-3.5 py-2.5 flex items-center justify-between shadow-sm">
                                 <div className="flex items-center gap-2">
                                     <span className="flex h-2 w-2 relative">
@@ -1836,7 +1836,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                             {showAdvanced && (
                                 <div className="p-4 space-y-4">
                                     {/* Model Selector */}
-                                    {/* 鍥惧儚妯″瀷閫夋嫨 Section */}
+                                    {/* 图像模型选择 Section */}
                                     <div className="mb-4">
                                         <div className="flex items-center gap-2 mb-3">
                                             <Cpu className="w-4 h-4 text-pastel-highlight" />
@@ -1995,7 +1995,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                 </div>
             )}
 
-            {/* AI妯＄壒瑙勫垯鏀惧ぇ鏌ョ湅寮圭獥 */}
+            {/* AI 模特规则放大查看弹窗 */}
             {showModelGuideModal && (
                 <div 
                     className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300 animate-fade-in"
@@ -2005,7 +2005,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                         className="relative max-w-md w-full bg-white rounded-3xl p-7 shadow-2xl border border-purple-50 flex flex-col gap-5 transform transition-all duration-300 scale-100 hover:shadow-purple-100/40"
                         onClick={e => e.stopPropagation()}
                     >
-                        {/* 澶撮儴鏍囬鍖?*/}
+                        {/* 头部标题区 */}
                         <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
                             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-purple-200 shrink-0">
                                 <Sparkles className="w-4.5 h-4.5 animate-pulse" />
@@ -2020,7 +2020,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                             </div>
                         </div>
 
-                        {/* 瑙勫垯鏉＄洰鍗＄墖鍒楄〃 */}
+                        {/* 规则条目卡片列表 */}
                         <div className="space-y-3">
                             {[
                                 {
