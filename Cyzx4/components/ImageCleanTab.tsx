@@ -607,6 +607,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
             '- If the product image does not show pants, use one consistent clean light-wash straight-leg denim jean style across every generated image.',
             '- If shoes are visible, use one consistent minimal neutral shoe style across every generated image.',
             '- Do not add bags, purses, hats, scarves, jewelry, handheld props, or extra accessories unless the user uploaded accessory reference images.',
+            '- Accessory batch lock: the same visible accessory set must be used across the whole batch. Do not randomly swap necklaces, watches, sunglasses, hats, bracelets, bags, belts, or handheld props between outputs.',
             '- Never replace, redesign, recolor, simplify, or reinterpret the product garment from Image 1.'
         ].join('\n');
         try {
@@ -628,7 +629,8 @@ Return ONLY valid JSON with these string fields:
 }
 Rules:
 - If pants/bottoms are not clearly part of the product asset, recommend a unified bottom to use across ALL generated outputs.
-- If bags, shoes, belts, jewelry, or props are not in the product asset, recommend none unless the user has uploaded separate accessory reference images.
+- If bags, shoes, belts, jewelry, watches, sunglasses, hats, bracelets, or props are not in the product asset, recommend none unless the user has uploaded separate accessory reference images or explicitly requested them.
+- If accessory references are provided, describe one fixed accessory set for the whole batch. Do not invent per-image accessory variations.
 - The product garment itself is highest priority and must remain identical to the reference.
 - Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy.
 User note: ${userPrompt || 'none'}` });
@@ -648,7 +650,8 @@ User note: ${userPrompt || 'none'}` });
                 `- Unified bag for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedBag || 'follow uploaded accessory reference images exactly') : 'none; do not invent bags or handheld props'}`,
                 `- Unified jewelry/accessories for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedJewelry || 'follow uploaded accessory reference images exactly') : 'none unless already visible in the product asset'}`,
                 `- Avoid styling: ${parsed.avoidStyling || 'avoid changing the product garment or adding distracting accessories'}`,
-                '- CONSISTENCY RULE: pants, shoes, bags, belts, jewelry, and visible accessories must stay the same style/color/material across every image in this batch unless they are physically hidden by the crop.'
+                '- CONSISTENCY RULE: pants, shoes, bags, belts, jewelry, watches, sunglasses, hats, bracelets, handheld props, and every visible accessory must stay the same style/color/material across every image in this batch unless they are physically hidden by the crop.',
+                '- ACCESSORY NO-RANDOMIZATION RULE: do not create a different necklace/watch/sunglasses/hat/bag/bracelet combination for different outputs. Use the single unified accessory set above, or no accessories.'
             ].join('\n');
         } catch (err) {
             console.warn('Hero styling plan analysis failed, using fallback.', err);
@@ -832,12 +835,12 @@ Rules:
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
                     ? processedActions[actionIndex]
                     : null;
-                const shouldUseActionOriginal = !!selectedAction?.original && activeAutoPoseLibrary !== 'swimShorts';
+                const shouldUseActionOriginal = !!selectedAction?.original && !isPoseOnly && activeAutoPoseLibrary !== 'swimShorts';
                 const actionOriginalStart = shouldUseActionOriginal ? list.length + 1 : 0;
                 if (shouldUseActionOriginal && selectedAction?.original) {
                     list.push(selectedAction.original);
                     list.push(selectedAction.original);
-                    if (!isPoseOnly) list.push(selectedAction.original);
+                    list.push(selectedAction.original);
                 }
                 const actionLineartStart = selectedAction?.lineart ? list.length + 1 : 0;
                 if (selectedAction?.lineart) {
@@ -853,7 +856,7 @@ Rules:
                 return {
                     images: list,
                     actionOriginalStart,
-                    actionOriginalEnd: actionOriginalStart ? actionOriginalStart + (isPoseOnly ? 1 : 2) : 0,
+                    actionOriginalEnd: actionOriginalStart ? actionOriginalStart + 2 : 0,
                     actionLineartStart,
                     actionLineartEnd: actionLineartStart ? actionLineartStart + 1 : 0
                 };
@@ -962,6 +965,39 @@ Rules:
 # USER REQUESTED ANGLES / FRAMING PRIORITY: This output has no matching uploaded action reference. If the notes mention front/back/side/three-quarter view, full-body/half-body crop, walking/sitting/standing state, camera framing, or required shot sequence, obey those instructions with high priority while preserving product fidelity. If the notes do not request a specific pose or angle for this output, choose a varied random/auto commercial pose.`;
             };
 
+            const sceneVariationPresets = [
+                'wide framing from the same tripod zone: keep the reference background anchors visible, show slightly more floor/ground and horizon while preserving the same location geometry',
+                'medium framing from the same camera height: keep the same background anchors behind the subject, vary only lens distance and crop, with natural subject-to-background separation',
+                'three-quarter framing from a small left/right camera shift within the same spot: preserve the same horizon, wall/ground/material cues, and prop family',
+                'full-body commercial framing: keep the same ground plane and background horizon/architecture relation, only adjust subject scale and focal length',
+                'half-body framing: crop tighter with moderate background blur, keeping a recognizable softened portion of the same reference scene behind the upper body',
+                'close-up/detail framing: use shallow depth of field and visibly blurred background; retain only soft recognizable scene cues from the uploaded reference, such as the same ground texture, horizon, wall, prop, or color block'
+            ];
+
+            const accessoryBatchLockPrompt = accessoryReferences.length > 0
+                ? `# ACCESSORY BATCH IDENTITY LOCK:
+Images ${accessoryIndexStart}-${accessoryIndexEnd} define the ONLY accessory set allowed in this batch. Use the same bag/jewelry/watch/sunglasses/hat/belt/bracelet/handheld prop identity across every output: same item count, same color, same material, same hardware, same scale, and same styling logic. A crop may hide an accessory naturally, but visible accessories must not change between outputs. Do NOT invent alternate necklaces, watches, sunglasses, hats, bags, belts, bracelets, or props.`
+                : `# ACCESSORY BATCH IDENTITY LOCK:
+No accessory reference images were uploaded. Do NOT invent new bags, purses, hats, scarves, sunglasses, necklaces, bracelets, watches, belts, handheld props, or decorative accessories. If the product asset or user text explicitly requires a visible accessory, use one single minimal consistent accessory set across the whole batch and never change it between outputs.`;
+
+            const getPerOutputScenePrompt = (outputNumber: number, isActionLockedOutput: boolean) => {
+                if (sceneReferences.length === 0) return '';
+                const variation = sceneVariationPresets[(outputNumber - 1) % sceneVariationPresets.length];
+                return `# SCENE VARIATION FOR OUTPUT #${outputNumber}:
+Use the uploaded scene reference as the SAME-SHOOT LOCATION ANCHOR, not as a different scene inspiration. This output must feel photographed at the same place, on the same day, by the same camera team.
+- Preserve the key scene anchors from the reference: same location type, horizon/architecture relationship, ground or wall material, dominant props/materials, color palette, weather/season, lighting direction, and overall mood.
+- Allow only conservative real-camera variation: ${variation}.
+- Variation may come from subject scale, focal length, crop, mild parallax, depth of field, and small camera height/left-right changes. Do not redesign or replace the background.
+- PERSPECTIVE SOLVER: rebuild the scene with physically valid camera geometry. Horizon line, vanishing points, ground plane, subject foot contact, shadow direction, lens compression, and background scale must agree with the selected full-body / half-body / close-up framing.
+- DEPTH-OF-FIELD LOCK: if this output is close-up, extreme close-up, detail crop, chest-up, neck-to-chest, or waist-up, the scene background must be optically blurred like a real lens. Keep only soft recognizable scene cues from the uploaded scene reference; do not render a crisp, equally sharp background behind a close subject.
+- For full-body and wide shots, the background can be clearer, but it must still obey real lens perspective, subject distance, scale, contact shadows, and lighting direction.
+- If the uploaded scene reference perspective is imperfect or conflicts with the selected pose/crop, correct it subtly while preserving the same scene identity and key visual anchors.
+- Every output, including close-ups/details, must retain at least one recognizable cue from the uploaded scene reference.
+- Do NOT make every batch image use the identical background crop, but also do NOT change to a different beach/room/street/studio, different architecture, different season, different time of day, or unrelated props.
+- If the scene reference has ocean/stone/shell/sky cues, preserve those same cues across the batch; if it has walls/floor/furniture cues, preserve those same cues across the batch.
+${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose first; scene variation must adapt behind that pose without changing the action-reference framing.' : '- Let the scene camera naturally support the requested full-body / half-body / close-up / detail shot.'}`;
+            };
+
             const globalPrompt = `
             # AGENT STRATEGY: ${strategy}
             # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
@@ -978,15 +1014,16 @@ Rules:
             DO NOT generate or allow ANY of these product background items to appear in the final model's scene background. You must isolate ONLY the clothing itself from the product asset.
             
             ${unifiedStylingPlan}
+            ${accessoryBatchLockPrompt}
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (OPTIONAL BUT STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, hat, belt, scarf, or handheld prop, include it only when naturally compatible with the selected pose, and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, jewelry, handheld props, or decorative accessories unless they are already part of the product asset. Keep styling clean and product-focused.'}
+            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, watch, sunglasses, hat, belt, scarf, bracelet, or handheld prop, use the same accessory identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, watches, necklaces, bracelets, jewelry, handheld props, or decorative accessories unless they are already part of the product asset or explicitly required by the user. Keep styling clean and product-focused.'}
             ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             # OUTPUT FORMAT LOCK: Generate exactly one image in the user-selected ${aspectRatio} aspect ratio. No collage, no split-screen, no side-by-side images, no before/after layout, no horizontal strip, no letterbox/pillarbox, no large blank white canvas.
             ${actionReferences.length > 0 ? '# ACTION REFERENCE IS POSE ONLY: Uploaded action references control only body pose and gesture. They must NOT control background, environment, lighting, product color, or output aspect ratio.' : ''}
             ${sceneReferences.length > 0
-                ? `# SCENE FIDELITY (MANDATORY BACKGROUND SOURCE): You MUST replicate the uploaded scene reference background, environment, layout, walls, props, ambient lighting, shadows, and architectural details EXACTLY. The generated subject must be placed seamlessly into this exact scene environment. Action references must not override this background.`
+                ? `# SCENE REFERENCE SAME-SHOOT LOCK + REAL CAMERA GEOMETRY: Uploaded scene references define the exact shooting location identity: environment type, horizon/architecture relationship, ground/wall material, dominant props/materials, color temperature, lighting direction, mood, weather/season, and location cues. Do NOT copy the exact same background crop in every image, but stay in the SAME location. Variation is limited to real camera changes: crop, focal length, subject distance, mild parallax, and depth of field. Do NOT invent a different scene or replace the background with another similar-looking place. Scene must obey real perspective: coherent horizon, vanishing point, ground plane, object scale, subject placement, contact shadows, lighting direction, lens compression, and depth of field. If needed, adjust the scene reference subtly to make the final image physically plausible. CLOSE-UP RULE: for close-up, extreme close-up, chest-up, neck-to-chest, waist-up, and detail crops, the uploaded scene must appear as a real out-of-focus background with recognizable but blurred cues; never render a crisp flat background behind a close subject.`
                 : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
@@ -1094,10 +1131,11 @@ Rules:
                 const outputAspectRatio = aspectRatio;
                 const actionReferenceInputDescription = inputPack.actionOriginalStart
                     ? `Original action reference ${inputPack.actionOriginalStart === inputPack.actionOriginalEnd ? `is Image ${inputPack.actionOriginalStart}` : `images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}`}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the framing/crop master: use it to read exact camera distance, visible body extent, cut-off boundaries, product-display area, and close-up/detail crop. Use the edge map only as supporting pose clarification. Do NOT copy the original action reference's clothing, logo, necklace, face identity, skin details, background, or lighting.`
-                    : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because pose-only mode is enabled; use these edge maps as the clean skeleton/gesture blueprint.`;
+                    : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because pose-only mode is enabled; use these edge maps as the clean skeleton/gesture blueprint. Since no action photo pixels are provided, do NOT infer or hallucinate any action-reference background, architecture, room, beach, pool, plants, props, color palette, or lighting.`;
                 
                 const outputNumber = i + 1;
                 const perOutputSupplementaryNotes = getSupplementaryNotesPrompt(hasOutputActionReference, outputNumber);
+                const perOutputScenePrompt = getPerOutputScenePrompt(outputNumber, hasOutputActionReference);
                 let finalPrompt = globalPrompt;
                 let selectedPoseHeader = '';
                 if (hasOutputActionReference) {
@@ -1116,6 +1154,7 @@ Use the product asset only for clothing identity and the scene reference/user pr
 CANVAS FILL LOCK: create a single full-frame ${outputAspectRatio} image. The generated photo must touch the intended canvas boundaries naturally and must not sit as a smaller horizontal image inside a larger white/blank canvas.
 ACTION ONLY LOCK: use the uploaded action reference only for pose geometry: hand placement, arm bend, shoulder tilt, torso rotation, hip angle, leg stance, knee bend, foot direction, body silhouette and product-display crop idea.
 BACKGROUND SOURCE LOCK: do NOT copy the action reference background, lighting, beach, pool, ocean, sand, walls, props, model identity, face, skin tone, or old swim shorts. Background must come from the uploaded scene reference if present; otherwise from the user's platform/style/background settings.
+ACTION BACKGROUND BAN: any arches, walls, interiors, pools, plants, beaches, props, furniture, windows, doors, floors, or lighting that came from the action reference must be treated as forbidden contamination. The action reference is not a scene source.
 GARMENT REPLACEMENT ONLY: the product asset controls only the swim shorts/garment design, color, material, pattern, waistband, drawstring, pockets, liner, seams, hem and fit.
 SINGLE IMAGE OUTPUT: generate one normal ${outputAspectRatio} image only. Do NOT create a collage, split screen, side-by-side comparison, before/after layout, two images in one canvas, horizontal strip, letterbox, pillarbox, or a large blank white area.
 ${perOutputSupplementaryNotes}
@@ -1201,12 +1240,19 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                 if (selectedPoseHeader) {
                     finalPrompt = `${selectedPoseHeader}\n${finalPrompt}`;
                 }
+                if (perOutputScenePrompt) {
+                    finalPrompt += `\n${perOutputScenePrompt}\n`;
+                }
                 const negativePrompt = [
                     hasOutputActionReference || activeAutoPoseLibrary !== 'none'
-                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, ignored close-up crop, zoomed-out portrait when reference is close-up, full face visible when reference cuts off the face, full head visible when reference cuts off the head, waist visible when reference is chest-only, legs visible when reference is torso-only, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, copied action reference shirt, copied action reference logo, copied action reference necklace, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, beach background from pose library, pool background from pose library, ocean background from pose library'
+                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, ignored close-up crop, zoomed-out portrait when reference is close-up, full face visible when reference cuts off the face, full head visible when reference cuts off the head, waist visible when reference is chest-only, legs visible when reference is torso-only, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, copied action reference shirt, copied action reference logo, copied action reference necklace, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, copied action reference architecture, action reference arches, action reference room, action reference interior, action reference wall, action reference floor, action reference furniture, action reference pool, action reference plants, action reference props, beach background from pose library, pool background from pose library, ocean background from pose library'
                         : '',
                     modelReference
                         ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
+                        : '',
+                    'random accessories, inconsistent accessories, different necklace, different watch, different sunglasses, different hat, different bracelet, different bag, extra jewelry, extra watch, extra sunglasses, invented accessories, accessory drift between outputs',
+                    sceneReferences.length > 0
+                        ? 'different scene, changed location, unrelated background, different beach, different room, different street, different studio, different architecture, different season, different time of day, missing scene reference cues, missing same-location background anchors, replaced background, invented background props, wrong horizon, wrong ground material, inconsistent lighting direction, inconsistent color temperature, impossible perspective, flat pasted background, mismatched vanishing points, mismatched contact shadows, mismatched lens compression, sharp detailed background in close-up, crisp background behind close subject, no depth of field, artificial backdrop'
                         : ''
                 ].filter(Boolean).join(', ') || undefined;
 

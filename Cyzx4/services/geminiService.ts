@@ -1352,10 +1352,17 @@ ${forcedPrompt}`;
                   : workflowHint === 'scene-product-lock'
                     ? `
         **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
-        **TASK**: Place the reference product(s) from the subsequent images into the realistic lifestyle scene/composition provided in Image 1.
-        **IMAGE MAPPING**:
-        - Image 1: SCENE & COMPOSITION ANCHOR.
-        - Image 2 & beyond: PRODUCT DETAILS.
+        **TASK**: Generate a realistic lifestyle/commercial product image from the ordered reference images and the user's detailed mapping prompt.
+        **REFERENCE ROUTING**:
+        - Follow the user's prompt for exact image roles. Do not assume Image 1 is the scene if the prompt says Image 1 is the product asset.
+        - Product reference images are the strict source of truth for product identity, structure, color, fabric, trims, and details.
+        - Scene reference images are SAME-SHOOT LOCATION anchors. Preserve the same location identity, key background cues, color temperature, lighting direction, weather/season, ground/wall/material cues, and overall visual atmosphere.
+        - Allow only conservative real-camera variation: crop, focal length, subject distance, mild parallax, and depth of field. Do not redesign the background or move to a different but similar-looking location.
+        - Do not repeat the identical background crop across batch outputs, but every output must still contain recognizable cues from the uploaded scene reference.
+        - Action/pose references are never scene sources. Do not copy their architecture, walls, floors, pools, beaches, props, plants, furniture, color palette, or lighting.
+        - Enforce real camera geometry: coherent horizon line, vanishing points, ground plane, subject scale, foot/contact placement, shadow direction, lens compression, and depth of field. Subtly correct the uploaded scene reference if needed so the final image obeys physical perspective and camera principles.
+        - Close-up / chest-up / waist-up / detail crops must have realistic shallow depth of field. The scene reference should remain recognizable only through blurred location cues, not a crisp flat background. Full-body and wide shots may show more background detail, but must still obey perspective, lighting, shadow, and lens logic.
+        - Accessories must be batch-consistent. Use only the accessory set authorized by the user's prompt/reference mapping. Do not randomly change necklaces, watches, sunglasses, hats, bags, belts, bracelets, jewelry, or handheld props between outputs.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
@@ -1601,6 +1608,7 @@ export const generateInpainting = async (
     resolution?: ImageResolution;
     modelId?: string;
     refImages?: { base64: string; mimeType: string }[];
+    editMapImage?: { base64: string; mimeType: string };
     fabricRefImages?: { base64: string; mimeType: string }[];
     colorRefImages?: { base64: string; mimeType: string }[];
     structureRefImages?: { base64: string; mimeType: string }[];
@@ -1716,6 +1724,15 @@ export const generateInpainting = async (
         },
       });
 
+      if (options.editMapImage) {
+        parts.push({
+          inlineData: {
+            mimeType: options.editMapImage.mimeType,
+            data: options.editMapImage.base64,
+          },
+        });
+      }
+
       // 2.5 参考图（可选）
       if (options.refImages && options.refImages.length > 0) {
         options.refImages.forEach((img) => {
@@ -1766,12 +1783,17 @@ export const generateInpainting = async (
 
       // 3. 构造局部替换提示词
       const hasRefImages = options.refImages && options.refImages.length > 0;
+      const hasEditMapImage = !!options.editMapImage;
       const hasFabricRefImages = options.fabricRefImages && options.fabricRefImages.length > 0;
       const hasColorRefImages = options.colorRefImages && options.colorRefImages.length > 0;
       const hasStructureRefImages = options.structureRefImages && options.structureRefImages.length > 0;
 
       const refImageInstruction = hasRefImages
-        ? `\n      5. Additional reference images (Image 3+) are provided as VISUAL GUIDES for the replacement content (style / what to replace into). The generated content in the white mask area should look like or be inspired by these images.`
+        ? `\n      5. Product/reference images are provided after the source and mask. Use them as VISUAL GUIDES for the replacement content inside the WHITE mask only. Do not let them change any black-mask preserved area.`
+        : '';
+
+      const editMapInstruction = hasEditMapImage
+        ? `\n      PAINT MAP LOCK: An additional image is provided immediately after the black/white mask: it is the source photo with the user's real red brush strokes overlaid. Use the red painted overlay as the human-readable edit map, matching the user's painted location, stroke shape, and intended local area. The red paint is NOT part of the final image and must be completely removed. The black/white mask remains the hard inpainting boundary; the red brush map clarifies exactly what the user selected.`
         : '';
 
       const fabricRefInstruction = hasFabricRefImages
@@ -1783,7 +1805,13 @@ export const generateInpainting = async (
         : '';
 
       const cropPasteInstruction = hasStructureRefImages
-        ? `\n      8. CROP-AND-PASTE-BACK STRUCTURE LOCK: Structure reference images are provided as the exact blueprint for the replacement inside the WHITE mask. Treat the WHITE mask as a crop region, regenerate only that crop, then paste it back into Image 1. The replacement must match the structure reference's silhouette, garment panel layout, neckline, sleeves, hems, seams, folds, pattern placement, and proportions as closely as possible. Do not invent a different garment shape. Use padding=${options.cropPaste?.padding ?? 5}, blend=${options.cropPaste?.blend ?? 1}, expand=${options.cropPaste?.expand ?? 0.3} as conceptual paste-back controls: enough padding to include complete edges, soft blending at the boundary, and slight crop expansion to avoid seams while preserving the original outside pixels.`
+        ? `\n      8. STRUCTURE-REFERENCE EDGE SURGERY LOCK:
+      - Structure reference images are exact blueprints for the garment edge geometry inside the WHITE mask only.
+      - This is not a full outfit redesign. Do NOT replace the unmasked clothing body, torso fabric, background, pose, face, skin, hair, jewelry, or lighting.
+      - For neckline / collar / sleeve-cuff / hem edits, copy only the local boundary logic from the structure reference: edge thickness, trim/binding width, seam position, stitching direction, curve shape, endpoint alignment, fold direction, and fabric tension.
+      - Keep the original garment area outside the WHITE mask pixel-identical. The edited edge must reconnect naturally to the original untouched fabric at both ends, with no offset, floating trim, duplicated collar, doubled sleeve, broken shoulder seam, warped neckline, or new garment panel.
+      - If the WHITE mask is a narrow boundary strip, generate only that narrow boundary strip. Do not expand the edit into the whole shirt/top/dress unless the mask explicitly covers that area.
+      - Treat padding=${options.cropPaste?.padding ?? 5}, blend=${options.cropPaste?.blend ?? 1}, expand=${options.cropPaste?.expand ?? 0.3} as crop-paste controls: include complete edge context, softly blend only the edit boundary, and preserve the original outside pixels.`
         : '';
 
       const systemPrompt = `
@@ -1795,7 +1823,8 @@ export const generateInpainting = async (
       1. You MUST ONLY modify the areas marked as WHITE in the mask image.
       2. The BLACK areas in the mask MUST remain PIXEL-PERFECT IDENTICAL to the source image. No changes whatsoever.
       3. The newly generated content in the white areas must seamlessly blend with the surrounding preserved areas in terms of lighting, perspective, color temperature, and style.
-      4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}${cropPasteInstruction}
+      4. Generate the new content according to the user's description below.${editMapInstruction}${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}${cropPasteInstruction}
+      5. Boundary accuracy is more important than creative interpretation. When the request mentions "edge", "neckline", "collar", "sleeve cuff", "hem", "领口", "袖口", "边", "包边", or "裁切贴回", behave like a precise retoucher: edit only the marked edge strip and leave the rest visually unchanged.
 
       **USER DESCRIPTION**: ${forcedPrompt}
 
