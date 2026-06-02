@@ -75,7 +75,8 @@ const getPoseReferenceFrameNote = (img?: UploadedImage, index?: number) => {
     return [
         `Action reference #${typeof index === 'number' ? index + 1 : ''} frame analysis: source frame is ${orientation}, ${ratioText}.`,
         'Transfer the visual framing logic, not the background: match the same camera angle, lens distance, subject placement, crop boundary, and visible body extent.',
-        'Match the person-to-canvas occupancy from the reference as closely as possible: if the reference is chest-up, waist-up, thigh-up, knee-up, or full-body, keep that same body scale and amount of empty space.'
+        'Match the person-to-canvas occupancy from the reference as closely as possible: if the reference is chest-up, neck-to-chest, torso detail, waist-up, thigh-up, knee-up, or full-body, keep that same body scale and amount of empty space.',
+        'If the reference is an extreme close-up or detail crop, preserve the close camera distance exactly: do not zoom out, do not reveal a complete face/head, do not add extra waist/legs, and keep the same cut-off boundaries.'
     ].join(' ');
 };
 
@@ -249,7 +250,7 @@ const closestAspectRatioForImage = (image?: UploadedImage | null, fallback: Aspe
 const describeImageFraming = (image?: UploadedImage | null) => {
     if (!image?.width || !image?.height) return 'unknown source dimensions';
     const orientation = image.width > image.height ? 'landscape' : image.width < image.height ? 'portrait' : 'square';
-    return `${image.width}x${image.height}px, ${orientation}, source ratio ${(image.width / image.height).toFixed(3)}`;
+    return `${image.width}x${image.height}px, ${orientation}, source ratio ${(image.width / image.height).toFixed(3)}. Inspect the actual visible body extent: it may be an extreme close-up/detail crop, neck-to-chest crop, chest-up crop, waist-up crop, or full-body crop, and the output must preserve that visible extent.`;
 };
 
 const sanitizeSwimShortsPosePrompt = (prompt: string) => {
@@ -831,15 +832,16 @@ Rules:
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
                     ? processedActions[actionIndex]
                     : null;
-                const shouldUseActionOriginal = !!selectedAction?.original && !isPoseOnly && activeAutoPoseLibrary !== 'swimShorts';
+                const shouldUseActionOriginal = !!selectedAction?.original && activeAutoPoseLibrary !== 'swimShorts';
                 const actionOriginalStart = shouldUseActionOriginal ? list.length + 1 : 0;
                 if (shouldUseActionOriginal && selectedAction?.original) {
                     list.push(selectedAction.original);
                     list.push(selectedAction.original);
-                    list.push(selectedAction.original);
+                    if (!isPoseOnly) list.push(selectedAction.original);
                 }
                 const actionLineartStart = selectedAction?.lineart ? list.length + 1 : 0;
                 if (selectedAction?.lineart) {
+                    list.push(selectedAction.lineart);
                     list.push(selectedAction.lineart);
                 }
                 
@@ -851,9 +853,9 @@ Rules:
                 return {
                     images: list,
                     actionOriginalStart,
-                    actionOriginalEnd: actionOriginalStart ? actionOriginalStart + 2 : 0,
+                    actionOriginalEnd: actionOriginalStart ? actionOriginalStart + (isPoseOnly ? 1 : 2) : 0,
                     actionLineartStart,
-                    actionLineartEnd: actionLineartStart ? actionLineartStart : 0
+                    actionLineartEnd: actionLineartStart ? actionLineartStart + 1 : 0
                 };
             };
 
@@ -950,7 +952,17 @@ Rules:
                     ].filter(Boolean).join('\n'))
                 : '';
 
-            const prompt = `
+            const supplementalNotes = form.extraNotes.trim();
+            const getSupplementaryNotesPrompt = (isActionLockedOutput: boolean, outputNumber: number) => {
+                if (!supplementalNotes) return '';
+                return isActionLockedOutput
+                    ? `# USER SUPPLEMENTARY NOTES FOR OUTPUT #${outputNumber} (LOW-PRIORITY CONTEXT ONLY): ${supplementalNotes}
+# ACTION-LOCK CONFLICT RULE: For this output, ignore any supplementary-note requests about front/back/side view, full-body, half-body, camera angle, crop, pose, walking/sitting/standing state, or shot sequence. Those notes may influence only product styling, selling-point emphasis, mood, and non-pose details. The uploaded action reference controls pose, angle, subject scale, crop boundary, and visible body extent.`
+                    : `# USER SUPPLEMENTARY NOTES FOR OUTPUT #${outputNumber} (MUST FOLLOW): ${supplementalNotes}
+# USER REQUESTED ANGLES / FRAMING PRIORITY: This output has no matching uploaded action reference. If the notes mention front/back/side/three-quarter view, full-body/half-body crop, walking/sitting/standing state, camera framing, or required shot sequence, obey those instructions with high priority while preserving product fidelity. If the notes do not request a specific pose or angle for this output, choose a varied random/auto commercial pose.`;
+            };
+
+            const globalPrompt = `
             # AGENT STRATEGY: ${strategy}
             # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
             # ABSOLUTE CANVAS RULE:
@@ -981,8 +993,8 @@ Rules:
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
             
             # DESCRIPTION: ${basePrompt}
-            ${form.extraNotes.trim() ? `# USER SUPPLEMENTARY NOTES (MUST FOLLOW): ${form.extraNotes.trim()}
-# USER REQUESTED ANGLES / FRAMING PRIORITY: If the user notes mention specific angles, views, camera framing, crop, front/back/side/three-quarter view, walking/sitting/standing states, or required shot sequence, obey those instructions with high priority. For outputs without a matching uploaded action reference, choose random/auto poses that satisfy these user-requested angles and framing as closely as possible. Uploaded action references still control only their matching output index.` : ''}
+            # SUPPLEMENTARY NOTE ROUTING:
+            User supplementary notes are applied per output slot. Outputs with a matching uploaded action reference use those notes only as low-priority style/product context; outputs without a matching uploaded action reference use those notes as high-priority angle/framing instructions. If extra outputs have no specific pose/angle requested in the notes, generate them with varied random/auto poses.
             # FINAL OUTPUT: High-fidelity, commercial-grade asset with strict geometric locking for the product.
             `;
 
@@ -1081,27 +1093,32 @@ Rules:
                 const matchedActionReference = hasOutputActionReference ? actionReferences[actionReferenceIndex!] : null;
                 const outputAspectRatio = aspectRatio;
                 const actionReferenceInputDescription = inputPack.actionOriginalStart
-                    ? `Original action reference images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the master image; use the edge map only as supporting pose clarification.`
+                    ? `Original action reference ${inputPack.actionOriginalStart === inputPack.actionOriginalEnd ? `is Image ${inputPack.actionOriginalStart}` : `images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}`}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the framing/crop master: use it to read exact camera distance, visible body extent, cut-off boundaries, product-display area, and close-up/detail crop. Use the edge map only as supporting pose clarification. Do NOT copy the original action reference's clothing, logo, necklace, face identity, skin details, background, or lighting.`
                     : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because pose-only mode is enabled; use these edge maps as the clean skeleton/gesture blueprint.`;
                 
-                let finalPrompt = prompt;
+                const outputNumber = i + 1;
+                const perOutputSupplementaryNotes = getSupplementaryNotesPrompt(hasOutputActionReference, outputNumber);
+                let finalPrompt = globalPrompt;
                 let selectedPoseHeader = '';
                 if (hasOutputActionReference) {
                     const actionFrameNote = getPoseReferenceFrameNote(actionReferences[actionReferenceIndex], actionReferenceIndex);
                     selectedPoseHeader = `# EXACT USER ACTION REFERENCE FOR THIS OUTPUT (ABSOLUTE):
-This output index has a matching uploaded action reference at action slot #${actionReferenceIndex + 1}. The action reference images included in this input are the strongest geometry constraint for THIS IMAGE ONLY.
+Output #${outputNumber} is reserved for uploaded action reference #${actionReferenceIndex + 1}. This output slot must replicate that reference's angle, pose, subject scale, crop boundary, and visible body extent. The action reference images included in this input are the strongest geometry constraint for THIS IMAGE ONLY.
 ${actionFrameNote}
 ${actionReferenceInputDescription}
+STRICT SLOT ROUTING: This is a one-to-one batch assignment. Output #${outputNumber} MUST use uploaded action reference #${actionReferenceIndex + 1}; using a generic pose, another uploaded action reference, an auto pose library pose, or ignoring this reference is a failed result.
 Reference geometry: ${describeImageFraming(matchedActionReference)}. Output aspect ratio MUST be the USER SELECTED ratio ${outputAspectRatio}. Never override it with the action reference ratio.
 Match the uploaded action reference's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette.
 CROP LOCK IS MANDATORY: if the action reference is half-body, waist-up, thigh-up, full-body, seated, walking, leaning, or cropped at the knees, this output MUST use the same body extent and crop boundary.
+EXTREME CLOSE-UP LOCK: if the action reference is a close-up/detail crop such as neck-to-chest, chin-to-chest, cropped face, no full head, no eyes visible, chest-dominant product detail, or torso-only crop, the output MUST stay equally close. Do NOT zoom out into a normal portrait, do NOT reveal the full face/head, do NOT show waist/legs, and do NOT convert it into a standard half-body catalog shot.
 Do NOT replace the referenced pose with a generic catalog pose. Do NOT drop raised hands, pocket hands, hand-to-face gestures, seated stance, walking stance, leaning pose, crossed legs, over-shoulder direction, or asymmetric limb angle.
-Use the product asset only for clothing identity and the scene reference/user prompt for background. Completely ignore the action reference background, face, clothing, colors, texture, lighting, and scene details.
+Use the product asset only for clothing identity and the scene reference/user prompt for background. Completely ignore the action reference background, face identity, clothing design, logo, colors, texture, jewelry/accessories, lighting, and scene details. Keep only camera distance, crop geometry, pose/framing, and visible-body extent.
 CANVAS FILL LOCK: create a single full-frame ${outputAspectRatio} image. The generated photo must touch the intended canvas boundaries naturally and must not sit as a smaller horizontal image inside a larger white/blank canvas.
 ACTION ONLY LOCK: use the uploaded action reference only for pose geometry: hand placement, arm bend, shoulder tilt, torso rotation, hip angle, leg stance, knee bend, foot direction, body silhouette and product-display crop idea.
 BACKGROUND SOURCE LOCK: do NOT copy the action reference background, lighting, beach, pool, ocean, sand, walls, props, model identity, face, skin tone, or old swim shorts. Background must come from the uploaded scene reference if present; otherwise from the user's platform/style/background settings.
 GARMENT REPLACEMENT ONLY: the product asset controls only the swim shorts/garment design, color, material, pattern, waistband, drawstring, pockets, liner, seams, hem and fit.
 SINGLE IMAGE OUTPUT: generate one normal ${outputAspectRatio} image only. Do NOT create a collage, split screen, side-by-side comparison, before/after layout, two images in one canvas, horizontal strip, letterbox, pillarbox, or a large blank white area.
+${perOutputSupplementaryNotes}
 `;
                     if (activeAutoPoseLibrary === 'swimShorts') {
                         selectedPoseHeader += `
@@ -1109,10 +1126,13 @@ SINGLE IMAGE OUTPUT: generate one normal ${outputAspectRatio} image only. Do NOT
 Uploaded action references provide ONLY body pose and product-display crop. Do not copy their background or old swim shorts. Keep the user-selected ${outputAspectRatio} canvas. If the action pose shows swim-shorts product framing, preserve the upper-chest/pectorals-to-feet subject display inside the selected ${outputAspectRatio} image.
 `;
                     }
-                    finalPrompt += `\n# MATCHING ACTION REFERENCE ROUTING: This is generated from uploaded action reference #${actionReferenceIndex + 1}. Other outputs without their own uploaded action reference must use random/auto poses instead.\n`;
+                    finalPrompt += `\n# MATCHING ACTION REFERENCE ROUTING: Output #${outputNumber} is generated from uploaded action reference #${actionReferenceIndex + 1}. Other outputs without their own uploaded action reference must use random/auto poses instead and must not inherit this reference.\n`;
                 } else {
                     if (actionReferences.length > 0) {
-                        finalPrompt += `\n# NO UPLOADED ACTION REFERENCE FOR THIS OUTPUT: Do NOT copy any uploaded action reference for this output. The uploaded action references are reserved only for their matching output slots 1-${actionReferences.length}. Generate this output with a different random/auto pose while preserving product fidelity and user-requested framing.\n`;
+                        finalPrompt += `\n# NO UPLOADED ACTION REFERENCE FOR OUTPUT #${outputNumber}: Do NOT copy, infer from, or visually reuse any uploaded action reference for this output. Uploaded action references are reserved only for output slots 1-${actionReferences.length}. Generate this output from the user's supplementary notes when they request a specific angle/framing; otherwise use a varied random/auto commercial pose while preserving product fidelity.\n`;
+                    }
+                    if (perOutputSupplementaryNotes) {
+                        finalPrompt += `\n${perOutputSupplementaryNotes}\n`;
                     }
                     if (activeAutoPoseLibrary === 'swimShorts') {
                         const posePreset = shuffledSwimShortsPoses[i % shuffledSwimShortsPoses.length];
@@ -1183,7 +1203,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                 }
                 const negativePrompt = [
                     hasOutputActionReference || activeAutoPoseLibrary !== 'none'
-                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, beach background from pose library, pool background from pose library, ocean background from pose library'
+                        ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, ignored close-up crop, zoomed-out portrait when reference is close-up, full face visible when reference cuts off the face, full head visible when reference cuts off the head, waist visible when reference is chest-only, legs visible when reference is torso-only, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, copied action reference shirt, copied action reference logo, copied action reference necklace, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, beach background from pose library, pool background from pose library, ocean background from pose library'
                         : '',
                     modelReference
                         ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
@@ -1218,7 +1238,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     ...accessoryReferences.map(img => `data:${img.mime};base64,${img.base64}`),
                     ...(modelReference ? [`data:${modelReference.mime};base64,${modelReference.base64}`] : [])
                 ],
-                prompt,
+                prompt: globalPrompt,
                 params: {
                     source: 'Cyzx4/components/ImageCleanTab',
                     model: selectedModel,
@@ -1444,6 +1464,9 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                                             精确 {closestAspectRatioForImage(img)}
                                                         </span>
                                                     )}
+                                                    <span className="absolute bottom-0.5 right-1 bg-purple-700/80 text-white text-[7px] px-1 rounded font-bold">
+                                                        锁定图{idx + 1}
+                                                    </span>
                                                     <button onClick={(e) => { e.stopPropagation(); setActionReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute top-1 right-1 z-20 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/action:opacity-100 transition-opacity shadow-sm"><X className="w-2.5 h-2.5" /></button>
                                                 </div>
                                             ))}
@@ -1457,7 +1480,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     ) : (
                                         <div className="text-center py-4">
                                             <Wand2 className="w-6 h-6 mx-auto mb-1 text-purple-300" />
-                                            <p className="text-[10px] text-purple-600 font-medium">指定模特姿态与画幅（最多10张）</p>
+                                            <p className="text-[10px] text-purple-600 font-medium">按顺序锁定前几张结果；其余按补充说明，未指定动作则随机</p>
                                         </div>
                                     )}
                                 </div>
@@ -1856,14 +1879,14 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                             value={form.extraNotes}
                                             onChange={e => setForm({ ...form, extraNotes: e.target.value })}
                                             className="w-full min-h-[76px] bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-orange-200"
-                                            placeholder="更多运营信息、动作细节、参考关键词、希望突出的镜头语言等"
+                                            placeholder="例如：除动作参考图外，再生成一张正面全身和一张背面全身。未写特定动作的额外图片会随机生成。"
                                         />
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div><label className="text-[10px] text-pastel-muted font-bold block mb-1">清晰度</label><select value={resolution} onChange={e => setResolution(e.target.value as ImageResolution)} className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-xs"><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select></div>
                                         <div>
                                             <label className="text-[10px] text-pastel-muted font-bold block mb-1">
-                                                批量 {actionReferences.length > 0 && <span className="text-[8px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded font-normal border border-purple-100 animate-pulse">仅{actionReferences.length}张对齐动作</span>}
+                                                批量 {actionReferences.length > 0 && <span className="text-[8px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded font-normal border border-purple-100 animate-pulse">前{actionReferences.length}张锁定动作，其余按补充说明/随机动作</span>}
                                             </label>
                                             <select 
                                                 value={generateCount} 
