@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateInpainting, blobToBase64 } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
@@ -35,6 +35,8 @@ const InpaintingTab: React.FC = () => {
   const [hasMask, setHasMask] = useState(false);
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [showCursor, setShowCursor] = useState(false);
+  const [showMaskGuide, setShowMaskGuide] = useState(false);
+  const [showStructureGuide, setShowStructureGuide] = useState(false);
 
   // 参考图状态
   const [refFiles, setRefFiles] = useState<File[]>([]);
@@ -108,6 +110,7 @@ const InpaintingTab: React.FC = () => {
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null);
 
   // 上传图片
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -340,13 +343,26 @@ const InpaintingTab: React.FC = () => {
     };
   }, []);
 
-  const drawAt = useCallback((x: number, y: number) => {
+  const drawAt = useCallback((x: number, y: number, previous?: { x: number; y: number } | null) => {
     const canvas = maskCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.globalCompositeOperation = isErasing ? 'destination-out' : 'source-over';
+    ctx.fillStyle = 'rgba(255, 80, 80, 0.45)';
+    ctx.strokeStyle = 'rgba(255, 80, 80, 0.45)';
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (previous) {
+      ctx.beginPath();
+      ctx.moveTo(previous.x, previous.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
     ctx.beginPath();
     
     // 关键修正：笔触大小也需要考虑缩放比例，或者确保绘制是在内部坐标系下正确的
@@ -360,6 +376,7 @@ const InpaintingTab: React.FC = () => {
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     setIsDrawing(true);
     const pos = getCanvasPos(e);
+    lastDrawPointRef.current = pos;
     drawAt(pos.x, pos.y);
   }, [getCanvasPos, drawAt]);
 
@@ -369,11 +386,13 @@ const InpaintingTab: React.FC = () => {
     setCursorPos(dispPos);
     
     if (!isDrawing) return;
-    drawAt(pos.x, pos.y);
+    drawAt(pos.x, pos.y, lastDrawPointRef.current);
+    lastDrawPointRef.current = pos;
   }, [isDrawing, getCanvasPos, getDisplayPos, drawAt]);
 
   const handleMouseUp = useCallback(() => {
     setIsDrawing(false);
+    lastDrawPointRef.current = null;
   }, []);
 
   const handleMouseEnter = useCallback(() => {
@@ -382,6 +401,7 @@ const InpaintingTab: React.FC = () => {
 
   const handleMouseLeave = useCallback(() => {
     setIsDrawing(false);
+    lastDrawPointRef.current = null;
     setShowCursor(false);
     setCursorPos(null);
   }, []);
@@ -398,7 +418,12 @@ const InpaintingTab: React.FC = () => {
   };
 
   // 导出蒙版为黑白图
-  const exportMask = (): string | null => {
+  const getMaskExpandPixels = () => {
+    if (!cropPasteEnabled || structureRefFiles.length === 0) return 0;
+    return Math.max(0, Math.round(cropPadding + cropExpand * 30));
+  };
+
+  const exportMask = (expandPixels = 0): string | null => {
     const maskCanvas = maskCanvasRef.current;
     const srcCanvas = sourceCanvasRef.current;
     if (!maskCanvas || !srcCanvas || !imgRef.current) return null;
@@ -421,14 +446,20 @@ const InpaintingTab: React.FC = () => {
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return null;
 
-    tempCtx.drawImage(maskCanvas, 0, 0, imgRef.current.naturalWidth, imgRef.current.naturalHeight);
+    if (expandPixels > 0) {
+      tempCtx.filter = `blur(${expandPixels}px)`;
+      tempCtx.drawImage(maskCanvas, 0, 0, imgRef.current.naturalWidth, imgRef.current.naturalHeight);
+      tempCtx.filter = 'none';
+    } else {
+      tempCtx.drawImage(maskCanvas, 0, 0, imgRef.current.naturalWidth, imgRef.current.naturalHeight);
+    }
     const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
     const data = imageData.data;
 
     // Alpha > 0 的像素 -> 白色（编辑区域），否则保持黑色（保留区域）
     const outData = ctx.getImageData(0, 0, exportCanvas.width, exportCanvas.height);
     for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] > 10) { // alpha threshold
+      if (data[i + 3] > (expandPixels > 0 ? 2 : 10)) { // alpha threshold
         outData.data[i] = 255;     // R
         outData.data[i + 1] = 255; // G
         outData.data[i + 2] = 255; // B
@@ -438,6 +469,24 @@ const InpaintingTab: React.FC = () => {
     ctx.putImageData(outData, 0, 0);
 
     return exportCanvas.toDataURL('image/png').split(',')[1]; // Return base64 only
+  };
+
+  const exportPaintEditMap = (): string | null => {
+    const maskCanvas = maskCanvasRef.current;
+    if (!maskCanvas || !imgRef.current) return null;
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = imgRef.current.naturalWidth;
+    exportCanvas.height = imgRef.current.naturalHeight;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.drawImage(imgRef.current, 0, 0, exportCanvas.width, exportCanvas.height);
+    ctx.globalAlpha = 0.72;
+    ctx.drawImage(maskCanvas, 0, 0, exportCanvas.width, exportCanvas.height);
+    ctx.globalAlpha = 1;
+
+    return exportCanvas.toDataURL('image/png').split(',')[1];
   };
 
   const loadCanvasImage = (src: string): Promise<HTMLImageElement> => {
@@ -453,7 +502,8 @@ const InpaintingTab: React.FC = () => {
   const pasteGeneratedIntoMask = async (
     sourceDataUrl: string,
     generatedDataUrl: string,
-    maskBase64: string
+    maskBase64: string,
+    blendRadius = 0
   ): Promise<string> => {
     const [sourceImg, generatedImg, maskImg] = await Promise.all([
       loadCanvasImage(sourceDataUrl),
@@ -479,11 +529,177 @@ const InpaintingTab: React.FC = () => {
     if (!patchCtx) return generatedDataUrl;
 
     patchCtx.drawImage(generatedImg, 0, 0, width, height);
+
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = width;
+    maskCanvas.height = height;
+    const maskCtx = maskCanvas.getContext('2d');
+    if (!maskCtx) return generatedDataUrl;
+    if (blendRadius > 0) {
+      maskCtx.filter = `blur(${Math.max(0, blendRadius)}px)`;
+      maskCtx.drawImage(maskImg, 0, 0, width, height);
+      maskCtx.filter = 'none';
+    } else {
+      maskCtx.drawImage(maskImg, 0, 0, width, height);
+    }
+
     patchCtx.globalCompositeOperation = 'destination-in';
-    patchCtx.drawImage(maskImg, 0, 0, width, height);
+    patchCtx.drawImage(maskCanvas, 0, 0, width, height);
 
     resultCtx.drawImage(patchCanvas, 0, 0, width, height);
     return resultCanvas.toDataURL('image/png');
+  };
+
+  const parseAspectRatioValue = (ratio: AspectRatio) => {
+    const [w, h] = ratio.split(':').map(Number);
+    return w / h;
+  };
+
+  const closestAspectRatioForSize = (width: number, height: number) => {
+    const sourceRatio = width / height;
+    return Object.values(AspectRatio).reduce((best, current) => {
+      const bestDiff = Math.abs(parseAspectRatioValue(best) - sourceRatio);
+      const currentDiff = Math.abs(parseAspectRatioValue(current) - sourceRatio);
+      return currentDiff < bestDiff ? current : best;
+    }, AspectRatio.SQUARE);
+  };
+
+  const createMaskedCropPackage = async (
+    sourceDataUrl: string,
+    maskBase64: string,
+    editMapBase64: string | null,
+    extraPadding: number
+  ) => {
+    const [sourceImg, maskImg, editMapImg] = await Promise.all([
+      loadCanvasImage(sourceDataUrl),
+      loadCanvasImage(`data:image/png;base64,${maskBase64}`),
+      editMapBase64 ? loadCanvasImage(`data:image/png;base64,${editMapBase64}`) : Promise.resolve(null),
+    ]);
+
+    const width = sourceImg.naturalWidth || sourceImg.width;
+    const height = sourceImg.naturalHeight || sourceImg.height;
+
+    const scanCanvas = document.createElement('canvas');
+    scanCanvas.width = width;
+    scanCanvas.height = height;
+    const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+    if (!scanCtx) return null;
+    scanCtx.drawImage(maskImg, 0, 0, width, height);
+
+    const data = scanCtx.getImageData(0, 0, width, height).data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const idx = (y * width + x) * 4;
+        if (data[idx] > 180 || data[idx + 3] > 180) {
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+    if (maxX < minX || maxY < minY) return null;
+
+    const maskWidth = maxX - minX + 1;
+    const maskHeight = maxY - minY + 1;
+    const contextualPadding = Math.max(
+      24,
+      Math.round(Math.max(maskWidth, maskHeight) * 0.22),
+      Math.round(extraPadding)
+    );
+    const x = Math.max(0, minX - contextualPadding);
+    const y = Math.max(0, minY - contextualPadding);
+    const right = Math.min(width, maxX + contextualPadding + 1);
+    const bottom = Math.min(height, maxY + contextualPadding + 1);
+    const cropWidth = right - x;
+    const cropHeight = bottom - y;
+
+    const makeCrop = (img: HTMLImageElement) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(img, x, y, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+      return canvas.toDataURL('image/png').split(',')[1];
+    };
+
+    const sourceCrop = makeCrop(sourceImg);
+    const maskCrop = makeCrop(maskImg);
+    const editMapCrop = editMapImg ? makeCrop(editMapImg) : null;
+    if (!sourceCrop || !maskCrop) return null;
+
+    return {
+      source: { base64: sourceCrop, mimeType: 'image/png' },
+      mask: { base64: maskCrop, mimeType: 'image/png' },
+      editMap: editMapCrop ? { base64: editMapCrop, mimeType: 'image/png' } : undefined,
+      bounds: { x, y, width: cropWidth, height: cropHeight },
+      aspectRatio: closestAspectRatioForSize(cropWidth, cropHeight),
+    };
+  };
+
+  const pasteGeneratedCropIntoSource = async (
+    sourceDataUrl: string,
+    generatedCropDataUrl: string,
+    cropMaskBase64: string,
+    bounds: { x: number; y: number; width: number; height: number },
+    blendRadius = 0
+  ) => {
+    const [sourceImg, generatedImg, maskImg] = await Promise.all([
+      loadCanvasImage(sourceDataUrl),
+      loadCanvasImage(generatedCropDataUrl),
+      loadCanvasImage(`data:image/png;base64,${cropMaskBase64}`),
+    ]);
+
+    const width = sourceImg.naturalWidth || sourceImg.width;
+    const height = sourceImg.naturalHeight || sourceImg.height;
+    const resultCanvas = document.createElement('canvas');
+    resultCanvas.width = width;
+    resultCanvas.height = height;
+    const resultCtx = resultCanvas.getContext('2d');
+    if (!resultCtx) return generatedCropDataUrl;
+    resultCtx.drawImage(sourceImg, 0, 0, width, height);
+
+    const patchCanvas = document.createElement('canvas');
+    patchCanvas.width = bounds.width;
+    patchCanvas.height = bounds.height;
+    const patchCtx = patchCanvas.getContext('2d');
+    if (!patchCtx) return generatedCropDataUrl;
+    patchCtx.drawImage(generatedImg, 0, 0, bounds.width, bounds.height);
+
+    const cropMaskCanvas = document.createElement('canvas');
+    cropMaskCanvas.width = bounds.width;
+    cropMaskCanvas.height = bounds.height;
+    const cropMaskCtx = cropMaskCanvas.getContext('2d');
+    if (!cropMaskCtx) return generatedCropDataUrl;
+    if (blendRadius > 0) {
+      cropMaskCtx.filter = `blur(${Math.max(0, blendRadius)}px)`;
+    }
+    cropMaskCtx.drawImage(maskImg, 0, 0, bounds.width, bounds.height);
+    cropMaskCtx.filter = 'none';
+
+    patchCtx.globalCompositeOperation = 'destination-in';
+    patchCtx.drawImage(cropMaskCanvas, 0, 0, bounds.width, bounds.height);
+    resultCtx.drawImage(patchCanvas, bounds.x, bounds.y);
+    return resultCanvas.toDataURL('image/png');
+  };
+
+  const buildStructureLockedPrompt = (basePrompt: string, hasStructureRef: boolean) => {
+    if (!hasStructureRef) return basePrompt;
+    return `${basePrompt}
+
+# 结构参考裁切贴回硬规则
+这是局部边缘修图，不是整件衣服重画。
+- 当前可能只提供了涂抹区域周围的裁切小图。必须把这块裁切图当作局部手术区域处理，重绘白色蒙版内的结构后再无缝贴回原图。
+- 只编辑白色蒙版区域；黑色蒙版区域必须保持原图不变。
+- 结构参考图只用于白色区域内的局部边缘结构：领口边、袖口边、包边厚度、缝线位置、边缘曲线、褶皱方向和端点连接。
+- 不要把结构参考图里的整件衣服、人体、背景、肤色、首饰或光线复制进来。
+- 如果蒙版只涂了窄边，只生成窄边；不要扩展到胸口、肩膀、整只袖子或整件上衣。
+- 新边缘必须贴合原图未涂抹区域，和原本布料自然连接，不允许出现双领口、双袖口、漂浮边、断裂缝线、错位拼接。`;
   };
 
   // 生成
@@ -507,11 +723,13 @@ const InpaintingTab: React.FC = () => {
       const sourceDataUrl = `data:${sourceFile.type};base64,${sourceBase64}`;
 
       // 2. 导出蒙版
-      setProgress('正在导出蒙版...');
-      const maskBase64 = exportMask();
+      const maskExpandPixels = getMaskExpandPixels();
+      setProgress(maskExpandPixels > 0 ? `正在导出蒙版并外扩 ${maskExpandPixels}px...` : '正在导出蒙版...');
+      const maskBase64 = exportMask(maskExpandPixels);
       if (!maskBase64) {
         throw new Error('蒙版导出失败');
       }
+      const editMapBase64 = exportPaintEditMap();
 
       // 3. 压缩参考图
       let refImagesData: { base64: string; mimeType: string }[] | undefined;
@@ -554,14 +772,19 @@ const InpaintingTab: React.FC = () => {
 
       // 4. 发送到 AI
       setProgress('正在生成 (预计 30-90 秒)...');
+      const stablePrompt = buildStructureLockedPrompt(description, !!structureRefImagesData);
+      const cropPackage = cropPasteEnabled && structureRefImagesData
+        ? await createMaskedCropPackage(sourceDataUrl, maskBase64, editMapBase64, Math.max(maskExpandPixels, cropPadding + cropExpand * 30))
+        : null;
       const results = await generateInpainting(
-        { base64: sourceBase64, mimeType: sourceFile.type },
-        { base64: maskBase64, mimeType: 'image/png' },
-        description,
+        cropPackage?.source || { base64: sourceBase64, mimeType: sourceFile.type },
+        cropPackage?.mask || { base64: maskBase64, mimeType: 'image/png' },
+        stablePrompt,
         {
-          aspectRatio,
+          aspectRatio: cropPackage?.aspectRatio || aspectRatio,
           resolution,
           modelId: selectedModel,
+          editMapImage: cropPackage?.editMap || (editMapBase64 ? { base64: editMapBase64, mimeType: 'image/png' } : undefined),
           refImages: refImagesData,
           fabricRefImages: fabricRefImagesData,
           colorRefImages: colorRefImagesData,
@@ -576,7 +799,15 @@ const InpaintingTab: React.FC = () => {
 
       setProgress('正在按蒙版贴回原图...');
       const maskedResults = await Promise.all(
-        results.map(result => pasteGeneratedIntoMask(sourceDataUrl, result, maskBase64))
+        results.map((result: string) => cropPackage
+          ? pasteGeneratedCropIntoSource(sourceDataUrl, result, cropPackage.mask.base64, cropPackage.bounds, cropBlend)
+          : pasteGeneratedIntoMask(
+            sourceDataUrl,
+            result,
+            maskBase64,
+            cropPasteEnabled && structureRefImagesData ? cropBlend : 0
+          )
+        )
       );
 
       setProgress('生成完成！');
@@ -647,9 +878,11 @@ const InpaintingTab: React.FC = () => {
       const sourceBase64 = await blobToBase64(sourceFile);
       const sourceDataUrl = `data:${sourceFile.type};base64,${sourceBase64}`;
 
-      setProgress('正在导出蒙版...');
-      const maskBase64 = exportMask();
+      const maskExpandPixels = getMaskExpandPixels();
+      setProgress(maskExpandPixels > 0 ? `正在导出蒙版并外扩 ${maskExpandPixels}px...` : '正在导出蒙版...');
+      const maskBase64 = exportMask(maskExpandPixels);
       if (!maskBase64) throw new Error('蒙版导出失败');
+      const editMapBase64 = exportPaintEditMap();
 
       // optional refs
       let fabricRefImagesData: { base64: string; mimeType: string }[] | undefined;
@@ -679,7 +912,13 @@ const InpaintingTab: React.FC = () => {
         })));
       }
 
-      const prompt = `${description}\n\nUse the clothing/outfit (top and pants/shorts) from the reference image (Image 3) for the WHITE mask area. Match garment structure, pattern, and fabric appearance as closely as possible.${structureRefImagesData ? '\nUse the structure reference as the exact silhouette/garment blueprint for crop-and-paste-back replacement.' : ''}`;
+      const prompt = buildStructureLockedPrompt(
+        `${description}\n\nUse the clothing/outfit from the selected reference image for the WHITE mask area only. Match the requested garment structure, pattern, and fabric appearance as closely as possible.`,
+        !!structureRefImagesData
+      );
+      const cropPackage = cropPasteEnabled && structureRefImagesData
+        ? await createMaskedCropPackage(sourceDataUrl, maskBase64, editMapBase64, Math.max(maskExpandPixels, cropPadding + cropExpand * 30))
+        : null;
 
       const currentBatchResults: Array<{ refIdx: number; refUrl: string; image?: string; error?: string }> = [];
 
@@ -693,13 +932,14 @@ const InpaintingTab: React.FC = () => {
         try {
           const refBase64 = await blobToBase64(refFile);
           const results = await generateInpainting(
-            { base64: sourceBase64, mimeType: sourceFile.type },
-            { base64: maskBase64, mimeType: 'image/png' },
+            cropPackage?.source || { base64: sourceBase64, mimeType: sourceFile.type },
+            cropPackage?.mask || { base64: maskBase64, mimeType: 'image/png' },
             prompt,
             {
-              aspectRatio,
+              aspectRatio: cropPackage?.aspectRatio || aspectRatio,
               resolution,
               modelId: selectedModel,
+              editMapImage: cropPackage?.editMap || (editMapBase64 ? { base64: editMapBase64, mimeType: 'image/png' } : undefined),
               refImages: [{ base64: refBase64, mimeType: refFile.type }],
               fabricRefImages: fabricRefImagesData,
               colorRefImages: colorRefImagesData,
@@ -714,7 +954,14 @@ const InpaintingTab: React.FC = () => {
 
           const first = results?.[0];
           if (!first) throw new Error('模型未返回图片');
-          const maskedFirst = await pasteGeneratedIntoMask(sourceDataUrl, first, maskBase64);
+          const maskedFirst = cropPackage
+            ? await pasteGeneratedCropIntoSource(sourceDataUrl, first, cropPackage.mask.base64, cropPackage.bounds, cropBlend)
+            : await pasteGeneratedIntoMask(
+              sourceDataUrl,
+              first,
+              maskBase64,
+              cropPasteEnabled && structureRefImagesData ? cropBlend : 0
+            );
 
           const resultItem = { refIdx, refUrl, image: maskedFirst };
           currentBatchResults.push(resultItem);
@@ -939,6 +1186,16 @@ const InpaintingTab: React.FC = () => {
                       {hasMask ? '🎨 已绘制蒙版 — 涂抹区域将被替换' : '用画笔涂抹需要替换的区域'}
                     </span>
                   </div>
+
+                  <div className="mt-3 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowMaskGuide(true); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-orange-100 rounded-full text-[11px] font-bold text-pastel-muted hover:text-pastel-highlight hover:border-pastel-highlight/40 shadow-sm transition-all"
+                    >
+                      <Paintbrush className="w-3.5 h-3.5" /> 查看正确涂抹方式
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1118,6 +1375,13 @@ const InpaintingTab: React.FC = () => {
                     上传准确的衣服结构图或目标修改图。AI 会以涂抹区域为裁切范围，锁定图2的版型、轮廓、领口、袖口、褶皱和图案位置。
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStructureGuide(true)}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-100 rounded-full text-[10px] font-bold text-pastel-muted hover:text-pastel-highlight hover:border-pastel-highlight/40 shadow-sm transition-all"
+                >
+                  <Crop className="w-3.5 h-3.5" /> 查看使用说明
+                </button>
                 <label className="flex items-center gap-2 text-[10px] font-bold text-pastel-muted select-none cursor-pointer shrink-0">
                   <input
                     type="checkbox"
@@ -1619,6 +1883,58 @@ const InpaintingTab: React.FC = () => {
 
         </div>
       </div>
+
+      {showMaskGuide && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          onClick={() => setShowMaskGuide(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-pastel-border p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex items-center gap-2 font-black text-pastel-text">
+                <Paintbrush className="w-4 h-4 text-pastel-highlight" /> 正确涂抹方式
+              </div>
+              <button onClick={() => setShowMaskGuide(false)} className="p-1 rounded-full hover:bg-gray-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2 text-xs text-pastel-muted leading-relaxed">
+              <p>只换领口、袖口、包边时，不要只画一条细线。</p>
+              <p>需要覆盖旧边缘、要删除成皮肤或背景的区域，以及新边缘会经过的路径。</p>
+              <p>涂抹区域宁愿稍微大一点，也不要断开；橡皮擦用于收窄边界。快速拖动画笔会自动连线，避免蒙版断层。</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStructureGuide && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6"
+          onClick={() => setShowStructureGuide(false)}
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-pastel-border p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex items-center gap-2 font-black text-pastel-text">
+                <Crop className="w-4 h-4 text-pastel-highlight" /> 结构参考裁切贴回说明
+              </div>
+              <button onClick={() => setShowStructureGuide(false)} className="p-1 rounded-full hover:bg-gray-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2 text-xs text-pastel-muted leading-relaxed">
+              <p>上传目标结构图，例如想要的领口、袖口、包边或下摆。AI 只把结构图当作白色蒙版区域内的边缘模板，不应复制整件衣服。</p>
+              <p>做领口/袖口改款时，蒙版要盖住旧边、要移除的衣服区域，以及新边缘将经过的区域。只涂一条细边通常不够。</p>
+              <p>推荐参数：细微修边用 Padding 5-8、Expand 0.25-0.4；大幅改领口/袖口用 Padding 8-12、Expand 0.4-0.6；Blend 保持 0.8-1.2。</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Zoom Modal */}
       {zoomImage && (
