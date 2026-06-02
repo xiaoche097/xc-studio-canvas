@@ -657,6 +657,7 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
     if (aspectRatio === '2:3') return '768x1152';
     if (aspectRatio === '4:3') return '1152x864';
     if (aspectRatio === '3:4') return '864x1152';
+    if (aspectRatio === '4:5') return '1024x1280';
     if (aspectRatio === '16:9') return '1280x720';
     if (aspectRatio === '9:16') return '720x1280';
   } else if (resolution === '2K') {
@@ -665,6 +666,7 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
     if (aspectRatio === '9:16') return '1152x2048';
     if (aspectRatio === '4:3') return '2048x1536';
     if (aspectRatio === '3:4') return '1536x2048';
+    if (aspectRatio === '4:5') return '1638x2048';
     if (aspectRatio === '3:2') return '2304x1536';
     if (aspectRatio === '2:3') return '1536x2304';
   } else if (resolution === '4K') {
@@ -672,6 +674,7 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
     if (aspectRatio === '9:16') return '2160x3840';
     if (aspectRatio === '4:3') return '3200x2400';
     if (aspectRatio === '3:4') return '2400x3200';
+    if (aspectRatio === '4:5') return '2560x3200';
     if (aspectRatio === '1:1') return '2880x2880';
   }
 
@@ -702,6 +705,99 @@ const getGptImage2Size = (aspectRatio: AspectRatio, resolution: ImageResolution)
   }
 
   return `${w}x${h}`;
+};
+
+const joinApiUrl = (baseUrl: string, path: string): string => {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+};
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const withDataUrlPrefix = (image: { base64: string; mimeType?: string }): string => {
+  const base64 = image.base64 || '';
+  if (base64.startsWith('data:')) return base64;
+  return `data:${image.mimeType || 'image/png'};base64,${base64}`;
+};
+
+const buildMidjourneyPrompt = (prompt: string, aspectRatio: string): string => {
+  const cleanPrompt = prompt.trim();
+  if (!aspectRatio || /(?:^|\s)--ar\s+\d+:\d+(?:\s|$)/i.test(cleanPrompt)) {
+    return cleanPrompt;
+  }
+  return `${cleanPrompt} --ar ${aspectRatio}`;
+};
+
+const generateMidjourneyImagine = async (
+  config: ReturnType<typeof getApiConfig>,
+  images: { base64: string; mimeType: string }[],
+  prompt: string,
+  aspectRatio: AspectRatio
+): Promise<string[]> => {
+  if (!config.baseUrl) {
+    throw new Error('Midjourney 需要使用支持 /mj 接口的中转 API，请在设置中启用 Plato 或 Yunwu baseUrl。');
+  }
+
+  const submitResponse = await executeWithTimeout(
+    fetch(joinApiUrl(config.baseUrl, '/mj/submit/imagine'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        botType: 'MID_JOURNEY',
+        prompt: buildMidjourneyPrompt(prompt, aspectRatio),
+        base64Array: images.map(withDataUrlPrefix),
+        notifyHook: '',
+        state: '',
+      }),
+    }),
+    { timeoutMs: 120000, timeoutMessage: 'Midjourney imagine submit timed out.' }
+  );
+
+  if (!submitResponse.ok) {
+    const errText = await submitResponse.text();
+    throw new Error(`Midjourney submit failed: ${submitResponse.status} ${errText}`);
+  }
+
+  const submitData = await submitResponse.json();
+  const taskId = submitData?.result || submitData?.id;
+  if (!taskId || submitData?.code === 0) {
+    throw new Error(`Midjourney submit did not return a task id: ${JSON.stringify(submitData)}`);
+  }
+
+  const maxPolls = 100;
+  for (let i = 0; i < maxPolls; i++) {
+    await wait(i < 2 ? 1500 : 3000);
+
+    const taskResponse = await executeWithTimeout(
+      fetch(joinApiUrl(config.baseUrl, `/mj/task/${taskId}/fetch`), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+        },
+      }),
+      { timeoutMs: 30000, timeoutMessage: 'Midjourney task polling timed out.' }
+    );
+
+    if (!taskResponse.ok) {
+      const errText = await taskResponse.text();
+      throw new Error(`Midjourney task fetch failed: ${taskResponse.status} ${errText}`);
+    }
+
+    const taskData = await taskResponse.json();
+    const status = String(taskData?.status || '').toUpperCase();
+
+    if (status === 'SUCCESS' && taskData?.imageUrl) {
+      return [taskData.imageUrl];
+    }
+
+    if (['FAILURE', 'FAILED', 'FAIL'].includes(status)) {
+      throw new Error(`Midjourney generation failed: ${taskData?.failReason || taskData?.description || 'unknown error'}`);
+    }
+  }
+
+  throw new Error('Midjourney generation timed out before returning an image.');
 };
 
 /**
@@ -758,6 +854,7 @@ export const generateImageToImage = async (
 
   const isGptModel = targetModel.toLowerCase().includes('gpt');
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all';
+  const isMidjourneyModel = targetModel === 'mj_imagine';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -799,6 +896,16 @@ export const generateImageToImage = async (
     });
 
     try {
+      if (isMidjourneyModel) {
+        console.warn(`[Midjourney Imagine] Submit. Ratio: ${aspectRatio}, References: ${images.length}`);
+        return await generateMidjourneyImagine(
+          config,
+          images,
+          prompt.trim(),
+          aspectRatio as AspectRatio
+        );
+      }
+
       // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
       if (isGptImage2) {
         const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
@@ -992,7 +1099,11 @@ ${forcedPrompt}`;
       // Specialized handling for GPT-based proxy models (OpenAI/DALL-E/Midjourney style)
       if (isGptModel) {
         const resHint = resolution === '4K' ? '8k resolution, cinematic, hyper-detailed' : resolution === '2K' ? '4k high resolution, high quality' : 'high quality';
-        const arDescription = aspectRatio === '9:16' || aspectRatio === '2:3' ? 'vertical portrait' : aspectRatio === '16:9' || aspectRatio === '3:2' ? 'wide landscape' : 'square';
+        const arDescription = aspectRatio === '9:16' || aspectRatio === '2:3' || aspectRatio === '3:4' || aspectRatio === '4:5'
+          ? 'vertical portrait'
+          : aspectRatio === '16:9' || aspectRatio === '3:2' || aspectRatio === '4:3' || aspectRatio === '21:9'
+            ? 'wide landscape'
+            : 'square';
         
         // Build a more descriptive prompt for GPT models to ensure they look at the reference images
         let gptContext = `[IMAGE GENERATION TASK]
@@ -1332,12 +1443,43 @@ ${forcedPrompt}`;
 
       // Map resolution to explicit dimensions for proxy compatibility
       const getDimensions = (ar: string, res: string) => {
-        const isTall = ar === '9:16' || ar === '2:3' || ar === '3:4';
-        const isWide = ar === '16:9' || ar === '3:2' || ar === '4:3' || ar === '21:9';
-        
-        if (res === '4K') return isTall ? '1536x2048' : isWide ? '2048x1536' : '2048x2048';
-        if (res === '2K') return isTall ? '1024x1792' : isWide ? '1792x1024' : '1024x1024';
-        return isTall ? '768x1024' : isWide ? '1024x768' : '1024x1024';
+        const dimensionsByResolution: Record<string, Record<string, string>> = {
+          '4K': {
+            '1:1': '2048x2048',
+            '2:3': '1365x2048',
+            '3:4': '1536x2048',
+            '4:5': '1638x2048',
+            '9:16': '1152x2048',
+            '16:9': '2048x1152',
+            '3:2': '2048x1365',
+            '4:3': '2048x1536',
+            '21:9': '2048x878',
+          },
+          '2K': {
+            '1:1': '1024x1024',
+            '2:3': '1024x1536',
+            '3:4': '960x1280',
+            '4:5': '1024x1280',
+            '9:16': '1024x1792',
+            '16:9': '1792x1024',
+            '3:2': '1536x1024',
+            '4:3': '1280x960',
+            '21:9': '1792x768',
+          },
+          '1K': {
+            '1:1': '1024x1024',
+            '2:3': '682x1024',
+            '3:4': '768x1024',
+            '4:5': '819x1024',
+            '9:16': '576x1024',
+            '16:9': '1024x576',
+            '3:2': '1024x682',
+            '4:3': '1024x768',
+            '21:9': '1024x439',
+          },
+        };
+
+        return dimensionsByResolution[res]?.[ar] || dimensionsByResolution['1K'][ar] || '1024x1024';
       };
       const explicitDimensions = getDimensions(aspectRatio, resolution);
 
@@ -1461,6 +1603,12 @@ export const generateInpainting = async (
     refImages?: { base64: string; mimeType: string }[];
     fabricRefImages?: { base64: string; mimeType: string }[];
     colorRefImages?: { base64: string; mimeType: string }[];
+    structureRefImages?: { base64: string; mimeType: string }[];
+    cropPaste?: {
+      padding: number;
+      blend: number;
+      expand: number;
+    };
   } = {}
 ) => {
   const retryLimit = 3;
@@ -1604,10 +1752,23 @@ export const generateInpainting = async (
         });
       }
 
+      // 2.8 Structure reference images for crop-and-paste-back replacement.
+      if (options.structureRefImages && options.structureRefImages.length > 0) {
+        options.structureRefImages.forEach((img) => {
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType,
+              data: img.base64,
+            },
+          });
+        });
+      }
+
       // 3. 构造局部替换提示词
       const hasRefImages = options.refImages && options.refImages.length > 0;
       const hasFabricRefImages = options.fabricRefImages && options.fabricRefImages.length > 0;
       const hasColorRefImages = options.colorRefImages && options.colorRefImages.length > 0;
+      const hasStructureRefImages = options.structureRefImages && options.structureRefImages.length > 0;
 
       const refImageInstruction = hasRefImages
         ? `\n      5. Additional reference images (Image 3+) are provided as VISUAL GUIDES for the replacement content (style / what to replace into). The generated content in the white mask area should look like or be inspired by these images.`
@@ -1621,6 +1782,10 @@ export const generateInpainting = async (
         ? `\n      7. Color reference images are provided. These are STRICT guides for the target garment color palette (hue/saturation/value). When generating clothing in the WHITE mask area, keep the garment color consistent with these references and avoid unwanted color shifts.`
         : '';
 
+      const cropPasteInstruction = hasStructureRefImages
+        ? `\n      8. CROP-AND-PASTE-BACK STRUCTURE LOCK: Structure reference images are provided as the exact blueprint for the replacement inside the WHITE mask. Treat the WHITE mask as a crop region, regenerate only that crop, then paste it back into Image 1. The replacement must match the structure reference's silhouette, garment panel layout, neckline, sleeves, hems, seams, folds, pattern placement, and proportions as closely as possible. Do not invent a different garment shape. Use padding=${options.cropPaste?.padding ?? 5}, blend=${options.cropPaste?.blend ?? 1}, expand=${options.cropPaste?.expand ?? 0.3} as conceptual paste-back controls: enough padding to include complete edges, soft blending at the boundary, and slight crop expansion to avoid seams while preserving the original outside pixels.`
+        : '';
+
       const systemPrompt = `
       **ROLE**: Professional Image Inpainting Specialist.
       **TASK**: Partial Image Replacement (Inpainting).
@@ -1630,7 +1795,7 @@ export const generateInpainting = async (
       1. You MUST ONLY modify the areas marked as WHITE in the mask image.
       2. The BLACK areas in the mask MUST remain PIXEL-PERFECT IDENTICAL to the source image. No changes whatsoever.
       3. The newly generated content in the white areas must seamlessly blend with the surrounding preserved areas in terms of lighting, perspective, color temperature, and style.
-      4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}
+      4. Generate the new content according to the user's description below.${refImageInstruction}${fabricRefInstruction}${colorRefInstruction}${cropPasteInstruction}
 
       **USER DESCRIPTION**: ${forcedPrompt}
 

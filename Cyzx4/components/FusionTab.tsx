@@ -216,14 +216,34 @@ const FusionTab: React.FC = () => {
 
   // Model Selection State
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
+  const isMidjourneyModel = selectedModel === 'mj_imagine';
   const selectedImageModelName = selectedModel === 'gpt-image-2'
     ? 'GPT Image 2'
-    : selectedModel === 'gemini-3-pro-image-preview'
-      ? 'Banana Pro'
-      : 'Banana 2';
+    : isMidjourneyModel
+      ? 'Midjourney'
+      : selectedModel === 'gemini-3-pro-image-preview'
+        ? 'Banana Pro'
+        : 'Banana 2';
 
   // 当切换到 gpt-image-2 时，自动修正不兼容的参数
   useEffect(() => {
+    if (isMidjourneyModel) {
+      setResolution(ImageResolution.RES_1K);
+      const allowedRatios = [
+        AspectRatio.SQUARE,
+        AspectRatio.LANDSCAPE_3_2,
+        AspectRatio.PORTRAIT_2_3,
+        AspectRatio.LANDSCAPE_4_3,
+        AspectRatio.PORTRAIT_3_4,
+        AspectRatio.LANDSCAPE_16_9,
+        AspectRatio.PORTRAIT_9_16
+      ];
+      if (!allowedRatios.includes(aspectRatio)) {
+        setAspectRatio(AspectRatio.SQUARE);
+      }
+      return;
+    }
+
     if (selectedModel === 'gpt-image-2') {
       if (resolution === ImageResolution.RES_05K) {
         setResolution(ImageResolution.RES_1K);
@@ -239,7 +259,7 @@ const FusionTab: React.FC = () => {
         setAspectRatio(AspectRatio.SQUARE);
       }
     }
-  }, [selectedModel]);
+  }, [selectedModel, isMidjourneyModel, aspectRatio, resolution]);
 
   // Style Model State
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
@@ -833,7 +853,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
                   <Cpu className="w-3.5 h-3.5" /> 图像模型选择
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <button
                     onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
                     className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
@@ -879,6 +899,21 @@ Do not combine this image with any other uploaded image. Do not create extra var
                     </div>
                     <span className="text-[8px] text-pastel-muted">Ultra Quality</span>
                   </button>
+                  <button
+                    onClick={() => setSelectedModel('mj_imagine')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'mj_imagine'
+                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-sky-600" />
+                      <span className={`text-[10px] font-bold ${selectedModel === 'mj_imagine' ? 'text-purple-700' : 'text-pastel-text'}`}>
+                        Midjourney
+                      </span>
+                    </div>
+                    <span className="text-[8px] text-pastel-muted">MJ Imagine</span>
+                  </button>
                 </div>
               </div>
 
@@ -899,7 +934,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       <option value={AspectRatio.PORTRAIT_2_3}>2:3 (竖构图)</option>
                       
                       {/* For gpt-image-2, only show official supported ratios if requested, or keep common ones */}
-                      {selectedModel !== 'gpt-image-2' && (
+                      {selectedModel !== 'gpt-image-2' && !isMidjourneyModel && (
                         <>
                           <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (常规)</option>
                           <option value={AspectRatio.PORTRAIT_3_4}>3:4 (人像)</option>
@@ -911,7 +946,14 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       <option value={AspectRatio.LANDSCAPE_16_9}>16:9 (宽屏)</option>
                       <option value={AspectRatio.PORTRAIT_9_16}>9:16 (手机)</option>
                       
-                      {selectedModel !== 'gpt-image-2' && (
+                      {isMidjourneyModel && (
+                        <>
+                          <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (MJ)</option>
+                          <option value={AspectRatio.PORTRAIT_3_4}>3:4 (MJ)</option>
+                        </>
+                      )}
+
+                      {selectedModel !== 'gpt-image-2' && !isMidjourneyModel && (
                         <option value={AspectRatio.LANDSCAPE_21_9}>21:9 (电影感)</option>
                       )}
                     </select>
@@ -928,15 +970,20 @@ Do not combine this image with any other uploaded image. Do not create extra var
                     <select
                       value={resolution}
                       onChange={(e) => setResolution(e.target.value as ImageResolution)}
+                      disabled={isMidjourneyModel}
                       className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-2.5 px-3 text-sm text-pastel-text outline-none focus:ring-2 focus:ring-pastel-highlight/20 transition-all font-medium hover:border-pastel-highlight/50 cursor-pointer"
                     >
                       {/* gpt-image-2 requires at least ~0.65M pixels, 0.5K (512x512) is too small */}
-                      {selectedModel !== 'gpt-image-2' && (
+                      {selectedModel !== 'gpt-image-2' && !isMidjourneyModel && (
                         <option value={ImageResolution.RES_05K}>0.5K (512px)</option>
                       )}
-                      <option value={ImageResolution.RES_1K}>1K (标准)</option>
-                      <option value={ImageResolution.RES_2K}>2K (高清)</option>
-                      <option value={ImageResolution.RES_4K}>4K (超清)</option>
+                      <option value={ImageResolution.RES_1K}>{isMidjourneyModel ? 'MJ 默认清晰度' : '1K (标准)'}</option>
+                      {!isMidjourneyModel && (
+                        <>
+                          <option value={ImageResolution.RES_2K}>2K (高清)</option>
+                          <option value={ImageResolution.RES_4K}>4K (超清)</option>
+                        </>
+                      )}
                     </select>
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
                       <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>

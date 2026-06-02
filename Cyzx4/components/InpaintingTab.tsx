@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateInpainting, blobToBase64 } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
-import { Eraser, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Download, Paintbrush, RotateCcw, Cpu, Minus, Plus } from 'lucide-react';
+import { Eraser, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Download, Paintbrush, RotateCcw, Cpu, Minus, Plus, Crop, SlidersHorizontal } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 
@@ -54,6 +54,14 @@ const InpaintingTab: React.FC = () => {
   const [colorRefFiles, setColorRefFiles] = useState<File[]>([]);
   const [colorRefUrls, setColorRefUrls] = useState<string[]>([]);
 
+  // Structure reference for crop-and-paste-back style replacement.
+  const [structureRefFiles, setStructureRefFiles] = useState<File[]>([]);
+  const [structureRefUrls, setStructureRefUrls] = useState<string[]>([]);
+  const [cropPasteEnabled, setCropPasteEnabled] = useState(true);
+  const [cropPadding, setCropPadding] = useState(5);
+  const [cropBlend, setCropBlend] = useState(1);
+  const [cropExpand, setCropExpand] = useState(0.3);
+
   // 生成状态
   const [description, setDescription] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
@@ -88,12 +96,14 @@ const InpaintingTab: React.FC = () => {
   const [isDraggingRef, setIsDraggingRef] = useState(false);
   const [isDraggingFabric, setIsDraggingFabric] = useState(false);
   const [isDraggingColor, setIsDraggingColor] = useState(false);
+  const [isDraggingStructure, setIsDraggingStructure] = useState(false);
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
   const fabricRefInputRef = useRef<HTMLInputElement>(null);
   const colorRefInputRef = useRef<HTMLInputElement>(null);
+  const structureRefInputRef = useRef<HTMLInputElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -201,6 +211,19 @@ const InpaintingTab: React.FC = () => {
     }
   };
 
+  const handleStructureRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      if (structureRefFiles.length + files.length > 2) {
+        setError('结构参考最多2张');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+      setStructureRefFiles(prev => [...prev, ...files]);
+      setStructureRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+    }
+  };
+
   const removeRefImage = (idx: number) => {
     URL.revokeObjectURL(refUrls[idx]);
     setRefFiles(prev => prev.filter((_, i) => i !== idx));
@@ -231,6 +254,12 @@ const InpaintingTab: React.FC = () => {
     URL.revokeObjectURL(colorRefUrls[idx]);
     setColorRefFiles(prev => prev.filter((_, i) => i !== idx));
     setColorRefUrls(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeStructureRefImage = (idx: number) => {
+    URL.revokeObjectURL(structureRefUrls[idx]);
+    setStructureRefFiles(prev => prev.filter((_, i) => i !== idx));
+    setStructureRefUrls(prev => prev.filter((_, i) => i !== idx));
   };
 
   // 当图片源变化时，初始化双层 canvas
@@ -411,6 +440,52 @@ const InpaintingTab: React.FC = () => {
     return exportCanvas.toDataURL('image/png').split(',')[1]; // Return base64 only
   };
 
+  const loadCanvasImage = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  };
+
+  const pasteGeneratedIntoMask = async (
+    sourceDataUrl: string,
+    generatedDataUrl: string,
+    maskBase64: string
+  ): Promise<string> => {
+    const [sourceImg, generatedImg, maskImg] = await Promise.all([
+      loadCanvasImage(sourceDataUrl),
+      loadCanvasImage(generatedDataUrl),
+      loadCanvasImage(`data:image/png;base64,${maskBase64}`),
+    ]);
+
+    const width = sourceImg.naturalWidth || sourceImg.width;
+    const height = sourceImg.naturalHeight || sourceImg.height;
+
+    const resultCanvas = document.createElement('canvas');
+    resultCanvas.width = width;
+    resultCanvas.height = height;
+    const resultCtx = resultCanvas.getContext('2d');
+    if (!resultCtx) return generatedDataUrl;
+
+    resultCtx.drawImage(sourceImg, 0, 0, width, height);
+
+    const patchCanvas = document.createElement('canvas');
+    patchCanvas.width = width;
+    patchCanvas.height = height;
+    const patchCtx = patchCanvas.getContext('2d');
+    if (!patchCtx) return generatedDataUrl;
+
+    patchCtx.drawImage(generatedImg, 0, 0, width, height);
+    patchCtx.globalCompositeOperation = 'destination-in';
+    patchCtx.drawImage(maskImg, 0, 0, width, height);
+
+    resultCtx.drawImage(patchCanvas, 0, 0, width, height);
+    return resultCanvas.toDataURL('image/png');
+  };
+
   // 生成
   const handleGenerate = async () => {
     if (!sourceFile || !hasMask || !description) return;
@@ -429,6 +504,7 @@ const InpaintingTab: React.FC = () => {
       // 1. 压缩原图
       setProgress('正在压缩原图...');
       const sourceBase64 = await blobToBase64(sourceFile);
+      const sourceDataUrl = `data:${sourceFile.type};base64,${sourceBase64}`;
 
       // 2. 导出蒙版
       setProgress('正在导出蒙版...');
@@ -467,6 +543,15 @@ const InpaintingTab: React.FC = () => {
         })));
       }
 
+      let structureRefImagesData: { base64: string; mimeType: string }[] | undefined;
+      if (structureRefFiles.length > 0) {
+        setProgress('正在处理结构参考...');
+        structureRefImagesData = await Promise.all(structureRefFiles.map(async file => ({
+          base64: await blobToBase64(file),
+          mimeType: file.type
+        })));
+      }
+
       // 4. 发送到 AI
       setProgress('正在生成 (预计 30-90 秒)...');
       const results = await generateInpainting(
@@ -480,11 +565,22 @@ const InpaintingTab: React.FC = () => {
           refImages: refImagesData,
           fabricRefImages: fabricRefImagesData,
           colorRefImages: colorRefImagesData,
+          structureRefImages: structureRefImagesData,
+          cropPaste: cropPasteEnabled && structureRefImagesData ? {
+            padding: cropPadding,
+            blend: cropBlend,
+            expand: cropExpand,
+          } : undefined,
         }
       );
 
+      setProgress('正在按蒙版贴回原图...');
+      const maskedResults = await Promise.all(
+        results.map(result => pasteGeneratedIntoMask(sourceDataUrl, result, maskBase64))
+      );
+
       setProgress('生成完成！');
-      setGeneratedImages(results);
+      setGeneratedImages(maskedResults);
 
       // 保存到项目历史
       try {
@@ -492,10 +588,10 @@ const InpaintingTab: React.FC = () => {
           id: crypto.randomUUID(),
           type: 'RETOUCHING',
           createdAt: Date.now(),
-          thumbnail: results[0],
+          thumbnail: maskedResults[0],
           assets: {
             original: [sourceUrl!, maskBase64], // 源图 URL 和 蒙版 Base64
-            generated: results,
+            generated: maskedResults,
           },
           metadata: {
             subType: 'inpainting',
@@ -506,6 +602,8 @@ const InpaintingTab: React.FC = () => {
             hasRefImages: !!refImagesData,
             hasFabricRef: !!fabricRefImagesData,
             hasColorRef: !!colorRefImagesData,
+            hasStructureRef: !!structureRefImagesData,
+            cropPasteEnabled: cropPasteEnabled && !!structureRefImagesData,
           },
         });
       } catch (saveErr) {
@@ -547,6 +645,7 @@ const InpaintingTab: React.FC = () => {
     try {
       setProgress('正在压缩原图...');
       const sourceBase64 = await blobToBase64(sourceFile);
+      const sourceDataUrl = `data:${sourceFile.type};base64,${sourceBase64}`;
 
       setProgress('正在导出蒙版...');
       const maskBase64 = exportMask();
@@ -571,7 +670,16 @@ const InpaintingTab: React.FC = () => {
         })));
       }
 
-      const prompt = `${description}\n\nUse the clothing/outfit (top and pants/shorts) from the reference image (Image 3) for the WHITE mask area. Match garment structure, pattern, and fabric appearance as closely as possible.`;
+      let structureRefImagesData: { base64: string; mimeType: string }[] | undefined;
+      if (structureRefFiles.length > 0) {
+        setProgress('正在处理结构参考...');
+        structureRefImagesData = await Promise.all(structureRefFiles.map(async file => ({
+          base64: await blobToBase64(file),
+          mimeType: file.type
+        })));
+      }
+
+      const prompt = `${description}\n\nUse the clothing/outfit (top and pants/shorts) from the reference image (Image 3) for the WHITE mask area. Match garment structure, pattern, and fabric appearance as closely as possible.${structureRefImagesData ? '\nUse the structure reference as the exact silhouette/garment blueprint for crop-and-paste-back replacement.' : ''}`;
 
       const currentBatchResults: Array<{ refIdx: number; refUrl: string; image?: string; error?: string }> = [];
 
@@ -595,13 +703,20 @@ const InpaintingTab: React.FC = () => {
               refImages: [{ base64: refBase64, mimeType: refFile.type }],
               fabricRefImages: fabricRefImagesData,
               colorRefImages: colorRefImagesData,
+              structureRefImages: structureRefImagesData,
+              cropPaste: cropPasteEnabled && structureRefImagesData ? {
+                padding: cropPadding,
+                blend: cropBlend,
+                expand: cropExpand,
+              } : undefined,
             }
           );
 
           const first = results?.[0];
           if (!first) throw new Error('模型未返回图片');
+          const maskedFirst = await pasteGeneratedIntoMask(sourceDataUrl, first, maskBase64);
 
-          const resultItem = { refIdx, refUrl, image: first };
+          const resultItem = { refIdx, refUrl, image: maskedFirst };
           currentBatchResults.push(resultItem);
           setBatchResults((prev) => [...prev, resultItem]);
         } catch (e: any) {
@@ -969,6 +1084,101 @@ const InpaintingTab: React.FC = () => {
                       批量生成（{Math.min(10, selectedRefIdxs.length)}）
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Structure Reference / Crop Paste Back */}
+            <div
+              className={`bg-white p-4 rounded-xl border border-pastel-border shadow-sm transition-all ${isDraggingStructure ? 'ring-2 ring-pastel-highlight bg-orange-50/50' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingStructure(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingStructure(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingStructure(false);
+                if (e.dataTransfer.files) {
+                  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                  if (structureRefFiles.length + files.length > 2) {
+                    setError('结构参考最多2张');
+                    setTimeout(() => setError(null), 3000);
+                    return;
+                  }
+                  setStructureRefFiles(prev => [...prev, ...files]);
+                  setStructureRefUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+                }
+              }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div>
+                  <label className="block text-xs font-bold text-pastel-muted flex items-center gap-1.5">
+                    <Crop className="w-3.5 h-3.5" /> 结构参考 / 裁切贴回（可选）
+                  </label>
+                  <p className="text-[10px] text-pastel-muted mt-1 leading-relaxed">
+                    上传准确的衣服结构图或目标修改图。AI 会以涂抹区域为裁切范围，锁定图2的版型、轮廓、领口、袖口、褶皱和图案位置。
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-[10px] font-bold text-pastel-muted select-none cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={cropPasteEnabled}
+                    onChange={(e) => setCropPasteEnabled(e.target.checked)}
+                  />
+                  启用
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-2 p-2 rounded-lg">
+                {structureRefUrls.map((url, idx) => (
+                  <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-pastel-border group/structureRef">
+                    <img src={url} alt={`Structure Ref ${idx}`} className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeStructureRefImage(idx)}
+                      className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/structureRef:opacity-100 transition-all"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+                {structureRefFiles.length < 2 && (
+                  <button
+                    onClick={() => structureRefInputRef.current?.click()}
+                    className="w-16 h-16 flex flex-col items-center justify-center border-2 border-dashed border-pastel-border rounded-lg cursor-pointer hover:bg-pastel-bg hover:border-pastel-highlight/50 transition-colors text-pastel-muted hover:text-pastel-highlight"
+                  >
+                    <Upload className="w-4 h-4 mb-0.5 opacity-50" />
+                    <span className="text-[9px]">添加</span>
+                  </button>
+                )}
+              </div>
+              <input
+                ref={structureRefInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleStructureRefUpload}
+                className="hidden"
+              />
+
+              {structureRefFiles.length > 0 && (
+                <div className="mt-3 border-t border-pastel-border pt-3">
+                  <div className="flex items-center gap-1.5 mb-2 text-[10px] font-bold text-pastel-muted">
+                    <SlidersHorizontal className="w-3.5 h-3.5" /> 贴回参数
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <label className="text-[10px] text-pastel-muted">
+                      Padding {cropPadding.toFixed(1)}
+                      <input type="range" min={0} max={16} step={0.5} value={cropPadding} onChange={(e) => setCropPadding(Number(e.target.value))} className="w-full h-1 accent-pastel-highlight" />
+                    </label>
+                    <label className="text-[10px] text-pastel-muted">
+                      Blend {cropBlend.toFixed(2)}
+                      <input type="range" min={0} max={2} step={0.05} value={cropBlend} onChange={(e) => setCropBlend(Number(e.target.value))} className="w-full h-1 accent-pastel-highlight" />
+                    </label>
+                    <label className="text-[10px] text-pastel-muted">
+                      Expand {cropExpand.toFixed(2)}
+                      <input type="range" min={0} max={1} step={0.05} value={cropExpand} onChange={(e) => setCropExpand(Number(e.target.value))} className="w-full h-1 accent-pastel-highlight" />
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-pastel-muted mt-2">已选 {structureRefFiles.length} 张结构参考</p>
                 </div>
               )}
             </div>
