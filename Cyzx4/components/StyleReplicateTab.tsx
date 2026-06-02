@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateStyleReplication, compressImage } from '../services/geminiService';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
@@ -50,16 +50,18 @@ interface UploadedImage {
 }
 
 const PRODUCT_IMAGE_LIMIT = 10;
+const PRODUCT_GROUP_LIMIT = 10;
+const PRODUCT_GROUP_IMAGE_LIMIT = 3;
 
 const COT_STEPS = [
-    { id: 1, label: "全案设计解构", desc: "正在深度解析网格与色彩基因...", icon: "🔍" },
-    { id: 2, label: "骨架重构", desc: "正在构建像素级排版骨架...", icon: "📐" },
-    { id: 3, label: "光影物理模拟", desc: "正在计算场景光照与反射逻辑...", icon: "💡" },
-    { id: 4, label: "高保真渲染", desc: "正在进行 8K 级超清材质渲染...", icon: "🖌️" },
-    { id: 5, label: "材质微粒优化", desc: "正在增强皮革/金属/织物纹理...", icon: "🧶" },
-    { id: 6, label: "边缘光影融合", desc: "正在处理边缘像素与环境融合...", icon: "✨" },
-    { id: 7, label: "动态范围重塑", desc: "正在优化画面对比度与饱和度...", icon: "🎨" },
-    { id: 8, label: "大师级调色", desc: "正在注入参考图的灵魂色调...", icon: "🌈" },
+    { id: 1, label: "全案设计解析", desc: "正在分析参考图的布局、色彩与风格基因...", icon: "分析" },
+    { id: 2, label: "产品组识别", desc: "正在按产品组读取素材结构与细节...", icon: "分组" },
+    { id: 3, label: "版式骨架复刻", desc: "正在建立参考图的构图与排版骨架...", icon: "构图" },
+    { id: 4, label: "光影材质匹配", desc: "正在匹配参考图光线并重建产品材质...", icon: "光影" },
+    { id: 5, label: "边缘融合", desc: "正在融合产品边缘、阴影与环境关系...", icon: "融合" },
+    { id: 6, label: "高清渲染", desc: "正在输出高保真商业详情图...", icon: "渲染" },
+    { id: 7, label: "色彩校准", desc: "正在同步参考图的色调与对比度...", icon: "调色" },
+    { id: 8, label: "最终质检", desc: "正在检查产品一致性与画面完整度...", icon: "质检" },
 ];
 
 const StyleReplicateTab: React.FC = () => {
@@ -69,11 +71,13 @@ const StyleReplicateTab: React.FC = () => {
     // Image states
     const [styleReferences, setStyleReferences] = useState<UploadedImage[]>([]);
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
+    const [productGroups, setProductGroups] = useState<UploadedImage[][]>([[]]);
+    const [activeProductGroupIndex, setActiveProductGroupIndex] = useState(0);
 
     // Config states
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
 
-    // 当切换到 gpt-image-2 时，自动修正不兼容的参数
+    // 切换到 gpt-image-2 时，自动修正不兼容的参数
     useEffect(() => {
         if (selectedModel === 'gpt-image-2') {
             const allowedRatios = [
@@ -148,7 +152,7 @@ const StyleReplicateTab: React.FC = () => {
         setError(null);
     }, [tabMode, styleReferences]);
 
-    // 辅助函数：处理文件并添加到状态
+    // 杈呭姪鍑芥暟锛氬鐞嗘枃浠跺苟娣诲姞鍒扮姸鎬?
     const processFiles = useCallback(async (files: File[]) => {
         const newImages: UploadedImage[] = [];
         for (const file of files) {
@@ -164,7 +168,7 @@ const StyleReplicateTab: React.FC = () => {
         return newImages;
     }, []);
 
-    // 绑定剪贴板粘贴事件
+    // 缁戝畾鍓创鏉跨矘璐翠簨浠?
     useImagePaste(async (files) => {
         if (files.length === 0) return;
 
@@ -176,9 +180,14 @@ const StyleReplicateTab: React.FC = () => {
         // 否则如果产品图为空，则加入产品图
         else if (productImages.length === 0) {
             const processed = await processFiles(files.slice(0, PRODUCT_IMAGE_LIMIT));
-            setProductImages(processed);
+            if (tabMode === 'batch') {
+                setProductGroups([processed.slice(0, PRODUCT_GROUP_IMAGE_LIMIT)]);
+                setActiveProductGroupIndex(0);
+            } else {
+                setProductImages(processed);
+            }
         }
-        // 否则默认加入风格参考（追加或替换，根据模式）
+        // 否则默认加入风格参考，追加或替换取决于模式
         else {
             const maxAllowed = tabMode === 'single' ? 1 : 12;
             const currentCount = tabMode === 'single' ? 0 : styleReferences.length;
@@ -206,6 +215,21 @@ const StyleReplicateTab: React.FC = () => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
 
+        if (tabMode === 'batch') {
+            const groupIndex = Math.min(activeProductGroupIndex, productGroups.length - 1);
+            const currentGroup = productGroups[groupIndex] || [];
+            const remaining = PRODUCT_GROUP_IMAGE_LIMIT - currentGroup.length;
+            if (remaining <= 0) return;
+
+            const newImages = await processFiles(files.slice(0, remaining));
+            setProductGroups(prev => prev.map((group, idx) => (
+                idx === groupIndex ? [...group, ...newImages].slice(0, PRODUCT_GROUP_IMAGE_LIMIT) : group
+            )));
+            setError(null);
+            e.target.value = '';
+            return;
+        }
+
         const remaining = PRODUCT_IMAGE_LIMIT - productImages.length;
         if (remaining <= 0) return;
 
@@ -224,7 +248,8 @@ const StyleReplicateTab: React.FC = () => {
 
         setProductImages(prev => [...prev, ...newImages].slice(0, PRODUCT_IMAGE_LIMIT));
         setError(null);
-    }, [productImages.length]);
+        e.target.value = '';
+    }, [activeProductGroupIndex, productGroups, processFiles, productImages.length, tabMode]);
 
     // Handle Style Drop
     const handleStyleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
@@ -267,13 +292,27 @@ const StyleReplicateTab: React.FC = () => {
     }, [tabMode, styleReferences]);
 
     // Handle Product Drop
-    const handleProductDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    const handleProductDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>, groupIndex?: number) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDraggingProduct(false);
 
         const files = await compressImageFiles(Array.from(e.dataTransfer.files));
         if (files.length === 0) return;
+
+        if (tabMode === 'batch') {
+            const targetIndex = typeof groupIndex === 'number' ? groupIndex : activeProductGroupIndex;
+            const currentGroup = productGroups[targetIndex] || [];
+            const remaining = PRODUCT_GROUP_IMAGE_LIMIT - currentGroup.length;
+            if (remaining <= 0) return;
+
+            const newImages = await processFiles(files.slice(0, remaining).filter(file => file.type.startsWith('image/')));
+            setProductGroups(prev => prev.map((group, idx) => (
+                idx === targetIndex ? [...group, ...newImages].slice(0, PRODUCT_GROUP_IMAGE_LIMIT) : group
+            )));
+            setError(null);
+            return;
+        }
 
         const remaining = PRODUCT_IMAGE_LIMIT - productImages.length;
         if (remaining <= 0) return;
@@ -295,16 +334,43 @@ const StyleReplicateTab: React.FC = () => {
 
         setProductImages(prev => [...prev, ...newImages].slice(0, PRODUCT_IMAGE_LIMIT));
         setError(null);
-    }, [productImages.length]);
+    }, [activeProductGroupIndex, processFiles, productGroups, productImages.length, tabMode]);
 
     // Remove product image
     const removeProductImage = (index: number) => {
         setProductImages(prev => prev.filter((_, i) => i !== index));
     };
 
+    const addProductGroup = () => {
+        setProductGroups(prev => {
+            if (prev.length >= PRODUCT_GROUP_LIMIT) return prev;
+            setActiveProductGroupIndex(prev.length);
+            return [...prev, []];
+        });
+    };
+
+    const removeProductGroup = (index: number) => {
+        setProductGroups(prev => {
+            const next = prev.filter((_, i) => i !== index);
+            const normalized = next.length > 0 ? next : [[]];
+            setActiveProductGroupIndex(Math.max(0, Math.min(activeProductGroupIndex, normalized.length - 1)));
+            return normalized;
+        });
+    };
+
+    const removeProductGroupImage = (groupIndex: number, imageIndex: number) => {
+        setProductGroups(prev => prev.map((group, idx) => (
+            idx === groupIndex ? group.filter((_, i) => i !== imageIndex) : group
+        )));
+    };
+
     // Generate handler
     const handleGenerate = async () => {
-        if (styleReferences.length === 0 || productImages.length === 0) {
+        const productGroupsToProcess = tabMode === 'batch'
+            ? productGroups.filter(group => group.length > 0)
+            : (productImages.length > 0 ? [productImages] : []);
+
+        if (styleReferences.length === 0 || productGroupsToProcess.length === 0) {
             setError('请上传参考设计图和产品素材图');
             return;
         }
@@ -331,24 +397,36 @@ const StyleReplicateTab: React.FC = () => {
             const stylesToProcess = styleReferences;
             
             if (tabMode === 'batch') {
-                setBatchStatus(`正在并行处理 ${stylesToProcess.length} 个风格...`);
+                setBatchStatus(`正在处理 ${productGroupsToProcess.length} 个产品组 × ${stylesToProcess.length} 张参考设计图...`);
             }
 
+            const generationJobs = tabMode === 'batch'
+                ? productGroupsToProcess.flatMap((group, groupIndex) => (
+                    stylesToProcess.map((styleRef, styleIndex) => ({ styleRef, styleIndex, productGroup: group, productGroupIndex: groupIndex }))
+                ))
+                : stylesToProcess.map((styleRef, styleIndex) => ({ styleRef, styleIndex, productGroup: productGroupsToProcess[0], productGroupIndex: 0 }));
+
             // Create promises for parallel execution
-            const generationPromises = stylesToProcess.map(async (styleRef, index) => {
+            const generationPromises = generationJobs.map(async ({ styleRef, styleIndex, productGroup, productGroupIndex }, index) => {
                 if (!styleRef.base64) return [];
 
                 try {
-                    console.log(`[Parallel] Starting Style ${index + 1}/${stylesToProcess.length}...`);
+                    console.log(`[Parallel] Starting Job ${index + 1}/${generationJobs.length} (Product ${productGroupIndex + 1}, Style ${styleIndex + 1})...`);
                     
-                    // In batch mode, we do 1 per style as per user request "automatic quantity"
-                    // In single mode, we use the user-selected generateCount
+                    // In batch mode, generate one image per product group x style reference pair.
+                    // In single mode, we use the user-selected generateCount.
                     const countPerStyle = tabMode === 'batch' ? 1 : generateCount;
+                    const groupedPrompt = [
+                        customPrompt || '',
+                        tabMode === 'batch'
+                            ? `Product group ${productGroupIndex + 1}: use ONLY the ${productGroup.length} product image(s) provided in this group as the target product. Treat these images as different views/details of the SAME product. Do not mix with other product groups.`
+                            : ''
+                    ].filter(Boolean).join('\n');
 
                     const results = await generateStyleReplication(
                         { base64: styleRef.base64, mime: styleRef.mime || 'image/png' },
-                        productImages.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
-                        customPrompt || undefined,
+                        productGroup.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
+                        groupedPrompt || undefined,
                         {
                             aspectRatio,
                             resolution,
@@ -359,7 +437,7 @@ const StyleReplicateTab: React.FC = () => {
                     );
                     return results;
                 } catch (err) {
-                    console.error(`[Parallel] Failed to process Style ${index + 1}:`, err);
+                    console.error(`[Parallel] Failed to process Job ${index + 1}:`, err);
                     return [];
                 }
             });
@@ -369,7 +447,7 @@ const StyleReplicateTab: React.FC = () => {
             const allResults = resultsArray.flat();
 
             if (allResults.length === 0) {
-                throw new Error("批量生成完全失败。请检查您的输入内容和网络连接后重试。");
+                throw new Error("批量生成全部失败，请检查输入内容和网络连接后重试。");
             }
 
             // Convert base64 to data URLs for display
@@ -381,7 +459,7 @@ const StyleReplicateTab: React.FC = () => {
                 // Prepare original assets as Data URIs
                 const originalAssets = [
                     ...styleReferences.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : ''),
-                    ...productImages.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.mime}` : '')
+                    ...productGroupsToProcess.flatMap(group => group.map(img => img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : ''))
                 ].filter(Boolean);
 
                 const projectId = crypto.randomUUID();
@@ -397,7 +475,8 @@ const StyleReplicateTab: React.FC = () => {
                     metadata: {
                         prompt: customPrompt,
                         styleRefCount: styleReferences.length,
-                        productCount: productImages.length,
+                        productCount: productGroupsToProcess.reduce((total, group) => total + group.length, 0),
+                        productGroupCount: productGroupsToProcess.length,
                         resolution,
                         aspectRatio,
                         model: selectedModel,
@@ -456,7 +535,9 @@ const StyleReplicateTab: React.FC = () => {
         setCustomPrompt('');
     };
 
-    const canGenerate = styleReferences.length > 0 && productImages.length > 0 && !isLoading;
+    const filledProductGroups = productGroups.filter(group => group.length > 0);
+    const batchOutputCount = tabMode === 'batch' ? filledProductGroups.length * styleReferences.length : generateCount;
+    const canGenerate = styleReferences.length > 0 && (tabMode === 'batch' ? filledProductGroups.length > 0 : productImages.length > 0) && !isLoading;
 
     return (
         <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white">
@@ -470,7 +551,7 @@ const StyleReplicateTab: React.FC = () => {
                     一键复刻爆款详情页风格
                 </h1>
                 <p className="text-pastel-muted max-w-xl mx-auto text-sm md:text-base">
-                    上传您喜欢的设计参考图和产品素材，AI 将智能融合风格与产品特性，生成专属于您的高转化详情图
+                    上传喜欢的设计参考图和产品素材，AI 将融合参考风格与产品特性，生成专属高转化详情图。
                 </p>
             </div>
 
@@ -510,9 +591,9 @@ const StyleReplicateTab: React.FC = () => {
                         <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
                             <div className="flex items-center gap-2 mb-3">
                                 <Palette className="w-5 h-5 text-pastel-highlight" />
-                                <h3 className="font-semibold text-pastel-text">参考设计图 {tabMode === 'batch' && <span className="text-xs font-normal text-pastel-muted">(支持最多12张)</span>}</h3>
+                                <h3 className="font-semibold text-pastel-text">参考设计图 {tabMode === 'batch' && <span className="text-xs font-normal text-pastel-muted">(最多 12 张，会匹配每个产品组)</span>}</h3>
                             </div>
-                            <p className="text-xs text-pastel-muted mb-3">上传具有期望风格的参考图</p>
+                            <p className="text-xs text-pastel-muted mb-3">上传希望复刻的设计风格图；一张或多张都可以</p>
 
                             <div
                                 onClick={() => styleInputRef.current?.click()}
@@ -571,65 +652,160 @@ const StyleReplicateTab: React.FC = () => {
 
                         {/* Product Images Upload */}
                         <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
-                            <div className="flex items-center gap-2 mb-3">
-                                <Package className="w-5 h-5 text-pastel-highlight" />
-                                <h3 className="font-semibold text-pastel-text">产品素材图</h3>
-                            </div>
-                            <p className="text-xs text-pastel-muted mb-3">上传您希望出现在图片中的元素素材</p>
-
-                            <div
-                                onClick={() => productInputRef.current?.click()}
-                                onDragOver={(e) => { e.preventDefault(); setIsDraggingProduct(true); }}
-                                onDragLeave={(e) => { e.preventDefault(); setIsDraggingProduct(false); }}
-                                onDrop={handleProductDrop}
-                                className={`relative border-2 border-dashed rounded-lg p-4 cursor-pointer transition-all group ${isDraggingProduct
-                                    ? 'border-pastel-highlight bg-pastel-bg/80'
-                                    : 'border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50'
-                                    }`}
-                            >
-                                <input
-                                    ref={productInputRef}
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    onChange={handleProductUpload}
-                                    className="hidden"
-                                />
-
-                                {productImages.length > 0 ? (
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {productImages.map((img, idx) => (
-                                            <div key={idx} className="relative group/item">
-                                                <img
-                                                    src={img.preview}
-                                                    alt={`Product ${idx + 1}`}
-                                                    className="w-full h-20 object-cover rounded-lg border border-pastel-border"
-                                                />
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        removeProductImage(idx);
-                                                    }}
-                                                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity"
-                                                >
-                                                    <X className="w-3 h-3" />
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {productImages.length < PRODUCT_IMAGE_LIMIT && (
-                                            <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
-                                                <Upload className="w-5 h-5" />
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-6">
-                                        <Upload className="w-8 h-8 mx-auto mb-2 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
-                                        <p className="text-sm text-pastel-highlight">上传产品图片 (最多{PRODUCT_IMAGE_LIMIT}张)</p>
-                                        <p className="text-xs text-pastel-muted mt-1">支持多选</p>
-                                    </div>
+                            <div className="flex items-center justify-between gap-3 mb-3">
+                                <div className="flex items-center gap-2">
+                                    <Package className="w-5 h-5 text-pastel-highlight" />
+                                    <h3 className="font-semibold text-pastel-text">产品素材图</h3>
+                                </div>
+                                {tabMode === 'batch' && (
+                                    <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full border border-orange-100">
+                                        已识别 {filledProductGroups.length} 个产品
+                                    </span>
                                 )}
                             </div>
+                            <p className="text-xs text-pastel-muted mb-3">
+                                {tabMode === 'batch'
+                                    ? '批量模式下请按产品分组上传，每个产品最多 3 张素材；每个产品都会复刻每张参考设计图。'
+                                    : '上传您希望出现在图片中的产品素材'}
+                            </p>
+
+                            {tabMode === 'batch' ? (
+                                <div className="space-y-3">
+                                    <input
+                                        ref={productInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={handleProductUpload}
+                                        className="hidden"
+                                    />
+                                    {productGroups.map((group, groupIdx) => (
+                                        <div key={groupIdx} className="rounded-xl border border-pastel-border bg-pastel-bg/20 p-3">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="text-xs font-bold text-pastel-text">
+                                                    产品 {groupIdx + 1}
+                                                    <span className="ml-2 text-[10px] font-normal text-pastel-muted">{group.length}/{PRODUCT_GROUP_IMAGE_LIMIT} 张</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeProductGroup(groupIdx)}
+                                                    className="text-[10px] text-red-500 hover:text-red-600 disabled:text-gray-300"
+                                                    disabled={productGroups.length === 1 && group.length === 0}
+                                                >
+                                                    删除产品
+                                                </button>
+                                            </div>
+                                            <div
+                                                onClick={() => { setActiveProductGroupIndex(groupIdx); productInputRef.current?.click(); }}
+                                                onDragOver={(e) => { e.preventDefault(); setIsDraggingProduct(true); }}
+                                                onDragLeave={(e) => { e.preventDefault(); setIsDraggingProduct(false); }}
+                                                onDrop={(e) => handleProductDrop(e, groupIdx)}
+                                                className={`relative border-2 border-dashed rounded-lg p-3 cursor-pointer transition-all group ${isDraggingProduct && activeProductGroupIndex === groupIdx
+                                                    ? 'border-pastel-highlight bg-pastel-bg/80'
+                                                    : 'border-pastel-border hover:border-pastel-highlight hover:bg-white/70'
+                                                    }`}
+                                            >
+                                                {group.length > 0 ? (
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        {group.map((img, idx) => (
+                                                            <div key={idx} className="relative group/item">
+                                                                <img
+                                                                    src={img.preview}
+                                                                    alt={`Product ${groupIdx + 1}-${idx + 1}`}
+                                                                    className="w-full h-20 object-cover rounded-lg border border-pastel-border"
+                                                                />
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        removeProductGroupImage(groupIdx, idx);
+                                                                    }}
+                                                                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                                >
+                                                                    <X className="w-3 h-3" />
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                        {group.length < PRODUCT_GROUP_IMAGE_LIMIT && (
+                                                            <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
+                                                                <Upload className="w-5 h-5" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-4">
+                                                        <Upload className="w-6 h-6 mx-auto mb-1 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
+                                                        <p className="text-xs text-pastel-highlight">上传该产品素材，最多 3 张</p>
+                                                        <p className="text-[10px] text-pastel-muted mt-1">同一产品的正面、背面、细节图放在同一组</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {productGroups.length < PRODUCT_GROUP_LIMIT && (
+                                        <button
+                                            type="button"
+                                            onClick={addProductGroup}
+                                            className="w-full py-2 rounded-lg border border-dashed border-orange-200 text-xs font-bold text-orange-600 hover:bg-orange-50 transition-colors"
+                                        >
+                                            + 添加另一个产品
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                <div
+                                    onClick={() => productInputRef.current?.click()}
+                                    onDragOver={(e) => { e.preventDefault(); setIsDraggingProduct(true); }}
+                                    onDragLeave={(e) => { e.preventDefault(); setIsDraggingProduct(false); }}
+                                    onDrop={handleProductDrop}
+                                    className={`relative border-2 border-dashed rounded-lg p-4 cursor-pointer transition-all group ${isDraggingProduct
+                                        ? 'border-pastel-highlight bg-pastel-bg/80'
+                                        : 'border-pastel-border hover:border-pastel-highlight hover:bg-pastel-bg/50'
+                                        }`}
+                                >
+                                    <input
+                                        ref={productInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={handleProductUpload}
+                                        className="hidden"
+                                    />
+
+                                    {productImages.length > 0 ? (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {productImages.map((img, idx) => (
+                                                <div key={idx} className="relative group/item">
+                                                    <img
+                                                        src={img.preview}
+                                                        alt={`Product ${idx + 1}`}
+                                                        className="w-full h-20 object-cover rounded-lg border border-pastel-border"
+                                                    />
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            removeProductImage(idx);
+                                                        }}
+                                                        className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {productImages.length < PRODUCT_IMAGE_LIMIT && (
+                                                <div className="w-full h-20 border-2 border-dashed border-pastel-border rounded-lg flex items-center justify-center text-pastel-muted hover:border-pastel-highlight hover:text-pastel-highlight transition-colors">
+                                                    <Upload className="w-5 h-5" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-6">
+                                            <Upload className="w-8 h-8 mx-auto mb-2 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
+                                            <p className="text-sm text-pastel-highlight">上传产品图片，最多 {PRODUCT_IMAGE_LIMIT} 张</p>
+                                            <p className="text-xs text-pastel-muted mt-1">支持多选</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         {/* Custom Prompt */}
@@ -641,12 +817,12 @@ const StyleReplicateTab: React.FC = () => {
                             <textarea
                                 value={customPrompt}
                                 onChange={(e) => setCustomPrompt(e.target.value)}
-                                placeholder='例如：这是特斯拉 Model Y 2017 内饰；使用红色节日氛围；添加“限时特惠”文字... (此处的描述将覆盖参考图中的原有物体信息)'
+                                placeholder='例如：这是 Tesla Model Y 2017 内饰；使用红色节日氛围；添加“限时特惠”文字。这里的描述会覆盖参考图中的原有产品信息。'
                                 className="w-full h-24 bg-pastel-bg border border-pastel-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-pastel-highlight placeholder-pastel-muted"
                             />
                             <p className="text-xs text-pastel-muted mt-2 flex items-center gap-1">
                                 <AlertCircle className="w-3 h-3" />
-                                AI 将优先遵循此处的文字指令来确定产品型号或场景细节
+                                AI 会优先遵循这里的文字指令，用于确定产品型号、场景细节或文案要求。
                             </p>
                         </div>
 
@@ -715,19 +891,19 @@ const StyleReplicateTab: React.FC = () => {
                                         className="w-full bg-pastel-bg border border-pastel-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-pastel-highlight"
                                     >
                                         <option value="1:1">1:1 正方形</option>
-                                        <option value="2:3">2:3 坚版</option>
+                                        <option value="2:3">2:3 竖版</option>
                                         <option value="3:2">3:2 横版</option>
                                         
                                         {selectedModel !== 'gpt-image-2' && (
                                             <>
-                                                <option value="3:4">3:4 坚版</option>
+                                                <option value="3:4">3:4 竖版</option>
                                                 <option value="4:3">4:3 横版</option>
-                                                <option value="4:5">4:5 坚版</option>
+                                                <option value="4:5">4:5 竖版</option>
                                                 <option value="5:4">5:4 横版</option>
                                             </>
                                         )}
                                         
-                                        <option value="9:16">9:16 手机坚屏</option>
+                                        <option value="9:16">9:16 手机竖屏</option>
                                         <option value="16:9">16:9 宽屏</option>
                                         
                                         {selectedModel !== 'gpt-image-2' && (
@@ -757,7 +933,7 @@ const StyleReplicateTab: React.FC = () => {
                                     </label>
                                     {tabMode === 'batch' ? (
                                         <div className="w-full bg-gray-50 border border-pastel-border rounded-lg px-3 py-2 text-sm text-pastel-muted flex items-center justify-between">
-                                            <span>{styleReferences.length} 张</span>
+                                            <span>{filledProductGroups.length} 个产品 × {styleReferences.length} 张参考 = {batchOutputCount} 张</span>
                                             <span className="text-[10px] bg-pastel-highlight/10 text-pastel-highlight px-1.5 py-0.5 rounded">自动匹配</span>
                                         </div>
                                     ) : (
@@ -840,11 +1016,11 @@ const StyleReplicateTab: React.FC = () => {
                                 ) : (
                                     <>
                                         <Sparkles className="w-5 h-5" />
-                                        生成 {tabMode === 'batch' ? styleReferences.length : generateCount} 张详情图
+                                        生成 {tabMode === 'batch' ? batchOutputCount : generateCount} 张详情图
                                     </>
                                 )}
                             </button>
-                            <p className="text-center text-xs text-pastel-muted mt-2">预计 5 秒</p>
+                            <p className="text-center text-xs text-pastel-muted mt-2">预计 5 秒起，批量任务按产品组并行处理</p>
                         </div>
                     </div>
 
@@ -991,7 +1167,7 @@ const StyleReplicateTab: React.FC = () => {
                                             className="px-6 py-2.5 bg-pastel-highlight text-white rounded-lg text-sm font-medium hover:bg-orange-600 flex items-center gap-1.5 transition-all shadow-md shadow-orange-200 hover:scale-[1.02] active:scale-[0.98]"
                                         >
                                             <Download className="w-4 h-4" />
-                                            全部下载 ({generatedImages.length}张)
+                                            全部下载 ({generatedImages.length} 张)
                                         </button>
                                         <button
                                             onClick={handleGenerate}
@@ -1043,12 +1219,12 @@ const StyleReplicateTab: React.FC = () => {
                     <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
                         <Package className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
                         <h4 className="font-semibold text-pastel-text text-sm">智能文案重写</h4>
-                        <p className="text-xs text-pastel-muted mt-1">自动识别并重绘营销文案，完美融入新产品语境</p>
+                        <p className="text-xs text-pastel-muted mt-1">自动识别并重绘营销文案，融入新产品语境</p>
                     </div>
                     <div className="bg-white rounded-xl border border-pastel-border p-4 text-center">
                         <FileOutput className="w-6 h-6 text-pastel-highlight mx-auto mb-2" />
                         <h4 className="font-semibold text-pastel-text text-sm">电商详情导出</h4>
-                        <p className="text-xs text-pastel-muted mt-1">直接生成可商用的高转化详情页，支持拼图与长图</p>
+                        <p className="text-xs text-pastel-muted mt-1">直接生成可商用的高转化详情图，支持拼图与长图</p>
                     </div>
                 </div>
             </div>
