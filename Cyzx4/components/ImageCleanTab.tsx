@@ -131,7 +131,20 @@ const parseRatioValue = (ratio: string) => {
     return w && h ? w / h : 1;
 };
 
-const normalizeGeneratedImageToAspectRatio = (src: string, targetAspectRatio: AspectRatio): Promise<string> => {
+const getResolutionOutputLongSide = (resolution: ImageResolution) => {
+    switch (resolution) {
+        case ImageResolution.RES_4K:
+            return 4096;
+        case ImageResolution.RES_2K:
+            return 2048;
+        case ImageResolution.RES_1K:
+        case ImageResolution.RES_05K:
+        default:
+            return 1024;
+    }
+};
+
+const normalizeGeneratedImageToAspectRatio = (src: string, targetAspectRatio: AspectRatio, resolution: ImageResolution): Promise<string> => {
     if (!src.startsWith('data:image')) return Promise.resolve(src);
 
     return new Promise((resolve) => {
@@ -224,14 +237,14 @@ const normalizeGeneratedImageToAspectRatio = (src: string, targetAspectRatio: As
                 cropHeight = adjustedHeight;
             }
 
-            const maxOutputSide = 2048;
+            const maxOutputSide = getResolutionOutputLongSide(resolution);
             let outputWidth: number;
             let outputHeight: number;
             if (targetRatio >= 1) {
-                outputWidth = Math.min(maxOutputSide, Math.max(sourceWidth, sourceHeight));
+                outputWidth = maxOutputSide;
                 outputHeight = Math.round(outputWidth / targetRatio);
             } else {
-                outputHeight = Math.min(maxOutputSide, Math.max(sourceWidth, sourceHeight));
+                outputHeight = maxOutputSide;
                 outputWidth = Math.round(outputHeight * targetRatio);
             }
 
@@ -252,8 +265,8 @@ const normalizeGeneratedImageToAspectRatio = (src: string, targetAspectRatio: As
     });
 };
 
-const normalizeGeneratedImagesToAspectRatio = (images: string[], targetAspectRatio: AspectRatio) => {
-    return Promise.all(images.map((img) => normalizeGeneratedImageToAspectRatio(img, targetAspectRatio)));
+const normalizeGeneratedImagesToAspectRatio = (images: string[], targetAspectRatio: AspectRatio, resolution: ImageResolution) => {
+    return Promise.all(images.map((img) => normalizeGeneratedImageToAspectRatio(img, targetAspectRatio, resolution)));
 };
 
 const closestAspectRatioForImage = (image?: UploadedImage | null, fallback: AspectRatio = AspectRatio.PORTRAIT_3_4): AspectRatio => {
@@ -1385,7 +1398,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 
             const batchResults = await Promise.all(batchPromises);
             const flatResults = batchResults.flat();
-            const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio);
+            const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio, resolution);
             if (isSingleRegenerate) {
                 setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (normalizedResults[0] || img) : img));
             } else {
