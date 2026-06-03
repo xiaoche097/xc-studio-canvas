@@ -384,7 +384,11 @@ export const generateImageFromText = async (
             model: effectiveModel,
             contents: { parts },
             config: {
-                // responseMimeType: 'image/jpeg', // Not supported for Gemini models yet in this SDK version context
+                imageConfig: {
+                    aspectRatio: options.aspectRatio || '16:9',
+                    aspect_ratio: options.aspectRatio || '16:9',
+                    imageSize: options.resolution || '2K',
+                } as any
             }
         });
 

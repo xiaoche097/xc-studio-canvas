@@ -1511,9 +1511,8 @@ ${forcedPrompt}`;
           config: {
             safetySettings: GLOBAL_SAFETY_SETTINGS,
             imageConfig: {
-              // 兼容性优化：如果使用了中转 API 且模型提示不支持比例参数，则不在 imageConfig 中显式传递，
-              // 而是依靠我们在 prompt 中已经注入的 --ar 标签。
-              ...(config.isYunwu || config.isPlato ? {} : { aspectRatio: aspectRatio, aspect_ratio: aspectRatio }),
+              aspectRatio: aspectRatio,
+              aspect_ratio: aspectRatio,
               // Standard Gemini expects "1K", "2K", "4K"
               imageSize: resolution, 
               size: explicitDimensions, // DALL-E 3 standard
@@ -1855,8 +1854,9 @@ export const generateInpainting = async (
           config: {
             imageConfig: {
               aspectRatio: options.aspectRatio || "1:1",
+              aspect_ratio: options.aspectRatio || "1:1",
               imageSize: (options.resolution === ImageResolution.RES_05K ? 512 : (options.resolution || "1K")) as any,
-            },
+            } as any,
           },
         }),
         { timeoutMs: generationTimeout, signal }
@@ -2523,6 +2523,7 @@ Generate a **NEW photorealistic image** that:
         config: {
           imageConfig: {
             aspectRatio: aspectRatio,
+            aspect_ratio: aspectRatio,
             imageSize: resolution,
             // Enhanced Negative Prompt for Perspective Control
             negativePrompt: buildNegativePrompt('automotive', 'realistic', angleNegative),
@@ -2742,8 +2743,9 @@ export const editGeneratedImage = async (
       config: {
         imageConfig: {
           aspectRatio: options.aspectRatio,
+          aspect_ratio: options.aspectRatio,
           imageSize: options.resolution || "1K",
-        },
+        } as any,
       },
     }), { timeoutMs: 180000, signal });
 
@@ -3302,6 +3304,7 @@ You MUST process the input through these 8 distinct phases:
       safetySettings: GLOBAL_SAFETY_SETTINGS,
       imageConfig: {
         aspectRatio: aspectRatio,
+        aspect_ratio: aspectRatio,
         imageSize: resolution, // Must be '1K', '2K', or '4K'
       }
     };
@@ -3526,6 +3529,7 @@ Professional commercial photography quality. The result must be indistinguishabl
       ],
       imageConfig: {
         aspectRatio: aspectRatio,
+        aspect_ratio: aspectRatio,
         imageSize: resolution,
       }
     };
@@ -3770,8 +3774,9 @@ export const generateColorMap = async (
       config: {
         imageConfig: {
           aspectRatio: aspectRatio,
+          aspect_ratio: aspectRatio,
           imageSize: "2K"
-        }
+        } as any
       }
     });
 
@@ -3829,8 +3834,9 @@ export const generateLineArt = async (
       config: {
         imageConfig: {
           aspectRatio: aspectRatio,
+          aspect_ratio: aspectRatio,
           imageSize: "2K" // Higher res for better structural guidance
-        }
+        } as any
       }
     });
 
@@ -3913,6 +3919,7 @@ export const generateHDUpscale = async (
         temperature: 0.15, // Extremely low for maximum fidelity
         imageConfig: {
           aspectRatio: aspectRatio,
+          aspect_ratio: aspectRatio,
           imageSize: targetRes as any
         }
       } as any
