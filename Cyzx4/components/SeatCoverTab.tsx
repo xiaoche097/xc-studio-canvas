@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { generateSeatCoverFit, blobToBase64, compressImage, optimizePrompt, editGeneratedImage } from '../services/geminiService';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkles, Check, Monitor, Grid, Key, ChevronDown, Maximize2, Download, RefreshCw, X, Box, Wand2, Cpu } from 'lucide-react';
 import { storageService } from '../../services/storageService';
 import { compressImageFiles } from '../utils/imageCompressor';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -102,6 +103,14 @@ const SeatCoverTab: React.FC = () => {
   const [qualityMode, setQualityMode] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    isCurrentGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isTargetRowOpen, setIsTargetRowOpen] = useState(false);
   const [hoveredTargetThumb, setHoveredTargetThumb] = useState<string | null>(null);
@@ -411,18 +420,21 @@ const SeatCoverTab: React.FC = () => {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
 
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
     setError(null);
     setProgress('');
     setGeneratedImages([]);
 
     try {
+      assertCurrentGenerationTask(taskId, signal);
       // Step 1: 压缩图片
       setProgress('正在压缩产品图片...');
       const seatImagePromises = seatFiles.map(async (file) => {
         return await compressImage(file);
       });
       const seatImages = await Promise.all(seatImagePromises);
+      assertCurrentGenerationTask(taskId, signal);
 
       let angleValue: string | { base64: string, mime: string }[] = anglePreset;
 
@@ -491,10 +503,12 @@ const SeatCoverTab: React.FC = () => {
         qualityMode,
         customRequest, // NEW: Custom Request
         visualGuide, // Pass strict visual guide
-        selectedModel
+        selectedModel,
+        signal
       );
 
       setProgress('渲染完成！');
+      assertCurrentGenerationTask(taskId, signal);
       setGeneratedImages(images);
 
       // Save Project
@@ -515,11 +529,23 @@ const SeatCoverTab: React.FC = () => {
         }
       });
     } catch (error: any) {
-      setError(getErrorMessage(error));
+      if (!isAbortError(error)) {
+        setError(getErrorMessage(error));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
       setProgress('');
     }
+  };
+
+  const handleCancelGenerate = () => {
+    cancelGenerationTask();
+    setIsGenerating(false);
+    setProgress('');
   };
 
   return (
@@ -999,6 +1025,18 @@ const SeatCoverTab: React.FC = () => {
                 </>
               )}
             </button>
+            {isGenerating && (
+              <button
+                type="button"
+                onClick={handleCancelGenerate}
+                className="w-full mt-3 py-3 px-6 rounded-xl font-bold bg-gray-800 text-white hover:bg-gray-900 transition-all"
+              >
+                中止生成
+              </button>
+            )}
+            {cancelMessage && !isGenerating && (
+              <p className="text-center text-xs font-bold text-orange-600 mt-2">{cancelMessage}</p>
+            )}
             {!isFormValid && !isGenerating && (
               <p className="text-center text-[10px] text-pastel-muted mt-3 animate-pulse font-medium bg-gray-50/50 py-1 rounded-full border border-gray-100 italic">
                 💡 请填完所有 <span className="text-red-500 font-bold text-xs">*</span> 必填项以激活渲染

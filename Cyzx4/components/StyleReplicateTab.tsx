@@ -1,6 +1,6 @@
 ﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateStyleReplication, compressImage } from '../services/geminiService';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
 import {
     Sparkles,
@@ -19,6 +19,7 @@ import {
     FileOutput,
     Cpu
 } from 'lucide-react';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -111,6 +112,14 @@ const StyleReplicateTab: React.FC = () => {
     // Result states
     const [generatedImages, setGeneratedImages] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const {
+        cancelMessage,
+        startGenerationTask,
+        cancelGenerationTask,
+        isCurrentGenerationTask,
+        assertCurrentGenerationTask,
+        finishGenerationTask,
+    } = useCancelableGeneration();
     const [error, setError] = useState<string | null>(null);
     const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
 
@@ -375,6 +384,7 @@ const StyleReplicateTab: React.FC = () => {
             return;
         }
 
+        const { taskId, signal } = startGenerationTask();
         setIsLoading(true);
         setError(null);
         setGeneratedImages([]);
@@ -394,6 +404,7 @@ const StyleReplicateTab: React.FC = () => {
         }, 1200); // Slightly faster for parallel
 
         try {
+            assertCurrentGenerationTask(taskId, signal);
             const stylesToProcess = styleReferences;
             
             if (tabMode === 'batch') {
@@ -432,7 +443,8 @@ const StyleReplicateTab: React.FC = () => {
                             resolution,
                             count: countPerStyle,
                             model: selectedModel,
-                            retouch: isRetouchEnabled
+                            retouch: isRetouchEnabled,
+                            signal
                         }
                     );
                     return results;
@@ -444,6 +456,7 @@ const StyleReplicateTab: React.FC = () => {
 
             // Wait for all generations to complete in parallel
             const resultsArray = await Promise.all(generationPromises);
+            assertCurrentGenerationTask(taskId, signal);
             const allResults = resultsArray.flat();
 
             if (allResults.length === 0) {
@@ -491,14 +504,27 @@ const StyleReplicateTab: React.FC = () => {
             }
 
         } catch (err: any) {
-            console.error('Generation failed:', err);
-            const friendlyError = getErrorMessage(err);
-            setError(friendlyError);
+            if (!isAbortError(err)) {
+                console.error('Generation failed:', err);
+                const friendlyError = getErrorMessage(err);
+                setError(friendlyError);
+            }
         } finally {
             clearInterval(stepInterval);
+            if (!isCurrentGenerationTask(taskId)) {
+                return;
+            }
+            finishGenerationTask(taskId);
             setIsLoading(false);
             setProgress(100);
         }
+    };
+
+    const handleCancelGenerate = () => {
+        cancelGenerationTask();
+        setIsLoading(false);
+        setProgress(0);
+        setBatchStatus('');
     };
 
     // Download handler
@@ -1020,6 +1046,18 @@ const StyleReplicateTab: React.FC = () => {
                                     </>
                                 )}
                             </button>
+                            {isLoading && (
+                                <button
+                                    type="button"
+                                    onClick={handleCancelGenerate}
+                                    className="w-full py-3 rounded-xl font-bold bg-gray-800 text-white hover:bg-gray-900 transition-all"
+                                >
+                                    中止生成
+                                </button>
+                            )}
+                            {cancelMessage && !isLoading && (
+                                <p className="text-center text-xs font-bold text-orange-600 mt-2">{cancelMessage}</p>
+                            )}
                             <p className="text-center text-xs text-pastel-muted mt-2">预计 5 秒起，批量任务按产品组并行处理</p>
                         </div>
                     </div>

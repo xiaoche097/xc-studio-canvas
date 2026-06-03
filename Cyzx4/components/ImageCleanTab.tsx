@@ -9,9 +9,10 @@ import {
 } from 'lucide-react';
 import { generateImageToImage, blobToBase64, compressImage, editGeneratedImage } from '../services/geminiService';
 import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
-import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 import { extractEdges } from '../utils/imageProcessor';
@@ -369,6 +370,14 @@ const HeroImageTab: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
     const [regeneratingIndices, setRegeneratingIndices] = useState<number[]>([]);
+    const {
+        cancelMessage,
+        startGenerationTask,
+        cancelGenerationTask,
+        isCurrentGenerationTask,
+        assertCurrentGenerationTask,
+        finishGenerationTask,
+    } = useCancelableGeneration();
     
     // Refs
     const productInputRef = useRef<HTMLInputElement>(null);
@@ -823,6 +832,8 @@ Rules:
         }
 
         const isSingleRegenerate = typeof regenerateIndex === 'number';
+        const { taskId, signal } = startGenerationTask();
+
         if (isSingleRegenerate) {
             setRegeneratingIndices(prev => prev.includes(regenerateIndex) ? prev : [...prev, regenerateIndex]);
         } else {
@@ -841,6 +852,7 @@ Rules:
         }, 1200);
 
         try {
+            assertCurrentGenerationTask(taskId, signal);
             // 1. 预处理所有图片：安全模式或仅参考姿态开启时，将动作图转换为线稿以剔除背景干扰
             const processRefImage = async (img: UploadedImage | null, isSafeOrPoseOnly: boolean) => {
                 if (!img) return null;
@@ -865,6 +877,7 @@ Rules:
                     return { original, lineart };
                 })
             );
+            assertCurrentGenerationTask(taskId, signal);
             const processedModel = await processRefImage(modelReference, isSafeModeModel);
             const processedScenes = await Promise.all(
                 sceneReferences.map(img => processRefImage(img, isSafeModeScene))
@@ -1392,13 +1405,16 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     modelId: selectedModel,
                     negativePrompt,
                     hasModelRef: !!modelReference,
-                    workflowHint: hasOutputActionReference ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock')
+                    workflowHint: hasOutputActionReference ? 'hero-pose-lock' : (modelReference ? 'face-lock' : 'scene-product-lock'),
+                    signal
                 });
             });
 
             const batchResults = await Promise.all(batchPromises);
+            assertCurrentGenerationTask(taskId, signal);
             const flatResults = batchResults.flat();
             const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio, resolution);
+            assertCurrentGenerationTask(taskId, signal);
             if (isSingleRegenerate) {
                 setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (normalizedResults[0] || img) : img));
             } else {
@@ -1427,9 +1443,15 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
             });
 
         } catch (err) {
-            setError(getErrorMessage(err));
+            if (!isAbortError(err)) {
+                setError(getErrorMessage(err));
+            }
         } finally {
             if (stepInterval) clearInterval(stepInterval);
+            if (!isCurrentGenerationTask(taskId)) {
+                return;
+            }
+            finishGenerationTask(taskId);
             if (isSingleRegenerate) {
                 setRegeneratingIndices(prev => prev.filter(idx => idx !== regenerateIndex));
             } else {
@@ -1437,6 +1459,13 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                 setProgress(100);
             }
         }
+    };
+
+    const handleCancelGenerate = () => {
+        cancelGenerationTask();
+        setIsLoading(false);
+        setRegeneratingIndices([]);
+        setProgress(0);
     };
 
     const handleDownload = (img: string, idx: number) => {
@@ -2111,10 +2140,20 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                             )}
                         </div>
 
-                        <button onClick={() => handleGenerate()} disabled={isLoading || productImages.length === 0 || regeneratingIndices.length > 0} className={`w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 || regeneratingIndices.length > 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
-                            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                            {isLoading ? 'Agent 正在绘制...' : '一键生成高品质主图'}
-                        </button>
+                        <div className="flex gap-3">
+                            <button onClick={() => handleGenerate()} disabled={isLoading || productImages.length === 0 || regeneratingIndices.length > 0} className={`flex-1 py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-3 ${isLoading || productImages.length === 0 || regeneratingIndices.length > 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01]'}`}>
+                                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                                {isLoading ? 'Agent 正在绘制...' : '一键生成高品质主图'}
+                            </button>
+                            {(isLoading || regeneratingIndices.length > 0) && (
+                                <button type="button" onClick={handleCancelGenerate} className="px-5 py-4 rounded-2xl font-bold text-white bg-gray-800 hover:bg-gray-900 shadow-lg transition-all">
+                                    中止生成
+                                </button>
+                            )}
+                        </div>
+                        {cancelMessage && !isLoading && regeneratingIndices.length === 0 && (
+                            <div className="text-xs font-bold text-orange-600 text-center">{cancelMessage}</div>
+                        )}
                     </div>
 
                     {/* RIGHT COLUMN */}

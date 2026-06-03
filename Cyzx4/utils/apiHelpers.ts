@@ -184,7 +184,28 @@ export async function generateContentWithAnalysisFallback<TClient extends {
 export interface TimeoutOptions {
     timeoutMs?: number;
     timeoutMessage?: string;
+    signal?: AbortSignal;
 }
+
+export const createAbortError = (message = 'Generation cancelled') => {
+    try {
+        return new DOMException(message, 'AbortError');
+    } catch {
+        const error = new Error(message);
+        (error as any).name = 'AbortError';
+        return error;
+    }
+};
+
+export const isAbortError = (error: unknown) => {
+    return (error as any)?.name === 'AbortError' || /cancelled|canceled|aborted/i.test((error as any)?.message || '');
+};
+
+export const throwIfAborted = (signal?: AbortSignal) => {
+    if (signal?.aborted) {
+        throw createAbortError();
+    }
+};
 
 // ==================== API 配置管理 ====================
 
@@ -396,15 +417,36 @@ export async function executeWithTimeout<T>(
 ): Promise<T> {
     const {
         timeoutMs = API_TIMEOUT_MS,
-        timeoutMessage = `Request timed out (${timeoutMs}ms). The model might be overloaded.`
+        timeoutMessage = `Request timed out (${timeoutMs}ms). The model might be overloaded.`,
+        signal
     } = options;
 
-    return Promise.race([
+    throwIfAborted(signal);
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let abortHandler: (() => void) | undefined;
+
+    const timeoutPromise = new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+
+    const abortPromise = signal
+        ? new Promise<T>((_, reject) => {
+            abortHandler = () => reject(createAbortError());
+            signal.addEventListener('abort', abortHandler, { once: true });
+        })
+        : undefined;
+
+    try {
+        return await Promise.race([
         promise,
-        new Promise<T>((_, reject) =>
-            setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
-        )
+        timeoutPromise,
+        ...(abortPromise ? [abortPromise] : [])
     ]);
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (signal && abortHandler) signal.removeEventListener('abort', abortHandler);
+    }
 }
 
 // ==================== 图像处理 ====================
