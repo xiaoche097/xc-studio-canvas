@@ -21,6 +21,7 @@ import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
 import { MENS_KNIT_POSES } from '../constants/mensKnitPosePresets';
 import { MENS_TEE_POSES } from '../constants/mensTeePosePresets';
 import { SWIM_SHORTS_POSES } from '../constants/swimShortsPosePresets';
+import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 
 interface UploadedImage {
     file: File;
@@ -53,7 +54,24 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'swimShorts';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'swimShorts' | 'longDress';
+
+interface AutoPoseAnalysis {
+    productType: string;
+    library: AutoPoseLibrary;
+    libraryLabel: string;
+    reason: string;
+    confidence: string;
+}
+
+const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
+    none: '通用服装动作库 / 智能随机动作',
+    mensShirt: '男士衬衫动作库',
+    mensKnit: '男士针织/Polo动作库',
+    mensTee: '男士T恤动作库',
+    swimShorts: '泳裤/沙滩裤动作库',
+    longDress: '长裙/连衣裙动作库',
+};
 
 const getImageDimensions = (src: string): Promise<{ width: number; height: number }> => {
     return new Promise((resolve) => {
@@ -309,6 +327,7 @@ const HeroImageTab: React.FC = () => {
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
     const [actionReferences, setActionReferences] = useState<UploadedImage[]>([]);
     const [autoPoseLibrary, setAutoPoseLibrary] = useState<AutoPoseLibrary>('none');
+    const [autoPoseAnalysis, setAutoPoseAnalysis] = useState<AutoPoseAnalysis | null>(null);
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
     const [accessoryReferences, setAccessoryReferences] = useState<UploadedImage[]>([]);
     const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
@@ -369,11 +388,13 @@ const HeroImageTab: React.FC = () => {
     const detectAutoPoseLibrary = async (images: UploadedImage[]) => {
         if (images.length === 0) {
             setAutoPoseLibrary('none');
+            setAutoPoseAnalysis(null);
             return;
         }
 
         const normalizeLibrary = (value: string): AutoPoseLibrary => {
             const normalized = value.trim().toLowerCase();
+            if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('dress')) return 'longDress';
             if (normalized.includes('swim') || normalized.includes('boardshort') || normalized.includes('board short') || normalized.includes('trunk')) return 'swimShorts';
             if (normalized.includes('tee') || normalized.includes('tshirt') || normalized.includes('t-shirt')) return 'mensTee';
             if (normalized.includes('knit') || normalized.includes('polo')) return 'mensKnit';
@@ -387,10 +408,11 @@ const HeroImageTab: React.FC = () => {
                 inlineData: { mimeType: img.mime!, data: img.base64! }
             }));
             parts.push({
-                text: `Classify these uploaded product images for an ecommerce menswear pose library.
-Return ONLY valid JSON: {"library":"mensShirt|mensKnit|mensTee|swimShorts|none","reason":"short reason"}.
+                text: `Classify these uploaded product images for an ecommerce apparel pose library.
+Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|swimShorts|longDress|none","confidence":"high|medium|low","reason":"short reason"}.
 
 Choose:
+- longDress: women's long dress, maxi dress, ankle-length dress, floor-length dress, long skirt dress, evening dress, long slip dress, long sundress, gown-like dress.
 - mensShirt: men's woven button shirt, resort shirt, linen shirt, Hawaiian shirt, button-up shirt.
 - mensKnit: men's knit polo, textured knit polo, knitted top, sweater-like short sleeve, ribbed knit menswear.
 - mensTee: men's T-shirt, oversized tee, graphic tee, cotton short-sleeve tee.
@@ -406,10 +428,25 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
             }, { timeoutMs: 30000, fallbackTimeoutMs: 45000 });
             const text = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
             const parsed = JSON.parse(text);
-            setAutoPoseLibrary(normalizeLibrary(parsed.library || 'none'));
+            const library = normalizeLibrary(parsed.library || 'none');
+            setAutoPoseLibrary(library);
+            setAutoPoseAnalysis({
+                productType: parsed.productType || '未明确识别，按通用服装处理',
+                library,
+                libraryLabel: AUTO_POSE_LIBRARY_LABELS[library],
+                confidence: parsed.confidence || 'medium',
+                reason: parsed.reason || '根据产品图结构和用户备注自动匹配',
+            });
         } catch (err) {
             console.warn('Auto pose library detection failed, using no built-in library.', err);
             setAutoPoseLibrary('none');
+            setAutoPoseAnalysis({
+                productType: '识别失败，按通用服装处理',
+                library: 'none',
+                libraryLabel: AUTO_POSE_LIBRARY_LABELS.none,
+                confidence: 'low',
+                reason: '产品分类服务未返回可用结果，生成时仍会使用通用服装动作与补充描述。',
+            });
         }
     };
 
@@ -620,19 +657,23 @@ Return ONLY valid JSON with these string fields:
 {
   "productGarment": "precise garment type, color, fabric, construction, trims, neckline, sleeve/strap details, hem, buttons, ruffles, patterns",
   "productFidelityChecklist": "short checklist of product details that must never change",
+  "autoStylingRationale": "explain what supporting styling is necessary for a complete believable fashion photo, based on the product, platform, persona, and user note",
   "needsBottom": "yes/no and why",
   "unifiedBottom": "one consistent pants/skirt/shorts recommendation if missing from product asset; include color, fit, rise, fabric, and why it matches",
   "unifiedShoes": "one consistent shoe recommendation if feet may be visible",
   "unifiedBag": "one consistent bag recommendation; use none if it would distract",
   "unifiedJewelry": "one consistent minimal jewelry/accessory recommendation",
+  "unifiedOtherAccessories": "one consistent hat/sunglasses/belt/scarf/watch/prop recommendation, or none",
   "avoidStyling": "styling details to avoid because they conflict with the product"
 }
 Rules:
-- If pants/bottoms are not clearly part of the product asset, recommend a unified bottom to use across ALL generated outputs.
-- If bags, shoes, belts, jewelry, watches, sunglasses, hats, bracelets, or props are not in the product asset, recommend none unless the user has uploaded separate accessory reference images or explicitly requested them.
-- If accessory references are provided, describe one fixed accessory set for the whole batch. Do not invent per-image accessory variations.
+- If pants/bottoms are not clearly part of the product asset and the product is upper-body only, recommend ONE unified bottom to use across ALL generated outputs. If the product is a long dress, one-piece dress, jumpsuit, pajama set, suit set, or full outfit, set unifiedBottom to "none; product already covers this area".
+- If shoes may be visible, recommend ONE realistic unified shoe style that matches the product and platform, unless the user explicitly requested barefoot/no shoes.
+- If bags, belts, jewelry, watches, sunglasses, hats, bracelets, scarves, or props are not in the product asset, decide whether they are commercially necessary. Use "none" for any category that would distract. If needed, choose ONE minimal compatible item per category and keep it realistic.
+- If accessory references are provided, describe one fixed accessory set from those references for the whole batch. Do not invent per-image accessory variations.
+- If the user note explicitly requests a styling item, obey it and make it part of the unified batch styling contract.
 - The product garment itself is highest priority and must remain identical to the reference.
-- Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy.
+- Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy. Prefer clean complete outfits: no random extra jewelry, no changing bags, no changing shoes, no changing pants between images.
 User note: ${userPrompt || 'none'}` });
             const response = await generateContentWithAnalysisFallback(ai, {
                 model: 'gemini-3.1-flash-lite-preview',
@@ -644,14 +685,17 @@ User note: ${userPrompt || 'none'}` });
                 '# UNIFIED STYLING PLAN (AGENT ANALYZED - APPLY TO EVERY OUTPUT):',
                 `- Product garment identity: ${parsed.productGarment || 'use Image 1 as the exact product source of truth'}`,
                 `- Product fidelity checklist: ${parsed.productFidelityChecklist || 'preserve exact structure, fabric, trims, color, seams, buttons, ruffles, prints, and silhouette'}`,
+                `- Auto styling rationale: ${parsed.autoStylingRationale || 'build one realistic complete outfit only where the product photo leaves required styling areas unspecified'}`,
                 `- Bottom coverage need: ${parsed.needsBottom || 'infer from product image'}`,
-                `- Unified bottom for ALL images: ${parsed.unifiedBottom || 'consistent light-wash straight-leg denim jeans if bottom is not part of the product asset'}`,
+                `- Unified bottom/pants for ALL images: ${parsed.unifiedBottom || 'one consistent neutral bottom only if the product is upper-body-only; otherwise none if the product covers the lower body'}`,
                 `- Unified shoes for ALL images: ${parsed.unifiedShoes || 'minimal neutral shoes only when visible'}`,
-                `- Unified bag for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedBag || 'follow uploaded accessory reference images exactly') : 'none; do not invent bags or handheld props'}`,
-                `- Unified jewelry/accessories for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedJewelry || 'follow uploaded accessory reference images exactly') : 'none unless already visible in the product asset'}`,
+                `- Unified bag for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedBag || 'follow uploaded accessory reference images exactly') : (parsed.unifiedBag || 'none unless the user explicitly requested a bag or the outfit genuinely needs one')}`,
+                `- Unified jewelry/accessories for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedJewelry || 'follow uploaded accessory reference images exactly') : (parsed.unifiedJewelry || 'none or one minimal compatible jewelry set only if commercially appropriate')}`,
+                `- Unified other accessories for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedOtherAccessories || 'follow uploaded accessory reference images exactly') : (parsed.unifiedOtherAccessories || 'none unless explicitly requested or necessary for the selected styling')}`,
                 `- Avoid styling: ${parsed.avoidStyling || 'avoid changing the product garment or adding distracting accessories'}`,
                 '- CONSISTENCY RULE: pants, shoes, bags, belts, jewelry, watches, sunglasses, hats, bracelets, handheld props, and every visible accessory must stay the same style/color/material across every image in this batch unless they are physically hidden by the crop.',
-                '- ACCESSORY NO-RANDOMIZATION RULE: do not create a different necklace/watch/sunglasses/hat/bag/bracelet combination for different outputs. Use the single unified accessory set above, or no accessories.'
+                '- AUTO-STYLING LOCK: if the user did not upload accessory references, use the analyzed unified styling above as the only allowed generated outfit support. Do not improvise a new bag, shoe, pant, necklace, ring, belt, sunglasses, hat, watch, bracelet, scarf, or prop in later outputs.',
+                '- ACCESSORY NO-RANDOMIZATION RULE: do not create a different necklace/watch/sunglasses/hat/bag/bracelet/shoe/pant combination for different outputs. Use the single unified styling set above, or no accessories.'
             ].join('\n');
         } catch (err) {
             console.warn('Hero styling plan analysis failed, using fallback.', err);
@@ -966,19 +1010,23 @@ Rules:
             };
 
             const sceneVariationPresets = [
-                'wide framing from the same tripod zone: keep the reference background anchors visible, show slightly more floor/ground and horizon while preserving the same location geometry',
-                'medium framing from the same camera height: keep the same background anchors behind the subject, vary only lens distance and crop, with natural subject-to-background separation',
-                'three-quarter framing from a small left/right camera shift within the same spot: preserve the same horizon, wall/ground/material cues, and prop family',
-                'full-body commercial framing: keep the same ground plane and background horizon/architecture relation, only adjust subject scale and focal length',
-                'half-body framing: crop tighter with moderate background blur, keeping a recognizable softened portion of the same reference scene behind the upper body',
-                'close-up/detail framing: use shallow depth of field and visibly blurred background; retain only soft recognizable scene cues from the uploaded reference, such as the same ground texture, horizon, wall, prop, or color block'
+                'wide framing from the same tripod zone: keep the reference background anchors visible, show slightly more floor/ground and horizon while preserving the same location geometry and sun/shadow direction',
+                'medium framing from the same camera height: keep the same background anchors behind the subject, vary only lens distance and crop, with natural subject-to-background separation and professional lookbook lighting',
+                'three-quarter framing from a small left/right camera shift within the same spot: preserve the same horizon, wall/ground/material cues, prop family, color temperature, and real parallax',
+                'full-body commercial framing: keep the same ground plane and background horizon/architecture relation, only adjust subject scale and focal length; feet, shoes, and dress hem must contact the ground believably',
+                'half-body framing: crop tighter with moderate background blur, keeping a recognizable softened portion of the same reference scene behind the upper body and matching the reference light direction on face/fabric',
+                'close-up/detail framing: use shallow depth of field and visibly blurred background; retain only soft recognizable scene cues from the uploaded reference, such as the same ground texture, horizon, wall, prop, or color block, while fabric highlights match the same light source'
             ];
 
             const accessoryBatchLockPrompt = accessoryReferences.length > 0
                 ? `# ACCESSORY BATCH IDENTITY LOCK:
 Images ${accessoryIndexStart}-${accessoryIndexEnd} define the ONLY accessory set allowed in this batch. Use the same bag/jewelry/watch/sunglasses/hat/belt/bracelet/handheld prop identity across every output: same item count, same color, same material, same hardware, same scale, and same styling logic. A crop may hide an accessory naturally, but visible accessories must not change between outputs. Do NOT invent alternate necklaces, watches, sunglasses, hats, bags, belts, bracelets, or props.`
-                : `# ACCESSORY BATCH IDENTITY LOCK:
-No accessory reference images were uploaded. Do NOT invent new bags, purses, hats, scarves, sunglasses, necklaces, bracelets, watches, belts, handheld props, or decorative accessories. If the product asset or user text explicitly requires a visible accessory, use one single minimal consistent accessory set across the whole batch and never change it between outputs.`;
+                : `# AUTO-STYLING BATCH IDENTITY LOCK:
+No accessory reference images were uploaded. The AI-analyzed UNIFIED STYLING PLAN above is the ONLY allowed generated styling support for this batch.
+- First decide from the product, platform, persona, scene, and user notes whether the outfit needs pants/bottoms, shoes, bag, rings, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or handheld prop.
+- If an item is needed or explicitly requested by the user, generate exactly ONE consistent version of that item across ALL outputs: same category, color, material, scale, hardware, shape, placement logic, and styling mood.
+- If an item is not needed, keep it absent across ALL outputs.
+- Never let shoes, pants, bags, rings, necklaces, earrings, bracelets, watches, belts, sunglasses, hats, scarves, or props vary randomly between images. Crops may hide items naturally, but any visible item must match the unified styling plan.`;
 
             const getPerOutputScenePrompt = (outputNumber: number, isActionLockedOutput: boolean) => {
                 if (sceneReferences.length === 0) return '';
@@ -989,8 +1037,10 @@ Use the uploaded scene reference as the SAME-SHOOT LOCATION ANCHOR, not as a dif
 - Allow only conservative real-camera variation: ${variation}.
 - Variation may come from subject scale, focal length, crop, mild parallax, depth of field, and small camera height/left-right changes. Do not redesign or replace the background.
 - PERSPECTIVE SOLVER: rebuild the scene with physically valid camera geometry. Horizon line, vanishing points, ground plane, subject foot contact, shadow direction, lens compression, and background scale must agree with the selected full-body / half-body / close-up framing.
+- LOOKBOOK LIGHTING SOLVER: treat this as professional fashion lookbook photography, not a pasted product composite. The model must be lit by the same real light system as the scene: same sun/window/key-light direction, same shadow softness, same color temperature, same fill level, and realistic bounce light from nearby stone/wall/water/floor surfaces.
+- SUBJECT-SCENE INTEGRATION: skin, hair, dress fabric, bag, shoes, and ground contact shadows must all respond to the same light. Dress folds should show natural highlight rolloff and shadow occlusion; feet/shoes and long dress hem must cast grounded contact shadows on the exact floor/ground plane.
 - DEPTH-OF-FIELD LOCK: if this output is close-up, extreme close-up, detail crop, chest-up, neck-to-chest, or waist-up, the scene background must be optically blurred like a real lens. Keep only soft recognizable scene cues from the uploaded scene reference; do not render a crisp, equally sharp background behind a close subject.
-- For full-body and wide shots, the background can be clearer, but it must still obey real lens perspective, subject distance, scale, contact shadows, and lighting direction.
+- For full-body and wide shots, the background can be clearer, but it must still obey real lens perspective, subject distance, scale, contact shadows, lighting direction, and professional model exposure.
 - If the uploaded scene reference perspective is imperfect or conflicts with the selected pose/crop, correct it subtly while preserving the same scene identity and key visual anchors.
 - Every output, including close-ups/details, must retain at least one recognizable cue from the uploaded scene reference.
 - Do NOT make every batch image use the identical background crop, but also do NOT change to a different beach/room/street/studio, different architecture, different season, different time of day, or unrelated props.
@@ -1017,14 +1067,25 @@ ${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose firs
             ${accessoryBatchLockPrompt}
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, watch, sunglasses, hat, belt, scarf, bracelet, or handheld prop, use the same accessory identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# NO EXTRA ACCESSORY DIRECTIVE: The user did not upload accessory reference images. Do NOT add handbags, purses, hats, scarves, belts, sunglasses, watches, necklaces, bracelets, jewelry, handheld props, or decorative accessories unless they are already part of the product asset or explicitly required by the user. Keep styling clean and product-focused.'}
+            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, ring, necklace, earrings, watch, sunglasses, hat, belt, scarf, bracelet, shoes, or handheld prop, use the same accessory identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# AUTO-STYLING DIRECTIVE (STRICT): The user did not upload accessory reference images, so you must use the UNIFIED STYLING PLAN as the single batch styling contract. Generate only the pants/bottom, shoes, bag, ring, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or prop explicitly selected by that plan or explicitly requested in user supplementary notes. Keep every selected styling item identical across all outputs. Do not add unplanned accessories.'}
             ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             # OUTPUT FORMAT LOCK: Generate exactly one image in the user-selected ${aspectRatio} aspect ratio. No collage, no split-screen, no side-by-side images, no before/after layout, no horizontal strip, no letterbox/pillarbox, no large blank white canvas.
             ${actionReferences.length > 0 ? '# ACTION REFERENCE IS POSE ONLY: Uploaded action references control only body pose and gesture. They must NOT control background, environment, lighting, product color, or output aspect ratio.' : ''}
             ${sceneReferences.length > 0
-                ? `# SCENE REFERENCE SAME-SHOOT LOCK + REAL CAMERA GEOMETRY: Uploaded scene references define the exact shooting location identity: environment type, horizon/architecture relationship, ground/wall material, dominant props/materials, color temperature, lighting direction, mood, weather/season, and location cues. Do NOT copy the exact same background crop in every image, but stay in the SAME location. Variation is limited to real camera changes: crop, focal length, subject distance, mild parallax, and depth of field. Do NOT invent a different scene or replace the background with another similar-looking place. Scene must obey real perspective: coherent horizon, vanishing point, ground plane, object scale, subject placement, contact shadows, lighting direction, lens compression, and depth of field. If needed, adjust the scene reference subtly to make the final image physically plausible. CLOSE-UP RULE: for close-up, extreme close-up, chest-up, neck-to-chest, waist-up, and detail crops, the uploaded scene must appear as a real out-of-focus background with recognizable but blurred cues; never render a crisp flat background behind a close subject.`
-                : (selectedPlatform === 'amazon' ? '# SCENE: Pure white background (#FFFFFF), clean studio lighting, centered.' : '# SCENE: Professional studio or high-end lifestyle background, minimalist.')}
+                ? `# PROFESSIONAL LOOKBOOK SCENE LOCK + REAL CAMERA GEOMETRY:
+Uploaded scene references define the exact shooting location identity: environment type, horizon/architecture relationship, ground/wall material, dominant props/materials, color temperature, lighting direction, mood, weather/season, and location cues.
+The final image must look like a real professional fashion lookbook shoot at that location, not a pasted model over a background.
+- SAME LOCATION, REAL VARIATION: Do NOT copy the exact same background crop in every image, but stay in the SAME location. Variation is limited to real camera changes: crop, focal length, subject distance, mild parallax, depth of field, and small camera height/left-right shifts. Do NOT invent a different scene or replace the background with another similar-looking place.
+- REAL CAMERA GEOMETRY: coherent horizon, vanishing point, ground plane, object scale, subject placement, lens compression, and depth of field. The model's feet/shoes and long dress hem must sit on the same ground plane as the scene.
+- PROFESSIONAL MODEL LIGHTING: match the reference light system exactly. Use the same sun/window/key-light direction, shadow angle, shadow softness, color temperature, fill ratio, and bounce light. If the reference is outdoor daylight, render believable fashion daylight with natural fill and soft reflected light from stone/wall/water/floor surfaces. If the reference is studio/interior, render a plausible key/fill/rim setup consistent with the room.
+- MATERIAL LIGHT RESPONSE: skin, hair, dress fabric, bag, jewelry, shoes, and ground must share the same exposure and light direction. Fabric folds need real highlight rolloff, occlusion shadows, and texture visibility. No plastic skin, no flat AI lighting, no cutout edge glow.
+- CONTACT SHADOWS: feet, shoes, bag contact points, dress hem, and any object touching the scene must cast grounded contact shadows matching the light direction and surface texture.
+- CLOSE-UP RULE: for close-up, extreme close-up, chest-up, neck-to-chest, waist-up, and detail crops, the uploaded scene must appear as a real out-of-focus background with recognizable but blurred cues; never render a crisp flat background behind a close subject.
+- PLAUSIBILITY FIX: If the uploaded scene reference perspective is imperfect or conflicts with the selected pose/crop, correct it subtly while preserving the same scene identity and key visual anchors.`
+                : (selectedPlatform === 'amazon'
+                    ? '# PROFESSIONAL LOOKBOOK SCENE REALISM LOCK: Pure white background (#FFFFFF), clean studio lighting, centered. Use a real studio fashion lighting setup with one consistent key light and soft fill, natural skin/fabric highlights, physically plausible model/product contact shadows, no floating body, no pasted cutout edges, no impossible shadow direction.'
+                    : '# PROFESSIONAL LOOKBOOK SCENE REALISM LOCK: Choose one professional studio or high-end lifestyle background that matches the product, persona, platform, and unified styling plan. The scene and lighting must feel like a real fashion lookbook shoot: coherent horizon/vanishing points, believable ground plane, correct subject scale, consistent color temperature, realistic key/fill/bounce light, grounded contact shadows under feet/shoes/dress hem, lens-appropriate depth of field, natural fabric highlight rolloff, and no artificial pasted backdrop.')}
             
             # CAMERA: ${cameraDevice !== '智能推荐' ? cameraDevice : 'Professional high-end commercial camera'}
             # SHOT: ${shotType !== '智能推荐' ? shotType : 'Optimal commercial framing'}
@@ -1050,18 +1111,26 @@ ${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose firs
             const isMensTee = mensTeeKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const swimShortsKeywords = ['swim shorts', 'swim trunks', 'board shorts', 'boardshorts', 'beach shorts', 'bathing trunks', 'swimwear shorts', 'quick dry shorts', 'quick-dry shorts', '泳裤', '沙滩裤'];
             const isSwimShorts = swimShortsKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const longDressKeywords = [
+                'long dress', 'maxi dress', 'ankle-length dress', 'ankle length dress', 'floor-length dress', 'floor length dress',
+                'long skirt dress', 'evening dress', 'slip dress', 'long sundress', 'gown', 'dress gown',
+                '长裙', '连衣裙', '长款连衣裙', '及踝裙', '拖地裙', '礼服裙', '吊带长裙', '度假长裙'
+            ];
+            const isLongDress = longDressKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
 
             const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
                 ? autoPoseLibrary
-                : isSwimShorts
-                    ? 'swimShorts'
-                    : isMensTee
-                        ? 'mensTee'
-                        : isMensKnit
-                            ? 'mensKnit'
-                            : isMensShirt
-                                ? 'mensShirt'
-                                : 'none';
+                : isLongDress
+                    ? 'longDress'
+                    : isSwimShorts
+                        ? 'swimShorts'
+                        : isMensTee
+                            ? 'mensTee'
+                            : isMensKnit
+                                ? 'mensKnit'
+                                : isMensShirt
+                                    ? 'mensShirt'
+                                    : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
 
@@ -1121,6 +1190,12 @@ ${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose firs
                 [shuffledSwimShortsPoses[k], shuffledSwimShortsPoses[r]] = [shuffledSwimShortsPoses[r], shuffledSwimShortsPoses[k]];
             }
 
+            let shuffledLongDressPoses = [...LONG_DRESS_POSES];
+            for (let k = shuffledLongDressPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledLongDressPoses[k], shuffledLongDressPoses[r]] = [shuffledLongDressPoses[r], shuffledLongDressPoses[k]];
+            }
+
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
             const batchPromises = generationIndices.map((i) => {
                 const actionReferenceIndex = i < actionReferences.length ? i : undefined;
@@ -1173,7 +1248,16 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     if (perOutputSupplementaryNotes) {
                         finalPrompt += `\n${perOutputSupplementaryNotes}\n`;
                     }
-                    if (activeAutoPoseLibrary === 'swimShorts') {
+                    if (activeAutoPoseLibrary === 'longDress') {
+                        const posePreset = shuffledLongDressPoses[i % shuffledLongDressPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED LONG DRESS POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# LONG DRESS SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas, but compose a premium full-length fashion hero image. The entire long dress/maxi dress must be visible from neckline/shoulders through waist, skirt body, hem, and footwear/contact ground when relevant. Do not crop off the dress hem. The dress is the central product focus.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this long dress hero image with the EXACT pose and motion described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, walking/turning/leaning state, hand placement, head direction, dress flow, hem movement, body angle, and crop must follow this preset as closely as possible.
+# LONG DRESS FIT RULE: Render realistic feminine proportions, elegant full-length silhouette, natural fabric weight, waist shaping, skirt drape, flowing hem, folds, seams, sleeves/straps/neckline details, and movement. Do not turn the pose into a stiff catalog mannequin stance. Do not replace the product with a different dress, coat, skirt, or gown.
+`;
+                        finalPrompt += `\n# LONG DRESS ACTION LIBRARY DIRECTIVE: Use this selected long dress action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The long dress product must remain the same product from Image 1 while naturally adapting to the selected quiet-luxury editorial movement.\n`;
+                    } else if (activeAutoPoseLibrary === 'swimShorts') {
                         const posePreset = shuffledSwimShortsPoses[i % shuffledSwimShortsPoses.length];
                         const poseSpec = sanitizeSwimShortsPosePrompt(posePreset.prompt);
                         selectedPoseHeader = `# SELECTED SWIM SHORTS POSE PRESET: ${posePreset.name} / ${posePreset.id}
@@ -1250,10 +1334,10 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     modelReference
                         ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
                         : '',
-                    'random accessories, inconsistent accessories, different necklace, different watch, different sunglasses, different hat, different bracelet, different bag, extra jewelry, extra watch, extra sunglasses, invented accessories, accessory drift between outputs',
+                    'random accessories, inconsistent accessories, styling drift, different pants, different jeans, different skirt, different shoes, different sandals, different boots, different necklace, different earrings, different rings, different watch, different sunglasses, different hat, different bracelet, different bag, different belt, different scarf, extra jewelry, extra watch, extra sunglasses, extra rings, extra bag, invented unplanned accessories, accessory drift between outputs, shoe drift between outputs, bottom outfit drift between outputs',
                     sceneReferences.length > 0
                         ? 'different scene, changed location, unrelated background, different beach, different room, different street, different studio, different architecture, different season, different time of day, missing scene reference cues, missing same-location background anchors, replaced background, invented background props, wrong horizon, wrong ground material, inconsistent lighting direction, inconsistent color temperature, impossible perspective, flat pasted background, mismatched vanishing points, mismatched contact shadows, mismatched lens compression, sharp detailed background in close-up, crisp background behind close subject, no depth of field, artificial backdrop'
-                        : ''
+                        : 'unrealistic scene, fake studio backdrop, pasted background, mismatched lighting direction, inconsistent color temperature, impossible perspective, missing contact shadows, floating feet, floating dress hem, wrong ground plane, flat cutout look, artificial backdrop, no depth of field when close-up, overprocessed CGI lighting'
                 ].filter(Boolean).join(', ') || undefined;
 
                 return generateImageToImage(specificInputImages, finalPrompt, {
@@ -1453,6 +1537,34 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     </div>
                                 )}
                             </div>
+                            {productImages.length > 0 && autoPoseAnalysis && (
+                                <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-2 text-[11px] text-blue-800">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <Brain className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                            <span className="font-black shrink-0">AI识别</span>
+                                            <span className="truncate">产品：{autoPoseAnalysis.productType}</span>
+                                        </div>
+                                        <span className={`shrink-0 px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                            autoPoseAnalysis.confidence === 'high'
+                                                ? 'bg-green-50 text-green-700 border-green-100'
+                                                : autoPoseAnalysis.confidence === 'low'
+                                                    ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                                    : 'bg-blue-50 text-blue-700 border-blue-100'
+                                        }`}>
+                                            {autoPoseAnalysis.confidence}
+                                        </span>
+                                    </div>
+                                    <div className="mt-1 flex items-start gap-2 text-blue-700">
+                                        <Sparkles className="w-3.5 h-3.5 mt-0.5 text-purple-500 shrink-0" />
+                                        <div className="leading-relaxed">
+                                            <span className="font-bold">动作库：</span>{autoPoseAnalysis.libraryLabel}
+                                            <span className="mx-1 text-blue-300">|</span>
+                                            <span>{autoPoseAnalysis.reason}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* 3. Specialized References (Pose & Scene) */}
