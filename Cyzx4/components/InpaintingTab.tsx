@@ -1,10 +1,11 @@
 ﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateInpainting, blobToBase64 } from '../services/geminiService';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
 import { Eraser, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Download, Paintbrush, RotateCcw, Cpu, Minus, Plus, Crop, SlidersHorizontal } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 // 自定义香蕉图标组件（复用）
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -70,6 +71,14 @@ const InpaintingTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    isCurrentGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_1K);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
@@ -713,13 +722,16 @@ const InpaintingTab: React.FC = () => {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
 
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
     setGeneratedImages([]);
 
     try {
+      assertCurrentGenerationTask(taskId, signal);
       // 1. 压缩原图
       setProgress('正在压缩原图...');
       const sourceBase64 = await blobToBase64(sourceFile);
+      assertCurrentGenerationTask(taskId, signal);
       const sourceDataUrl = `data:${sourceFile.type};base64,${sourceBase64}`;
 
       // 2. 导出蒙版
@@ -730,6 +742,7 @@ const InpaintingTab: React.FC = () => {
         throw new Error('蒙版导出失败');
       }
       const editMapBase64 = exportPaintEditMap();
+      assertCurrentGenerationTask(taskId, signal);
 
       // 3. 压缩参考图
       let refImagesData: { base64: string; mimeType: string }[] | undefined;
@@ -794,9 +807,11 @@ const InpaintingTab: React.FC = () => {
             blend: cropBlend,
             expand: cropExpand,
           } : undefined,
+          signal,
         }
       );
 
+      assertCurrentGenerationTask(taskId, signal);
       setProgress('正在按蒙版贴回原图...');
       const maskedResults = await Promise.all(
         results.map((result: string) => cropPackage
@@ -810,6 +825,7 @@ const InpaintingTab: React.FC = () => {
         )
       );
 
+      assertCurrentGenerationTask(taskId, signal);
       setProgress('生成完成！');
       setGeneratedImages(maskedResults);
 
@@ -842,8 +858,14 @@ const InpaintingTab: React.FC = () => {
       }
 
     } catch (error: any) {
-      setError(getErrorMessage(error));
+      if (!isAbortError(error)) {
+        setError(getErrorMessage(error));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
       setProgress('');
     }
@@ -870,12 +892,15 @@ const InpaintingTab: React.FC = () => {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
 
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
     setBatchResults([]);
 
     try {
+      assertCurrentGenerationTask(taskId, signal);
       setProgress('正在压缩原图...');
       const sourceBase64 = await blobToBase64(sourceFile);
+      assertCurrentGenerationTask(taskId, signal);
       const sourceDataUrl = `data:${sourceFile.type};base64,${sourceBase64}`;
 
       const maskExpandPixels = getMaskExpandPixels();
@@ -883,6 +908,7 @@ const InpaintingTab: React.FC = () => {
       const maskBase64 = exportMask(maskExpandPixels);
       if (!maskBase64) throw new Error('蒙版导出失败');
       const editMapBase64 = exportPaintEditMap();
+      assertCurrentGenerationTask(taskId, signal);
 
       // optional refs
       let fabricRefImagesData: { base64: string; mimeType: string }[] | undefined;
@@ -923,6 +949,7 @@ const InpaintingTab: React.FC = () => {
       const currentBatchResults: Array<{ refIdx: number; refUrl: string; image?: string; error?: string }> = [];
 
       for (let i = 0; i < selected.length; i++) {
+        assertCurrentGenerationTask(taskId, signal);
         const refIdx = selected[i];
         const refFile = refFiles[refIdx];
         const refUrl = refUrls[refIdx];
@@ -949,9 +976,11 @@ const InpaintingTab: React.FC = () => {
                 blend: cropBlend,
                 expand: cropExpand,
               } : undefined,
+              signal,
             }
           );
 
+          assertCurrentGenerationTask(taskId, signal);
           const first = results?.[0];
           if (!first) throw new Error('模型未返回图片');
           const maskedFirst = cropPackage
@@ -967,12 +996,16 @@ const InpaintingTab: React.FC = () => {
           currentBatchResults.push(resultItem);
           setBatchResults((prev) => [...prev, resultItem]);
         } catch (e: any) {
+          if (isAbortError(e)) {
+            break;
+          }
           const errorItem = { refIdx, refUrl, error: getErrorMessage(e) };
           currentBatchResults.push(errorItem);
           setBatchResults((prev) => [...prev, errorItem]);
         }
       }
 
+      assertCurrentGenerationTask(taskId, signal);
       setProgress('批量生成完成！');
 
       // 保存到项目历史
@@ -1006,11 +1039,23 @@ const InpaintingTab: React.FC = () => {
         console.error('Failed to save batch inpainting results to history:', saveErr);
       }
     } catch (error: any) {
-      setError(getErrorMessage(error));
+      if (!isAbortError(error)) {
+        setError(getErrorMessage(error));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
       setProgress('');
     }
+  };
+
+  const handleCancelGenerate = () => {
+    cancelGenerationTask();
+    setIsGenerating(false);
+    setProgress('');
   };
 
   const downloadImage = (url: string, filename: string) => {
@@ -1736,6 +1781,18 @@ const InpaintingTab: React.FC = () => {
                 {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paintbrush className="w-5 h-5" />}
                 {isGenerating ? '正在替换生成...' : '开始局部替换'}
               </button>
+              {isGenerating && (
+                <button
+                  type="button"
+                  onClick={handleCancelGenerate}
+                  className="w-full py-3 text-sm font-bold rounded-xl bg-gray-800 text-white hover:bg-gray-900 transition-all"
+                >
+                  中止生成
+                </button>
+              )}
+              {cancelMessage && !isGenerating && (
+                <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+              )}
             </div>
 
           </div>

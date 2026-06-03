@@ -1,9 +1,10 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { analyzeImageQuality, analyzeStyle, generateColorMap, generateLineArt, generateHDUpscale, compressImage } from '../services/geminiService';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { Upload, Loader2, AlertCircle, X, Download, Maximize2, RotateCcw, Image as ImageIcon, CheckCircle2, ChevronRight, Zap, Target } from 'lucide-react';
 import { ImageResolution, AspectRatio } from '../types';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 // ==================== Steps & State ====================
 const PROCESS_STEPS = [
@@ -37,6 +38,14 @@ const HDUpscaleTab: React.FC = () => {
     const [results, setResults] = useState<AnalysisResult>({});
     const [currentStep, setCurrentStep] = useState<ProcessStep>(0);
     const [isProcessing, setIsProcessing] = useState(false);
+    const {
+        cancelMessage,
+        startGenerationTask,
+        cancelGenerationTask,
+        isCurrentGenerationTask,
+        assertCurrentGenerationTask,
+        finishGenerationTask,
+    } = useCancelableGeneration();
     const [error, setError] = useState<string | null>(null);
     const [upscaleFactor, setUpscaleFactor] = useState<2 | 4 | 8>(2);
     const [previewMode, setPreviewMode] = useState<'original' | 'color' | 'line' | 'upscaled'>('original');
@@ -113,22 +122,26 @@ const HDUpscaleTab: React.FC = () => {
     const runProcess = async () => {
         if (!originalImage) return;
 
+        const { taskId, signal } = startGenerationTask();
         setIsProcessing(true);
         setError(null);
         setResults({});
         setCurrentStep(0);
 
         try {
+            assertCurrentGenerationTask(taskId, signal);
             // Step 0: Quality Analysis
             console.log("Step 0: Quality Analysis...");
             setCurrentStep(0);
             const qualityRes = await analyzeImageQuality(originalImage.base64, originalImage.mime);
+            assertCurrentGenerationTask(taskId, signal);
             setResults(prev => ({ ...prev, quality: qualityRes }));
 
             // Step 1: Style Analysis
             console.log("Step 1: Style Analysis...");
             setCurrentStep(1);
             const styleRes = await analyzeStyle(originalImage.base64, originalImage.mime);
+            assertCurrentGenerationTask(taskId, signal);
             console.log("Style Analysis Result:", styleRes); // Debug Log for User
             setResults(prev => ({ ...prev, style: styleRes }));
 
@@ -136,12 +149,14 @@ const HDUpscaleTab: React.FC = () => {
             console.log("Step 2: Color Map...");
             setCurrentStep(2);
             const colorMapUrl = await generateColorMap(originalImage.base64, originalImage.mime, aspectRatio);
+            assertCurrentGenerationTask(taskId, signal);
             if (colorMapUrl) setResults(prev => ({ ...prev, colorMap: colorMapUrl }));
 
             // Step 3: Line Art
             console.log("Step 3: Line Art...");
             setCurrentStep(3);
             const lineArtUrl = await generateLineArt(originalImage.base64, originalImage.mime, aspectRatio);
+            assertCurrentGenerationTask(taskId, signal);
             if (lineArtUrl) setResults(prev => ({ ...prev, lineArt: lineArtUrl }));
 
             // Step 4: Upscale
@@ -156,6 +171,7 @@ const HDUpscaleTab: React.FC = () => {
                 aspectRatio
             );
 
+            assertCurrentGenerationTask(taskId, signal);
             if (upscaledUrl) {
                 setResults(prev => ({ ...prev, upscaled: upscaledUrl }));
                 setPreviewMode('upscaled');
@@ -177,11 +193,22 @@ const HDUpscaleTab: React.FC = () => {
             }
 
         } catch (err: any) {
-            console.error(err);
-            setError(getErrorMessage(err));
+            if (!isAbortError(err)) {
+                console.error(err);
+                setError(getErrorMessage(err));
+            }
         } finally {
+            if (!isCurrentGenerationTask(taskId)) {
+                return;
+            }
+            finishGenerationTask(taskId);
             setIsProcessing(false);
         }
+    };
+
+    const handleCancelProcess = () => {
+        cancelGenerationTask();
+        setIsProcessing(false);
     };
 
     const handleDownload = (url: string) => {
@@ -305,6 +332,19 @@ const HDUpscaleTab: React.FC = () => {
                             {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
                             {isProcessing ? 'AI 正在处理...' : '开始高清修复'}
                         </button>
+
+                        {isProcessing && (
+                            <button
+                                type="button"
+                                onClick={handleCancelProcess}
+                                className="w-full py-3 rounded-xl font-bold text-white bg-gray-800 hover:bg-gray-900 transition-all shadow-md"
+                            >
+                                中止生成
+                            </button>
+                        )}
+                        {cancelMessage && !isProcessing && (
+                            <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+                        )}
 
                         {error && (
                             <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl border border-red-100 flex items-start gap-2">

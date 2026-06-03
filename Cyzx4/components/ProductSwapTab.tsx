@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateProductSwap, compressImage } from '../services/geminiService';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
 import {
     ArrowLeftRight,
@@ -16,6 +16,7 @@ import {
     ChevronDown,
     Cpu,
 } from 'lucide-react';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -79,6 +80,14 @@ const ProductSwapTab: React.FC = () => {
 
     // UI state
     const [isLoading, setIsLoading] = useState(false);
+    const {
+        cancelMessage,
+        startGenerationTask,
+        cancelGenerationTask,
+        isCurrentGenerationTask,
+        assertCurrentGenerationTask,
+        finishGenerationTask,
+    } = useCancelableGeneration();
     const [error, setError] = useState<string | null>(null);
     const [currentStep, setCurrentStep] = useState(0);
     const [progress, setProgress] = useState(0);
@@ -200,6 +209,7 @@ const ProductSwapTab: React.FC = () => {
             return;
         }
 
+        const { taskId, signal } = startGenerationTask();
         setIsLoading(true);
         setError(null);
         setGeneratedImages([]);
@@ -216,6 +226,7 @@ const ProductSwapTab: React.FC = () => {
         }, 1500);
 
         try {
+            assertCurrentGenerationTask(taskId, signal);
             // Determine Aspect Ratio
             let finalAspectRatio = aspectRatio;
             if (aspectRatio === 'auto' && sceneImage.width && sceneImage.height) {
@@ -245,9 +256,11 @@ const ProductSwapTab: React.FC = () => {
                     aspectRatio: finalAspectRatio as AspectRatio,
                     resolution,
                     model: selectedModel,
+                    signal,
                 }
             );
 
+            assertCurrentGenerationTask(taskId, signal);
             const generatedDataUrls = results.map(b64 => `data:image/png;base64,${b64}`);
             setGeneratedImages(generatedDataUrls);
 
@@ -282,12 +295,24 @@ const ProductSwapTab: React.FC = () => {
                 console.error('Failed to save project:', e);
             }
         } catch (err: any) {
-            setError(getErrorMessage(err));
+            if (!isAbortError(err)) {
+                setError(getErrorMessage(err));
+            }
         } finally {
             clearInterval(stepInterval);
+            if (!isCurrentGenerationTask(taskId)) {
+                return;
+            }
+            finishGenerationTask(taskId);
             setIsLoading(false);
             setProgress(100);
         }
+    };
+
+    const handleCancelGenerate = () => {
+        cancelGenerationTask();
+        setIsLoading(false);
+        setProgress(0);
     };
 
     // ==================== Actions ====================
@@ -535,6 +560,18 @@ const ProductSwapTab: React.FC = () => {
                         </button>
                     </div>
 
+                        {isLoading && (
+                            <button
+                                type="button"
+                                onClick={handleCancelGenerate}
+                                className="w-full py-3 rounded-xl font-bold text-white bg-gray-800 hover:bg-gray-900 transition-all shadow-md"
+                            >
+                                中止生成
+                            </button>
+                        )}
+                        {cancelMessage && !isLoading && (
+                            <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+                        )}
                     {/* Right: Result Panel */}
                     <div className="bg-white rounded-2xl border border-pastel-border shadow-sm overflow-hidden min-h-[500px] flex flex-col">
                         <div className="flex items-center justify-between px-5 py-3 border-b border-pastel-border bg-pastel-bg/50">

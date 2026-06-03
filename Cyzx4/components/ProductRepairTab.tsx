@@ -7,9 +7,10 @@ import {
     Lightbulb, User, MapPin, ListTodo, Info, Brush, Eraser
 } from 'lucide-react';
 import { generateImageToImage, compressImage } from '../services/geminiService';
-import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 interface UploadedImage {
     file: File;
@@ -79,6 +80,14 @@ const ProductRepairTab: React.FC = () => {
 
     // Status states
     const [isLoading, setIsLoading] = useState(false);
+    const {
+        cancelMessage,
+        startGenerationTask,
+        cancelGenerationTask,
+        isCurrentGenerationTask,
+        assertCurrentGenerationTask,
+        finishGenerationTask,
+    } = useCancelableGeneration();
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<any>(null);
     const [currentStep, setCurrentStep] = useState(0);
@@ -164,8 +173,10 @@ const ProductRepairTab: React.FC = () => {
 
     const handleUpload = async (file: File, type: 'standard' | 'target') => {
         if (!file || !file.type.startsWith('image/')) return;
+        const { taskId, signal } = startGenerationTask();
         setIsLoading(true);
         try {
+            assertCurrentGenerationTask(taskId, signal);
             // 自动检测比例
             const dims = await getImageDimensions(file);
             const detectedRatio = autoDetectRatio(dims.width, dims.height);
@@ -556,9 +567,11 @@ const ProductRepairTab: React.FC = () => {
                 modelId: selectedModel,
                 resolution: selectedResolution,
                 aspectRatio: selectedRatio,
-                workflowHint: 'structural-repair-v2'
+                workflowHint: 'structural-repair-v2',
+                signal
             });
 
+            assertCurrentGenerationTask(taskId, signal);
             setGeneratedImages(results);
             await saveGeneratedProject({
                 type: 'RETOUCHING',
@@ -578,12 +591,24 @@ const ProductRepairTab: React.FC = () => {
                 }
             });
         } catch (err) {
-            setError(getErrorMessage(err));
+            if (!isAbortError(err)) {
+                setError(getErrorMessage(err));
+            }
         } finally {
             clearInterval(stepInterval);
+            if (!isCurrentGenerationTask(taskId)) {
+                return;
+            }
+            finishGenerationTask(taskId);
             setIsLoading(false);
             setProgress(100);
         }
+    };
+
+    const handleCancelRepair = () => {
+        cancelGenerationTask();
+        setIsLoading(false);
+        setProgress(0);
     };
 
     const handleDownload = (img: string) => {
@@ -1040,6 +1065,18 @@ const ProductRepairTab: React.FC = () => {
                         </button>
                     </div>
 
+                        {isLoading && (
+                            <button
+                                type="button"
+                                onClick={handleCancelRepair}
+                                className="w-full py-3 rounded-2xl font-black text-white bg-gray-800 hover:bg-gray-900 transition-all shadow-lg"
+                            >
+                                中止生成
+                            </button>
+                        )}
+                        {cancelMessage && !isLoading && (
+                            <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+                        )}
                     {/* Right Column: Results */}
                     <div className="flex flex-col sticky top-4">
                         <div className="bg-white rounded-[2rem] border border-pastel-border p-5 shadow-sm flex-1 flex flex-col relative min-h-[500px]">

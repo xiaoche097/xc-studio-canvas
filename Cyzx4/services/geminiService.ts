@@ -10,6 +10,7 @@ import {
   resolveRuntimeModelId,
   generateContentWithAnalysisFallback,
   executeWithTimeout,
+  throwIfAborted,
   blobToBase64,
   compressImage,
   decodeAudioData,
@@ -816,6 +817,7 @@ export const generateImageToImage = async (
     hasModelRef?: boolean;
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
     sampleCount?: number; // NEW: Multi-image support
+    signal?: AbortSignal;
   } = {}
 ): Promise<string[]> => {
   const { 
@@ -826,8 +828,10 @@ export const generateImageToImage = async (
     modelId, 
     aspectRatio = '1:1', 
     resolution = '2K',
-    sampleCount = 1
+    sampleCount = 1,
+    signal
   } = options;
+  throwIfAborted(signal);
   const retryLimit = 3;
   let lastError: any = null;
   
@@ -1018,9 +1022,10 @@ ${forcedPrompt}`;
 
         const endpoint = `${config.baseUrl}/v1/images/generations`; 
         
-        const fetchResponse = await executeWithTimeout(
+          const fetchResponse = await executeWithTimeout(
           fetch(endpoint, {
             method: 'POST',
+            signal,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${config.apiKey}`
@@ -1526,7 +1531,7 @@ ${forcedPrompt}`;
             quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard",
           } as any
         } as any),
-        { timeoutMs: generationTimeout }
+        { timeoutMs: generationTimeout, signal }
       );
 
       const generatedImages: string[] = [];
@@ -1617,8 +1622,11 @@ export const generateInpainting = async (
       blend: number;
       expand: number;
     };
+    signal?: AbortSignal;
   } = {}
 ) => {
+  const { signal } = options;
+  throwIfAborted(signal);
   const retryLimit = 3;
   let lastError: any = null;
 
@@ -1683,13 +1691,14 @@ export const generateInpainting = async (
         const fetchResponse = await executeWithTimeout(
           fetch(endpoint, {
             method: 'POST',
+            signal,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${config.apiKey}`
             },
             body: JSON.stringify(payload)
           }),
-          { timeoutMs: 120000 }
+          { timeoutMs: 120000, signal }
         );
 
         if (!fetchResponse.ok) {
@@ -1850,7 +1859,7 @@ export const generateInpainting = async (
             },
           },
         }),
-        { timeoutMs: generationTimeout }
+        { timeoutMs: generationTimeout, signal }
       );
 
       const generatedImages: string[] = [];
@@ -2073,8 +2082,10 @@ export const generateSeatCoverFit = async (
   resolution: ImageResolution,
   customRequest?: string, // NEW: User Custom Request
   visualGuide?: { base64: string; mime: string }, // NEW: Optional Visual Guide
-  modelId: string = 'gemini-3.1-flash-image-preview'
+  modelId: string = 'gemini-3.1-flash-image-preview',
+  signal?: AbortSignal
 ) => {
+  throwIfAborted(signal);
   const ai = getAiClient();
   try {
     const parts: any[] = [];
@@ -2517,7 +2528,8 @@ Generate a **NEW photorealistic image** that:
             negativePrompt: buildNegativePrompt('automotive', 'realistic', angleNegative),
           },
         } as any,
-      })
+      }),
+      { timeoutMs: 300000, signal }
     );
 
     // 6. Output Processing with Validation
@@ -2668,9 +2680,10 @@ export const editGeneratedImage = async (
   mimeType: string,
   prompt: string,
   referenceImages: { base64: string; mimeType: string }[] = [],
-  options: { aspectRatio?: AspectRatio; resolution?: ImageResolution } = {}
+  options: { aspectRatio?: AspectRatio; resolution?: ImageResolution; signal?: AbortSignal } = {}
 ) => {
-  const { aspectRatio = "1:1", resolution = "2K" } = options;
+  const { aspectRatio = "1:1", resolution = "2K", signal } = options;
+  throwIfAborted(signal);
   const getAspectRatioHint = (ar: string) => {
     if (ar === '16:9') return 'WIDE SCREEN, 1792x1024 resolution, cinematic landscape orientation';
     if (ar === '9:16') return 'TALL PHONE SCREEN, 1024x1792 resolution, vertical portrait orientation';
@@ -2721,7 +2734,7 @@ export const editGeneratedImage = async (
 
     parts.push({ text: enhancedEditPrompt });
 
-    const response = await ai.models.generateContent({
+    const response = await executeWithTimeout(ai.models.generateContent({
       model: "gemini-3.1-flash-image-preview",
       contents: {
         parts: parts,
@@ -2732,7 +2745,7 @@ export const editGeneratedImage = async (
           imageSize: options.resolution || "1K",
         },
       },
-    });
+    }), { timeoutMs: 180000, signal });
 
     const images: string[] = [];
     if (response.candidates?.[0]?.content?.parts) {
@@ -3192,10 +3205,12 @@ export const generateStyleReplication = async (
     count?: number;
     model?: string;
     retouch?: boolean;
+    signal?: AbortSignal;
   } = {}
 ): Promise<string[]> => {
   const ai = getAiClient();
-  const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", retouch = false } = options;
+  const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", retouch = false, signal } = options;
+  throwIfAborted(signal);
 
   // Build the prompt for style replication
   const productCount = productImages.length;
@@ -3291,17 +3306,18 @@ You MUST process the input through these 8 distinct phases:
       }
     };
 
-    return await ai.models.generateContent({
+    return await executeWithTimeout(ai.models.generateContent({
       model: resolveRuntimeModelId(modelName),
       contents: [{ role: "user", parts }],
       config: config,
-    });
+    }), { timeoutMs: 300000, signal });
   };
 
   const results: string[] = [];
 
   // Generate the requested number of images
   for (let i = 0; i < count; i++) {
+    throwIfAborted(signal);
     try {
       console.log(`[StyleReplication] Generating image ${i + 1}/${count}...`);
 
@@ -3371,8 +3387,10 @@ export const generateProductSwap = async (
     aspectRatio?: AspectRatio;
     resolution?: ImageResolution;
     model?: string;
+    signal?: AbortSignal;
   } = {}
 ): Promise<string[]> => {
+  throwIfAborted(options.signal);
   const ai = getAiClient();
   const aspectRatio = options.aspectRatio || AspectRatio.LANDSCAPE_4_3;
   const resolution = options.resolution || "2K";
@@ -3512,11 +3530,11 @@ Professional commercial photography quality. The result must be indistinguishabl
       }
     };
 
-    return await ai.models.generateContent({
+    return await executeWithTimeout(ai.models.generateContent({
       model: resolveRuntimeModelId(modelName),
       contents: [{ role: "user", parts }],
       config: config,
-    });
+    }), { timeoutMs: 300000, signal: options.signal });
   };
 
   // Generate

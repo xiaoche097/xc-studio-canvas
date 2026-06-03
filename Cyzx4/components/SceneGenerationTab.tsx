@@ -11,10 +11,11 @@ import {
 } from '../services/promptUtils';
 import { STYLE_PACKS, StylePack, StyleVariant } from '../services/stylePacks';
 import { analyzeProductForScene, SceneAnalysisResult, ReferenceSceneAnalysis, analyzeReferenceScene } from '../services/sceneAnalyzer';
-import { getErrorMessage, compressImage } from '../utils/apiHelpers';
+import { getErrorMessage, compressImage, isAbortError } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import {
   Sparkles,
   Upload,
@@ -334,6 +335,14 @@ const SceneGenerationTab: React.FC = () => {
   const [thinkingDraft, setThinkingDraft] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    isCurrentGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<SceneAnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -786,11 +795,13 @@ const SceneGenerationTab: React.FC = () => {
       return;
     }
 
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
     setError(null);
     setGeneratedImages([]);
 
     try {
+      assertCurrentGenerationTask(taskId, signal);
       const thinkingSummary = buildThinkingPrompt();
       const rawGenerationPrompt = buildGenerationPrompt();
       const negativePrompt = buildSceneGenerationNegativePrompt({
@@ -844,10 +855,12 @@ const SceneGenerationTab: React.FC = () => {
           modelId: selectedModel,
           negativePrompt,
           workflowHint: 'scene-product-lock',
+          signal,
         });
       });
 
       const batchResults = await Promise.all(batchPromises);
+      assertCurrentGenerationTask(taskId, signal);
       const allResults = batchResults.flat();
 
       setGeneratedImages(allResults);
@@ -874,10 +887,21 @@ const SceneGenerationTab: React.FC = () => {
         },
       });
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (!isAbortError(err)) {
+        setError(getErrorMessage(err));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
     }
+  };
+
+  const handleCancelGenerate = () => {
+    cancelGenerationTask();
+    setIsGenerating(false);
   };
 
   const handleDownload = (imageUrl: string, index: number) => {
@@ -1630,6 +1654,18 @@ const SceneGenerationTab: React.FC = () => {
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                 {isGenerating ? `生成 ${currentBoard.label} 场景图中...` : `生成 ${form.batchCount} 张 ${currentBoard.label} 场景图`}
               </button>
+              {isGenerating && (
+                <button
+                  type="button"
+                  onClick={handleCancelGenerate}
+                  className="w-full py-3 rounded-xl bg-gray-800 text-white font-semibold hover:bg-gray-900 transition-all flex items-center justify-center gap-2"
+                >
+                  中止生成
+                </button>
+              )}
+              {cancelMessage && !isGenerating && (
+                <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+              )}
               <p className="text-center text-[10px] text-pastel-muted">
                 当前：{currentBoard.label} / {currentBoard.aspectRatio} / {resolution} / {selectedModel.includes('flash') ? 'Flash 极速' : 'Pro 推荐'}
               </p>

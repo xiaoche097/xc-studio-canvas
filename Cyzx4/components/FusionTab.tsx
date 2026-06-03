@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
 import { StyleModelModal } from './StyleModelModal';
 import { STYLE_PRESETS, StylePreset } from '../constants/stylePresets';
-import { getErrorMessage } from '../utils/apiHelpers';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService } from '../../services/storageService';
 import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 
 interface EditPoint {
   id: number;
@@ -45,6 +46,14 @@ const FusionTab: React.FC = () => {
   const [imageCount, setImageCount] = useState<number>(1); // 新增：并行生成张数
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    isCurrentGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contentEditableRef = useRef<HTMLDivElement>(null);
   const lastRenderedTextRef = useRef('');
@@ -439,12 +448,14 @@ const FusionTab: React.FC = () => {
       try { const hasKey = await (window as any).aistudio.hasSelectedApiKey(); if (!hasKey) await (window as any).aistudio.openSelectKey(); } catch (e) { }
     }
 
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
     setGeneratedImages([]);
     setOriginalImages({});
     setIsComparing({});
 
     try {
+      assertCurrentGenerationTask(taskId, signal);
       // Step 0: Auto-Optimize Prompt (Nano Banana Agent)
       let finalPrompt = description;
       if (isAutoOptimize && description.trim()) {
@@ -555,7 +566,8 @@ Do not combine this image with any other uploaded image. Do not create extra var
             resolution,
             modelId: selectedModel,
             negativePrompt,
-            workflowHint: baseWorkflowHint
+            workflowHint: baseWorkflowHint,
+            signal
           });
         })
         : Array.from({ length: imageCount }).map(() => {
@@ -564,11 +576,13 @@ Do not combine this image with any other uploaded image. Do not create extra var
             resolution,
             modelId: selectedModel,
             negativePrompt,
-            workflowHint: baseWorkflowHint
+            workflowHint: baseWorkflowHint,
+            signal
           });
         });
 
       const resultsArrays = await Promise.all(generationTasks);
+      assertCurrentGenerationTask(taskId, signal);
       const allResults = resultsArrays.flat();
 
       setProgress('生成完成！');
@@ -603,11 +617,23 @@ Do not combine this image with any other uploaded image. Do not create extra var
         }).catch(err => console.error("Failed to save to history", err));
       });
     } catch (error: any) {
-      setError(getErrorMessage(error));
+      if (!isAbortError(error)) {
+        setError(getErrorMessage(error));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
       setProgress('');
     }
+  };
+
+  const handleCancelGenerate = () => {
+    cancelGenerationTask();
+    setIsGenerating(false);
+    setProgress('');
   };
 
   const capturePointSnapshot = (img: HTMLImageElement, xPct: number, yPct: number) => {
@@ -1368,7 +1394,19 @@ Do not combine this image with any other uploaded image. Do not create extra var
                         ? '智能生成 (Smart Generate)'
                         : '开始生成 (Generate)'}
                 </button>
+                {isGenerating && (
+                  <button
+                    type="button"
+                    onClick={handleCancelGenerate}
+                    className="px-5 py-4 text-base font-bold rounded-xl flex items-center justify-center bg-gray-800 text-white hover:bg-gray-900 transition-all shadow-lg active:scale-[0.98]"
+                  >
+                    中止生成
+                  </button>
+                )}
               </div>
+              {cancelMessage && !isGenerating && (
+                <p className="mt-2 text-xs font-bold text-orange-600 text-right">{cancelMessage}</p>
+              )}
             </div>
 
           </div>
