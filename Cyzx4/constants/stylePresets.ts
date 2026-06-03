@@ -9,10 +9,10 @@ export interface StylePreset {
     description: string;
 }
 
-export const STYLE_PRESETS: StylePreset[] = [
+const STYLE_PRESETS_RAW: StylePreset[] = [
     {
         id: 'model-clothing-extraction',
-        name: '模特衣服提取',
+        name: '服装三视图',
         category: '电商',
         previewUrl: '/styles/ghost_mannequin.png',
         description: '白底电商三视图（鬼影/隐形模特），正面/侧面/背面横向排列，纯衣服展示。',
@@ -140,4 +140,16 @@ export const STYLE_PRESETS: StylePreset[] = [
         promptWithRef: 'High-fidelity commercial fashion photography using the model identity and body proportions from the reference image. The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided reference image. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in the reference image. Replicate the model\'s look with high precision. Place this model in the scene and outfit described in: [SUBJECT], with clothing and styling naturally adapted to the new environment under professional studio or lifestyle lighting.',
         negativePrompt: 'face changed, identity changed, cgi, 3d render, plastic skin, waxy skin, doll-like, ai-generated look, over-smoothed skin, blur, low resolution, noise, oversharpening halo, white outline, messy edges, text, watermark, logo, jewelry from reference, accessories from reference, clothing from reference, background from reference.'
     }
+];
+
+const STYLE_PRESET_DISPLAY_ORDER = [
+    'model-clothing-extraction',
+    'clothing-to-3d-mannequin',
+];
+
+export const STYLE_PRESETS: StylePreset[] = [
+    ...STYLE_PRESET_DISPLAY_ORDER
+        .map(id => STYLE_PRESETS_RAW.find(preset => preset.id === id))
+        .filter((preset): preset is StylePreset => Boolean(preset)),
+    ...STYLE_PRESETS_RAW.filter(preset => !STYLE_PRESET_DISPLAY_ORDER.includes(preset.id)),
 ];

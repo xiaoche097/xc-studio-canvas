@@ -22,6 +22,7 @@ import { MENS_KNIT_POSES } from '../constants/mensKnitPosePresets';
 import { MENS_TEE_POSES } from '../constants/mensTeePosePresets';
 import { SWIM_SHORTS_POSES } from '../constants/swimShortsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
+import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 
 interface UploadedImage {
     file: File;
@@ -54,7 +55,7 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'swimShorts' | 'longDress';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'swimShorts' | 'longDress' | 'womensFashion';
 
 interface AutoPoseAnalysis {
     productType: string;
@@ -71,6 +72,7 @@ const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     mensTee: '男士T恤动作库',
     swimShorts: '泳裤/沙滩裤动作库',
     longDress: '长裙/连衣裙动作库',
+    womensFashion: '通用时尚女装动作库',
 };
 
 const getImageDimensions = (src: string): Promise<{ width: number; height: number }> => {
@@ -394,7 +396,8 @@ const HeroImageTab: React.FC = () => {
 
         const normalizeLibrary = (value: string): AutoPoseLibrary => {
             const normalized = value.trim().toLowerCase();
-            if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('dress')) return 'longDress';
+            if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('ankle') || normalized.includes('floor') || normalized.includes('gown')) return 'longDress';
+            if (normalized.includes('womensfashion') || normalized.includes('women') || normalized.includes('female') || normalized.includes('womenswear') || normalized.includes('fashion')) return 'womensFashion';
             if (normalized.includes('swim') || normalized.includes('boardshort') || normalized.includes('board short') || normalized.includes('trunk')) return 'swimShorts';
             if (normalized.includes('tee') || normalized.includes('tshirt') || normalized.includes('t-shirt')) return 'mensTee';
             if (normalized.includes('knit') || normalized.includes('polo')) return 'mensKnit';
@@ -409,16 +412,21 @@ const HeroImageTab: React.FC = () => {
             }));
             parts.push({
                 text: `Classify these uploaded product images for an ecommerce apparel pose library.
-Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|swimShorts|longDress|none","confidence":"high|medium|low","reason":"short reason"}.
+Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|swimShorts|longDress|womensFashion|none","confidence":"high|medium|low","reason":"short reason"}.
 
 Choose:
 - longDress: women's long dress, maxi dress, ankle-length dress, floor-length dress, long skirt dress, evening dress, long slip dress, long sundress, gown-like dress.
+- womensFashion: generic women's fashion apparel that is not covered by the targeted libraries above, such as women's blouse, short dress, mini/midi dress, skirt, pants, jeans, blazer, coat, jacket, cardigan, vest, top, bodysuit, matching set, suit set, or uncertain womenswear.
 - mensShirt: men's woven button shirt, resort shirt, linen shirt, Hawaiian shirt, button-up shirt.
 - mensKnit: men's knit polo, textured knit polo, knitted top, sweater-like short sleeve, ribbed knit menswear.
 - mensTee: men's T-shirt, oversized tee, graphic tee, cotton short-sleeve tee.
 - swimShorts: men's swim shorts, swim trunks, board shorts, beach shorts, quick-dry swimwear shorts, bathing trunks, swimwear bottom with drawstring or liner.
 - none: not one of the above or uncertain.
 
+Priority rules:
+- If the product is women's apparel but not clearly longDress, choose womensFashion.
+- If the garment is a short dress, mini dress, midi dress, skirt, blouse, blazer, jacket, coat, pants, jeans, cardigan, vest, top, or set, choose womensFashion.
+- Use none only when it is not apparel or the apparel gender/category is genuinely unclear.
 Use visual garment structure first. User note: ${userPrompt || 'none'}`
             });
 
@@ -1114,9 +1122,17 @@ The final image must look like a real professional fashion lookbook shoot at tha
             const longDressKeywords = [
                 'long dress', 'maxi dress', 'ankle-length dress', 'ankle length dress', 'floor-length dress', 'floor length dress',
                 'long skirt dress', 'evening dress', 'slip dress', 'long sundress', 'gown', 'dress gown',
-                '长裙', '连衣裙', '长款连衣裙', '及踝裙', '拖地裙', '礼服裙', '吊带长裙', '度假长裙'
+                '长裙', '长款连衣裙', '及踝裙', '拖地裙', '礼服裙', '吊带长裙', '度假长裙'
             ];
             const isLongDress = longDressKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const womensFashionKeywords = [
+                'women', "women's", 'female', 'ladies', 'womenswear', 'fashion dress', 'short dress', 'mini dress', 'midi dress',
+                'skirt', 'blouse', 'camisole', 'tank top', 'crop top', 'bodysuit', 'cardigan', 'blazer', 'jacket', 'coat',
+                'trench', 'vest', 'pants', 'trousers', 'jeans', 'matching set', 'two piece set', 'suit set',
+                '女装', '女士', '女性', '短裙', '半身裙', '短连衣裙', '中长裙', '上衣', '衬衫女', '吊带', '背心',
+                '开衫', '西装外套', '外套', '大衣', '风衣', '马甲', '女裤', '牛仔裤', '套装'
+            ];
+            const isWomensFashion = womensFashionKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
 
             const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
                 ? autoPoseLibrary
@@ -1130,7 +1146,9 @@ The final image must look like a real professional fashion lookbook shoot at tha
                                 ? 'mensKnit'
                                 : isMensShirt
                                     ? 'mensShirt'
-                                    : 'none';
+                                    : isWomensFashion
+                                        ? 'womensFashion'
+                                        : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
 
@@ -1196,6 +1214,12 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 [shuffledLongDressPoses[k], shuffledLongDressPoses[r]] = [shuffledLongDressPoses[r], shuffledLongDressPoses[k]];
             }
 
+            let shuffledWomensFashionPoses = [...WOMENS_FASHION_POSES];
+            for (let k = shuffledWomensFashionPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledWomensFashionPoses[k], shuffledWomensFashionPoses[r]] = [shuffledWomensFashionPoses[r], shuffledWomensFashionPoses[k]];
+            }
+
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
             const batchPromises = generationIndices.map((i) => {
                 const actionReferenceIndex = i < actionReferences.length ? i : undefined;
@@ -1257,6 +1281,15 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 # LONG DRESS FIT RULE: Render realistic feminine proportions, elegant full-length silhouette, natural fabric weight, waist shaping, skirt drape, flowing hem, folds, seams, sleeves/straps/neckline details, and movement. Do not turn the pose into a stiff catalog mannequin stance. Do not replace the product with a different dress, coat, skirt, or gown.
 `;
                         finalPrompt += `\n# LONG DRESS ACTION LIBRARY DIRECTIVE: Use this selected long dress action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The long dress product must remain the same product from Image 1 while naturally adapting to the selected quiet-luxury editorial movement.\n`;
+                    } else if (activeAutoPoseLibrary === 'womensFashion') {
+                        const posePreset = shuffledWomensFashionPoses[i % shuffledWomensFashionPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED WOMENS FASHION POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# GENERIC WOMENSWEAR SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas and create a polished women's fashion lookbook hero image. The product garment must be clearly readable: neckline/collar, sleeve or strap shape, waist/hem, front/side silhouette, fit, fabric drape, texture, trims, and styling details. Crop must support the selected pose while preserving product visibility.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this non-targeted women's apparel image with the EXACT pose and camera intent described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, hand placement, walking/sitting/leaning state, head direction, garment drape, body angle, and crop must follow this preset as closely as possible.
+# WOMENSWEAR FIT RULE: Render realistic feminine proportions, natural fashion-model balance, clean editorial posture, real fabric weight, believable folds, and natural motion. Do not turn the pose into a stiff mannequin stance. Do not replace the product with a different garment category.
+`;
+                        finalPrompt += `\n# WOMENS FASHION ACTION LIBRARY DIRECTIVE: Use this selected generic womenswear action exactly: ${poseSpec}. This instruction is for women's apparel that is not covered by a more specific library. It has higher priority than the old generic apparel pose set, while product identity from Image 1 remains absolute.\n`;
                     } else if (activeAutoPoseLibrary === 'swimShorts') {
                         const posePreset = shuffledSwimShortsPoses[i % shuffledSwimShortsPoses.length];
                         const poseSpec = sanitizeSwimShortsPosePrompt(posePreset.prompt);
