@@ -22,6 +22,8 @@ import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
 import { MENS_KNIT_POSES } from '../constants/mensKnitPosePresets';
 import { MENS_TEE_POSES } from '../constants/mensTeePosePresets';
 import { SWIM_SHORTS_POSES } from '../constants/swimShortsPosePresets';
+import { MENS_SHORTS_POSES } from '../constants/mensShortsPosePresets';
+import { MENS_PANTS_POSES } from '../constants/mensPantsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 
@@ -56,7 +58,7 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'swimShorts' | 'longDress' | 'womensFashion';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion';
 
 interface AutoPoseAnalysis {
     productType: string;
@@ -71,6 +73,8 @@ const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     mensShirt: '男士衬衫动作库',
     mensKnit: '男士针织/Polo动作库',
     mensTee: '男士T恤动作库',
+    mensShorts: '男士短裤动作库',
+    mensPants: '男士长裤动作库',
     swimShorts: '泳裤/沙滩裤动作库',
     longDress: '长裙/连衣裙动作库',
     womensFashion: '通用时尚女装动作库',
@@ -421,6 +425,8 @@ const HeroImageTab: React.FC = () => {
             if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('ankle') || normalized.includes('floor') || normalized.includes('gown')) return 'longDress';
             if (normalized.includes('womensfashion') || normalized.includes('women') || normalized.includes('female') || normalized.includes('womenswear') || normalized.includes('fashion')) return 'womensFashion';
             if (normalized.includes('swim') || normalized.includes('boardshort') || normalized.includes('board short') || normalized.includes('trunk')) return 'swimShorts';
+            if (normalized.includes('mensshorts') || normalized.includes('men shorts') || normalized.includes("men's shorts") || normalized.includes('casual shorts') || normalized.includes('shorts')) return 'mensShorts';
+            if (normalized.includes('menspants') || normalized.includes('men pants') || normalized.includes("men's pants") || normalized.includes('trousers') || normalized.includes('pants') || normalized.includes('jeans')) return 'mensPants';
             if (normalized.includes('tee') || normalized.includes('tshirt') || normalized.includes('t-shirt')) return 'mensTee';
             if (normalized.includes('knit') || normalized.includes('polo')) return 'mensKnit';
             if (normalized.includes('shirt')) return 'mensShirt';
@@ -434,7 +440,7 @@ const HeroImageTab: React.FC = () => {
             }));
             parts.push({
                 text: `Classify these uploaded product images for an ecommerce apparel pose library.
-Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|swimShorts|longDress|womensFashion|none","confidence":"high|medium|low","reason":"short reason"}.
+Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|none","confidence":"high|medium|low","reason":"short reason"}.
 
 Choose:
 - longDress: women's long dress, maxi dress, ankle-length dress, floor-length dress, long skirt dress, evening dress, long slip dress, long sundress, gown-like dress.
@@ -442,12 +448,17 @@ Choose:
 - mensShirt: men's woven button shirt, resort shirt, linen shirt, Hawaiian shirt, button-up shirt.
 - mensKnit: men's knit polo, textured knit polo, knitted top, sweater-like short sleeve, ribbed knit menswear.
 - mensTee: men's T-shirt, oversized tee, graphic tee, cotton short-sleeve tee.
+- mensShorts: men's regular casual shorts, chino shorts, cargo shorts, denim shorts, athletic shorts, streetwear shorts, drawstring lounge shorts. This is NOT swimwear.
+- mensPants: men's regular long pants, trousers, jeans, cargo pants, chino pants, linen pants, dress pants, joggers, sweatpants, streetwear pants.
 - swimShorts: men's swim shorts, swim trunks, board shorts, beach shorts, quick-dry swimwear shorts, bathing trunks, swimwear bottom with drawstring or liner.
 - none: not one of the above or uncertain.
 
 Priority rules:
 - If the product is women's apparel but not clearly longDress, choose womensFashion.
 - If the garment is a short dress, mini dress, midi dress, skirt, blouse, blazer, jacket, coat, pants, jeans, cardigan, vest, top, or set, choose womensFashion.
+- If the product is regular men's shorts and not swimwear, choose mensShorts.
+- If the product is men's long pants, trousers, cargo pants, jeans, chino pants, linen pants, joggers, or sweatpants, choose mensPants.
+- Choose swimShorts only when the garment is explicitly swim trunks, board shorts, swim shorts, bathing trunks, beach shorts, or swimwear.
 - Use none only when it is not apparel or the apparel gender/category is genuinely unclear.
 Use visual garment structure first. User note: ${userPrompt || 'none'}`
             });
@@ -1034,6 +1045,7 @@ Rules:
                 : '';
 
             const supplementalNotes = form.extraNotes.trim();
+            const userExplicitlyRequestedFullBody = /full[-\s]?body|full[-\s]?length|head[-\s]?to[-\s]?toe|entire\s+body|全身|全身照|全身展示|从头到脚/i.test(supplementalNotes);
             const getSupplementaryNotesPrompt = (isActionLockedOutput: boolean, outputNumber: number) => {
                 if (!supplementalNotes) return '';
                 return isActionLockedOutput
@@ -1145,6 +1157,20 @@ The final image must look like a real professional fashion lookbook shoot at tha
             const isMensTee = mensTeeKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const swimShortsKeywords = ['swim shorts', 'swim trunks', 'board shorts', 'boardshorts', 'beach shorts', 'bathing trunks', 'swimwear shorts', 'quick dry shorts', 'quick-dry shorts', '泳裤', '沙滩裤'];
             const isSwimShorts = swimShortsKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const mensShortsKeywords = [
+                'mens shorts', "men's shorts", 'men shorts', 'casual shorts', 'chino shorts', 'cargo shorts', 'denim shorts',
+                'athletic shorts', 'gym shorts', 'training shorts', 'streetwear shorts', 'drawstring shorts', 'lounge shorts',
+                'short pants', '短裤', '男士短裤', '男款短裤', '休闲短裤', '工装短裤', '运动短裤', '牛仔短裤'
+            ];
+            const isMensShorts = !isSwimShorts && mensShortsKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const mensPantsKeywords = [
+                'mens pants', "men's pants", 'men pants', 'trousers', 'pants', 'jeans', 'denim pants', 'cargo pants',
+                'chino pants', 'linen pants', 'dress pants', 'joggers', 'sweatpants', 'wide leg pants', 'straight leg pants',
+                '长裤', '男士长裤', '男裤', '休闲裤', '工装裤', '牛仔裤', '亚麻裤', '西裤', '运动裤', '卫裤', '直筒裤', '宽腿裤'
+            ];
+            const womensBottomKeywords = ['women', "women's", 'female', 'ladies', '女士', '女款', '女装', '女性'];
+            const isWomensBottomText = womensBottomKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const isMensPants = !isWomensBottomText && mensPantsKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const longDressKeywords = [
                 'long dress', 'maxi dress', 'ankle-length dress', 'ankle length dress', 'floor-length dress', 'floor length dress',
                 'long skirt dress', 'evening dress', 'slip dress', 'long sundress', 'gown', 'dress gown',
@@ -1166,15 +1192,19 @@ The final image must look like a real professional fashion lookbook shoot at tha
                     ? 'longDress'
                     : isSwimShorts
                         ? 'swimShorts'
-                        : isMensTee
-                            ? 'mensTee'
-                            : isMensKnit
-                                ? 'mensKnit'
-                                : isMensShirt
-                                    ? 'mensShirt'
-                                    : isWomensFashion
-                                        ? 'womensFashion'
-                                        : 'none';
+                        : isMensShorts
+                            ? 'mensShorts'
+                            : isMensPants
+                                ? 'mensPants'
+                                : isMensTee
+                                    ? 'mensTee'
+                                    : isMensKnit
+                                        ? 'mensKnit'
+                                        : isMensShirt
+                                            ? 'mensShirt'
+                                            : isWomensFashion
+                                                ? 'womensFashion'
+                                                : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
 
@@ -1232,6 +1262,18 @@ The final image must look like a real professional fashion lookbook shoot at tha
             for (let k = shuffledSwimShortsPoses.length - 1; k > 0; k--) {
                 const r = Math.floor(Math.random() * (k + 1));
                 [shuffledSwimShortsPoses[k], shuffledSwimShortsPoses[r]] = [shuffledSwimShortsPoses[r], shuffledSwimShortsPoses[k]];
+            }
+
+            let shuffledMensShortsPoses = [...MENS_SHORTS_POSES];
+            for (let k = shuffledMensShortsPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledMensShortsPoses[k], shuffledMensShortsPoses[r]] = [shuffledMensShortsPoses[r], shuffledMensShortsPoses[k]];
+            }
+
+            let shuffledMensPantsPoses = [...MENS_PANTS_POSES];
+            for (let k = shuffledMensPantsPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledMensPantsPoses[k], shuffledMensPantsPoses[r]] = [shuffledMensPantsPoses[r], shuffledMensPantsPoses[k]];
             }
 
             let shuffledLongDressPoses = [...LONG_DRESS_POSES];
@@ -1326,6 +1368,32 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 # SWIM SHORTS FIT RULE: Render realistic male torso-to-feet anatomy only as needed to sell the shorts; keep attention on the shorts. Avoid face identity emphasis, avoid unrelated tops, hats, sunglasses, bags, and extra accessories unless directly requested. Footwear/slides are allowed when they match the reference crop or scene.
 `;
                         finalPrompt += `\n# SWIM SHORTS ACTION LIBRARY DIRECTIVE: Use this selected swim shorts action exactly: ${poseSpec}. Do not force a numeric 4:5 ratio; keep the selected canvas ratio while framing the subject from upper chest/pectorals to feet/slides, matching the provided swim-shorts display effect. The shorts product must remain the same product from Image 1 while naturally adapting to the selected beach/pool/detail demonstration pose.\n`;
+                    } else if (activeAutoPoseLibrary === 'mensShorts') {
+                        const posePreset = shuffledMensShortsPoses[i % shuffledMensShortsPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        const bottomCropRule = userExplicitlyRequestedFullBody
+                            ? 'The user explicitly requested full-body, so full-body framing is allowed while keeping the shorts as the product focus.'
+                            : 'Default shorts framing: do NOT generate a full-body head-to-toe fashion portrait. Use a lower-body product crop similar to ecommerce pants/shorts references: lower torso/waist to shoes, waist to knees, or waist to mid-calf depending on pose. Face/head are optional and should usually be cropped out or de-emphasized.';
+                        selectedPoseHeader = `# SELECTED MENS SHORTS POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# REGULAR SHORTS CATEGORY LOCK (CRITICAL - MANDATORY): This product is regular men's shorts, NOT swim shorts, swim trunks, board shorts, beach shorts, bathing trunks, or swimwear. Do not add beach/pool/swimwear cues unless the user explicitly requested that scene.
+# SHORTS SUBJECT FRAMING (CRITICAL - MANDATORY): ${bottomCropRule} Keep the selected ${outputAspectRatio} canvas and compose a clean SHEIN menswear hero image. The shorts must be the central product focus with waistband, drawstring or belt loops, pockets, side seams, hem, leg opening, inseam length, fit, fabric texture, and silhouette clearly visible.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's regular shorts image with the EXACT pose and camera intent described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, hand placement, waist/hem/pocket interaction, leg stance, walking/sitting/leaning state, body angle, and crop must follow this preset as closely as possible.
+# MENS SHORTS FIT RULE: Render realistic male proportions, natural shorts drape, believable fabric folds, correct leg opening, clean waistband construction, functional pockets, and real casual menswear styling. Do not turn the shorts into swimwear and do not add compression liner unless visible in the product asset.
+`;
+                        finalPrompt += `\n# MENS SHORTS ACTION LIBRARY DIRECTIVE: Use this selected regular shorts action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The shorts product must remain the same product from Image 1 while naturally adapting to the selected SHEIN menswear pose.\n`;
+                    } else if (activeAutoPoseLibrary === 'mensPants') {
+                        const posePreset = shuffledMensPantsPoses[i % shuffledMensPantsPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        const bottomCropRule = userExplicitlyRequestedFullBody
+                            ? 'The user explicitly requested full-body, so full-body framing is allowed while keeping the pants as the product focus.'
+                            : 'Default pants framing: do NOT generate a full-body head-to-toe fashion portrait. Use a lower-body product crop like the user reference: lower torso/waist to shoes, waist to ankles, or waist to hem break depending on pose. Face/head are optional and should usually be cropped out or de-emphasized.';
+                        selectedPoseHeader = `# SELECTED MENS PANTS POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# MENS PANTS CATEGORY LOCK (CRITICAL - MANDATORY): This product is men's long pants/trousers/jeans/cargo/chino/linen/jogger style bottoms. Do not convert them into shorts, swimwear, skirt, or unrelated bottoms.
+# PANTS SUBJECT FRAMING (CRITICAL - MANDATORY): ${bottomCropRule} Keep the selected ${outputAspectRatio} canvas and compose a premium SHEIN menswear pants image. The pants must be the central product focus with waistband, belt loops or belt, pockets, side seams, leg drape, inseam length, hem break, fit, fabric folds, and silhouette clearly visible.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's pants image with the EXACT pose and camera intent described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, hand placement, waistband/belt/pocket/hem interaction, leg stance, walking/sitting/leaning state, body angle, and crop must follow this preset as closely as possible.
+# MENS PANTS FIT RULE: Render realistic male proportions, natural trouser drape, correct leg length, believable fabric folds, clean waistband construction, functional pockets, and real commercial menswear styling. Do not make the pose a generic full-body model shot unless the user explicitly requested full body.
+`;
+                        finalPrompt += `\n# MENS PANTS ACTION LIBRARY DIRECTIVE: Use this selected pants action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The pants product must remain the same product from Image 1 while naturally adapting to the selected SHEIN menswear pose and lower-body product framing.\n`;
                     } else if (activeAutoPoseLibrary === 'mensTee') {
                         const posePreset = shuffledMensTeePoses[i % shuffledMensTeePoses.length];
                         const poseSpec = posePreset.prompt;

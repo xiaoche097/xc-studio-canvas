@@ -2953,23 +2953,54 @@ export const generateListingCopy = async (
  * Uses gemini-2.5-flash-image
  */
 export const generateVideoScript = async (
-  imageBase64: string,
-  mimeType: string,
-  duration: string,
-  style: string,
+  input:
+    | string
+    | Array<{
+        base64: string;
+        mimeType: string;
+        name?: string;
+        role?: string;
+        type?: string;
+      }>,
+  mimeTypeOrDuration: string,
+  durationOrStyle: string,
+  styleOrPrompt?: string,
 ) => {
   const ai = getAiClient();
+  const isMultiAsset = Array.isArray(input);
+  const assets = isMultiAsset
+    ? input
+    : [{ base64: input, mimeType: mimeTypeOrDuration, name: 'Product image', role: 'product', type: 'image' }];
+  const duration = isMultiAsset ? mimeTypeOrDuration : durationOrStyle;
+  const style = isMultiAsset ? durationOrStyle : styleOrPrompt || 'Fast-paced/Sales';
+  const userPrompt = isMultiAsset ? styleOrPrompt || '' : '';
+  const assetSummary = assets
+    .map((asset, index) => `Image/Media ${index + 1}: role=${asset.role || 'reference'}, type=${asset.type || 'image'}, name=${asset.name || 'uploaded asset'}`)
+    .join('\n');
 
-  const prompt = `You are a professional Video Director for commercial products.
-  Analyze the provided product image and create a detailed video shooting script.
+  const prompt = `You are a professional ecommerce video creative director working in a Google Flow-style media workspace.
+  Analyze all uploaded assets and create a practical storyboard plan that can later be used for image/video generation.
+
+  Uploaded asset map:
+  ${assetSummary}
+
+  User creation request:
+  ${userPrompt || 'Create a polished ecommerce product video storyboard from the uploaded assets.'}
 
   Constraints:
   - Total Duration: ${duration}
   - Vibe/Style: ${style}
+  - Use product assets as the source of truth for product appearance.
+  - Use scene assets only as environment references.
+  - Use character assets only as identity/casting references.
+  - Keep the storyboard realistic for ecommerce production, with clear camera movement, subject action, product selling point, and edit rhythm.
+  - If the user uploaded multiple products/scenes/characters, route them intentionally instead of blending them randomly.
 
   Instructions:
   - Break down the video into scenes/shots.
   - The script must be perfectly timed to fit the ${duration}.
+  - Generate 4 to 8 storyboard cards depending on duration.
+  - Each scene should be useful as a prompt for a downstream image/video model.
   - Output strictly in JSON format (Array of objects).
   - Do NOT use Markdown code blocks. Just return the JSON string.
 
@@ -2978,7 +3009,8 @@ export const generateVideoScript = async (
     "time": "Timestamp (e.g., 00:00 - 00:05)",
     "visual": "Detailed visual description of the scene, camera angle, subject action.",
     "audio": "Voiceover (VO), Sound Effects (SFX), or Music cues.",
-    "overlay": "Text overlay or graphics on screen."
+    "overlay": "Text overlay or graphics on screen.",
+    "prompt": "A concise English video/image generation prompt for this storyboard card."
   }
   `;
 
@@ -2987,12 +3019,12 @@ export const generateVideoScript = async (
       model: "gemini-2.5-pro-image",
       contents: {
         parts: [
-          {
+          ...assets.map((asset) => ({
             inlineData: {
-              mimeType,
-              data: imageBase64,
+              mimeType: asset.mimeType,
+              data: asset.base64,
             },
-          },
+          })),
           { text: prompt },
         ],
       },
