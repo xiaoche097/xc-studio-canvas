@@ -1,8 +1,9 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { AgentHome } from './components/AgentHome';
 import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
-import { History, Cloud } from 'lucide-react';
+import { Bell, BookOpen, Cloud, History, Megaphone, X } from 'lucide-react';
 import { gemini } from './lib/gemini';
+import { SystemNoticeDialog } from './components/SystemNoticeDialog';
 
 const ChatStudio = lazy(() => import('./components/ChatStudio').then((module) => ({ default: module.ChatStudio })));
 import { UnifiedSettingsModal } from './components/UnifiedSettingsModal';
@@ -15,6 +16,7 @@ const YunwuApiStudio = lazy(() => import('./components/YunwuApiStudio'));
 const ModelFactoryApp = lazy(() => import('./ModelFactory/App'));
 
 type ViewState = 'home' | 'chat' | 'video' | 'doll-factory' | 'creative' | 'ai-video' | 'yunwu' | 'model-factory';
+type SystemNoticeTab = 'notice' | 'guide';
 
 const LoadingScreen: React.FC<{ label?: string }> = ({ label = 'Loading workspace...' }) => (
   <div className="flex h-full w-full items-center justify-center bg-[#F8FAFC] dark:bg-[#050505]">
@@ -23,6 +25,104 @@ const LoadingScreen: React.FC<{ label?: string }> = ({ label = 'Loading workspac
     </div>
   </div>
 );
+
+const SystemNoticeModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+  const [activeTab, setActiveTab] = useState<SystemNoticeTab>('notice');
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 px-4 py-8 backdrop-blur-sm">
+      <div className="relative w-full max-w-4xl overflow-hidden rounded-[1.6rem] border border-white/70 bg-[#eef4fc]/95 shadow-2xl shadow-slate-900/25 backdrop-blur-xl dark:border-white/10 dark:bg-[#151821]/95">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/70 via-transparent to-brand-orange/10 dark:from-white/5 dark:to-brand-orange/10" />
+
+        <div className="relative flex items-start justify-between gap-4 px-6 py-5 md:px-8">
+          <div>
+            <h2 className="text-2xl font-black tracking-tight text-gray-900 dark:text-white">系统通告</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">查看平台通知和功能使用说明。</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex rounded-xl border border-gray-200 bg-white/75 p-1 shadow-sm dark:border-white/10 dark:bg-white/5">
+              <button
+                onClick={() => setActiveTab('notice')}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+                  activeTab === 'notice'
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-white/15 dark:text-white'
+                    : 'text-gray-500 hover:text-brand-orange dark:text-gray-400'
+                }`}
+              >
+                <Bell className="h-4 w-4" />
+                通知
+              </button>
+              <button
+                onClick={() => setActiveTab('guide')}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold transition-all ${
+                  activeTab === 'guide'
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-white/15 dark:text-white'
+                    : 'text-gray-500 hover:text-brand-orange dark:text-gray-400'
+                }`}
+              >
+                <BookOpen className="h-4 w-4" />
+                使用说明
+              </button>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="rounded-full p-2 text-gray-500 transition-all hover:bg-white/80 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
+              aria-label="关闭系统通告"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="relative max-h-[68vh] overflow-y-auto px-6 pb-8 md:px-8">
+          {activeTab === 'notice' ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-brand-orange/30 bg-orange-50/90 px-5 py-4 text-center text-brand-orange shadow-sm dark:bg-brand-orange/10">
+                <div className="font-black">通知内容待添加</div>
+                <p className="mt-1 text-sm font-medium text-orange-700/80 dark:text-orange-100/80">
+                  这里后续放平台公告、版本更新、活动提醒等内容。
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-gray-100 bg-white/90 p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
+                <div className="flex items-center gap-2 text-base font-black text-gray-900 dark:text-white">
+                  <Megaphone className="h-5 w-5 text-brand-orange" />
+                  最新通知
+                </div>
+                <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-6 text-center text-sm text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
+                  暂无通知内容
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-gray-100 bg-white/90 p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
+              <div className="flex items-center gap-2 text-base font-black text-gray-900 dark:text-white">
+                <BookOpen className="h-5 w-5 text-brand-orange" />
+                使用说明
+              </div>
+              <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-6 text-center text-sm text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400">
+                使用说明内容待添加
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="relative flex justify-end gap-3 border-t border-white/60 px-6 py-4 dark:border-white/10 md:px-8">
+          <button
+            onClick={onClose}
+            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-brand-orange shadow-sm transition-all hover:bg-orange-50 dark:bg-white/10 dark:hover:bg-white/15"
+          >
+            关闭公告
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('home');
@@ -34,6 +134,7 @@ const App: React.FC = () => {
   const [isDark, setIsDark] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [isSystemNoticeOpen, setIsSystemNoticeOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   // Theme Initialization
@@ -183,10 +284,18 @@ const App: React.FC = () => {
     <div className="h-screen w-full overflow-hidden bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white transition-colors duration-500 relative">
       {/* Top Right Controls */}
       <div className="fixed top-6 right-6 z-50 flex gap-2">
+        <button
+          onClick={() => setIsSystemNoticeOpen(true)}
+          className="p-2.5 rounded-full bg-gradient-to-r from-brand-orange/85 to-orange-500/85 backdrop-blur-md border border-orange-300/30 dark:border-orange-500/30 shadow-lg hover:scale-105 transition-all text-white hover:shadow-orange-500/30 group"
+          aria-label="System notice"
+          title="系统通告"
+        >
+          <Megaphone className="w-5 h-5" />
+        </button>
         {/* Yunwu API Button - 品牌橙色调 */}
         <button
           onClick={() => setView('yunwu')}
-          className="p-2.5 rounded-full bg-gradient-to-r from-brand-orange/80 to-orange-500/80 backdrop-blur-md border border-orange-300/30 dark:border-orange-500/30 shadow-lg hover:scale-105 transition-all text-white hover:shadow-orange-500/30 group"
+          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
           aria-label="Yunwu API"
           title="云雾API Studio"
         >
@@ -224,6 +333,7 @@ const App: React.FC = () => {
       </div>
 
       <Suspense fallback={<LoadingScreen />}>
+        <SystemNoticeDialog isOpen={isSystemNoticeOpen} onClose={() => setIsSystemNoticeOpen(false)} />
         {isSettingsOpen && <UnifiedSettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />}
         {isGalleryOpen && <ProjectGalleryModal isOpen={isGalleryOpen} onClose={() => setIsGalleryOpen(false)} />}
         {renderActiveView()}
