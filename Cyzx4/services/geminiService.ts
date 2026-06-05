@@ -837,7 +837,9 @@ export const generateImageToImage = async (
   
   // Get initial config to know how many keys we have
   const initialConfig = getApiConfig();
-  const maxRetries = Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
+  const maxRetries = initialConfig.isJijing
+    ? Math.min(initialConfig.keyCount, 4)
+    : Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
 
   // 1. Determine Target Model FIRST (Critical for specialized prompt logic)
   let targetModel = options.modelId || "gemini-3.1-flash-image-preview";
@@ -1574,12 +1576,18 @@ ${forcedPrompt}`;
       const isServiceError = error.status === 503 || error.message?.includes('503');
       
       if (isPathError || isServiceError) {
-        const platoHint = config.isPlato ? `\n[柏拉图提示] 模型 ${targetModel} 在当前节点或路径下暂不可用，请联系管理员或切换节点(如美国/香港)。` : '';
+        if (config.isJijing && isServiceError && attempt < maxRetries - 1) {
+          console.warn(`[No.1 Image Node Retry] ${targetModel} unavailable on ${config.baseUrl}. Trying next node...`);
+          continue;
+        }
+        const platoHint = config.isJijing
+          ? `\n[No.1图提示] 模型 ${targetModel} 在当前节点或路径下暂不可用，已尝试自动切换节点。请稍后重试，或在设置中手动切换到香港/美国节点。`
+          : config.isPlato ? `\n[柏拉图提示] 模型 ${targetModel} 在当前节点或路径下暂不可用，请联系管理员或切换节点(如美国/香港)。` : '';
         const customError = new Error(`${error.message}${platoHint}`);
         (customError as any).status = error.status;
         (customError as any).isPathError = isPathError;
         lastError = customError;
-        console.error(`[API Critical] ${error.message}${config.isPlato ? ' (Plato)' : ''}. Stopping retries.`);
+        console.error(`[API Critical] ${error.message}${config.isJijing ? ' (No.1 Image)' : config.isPlato ? ' (Plato)' : ''}. Stopping retries.`);
         break; // 不再切换 Key 重试，因为模型名/路径错误换 Key 也没用
       }
       

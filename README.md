@@ -84,17 +84,17 @@
 - Google Gemini 原生 API
 - 云雾 API 中转
 - 柏拉图 API 中转
-- 极境 API 中转
+- No.1图 API 中转
 
-极境默认 Base URL：
+No.1图 默认节点：
 
 ```text
-https://api.jijing.ai
+DCDN主站
 ```
 
 运行时优先级：
 
-1. 极境
+1. No.1图
 2. 柏拉图
 3. 云雾
 4. 原生 Gemini

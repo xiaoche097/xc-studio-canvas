@@ -8,6 +8,8 @@ import {
 import { gemini } from '../lib/gemini';
 
 type TabType = 'api' | 'agent' | 'about';
+const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
+const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -107,7 +109,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
   const [jijingConfig, setJijingConfig] = useState({
     enabled: false,
     apiKey: '',
-    baseUrl: 'https://api.jijing.ai'
+    baseUrl: DEFAULT_NO1_IMAGE_BASE_URL
   });
 
   // Global Status
@@ -138,7 +140,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
       // Load Jijing
       const jKey = localStorage.getItem('jijing_api_key') || '';
-      const jUrl = localStorage.getItem('jijing_base_url') || 'https://api.jijing.ai';
+      const savedJUrl = localStorage.getItem('jijing_base_url') || '';
+      const jUrl = !savedJUrl || savedJUrl === LEGACY_JIJING_BASE_URL ? DEFAULT_NO1_IMAGE_BASE_URL : savedJUrl;
       const jEnabled = localStorage.getItem('jijing_enabled') === 'true';
       setJijingConfig({ enabled: jEnabled, apiKey: jKey, baseUrl: jUrl });
     }
@@ -159,7 +162,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     localStorage.setItem('plato_enabled', String(platoConfig.enabled));
 
     localStorage.setItem('jijing_api_key', jijingConfig.apiKey);
-    localStorage.setItem('jijing_base_url', jijingConfig.baseUrl || 'https://api.jijing.ai');
+    localStorage.setItem('jijing_base_url', jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingConfig.enabled));
 
     // Determine active provider
@@ -168,7 +171,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
     if (jijingConfig.enabled && jijingConfig.apiKey) {
         activeKey = jijingConfig.apiKey;
-        activeUrl = jijingConfig.baseUrl || 'https://api.jijing.ai';
+        activeUrl = jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL;
     } else if (platoConfig.enabled && platoConfig.apiKey) {
         activeKey = platoConfig.apiKey;
         activeUrl = platoConfig.baseUrl;
@@ -426,20 +429,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
                         {/* Jijing API */}
                         <ProviderCard 
-                          title="极境 API 中转站"
-                          description="使用极境 Gemini 兼容中转服务，默认 Base URL 为 https://api.jijing.ai。"
+                          title="No.1图 API 中转站"
+                          description="Gemini 兼容中转服务，默认使用 DCDN主站。"
                           icon={<Zap className="text-orange-500" />}
                           enabled={jijingConfig.enabled}
                           onToggle={(v) => setJijingConfig(c => ({ ...c, enabled: v }))}
                         >
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <ConfigInput 
-                                  label="Base URL"
-                                  value={jijingConfig.baseUrl}
-                                  onChange={(v) => setJijingConfig(c => ({ ...c, baseUrl: v }))}
-                                  placeholder="https://api.jijing.ai"
-                                  icon={<Globe size={16} />}
-                                />
                                 <ConfigInput 
                                   label="API Key"
                                   value={jijingConfig.apiKey}

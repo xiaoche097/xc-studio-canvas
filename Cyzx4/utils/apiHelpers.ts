@@ -9,6 +9,18 @@ import { GoogleGenAI } from "@google/genai";
 export const API_TIMEOUT_MS = 90000; // 90秒超时
 export const MAX_REF_IMAGES = 3;
 export const MAX_UPLOAD_IMAGES = 10;
+export const LEGACY_JIJING_BASE_URL = "https://api.jijing.ai";
+export const DEFAULT_NO1_IMAGE_BASE_URL = "https://api.rcouyi.com";
+export const NO1_IMAGE_NODES = [
+    { name: "DCDN主站", url: "https://api.rcouyi.com" },
+    { name: "美国芝加哥OVH线路", url: "https://us.rcouyi.com" },
+    { name: "美国华盛顿OVH线路", url: "https://us-1.rcouyi.com" },
+    { name: "中国香港", url: "https://hk-2.rcouyi.com" },
+    { name: "美国洛杉矶OVH线路", url: "https://us-3.rcouyi.com" },
+    { name: "新加坡OVH线路", url: "https://sgp.rcouyi.com" },
+    { name: "日本软银线路", url: "https://jp.rcouyi.com" },
+    { name: "美国阿什本OVH线路", url: "https://us-2.rcouyi.com" },
+];
 
 // ==================== 类型定义 ====================
 export interface ApiConfig {
@@ -18,6 +30,7 @@ export interface ApiConfig {
     isPlato: boolean;
     isJijing?: boolean;
     apiVersion?: string;
+    providerRetryCount?: number;
 }
 
 export interface GenerateContentParams {
@@ -27,6 +40,17 @@ export interface GenerateContentParams {
 }
 
 type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato'>;
+
+const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
+    const normalizedPreferred = !preferredUrl || preferredUrl === LEGACY_JIJING_BASE_URL
+        ? DEFAULT_NO1_IMAGE_BASE_URL
+        : preferredUrl;
+    const urls = NO1_IMAGE_NODES.map(node => node.url);
+    return [
+        normalizedPreferred,
+        ...urls.filter(url => url !== normalizedPreferred)
+    ];
+};
 
 export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
 export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
@@ -220,33 +244,36 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
     const jijingEnabled = localStorage.getItem("jijing_enabled") !== "false";
 
     if (jijingKey && jijingEnabled) {
+        const no1ImageBaseUrls = orderedNo1ImageUrls(jijingBaseUrl);
         const keys = jijingKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
+        if (keys.length === 0) {
+            throw new Error("No.1 Image API Key is empty. Please check Settings.");
+        }
         const keyCount = keys.length;
+        const providerRetryCount = Math.max(keys.length, no1ImageBaseUrls.length);
 
         let activeKey = keys[0];
+        let activeBaseUrl = no1ImageBaseUrls[0];
         let currentIndex = 0;
 
-        if (keyCount > 1) {
-            const lastIndexKey = "jijing_api_key_last_index";
+        if (providerRetryCount > 1) {
             if (forceIndex !== undefined) {
-                currentIndex = forceIndex % keyCount;
-            } else {
-                const lastIndex = parseInt(localStorage.getItem(lastIndexKey) || "-1");
-                currentIndex = (lastIndex + 1) % keyCount;
-                localStorage.setItem(lastIndexKey, currentIndex.toString());
+                currentIndex = forceIndex % providerRetryCount;
             }
-            activeKey = keys[currentIndex];
-            console.log(`[Jijing API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+            activeKey = keys[currentIndex % keyCount];
+            activeBaseUrl = no1ImageBaseUrls[currentIndex % no1ImageBaseUrls.length];
+            console.log(`[No.1 Image API Rotation] Using node ${activeBaseUrl} with key ${(currentIndex % keyCount) + 1}/${keyCount}`);
         }
 
         return {
             apiKey: activeKey,
-            baseUrl: jijingBaseUrl || "https://api.jijing.ai",
+            baseUrl: activeBaseUrl,
             isYunwu: true,
             isPlato: true,
             isJijing: true,
             apiVersion: 'v1beta',
-            keyCount,
+            keyCount: providerRetryCount,
+            providerRetryCount,
             currentIndex
         };
     }
@@ -355,7 +382,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
         };
     }
 
-    throw new Error("No active API configuration found. Please enable Jijing, Plato, Yunwu or Native API in Settings.");
+    throw new Error("No active API configuration found. Please enable No.1 Image, Plato, Yunwu or Native API in Settings.");
 };
 
 /**

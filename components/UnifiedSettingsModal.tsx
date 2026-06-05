@@ -35,7 +35,18 @@ interface UnifiedSettingsModalProps {
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
-const DEFAULT_JIJING_BASE_URL = 'https://api.jijing.ai';
+const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
+const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
+const NO1_IMAGE_NODES = [
+  { name: 'DCDN主站', url: 'https://api.rcouyi.com' },
+  { name: '美国芝加哥OVH线路', url: 'https://us.rcouyi.com' },
+  { name: '美国华盛顿OVH线路', url: 'https://us-1.rcouyi.com' },
+  { name: '中国香港', url: 'https://hk-2.rcouyi.com' },
+  { name: '美国洛杉矶OVH线路', url: 'https://us-3.rcouyi.com' },
+  { name: '新加坡OVH线路', url: 'https://sgp.rcouyi.com' },
+  { name: '日本软银线路', url: 'https://jp.rcouyi.com' },
+  { name: '美国阿什本OVH线路', url: 'https://us-2.rcouyi.com' },
+];
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
 const AVAILABLE_MODELS = [
@@ -104,7 +115,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [platoEnabled, setPlatoEnabled] = useState(false);
 
   const [jijingApiKey, setJijingApiKey] = useState('');
-  const [jijingBaseUrl, setJijingBaseUrl] = useState(DEFAULT_JIJING_BASE_URL);
+  const [jijingBaseUrl, setJijingBaseUrl] = useState(DEFAULT_NO1_IMAGE_BASE_URL);
   const [isJijingKeyVisible, setIsJijingKeyVisible] = useState(false);
   const [jijingEnabled, setJijingEnabled] = useState(false);
 
@@ -198,7 +209,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedJijingEnabled = localStorage.getItem('jijing_enabled');
     if (savedJijingKey) setJijingApiKey(savedJijingKey);
     lastAutoJijingKeyRef.current = savedJijingKey || '';
-    if (savedJijingUrl) setJijingBaseUrl(savedJijingUrl);
+    if (savedJijingUrl) setJijingBaseUrl(savedJijingUrl === LEGACY_JIJING_BASE_URL ? DEFAULT_NO1_IMAGE_BASE_URL : savedJijingUrl);
     setJijingEnabled(savedJijingEnabled === 'true');
     setSettingsLoaded(true);
   }, [isOpen]);
@@ -263,7 +274,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('plato_enabled', String(platoEnabled));
 
     localStorage.setItem('jijing_api_key', jijingApiKey.trim());
-    localStorage.setItem('jijing_base_url', jijingBaseUrl.trim() || DEFAULT_JIJING_BASE_URL);
+    localStorage.setItem('jijing_base_url', jijingBaseUrl.trim() || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingEnabled));
 
     window.dispatchEvent(new Event('agent-settings-updated'));
@@ -307,7 +318,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setJijingTestStatus('testing');
     setJijingTestMessage('正在测试...');
     try {
-      const res = await sendTestRequest(jijingBaseUrl || DEFAULT_JIJING_BASE_URL, key, 'gemini-3.1-flash-lite-preview', 'Say OK');
+      const res = await sendTestRequest(jijingBaseUrl || DEFAULT_NO1_IMAGE_BASE_URL, key, 'gemini-3.1-flash-lite-preview', 'Say OK');
       setJijingTestStatus(res.text ? 'success' : 'error');
       setJijingTestMessage(res.text ? '✅ 连接成功' : '❌ 无响应');
     } catch (e: any) {
@@ -632,7 +643,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <Sparkles className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`text-lg font-black ${jijingEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>极境 API 中转站</h4>
+                          <h4 className={`text-lg font-black ${jijingEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>No.1图 API 中转站</h4>
                           <p className="text-xs text-gray-500 mt-0.5">Gemini 兼容中转服务</p>
                         </div>
                       </div>
@@ -647,22 +658,18 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     {jijingEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
-                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点选择</label>
                           <div className="flex flex-wrap gap-2 mb-2">
-                            <button
-                              onClick={() => setJijingBaseUrl(DEFAULT_JIJING_BASE_URL)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${jijingBaseUrl === DEFAULT_JIJING_BASE_URL ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
-                            >
-                              主站节点
-                            </button>
+                            {NO1_IMAGE_NODES.map((node) => (
+                              <button
+                                key={node.url}
+                                onClick={() => setJijingBaseUrl(node.url)}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${jijingBaseUrl === node.url ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                              >
+                                {node.name}
+                              </button>
+                            ))}
                           </div>
-                          <input
-                            type="text"
-                            value={jijingBaseUrl}
-                            onChange={(e) => setJijingBaseUrl(e.target.value)}
-                            placeholder={DEFAULT_JIJING_BASE_URL}
-                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 outline-none font-mono"
-                          />
                         </div>
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
