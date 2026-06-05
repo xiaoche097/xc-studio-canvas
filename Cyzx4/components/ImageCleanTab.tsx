@@ -262,8 +262,10 @@ const normalizeGeneratedImageToAspectRatio = (src: string, targetAspectRatio: As
                 return;
             }
 
+            outCtx.fillStyle = '#FFFFFF';
+            outCtx.fillRect(0, 0, outputWidth, outputHeight);
             outCtx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, outputWidth, outputHeight);
-            resolve(outCanvas.toDataURL('image/png'));
+            resolve(outCanvas.toDataURL('image/jpeg', 0.92));
         };
         img.onerror = () => resolve(src);
         img.src = src;
@@ -1539,7 +1541,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
     const handleDownload = (img: string, idx: number) => {
         const link = document.createElement('a');
         link.href = img;
-        link.download = `hero-${Date.now()}-${idx}.png`;
+        link.download = `hero-${Date.now()}-${idx}.jpg`;
         link.click();
     };
 
@@ -1548,7 +1550,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
             setTimeout(() => {
                 const link = document.createElement('a');
                 link.href = img;
-                link.download = `hero-all-${Date.now()}-${idx + 1}.png`;
+                link.download = `hero-all-${Date.now()}-${idx + 1}.jpg`;
                 link.click();
             }, idx * 250);
         });

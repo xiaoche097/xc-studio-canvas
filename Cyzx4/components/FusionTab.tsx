@@ -754,9 +754,40 @@ Do not combine this image with any other uploaded image. Do not create extra var
     }
   };
 
-  const downloadImage = (url: string, filename: string) => {
+  const convertImageToJpeg = (url: string, quality = 0.92): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+        if (!width || !height) {
+          resolve(url);
+          return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(url);
+          return;
+        }
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(url);
+      img.src = url;
+    });
+  };
+
+  const downloadImage = async (url: string, filename: string) => {
+    const jpegUrl = await convertImageToJpeg(url);
     const link = document.createElement('a');
-    link.href = url;
+    link.href = jpegUrl;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
@@ -766,7 +797,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
   const downloadAllWhiteBackgroundImages = () => {
     generatedImages.forEach((url, index) => {
       window.setTimeout(() => {
-        downloadImage(url, `white-bg-${index + 1}-${Date.now()}.png`);
+        downloadImage(url, `white-bg-${index + 1}-${Date.now()}.jpg`);
       }, index * 120);
     });
   };
@@ -1091,7 +1122,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
               )}
 
               {/* Prompt Area */}
-              <div className="flex-1 flex flex-col relative">
+              <div className="flex-1 min-h-0 flex flex-col relative">
                 <div className="flex items-center justify-between mb-2 px-1">
                   <label className="block text-sm font-bold text-pastel-text flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-pastel-highlight" />
@@ -1245,7 +1276,8 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 </div>
 
                 <div 
-                  className="flex-1 relative group w-full h-full bg-white border border-pastel-border rounded-xl focus-within:ring-2 focus-within:ring-pastel-highlight/50 shadow-sm transition-all hover:border-pastel-highlight/30 cursor-text select-text flex flex-col" 
+                  className="relative group w-full min-h-[180px] overflow-hidden bg-white border border-pastel-border rounded-xl focus-within:ring-2 focus-within:ring-pastel-highlight/50 shadow-sm transition-all hover:border-pastel-highlight/30 cursor-text select-text flex flex-col" 
+                  style={{ height: 'clamp(180px, 42vh, 520px)' }}
                   onClick={() => contentEditableRef.current?.focus()}
                 >
                   {!description && (
@@ -1274,7 +1306,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       setDescription(cleanText);
                       checkMentionTrigger();
                     }}
-                    className="w-full flex-1 min-h-[140px] text-sm text-pastel-text outline-none whitespace-pre-wrap p-4 overflow-y-auto custom-scrollbar z-10"
+                    className="w-full flex-1 min-h-0 text-sm text-pastel-text outline-none whitespace-pre-wrap p-4 overflow-y-auto custom-scrollbar z-10"
                   />
                   {hoveredMentionIdx !== null && hoverPosition !== null && previewUrls[hoveredMentionIdx] && (
                       <div 
@@ -1498,7 +1530,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                             放大
                           </button>
                           <button
-                            onClick={() => downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}.png`)}
+                            onClick={() => downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}.jpg`)}
                             className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
                             title="下载原图"
                           >
@@ -1663,7 +1695,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
 
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-4">
                   <button
-                    onClick={(e) => { e.stopPropagation(); downloadImage(zoomImage, `i2i-zoom-${Date.now()}.png`); }}
+                    onClick={(e) => { e.stopPropagation(); downloadImage(zoomImage, `i2i-zoom-${Date.now()}.jpg`); }}
                     className="bg-white text-black px-6 py-2.5 rounded-full font-medium shadow-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
                   >
                     <Download className="w-4 h-4" /> 下载原图
