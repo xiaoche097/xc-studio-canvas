@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -7,8 +7,9 @@ import {
   Clock,
   Copy,
   Download,
+  Eraser,
+  Eye,
   FileVideo,
-  Filter,
   FolderUp,
   Grid3X3,
   Image as ImageIcon,
@@ -16,23 +17,28 @@ import {
   Loader2,
   Maximize2,
   MoreVertical,
+  Mic,
   Plus,
   Search,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Upload,
   UserRound,
   Video,
+  Volume2,
   WandSparkles,
   X,
 } from 'lucide-react';
-import { blobToBase64, generateVideoScript } from '../Cyzx4/services/geminiService';
+import { blobToBase64, generateImageToImage, generateVideoScript } from '../Cyzx4/services/geminiService';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
+import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 
 type AssetRole = 'product' | 'scene' | 'character' | 'reference';
 type AssetFilter = 'all' | 'image' | 'video' | 'character' | 'scene' | 'uploaded';
 type OutputAspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
+type AgentDrawer = 'commands' | 'settings' | null;
 
 interface FlowAsset {
   id: string;
@@ -62,6 +68,24 @@ interface ScriptScene {
   prompt?: string;
 }
 
+interface GenerationCard {
+  id: string;
+  progress: number;
+  aspectRatio: OutputAspectRatio;
+  kind: 'image' | 'video';
+  order: number;
+}
+
+interface GeneratedOutput {
+  id: string;
+  type: 'image' | 'video';
+  previewUrl?: string;
+  aspectRatio: OutputAspectRatio;
+  order: number;
+  prompt: string;
+  modelLabel: string;
+}
+
 const filters: Array<{ id: AssetFilter; label: string; icon: React.ElementType }> = [
   { id: 'all', label: '所有媒体内容', icon: Grid3X3 },
   { id: 'image', label: '图片', icon: ImageIcon },
@@ -79,8 +103,9 @@ const roleOptions: Array<{ id: AssetRole; label: string }> = [
 ];
 
 const imageModelOptions = [
-  { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', subLabel: '3.1 Flash' },
-  { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', subLabel: '3 Pro' },
+  { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', subLabel: '3.1 Flash' },
+  { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', subLabel: '3 Pro' },
+  { id: 'imagen-4', label: 'Imagen 4', subLabel: 'Image' },
 ];
 
 const videoModelOptions = [
@@ -91,8 +116,17 @@ const imageAspectRatios: OutputAspectRatio[] = ['16:9', '4:3', '1:1', '3:4', '9:
 const videoAspectRatios: OutputAspectRatio[] = ['9:16', '16:9'];
 const durationOptions = ['4s', '6s', '8s', '10s'];
 
+const settingsRows = [
+  { label: '光标悬停时播放声音', icon: Volume2 },
+  { label: '返回无声视频', icon: Mic },
+  { label: '显示功能块详细信息', icon: Eye },
+  { label: '提交后清除提示', icon: Eraser },
+];
+
 const StoryboardTab: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const agentTimerRef = useRef<number | null>(null);
+  const generationTimerRef = useRef<number | null>(null);
   const selectionContainerRef = useRef<HTMLDivElement>(null);
   const assetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [assets, setAssets] = useState<FlowAsset[]>([]);
@@ -102,14 +136,23 @@ const StoryboardTab: React.FC = () => {
   const [duration, setDuration] = useState('10s');
   const [selectedImageModel, setSelectedImageModel] = useState(imageModelOptions[0].id);
   const [selectedVideoModel, setSelectedVideoModel] = useState(videoModelOptions[0].id);
-  const [aspectRatio, setAspectRatio] = useState<OutputAspectRatio>('9:16');
-  const [outputKind, setOutputKind] = useState<'image' | 'video'>('video');
+  const [aspectRatio, setAspectRatio] = useState<OutputAspectRatio>('16:9');
+  const [outputKind, setOutputKind] = useState<'image' | 'video'>('image');
   const [sourceKind, setSourceKind] = useState<'frame' | 'asset'>('asset');
   const [variationCount, setVariationCount] = useState(1);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [showLinkPanel, setShowLinkPanel] = useState(false);
+  const [showGenerationPanel, setShowGenerationPanel] = useState(false);
+  const [showImageModelMenu, setShowImageModelMenu] = useState(false);
+  const [isAgentActive, setIsAgentActive] = useState(false);
+  const [isAgentTransitioning, setIsAgentTransitioning] = useState(false);
+  const [agentDrawer, setAgentDrawer] = useState<AgentDrawer>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [creativePrompt, setCreativePrompt] = useState('');
   const [script, setScript] = useState<ScriptScene[]>([]);
+  const [generationCards, setGenerationCards] = useState<GenerationCard[]>([]);
+  const [generatedOutputs, setGeneratedOutputs] = useState<GeneratedOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [zoomAsset, setZoomAsset] = useState<FlowAsset | null>(null);
@@ -118,6 +161,11 @@ const StoryboardTab: React.FC = () => {
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  useEffect(() => () => {
+    if (agentTimerRef.current) window.clearTimeout(agentTimerRef.current);
+    if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
+  }, []);
 
   const addFiles = (files: File[]) => {
     const mediaFiles = files.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
@@ -207,6 +255,65 @@ const StoryboardTab: React.FC = () => {
   }, [activeFilter, pendingUploads, searchQuery]);
 
   const totalAssetCount = assets.length + pendingUploads.length;
+  const centerOffsetClass = isSidebarCollapsed ? 'lg:-translate-x-8' : 'lg:-translate-x-[120px]';
+  const centerLeftClass = isSidebarCollapsed ? 'lg:left-[calc(50%-32px)]' : 'lg:left-[calc(50%-120px)]';
+  const selectedImageModelLabel = imageModelOptions.find((option) => option.id === selectedImageModel)?.label || 'Nano Banana 2';
+  const selectedVideoModelLabel = videoModelOptions.find((option) => option.id === selectedVideoModel)?.label || 'Omni Flash';
+  const canGenerate = creativePrompt.trim().length > 0 || assets.length > 0;
+  const hasGenerationView = generationCards.length > 0 || generatedOutputs.length > 0;
+  const generationGridClass = ['9:16', '3:4'].includes(aspectRatio)
+    ? 'grid-cols-[repeat(auto-fill,minmax(220px,1fr))] max-w-6xl'
+    : aspectRatio === '1:1'
+      ? 'grid-cols-[repeat(auto-fill,minmax(280px,1fr))] max-w-6xl'
+      : 'grid-cols-[repeat(auto-fill,minmax(min(520px,100%),1fr))] max-w-[1440px]';
+  const linkPanelItems = useMemo(() => ([
+    ...assets.map((asset) => ({
+      id: asset.id,
+      name: asset.name,
+      type: asset.type,
+      previewUrl: asset.previewUrl,
+      role: asset.role,
+    })),
+    ...generatedOutputs.map((output) => ({
+      id: output.id,
+      name: `${output.modelLabel} #${output.order}`,
+      type: output.type,
+      previewUrl: output.previewUrl || '',
+      role: 'reference' as AssetRole,
+    })),
+    ...script.map((scene, index) => ({
+      id: `scene-${index}`,
+      name: scene.overlay || `分镜 ${index + 1}`,
+      type: 'storyboard' as const,
+      previewUrl: '',
+      role: 'reference' as AssetRole,
+    })),
+  ]), [assets, generatedOutputs, script]);
+
+  const handleAgentClick = () => {
+    if (agentTimerRef.current) window.clearTimeout(agentTimerRef.current);
+
+    if (isAgentActive) {
+      setIsAgentActive(false);
+      setIsAgentTransitioning(false);
+      setAgentDrawer(null);
+      return;
+    }
+
+    setShowLinkPanel(false);
+    setShowAddMenu(false);
+    setShowSettingsPanel(false);
+    setShowGenerationPanel(false);
+    setShowImageModelMenu(false);
+    setIsAgentActive(true);
+    setIsAgentTransitioning(true);
+    setAgentDrawer(null);
+
+    agentTimerRef.current = window.setTimeout(() => {
+      setIsAgentTransitioning(false);
+      setAgentDrawer('commands');
+    }, 900);
+  };
 
   const updateAssetRole = (id: string, role: AssetRole) => {
     setAssets((prev) => prev.map((asset) => (asset.id === id ? { ...asset, role } : asset)));
@@ -222,9 +329,32 @@ const StoryboardTab: React.FC = () => {
   };
 
   const handleGenerate = async () => {
-    if (assets.length === 0 || isLoading) return;
+    if (!canGenerate || isLoading) return;
     setIsLoading(true);
     setError(null);
+    setShowGenerationPanel(false);
+    setShowLinkPanel(false);
+    setGeneratedOutputs([]);
+
+    const count = variationCount;
+    const prompt = creativePrompt.trim() || '基于上传素材生成一组适合电商投放的创意视频分镜。';
+    const modelLabel = outputKind === 'image' ? selectedImageModelLabel : selectedVideoModelLabel;
+    const nextCards = Array.from({ length: count }, (_, index) => ({
+      id: `${Date.now()}-${index}`,
+      progress: 0,
+      aspectRatio,
+      kind: outputKind,
+      order: index + 1,
+    } satisfies GenerationCard));
+    setGenerationCards(nextCards);
+
+    if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
+    generationTimerRef.current = window.setInterval(() => {
+      setGenerationCards((prev) => prev.map((card) => ({
+        ...card,
+        progress: Math.min(92, card.progress + 7 + Math.round(Math.random() * 9)),
+      })));
+    }, 260);
 
     try {
       const payload = await Promise.all(assets.slice(0, 12).map(async (asset) => ({
@@ -235,17 +365,66 @@ const StoryboardTab: React.FC = () => {
         type: asset.type,
       })));
 
-      const result = await generateVideoScript(
-        payload,
-        duration,
-        `model=${outputKind === 'image' ? selectedImageModel : selectedVideoModel}; output=${outputKind}; aspect=${aspectRatio}; variations=${variationCount}; source=${sourceKind}`,
-        creativePrompt || '基于上传素材生成一组适合电商投放的创意视频分镜。'
-      );
+      if (outputKind === 'image') {
+        const resultImages = await generateImageToImage(
+          payload.filter((asset) => asset.type === 'image').map((asset) => ({
+            base64: asset.base64,
+            mimeType: asset.mimeType,
+          })),
+          prompt,
+          {
+            aspectRatio: aspectRatio as AspectRatio,
+            resolution: ImageResolution.RES_2K,
+            modelId: selectedImageModel,
+            sampleCount: count,
+          }
+        );
 
-      setScript(Array.isArray(result) ? result : []);
+        const outputs = resultImages.slice(0, count).map((url, index) => ({
+          id: `${Date.now()}-image-${index}`,
+          type: 'image' as const,
+          previewUrl: url,
+          aspectRatio,
+          order: index + 1,
+          prompt,
+          modelLabel,
+        }));
+
+        setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
+        window.setTimeout(() => {
+          setGeneratedOutputs(outputs);
+          setGenerationCards([]);
+          setActiveFilter('image');
+        }, 450);
+      } else {
+        const result = await generateVideoScript(
+          payload,
+          duration,
+          `model=${selectedVideoModel}; output=${outputKind}; aspect=${aspectRatio}; variations=${variationCount}; source=${sourceKind}`,
+          prompt
+        );
+
+        const nextScript = Array.isArray(result) ? result : [];
+        setScript(nextScript);
+        setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
+        window.setTimeout(() => {
+          setGeneratedOutputs(nextCards.map((card, index) => ({
+            id: `${Date.now()}-video-${index}`,
+            type: 'video' as const,
+            aspectRatio,
+            order: index + 1,
+            prompt: nextScript[index]?.prompt || prompt,
+            modelLabel,
+          })));
+          setGenerationCards([]);
+          setActiveFilter('video');
+        }, 450);
+      }
     } catch {
-      setError('生成分镜失败，请检查素材、模型或 API 密钥后重试。');
+      setGenerationCards([]);
+      setError(outputKind === 'image' ? '图片生成失败，请检查模型、提示词或 API 密钥后重试。' : '生成分镜失败，请检查素材、模型或 API 密钥后重试。');
     } finally {
+      if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
       setIsLoading(false);
     }
   };
@@ -329,7 +508,7 @@ const StoryboardTab: React.FC = () => {
   };
 
   const renderPendingTile = (asset: PendingUpload) => (
-    <div key={asset.id} className="relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/20 shadow-sm aspect-[5/7]">
+    <div key={asset.id} className="relative rounded-lg overflow-hidden bg-[#17181a] border border-white/10 shadow-sm aspect-[5/7]">
       <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-500 to-slate-950 opacity-80" />
       <div className="absolute inset-0 backdrop-blur-sm" />
       <div className="absolute left-3 top-3 text-white/70">
@@ -352,30 +531,30 @@ const StoryboardTab: React.FC = () => {
       ref={(element) => {
         if (!compact) assetCardRefs.current[asset.id] = element;
       }}
-      className={`group relative rounded-2xl overflow-hidden bg-white border shadow-sm hover:shadow-md transition-all ${
-        selected && !compact ? 'border-pastel-highlight ring-4 ring-pastel-highlight/20' : 'border-pastel-border'
+      className={`group relative rounded-lg overflow-hidden bg-[#151618] border transition-all ${
+        selected && !compact ? 'border-white ring-2 ring-white/25' : 'border-white/10 hover:border-white/30'
       }`}
     >
-      <button onClick={() => setZoomAsset(asset)} className={`block w-full bg-white overflow-hidden ${compact ? 'aspect-[4/5]' : 'aspect-[5/7]'}`}>
+      <button onClick={() => setZoomAsset(asset)} className={`block w-full bg-[#101113] overflow-hidden ${compact ? 'aspect-[4/5]' : 'aspect-[5/7]'}`}>
         {asset.type === 'image' ? (
           <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover" />
         ) : (
           <video src={asset.previewUrl} className="w-full h-full object-cover" muted playsInline />
         )}
       </button>
-      <div className="absolute left-2 top-2 h-7 px-2 rounded-full bg-white/90 border border-white/70 text-[10px] font-black flex items-center gap-1 shadow-sm">
+      <div className="absolute left-2 top-2 h-7 px-2 rounded-full bg-black/70 border border-white/15 text-white/90 text-[10px] font-black flex items-center gap-1 shadow-sm backdrop-blur">
         {asset.type === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
         {asset.type === 'video' ? '视频' : '图片'}
       </div>
       <button
         onClick={() => removeAsset(asset.id)}
-        className="absolute right-2 top-2 w-7 h-7 rounded-full bg-white/90 text-pastel-muted opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all flex items-center justify-center"
+        className="absolute right-2 top-2 w-7 h-7 rounded-full bg-black/70 text-white/60 opacity-0 group-hover:opacity-100 hover:text-red-300 transition-all flex items-center justify-center backdrop-blur"
       >
         <X className="w-3.5 h-3.5" />
       </button>
       {!compact && (
         <div className="p-3 space-y-2">
-          <div className="text-xs font-bold text-pastel-text truncate" title={asset.name}>{asset.name}</div>
+          <div className="text-xs font-bold text-white truncate" title={asset.name}>{asset.name}</div>
           <div className="grid grid-cols-2 gap-1">
             {roleOptions.map((role) => (
               <button
@@ -383,8 +562,8 @@ const StoryboardTab: React.FC = () => {
                 onClick={() => updateAssetRole(asset.id, role.id)}
                 className={`h-7 rounded-md text-[10px] font-bold border transition-all ${
                   asset.role === role.id
-                    ? 'bg-pastel-highlight text-white border-pastel-highlight'
-                    : 'bg-pastel-card text-pastel-muted border-pastel-border hover:text-pastel-highlight'
+                    ? 'bg-[#56575a] text-white border-[#56575a]'
+                    : 'bg-[#202124] text-white/55 border-white/10 hover:text-white hover:border-white/25'
                 }`}
               >
                 {role.label}
@@ -398,20 +577,20 @@ const StoryboardTab: React.FC = () => {
   };
 
   return (
-    <div className="h-full bg-pastel-bg text-pastel-text overflow-hidden flex">
-      <aside className="w-60 shrink-0 bg-white border-r border-pastel-border flex flex-col">
-        <div className="h-16 px-4 flex items-center gap-3">
+    <div className="h-full bg-black text-white overflow-hidden flex font-sans">
+      <aside className={`${isSidebarCollapsed ? 'w-16' : 'w-60'} shrink-0 bg-black border-r border-white/10 flex flex-col transition-all duration-300`}>
+        <div className={`${isSidebarCollapsed ? 'px-3 justify-center' : 'px-4'} h-16 flex items-center gap-3`}>
           <button
             onClick={() => { window.location.href = '/'; }}
-            className="w-10 h-10 rounded-full text-pastel-text hover:bg-pastel-bg flex items-center justify-center"
+            className="w-10 h-10 rounded-full text-white hover:bg-white/10 flex items-center justify-center"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="min-w-0">
-            <div className="text-sm font-black truncate">分镜创作</div>
-            <div className="text-[11px] text-pastel-muted">Flow 工作台</div>
+          <div className={`min-w-0 ${isSidebarCollapsed ? 'hidden' : 'block'}`}>
+            <div className="text-sm font-black truncate">视频工厂</div>
+            <div className="text-[11px] text-white/45">Flow 工作台</div>
           </div>
-          <button className="ml-auto w-8 h-8 rounded-full text-pastel-muted hover:bg-pastel-bg flex items-center justify-center">
+          <button className={`ml-auto w-8 h-8 rounded-full text-white/55 hover:bg-white/10 hover:text-white items-center justify-center ${isSidebarCollapsed ? 'hidden' : 'flex'}`}>
             <MoreVertical className="w-4 h-4" />
           </button>
         </div>
@@ -424,160 +603,306 @@ const StoryboardTab: React.FC = () => {
               <button
                 key={filter.id}
                 onClick={() => setActiveFilter(filter.id)}
-                className={`w-full h-12 px-3 rounded-xl flex items-center justify-between text-sm font-bold transition-all ${
-                  active ? 'bg-pastel-pink text-pastel-text shadow-sm' : 'text-pastel-muted hover:bg-pastel-bg hover:text-pastel-text'
+                title={isSidebarCollapsed ? filter.label : undefined}
+                className={`w-full h-12 px-3 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} text-sm font-bold transition-all ${
+                  active ? 'bg-[#3a3a3a] text-white shadow-sm' : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`}
               >
-                <span className="flex items-center gap-3"><Icon className="w-4 h-4" />{filter.label}</span>
-                <span className="text-[10px] text-pastel-muted">{counts[filter.id]}</span>
+                <span className="flex items-center gap-3"><Icon className="w-4 h-4 shrink-0" /><span className={isSidebarCollapsed ? 'hidden' : 'inline'}>{filter.label}</span></span>
+                <span className={`text-[10px] text-white/35 ${isSidebarCollapsed ? 'hidden' : 'inline'}`}>{counts[filter.id]}</span>
               </button>
             );
           })}
         </nav>
 
-        <div className="mt-5 px-3 pt-4 border-t border-pastel-border">
-          <button className="w-full h-11 rounded-xl flex items-center gap-3 px-3 text-sm font-bold text-pastel-muted hover:bg-pastel-bg">
-            <WandSparkles className="w-4 h-4" />工具
+        <div className="mt-5 px-3 pt-4 border-t border-white/15">
+          <button title={isSidebarCollapsed ? '工具' : undefined} className={`w-full h-11 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'} text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white`}>
+            <WandSparkles className="w-4 h-4 shrink-0" /><span className={isSidebarCollapsed ? 'hidden' : 'inline'}>工具</span>
           </button>
         </div>
-        <div className="mt-auto px-3 pb-4 pt-3 border-t border-pastel-border">
-          <button className="w-full h-11 rounded-xl flex items-center gap-3 px-3 text-sm font-bold text-pastel-muted hover:bg-pastel-bg">
-            <Trash2 className="w-4 h-4" />回收站
+        <div className="mt-auto px-3 pb-4 pt-3 border-t border-white/15 space-y-1">
+          <button title={isSidebarCollapsed ? '回收站' : undefined} className={`w-full h-11 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'} text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white`}>
+            <Trash2 className="w-4 h-4 shrink-0" /><span className={isSidebarCollapsed ? 'hidden' : 'inline'}>回收站</span>
+          </button>
+          <button
+            onClick={() => setIsSidebarCollapsed((value) => !value)}
+            title={isSidebarCollapsed ? '展开' : '收起'}
+            className={`w-full h-11 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'} text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white`}
+          >
+            <ArrowLeft className={`w-4 h-4 shrink-0 transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`} />
+            <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>收起</span>
           </button>
         </div>
       </aside>
 
       <main
-        className={`flex-1 min-w-0 relative overflow-hidden ${isDraggingFiles ? 'bg-pastel-highlight/5' : ''}`}
+        className={`flex-1 min-w-0 relative overflow-hidden bg-black ${isDraggingFiles ? 'bg-white/[0.03]' : ''}`}
         onDragOver={handleCanvasDragOver}
         onDragLeave={() => setIsDraggingFiles(false)}
         onDrop={handleCanvasDrop}
       >
-        <div className="h-16 px-6 flex items-center gap-3">
-          <div className="relative w-[min(520px,45vw)] mx-auto">
-            <Search className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-pastel-muted" />
+        <div className="h-16 px-6 flex items-center gap-3 relative z-30">
+          <div className={`relative w-[min(520px,45vw)] mx-auto transition-transform duration-300 ${centerOffsetClass}`}>
+            <Search className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-white/45" />
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="搜索资源"
-              className="w-full h-11 rounded-full border border-pastel-border bg-white pl-12 pr-4 text-sm outline-none focus:border-pastel-highlight focus:ring-2 focus:ring-pastel-highlight/10 shadow-sm"
+              className="w-full h-10 rounded-2xl border border-white/10 bg-[#1b1b1d] pl-12 pr-4 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/25 focus:ring-2 focus:ring-white/10"
             />
           </div>
-          <button className="w-11 h-11 rounded-full bg-white border border-pastel-border flex items-center justify-center text-pastel-muted hover:text-pastel-highlight shadow-sm">
-            <Filter className="w-4 h-4" />
-          </button>
           <button
-            onClick={() => { setShowAddMenu((value) => !value); setShowSettingsPanel(false); }}
-            className="w-11 h-11 rounded-full bg-pastel-highlight text-white flex items-center justify-center shadow-sm hover:bg-orange-600 transition-colors"
+            onClick={() => { setShowAddMenu((value) => !value); setShowSettingsPanel(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-colors ${
+              showAddMenu
+                ? 'bg-[#2f3033] border-white/10 text-white'
+                : 'bg-[#1b1b1d] border-white/10 text-white hover:bg-[#2a2a2d]'
+            }`}
           >
             <Plus className="w-5 h-5" />
           </button>
-          <button className="w-11 h-11 rounded-full bg-white border border-pastel-border flex items-center justify-center text-pastel-muted hover:text-pastel-highlight shadow-sm">
+          <button
+            onClick={() => { setShowSettingsPanel((value) => !value); setShowAddMenu(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              showSettingsPanel ? 'bg-[#1f2022] text-white' : 'bg-transparent text-white hover:bg-white/10'
+            }`}
+          >
             <Settings className="w-4 h-4" />
           </button>
+          <button className="w-10 h-10 rounded-full bg-[#1f2022] text-white/75 flex items-center justify-center hover:bg-[#2c2d30] hover:text-white transition-colors">
+            <MoreVertical className="w-4 h-4" />
+          </button>
           <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" onChange={handleFileChange} className="hidden" />
+          {showAddMenu && (
+            <div className="absolute right-20 top-14 w-48 rounded-2xl bg-[#18191b] border border-white/10 shadow-2xl p-2">
+              {[
+                { label: '上传媒体', icon: Upload, action: () => fileInputRef.current?.click() },
+                { label: '创建集合', icon: FolderUp, action: () => undefined },
+                { label: '创建角色', icon: UserRound, action: () => setActiveFilter('character') },
+                { label: '创建场景', icon: Clapperboard, action: () => setActiveFilter('scene') },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => { item.action(); setShowAddMenu(false); }}
+                    className="w-full h-10 px-3 rounded-xl text-left text-xs font-black text-white/90 hover:bg-[#3d3e41] flex items-center gap-3"
+                  >
+                    <Icon className="w-4 h-4" />{item.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {showSettingsPanel && (
+            <div className="absolute right-16 top-14 w-[304px] rounded-2xl bg-[#1b1c1e] border border-white/10 shadow-2xl p-3">
+              <div className="text-[11px] font-black text-white/45 mb-2 px-1">视图模式</div>
+              <div className="grid grid-cols-2 rounded-xl bg-[#222325] p-1">
+                <button className="h-9 rounded-lg text-xs font-black flex items-center justify-center gap-2 bg-[#56575a] text-white">
+                  <Grid3X3 className="w-3.5 h-3.5" />网格
+                </button>
+                <button className="h-9 rounded-lg text-xs font-black flex items-center justify-center gap-2 text-white/75 hover:text-white">
+                  <Grid3X3 className="w-3.5 h-3.5" />批量
+                </button>
+              </div>
+
+              <div className="text-[11px] font-black text-white/45 mt-4 mb-2 px-1">网格大小</div>
+              <div className="grid grid-cols-3 rounded-xl bg-[#222325] p-1">
+                {['S', 'M', 'L'].map((size) => (
+                  <button key={size} className={`h-9 rounded-lg text-xs font-black ${size === 'M' ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>
+                    {size}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {settingsRows.map((row, index) => {
+                  const Icon = row.icon;
+                  const enabled = index === settingsRows.length - 1;
+                  return (
+                    <div key={row.label} className="grid grid-cols-[24px_1fr_120px] items-center gap-2">
+                      <Icon className="w-5 h-5 text-white/85" />
+                      <div className="text-xs font-black text-white/85 whitespace-nowrap">{row.label}</div>
+                      <div className="grid grid-cols-2 rounded-xl bg-[#222325] p-1">
+                        <button className={`h-8 rounded-lg text-xs font-black ${enabled ? 'text-white/75 hover:text-white' : 'bg-[#56575a] text-white'}`}>
+                          已关闭
+                        </button>
+                        <button className={`h-8 rounded-lg text-xs font-black ${enabled ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>
+                          已开启
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="h-[calc(100%-4rem)] overflow-y-auto custom-scrollbar px-6 pb-40">
-          {totalAssetCount === 0 && script.length === 0 ? (
+          {totalAssetCount === 0 && script.length === 0 && !hasGenerationView ? (
             <div
-              className={`h-full min-h-[520px] w-full flex flex-col items-center justify-center text-center transition-all ${
+              className={`h-full min-h-[520px] w-full flex flex-col items-center justify-center text-center transition-all duration-300 ${centerOffsetClass} ${
                 isDraggingFiles ? 'scale-[1.01]' : ''
               }`}
             >
-              <div className="w-16 h-16 rounded-2xl bg-white border border-pastel-border shadow-sm flex items-center justify-center mb-5">
-                <Sparkles className="w-8 h-8 text-pastel-highlight" />
+              <div className="w-16 h-16 rounded-2xl bg-black border border-white/10 shadow-sm flex items-center justify-center mb-5">
+                <Sparkles className="w-8 h-8 text-white" />
               </div>
-              <div className="text-lg font-black text-pastel-text">开始创建或拖放媒体</div>
-              <div className="text-sm text-pastel-muted mt-2">上传产品、角色、场景图，再用底部输入框生成分镜</div>
+              <div className="text-lg font-black text-white/80">开始创建或拖放媒体</div>
+              <div className="text-sm text-white/35 mt-2">上传产品、角色、场景图，再用底部输入框生成分镜</div>
               {isDraggingFiles && (
-                <div className="mt-6 h-11 px-5 rounded-full bg-white border border-pastel-highlight/40 text-pastel-highlight text-sm font-black flex items-center gap-2 shadow-sm">
+                <div className="mt-6 h-11 px-5 rounded-full bg-[#1b1c1e] border border-white/20 text-white text-sm font-black flex items-center gap-2 shadow-sm">
                   <Upload className="w-4 h-4" />松开鼠标开始上传
                 </div>
               )}
             </div>
           ) : (
             <>
-              <section
-                ref={selectionContainerRef}
-                onMouseDown={handleCanvasMouseDown}
-                onMouseMove={handleCanvasMouseMove}
-                onMouseUp={handleCanvasMouseUp}
-                onMouseLeave={handleCanvasMouseUp}
-                className="pt-2 relative select-none"
-              >
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-black">{filters.find((item) => item.id === activeFilter)?.label || '所有媒体内容'}</h2>
-                    <p className="text-xs text-pastel-muted mt-1">上传后会自动进入素材库，可按图片、视频、角色、场景或上传内容筛选。</p>
+              {hasGenerationView && (
+                <section className="pt-2 mb-8">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-black text-white">{isLoading ? '正在生成' : '生成结果'}</h2>
+                      <p className="text-xs text-white/40 mt-1">
+                        {isLoading ? '按当前比例生成，完成后会自动排序。' : `已按 ${aspectRatio} 和生成顺序排列。`}
+                      </p>
+                    </div>
+                    <span className="h-8 px-3 rounded-full bg-[#252629] border border-white/10 text-xs font-black text-white/65 flex items-center gap-2">
+                      {outputKind === 'image' ? <ImageIcon className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+                      {outputKind === 'image' ? selectedImageModelLabel : selectedVideoModelLabel}
+                    </span>
                   </div>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="h-10 px-4 rounded-full bg-pastel-highlight text-white text-sm font-black flex items-center gap-2 hover:bg-orange-600 shadow-sm"
-                  >
-                    <Plus className="w-4 h-4" />添加素材
-                  </button>
-                </div>
-
-                {filteredAssets.length > 0 || filteredPendingUploads.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-7 gap-4">
-                    {filteredPendingUploads.map((asset) => renderPendingTile(asset))}
-                    {filteredAssets.map((asset) => renderAssetTile(asset))}
+                  <div className={`grid ${generationGridClass} gap-4 mx-auto`}>
+                    {generationCards.slice().sort((a, b) => a.order - b.order).map((card) => (
+                      <article
+                        key={card.id}
+                        className="relative overflow-hidden rounded-xl border border-white/10 bg-[#161719]"
+                        style={{ aspectRatio: card.aspectRatio.replace(':', ' / ') }}
+                      >
+                        <div className="absolute inset-0 bg-[linear-gradient(125deg,#111315,#5b5f63,#202326,#8c8f91,#151719)] bg-[length:220%_220%] animate-pulse" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-black/20" />
+                        <div className="absolute left-4 top-4 text-white/65">
+                          {card.kind === 'image' ? <ImageIcon className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+                        </div>
+                        <div className="absolute right-4 top-4 text-lg font-black text-white/65">{card.progress}%</div>
+                        <div className="absolute left-4 right-4 bottom-4">
+                          <div className="h-1.5 rounded-full bg-black/35 overflow-hidden">
+                            <div className="h-full bg-white/75 transition-all duration-300" style={{ width: `${card.progress}%` }} />
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-[11px] font-black text-white/55">
+                            <span>#{card.order}</span>
+                            <span>{card.aspectRatio}</span>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                    {generationCards.length === 0 && generatedOutputs.slice().sort((a, b) => a.order - b.order).map((output) => (
+                      <article
+                        key={output.id}
+                        className="group relative overflow-hidden rounded-xl border border-white/10 bg-[#151617]"
+                        style={{ aspectRatio: output.aspectRatio.replace(':', ' / ') }}
+                      >
+                        {output.previewUrl ? (
+                          <img src={output.previewUrl} alt={output.prompt} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1a1c1f] via-[#4e5255] to-[#101214]">
+                            <Video className="w-10 h-10 text-white/50" />
+                          </div>
+                        )}
+                        <div className="absolute left-3 top-3 h-7 px-2 rounded-full bg-black/60 border border-white/10 text-[11px] font-black text-white/80 flex items-center gap-1">
+                          #{output.order} {output.aspectRatio}
+                        </div>
+                        <div className="absolute right-3 top-3 h-7 px-2 rounded-full bg-black/60 border border-white/10 text-[11px] font-black text-white/80">
+                          100%
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="h-[360px] w-full rounded-3xl border border-dashed border-pastel-border bg-white/70 flex flex-col items-center justify-center text-center"
-                  >
-                    <Sparkles className="w-12 h-12 text-pastel-muted/40 mb-3" />
-                    <div className="text-sm font-black text-pastel-text">未找到任何结果</div>
-                    <div className="text-xs text-pastel-muted mt-2">换一个分类，或继续上传图片和视频素材。</div>
-                  </button>
-                )}
-                {selectionRect && (
-                  <div
-                    className="pointer-events-none absolute z-30 border border-pastel-highlight bg-pastel-highlight/15 rounded-lg"
-                    style={{
-                      left: selectionRect.x,
-                      top: selectionRect.y,
-                      width: selectionRect.width,
-                      height: selectionRect.height,
-                    }}
-                  />
-                )}
-              </section>
+                </section>
+              )}
+              {!hasGenerationView && (
+                <section
+                  ref={selectionContainerRef}
+                  onMouseDown={handleCanvasMouseDown}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp}
+                  onMouseLeave={handleCanvasMouseUp}
+                  className="pt-2 relative select-none"
+                >
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-black text-white">{filters.find((item) => item.id === activeFilter)?.label || '所有媒体内容'}</h2>
+                      <p className="text-xs text-white/40 mt-1">上传后会自动进入素材库，可按图片、视频、角色、场景或上传内容筛选。</p>
+                    </div>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-10 px-4 rounded-full bg-[#3a3a3a] text-white text-sm font-black flex items-center gap-2 hover:bg-[#4a4a4a] shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" />添加素材
+                    </button>
+                  </div>
 
-              {script.length > 0 && (
+                  {filteredAssets.length > 0 || filteredPendingUploads.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-7 gap-4">
+                      {filteredPendingUploads.map((asset) => renderPendingTile(asset))}
+                      {filteredAssets.map((asset) => renderAssetTile(asset))}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-[360px] w-full rounded-2xl border border-dashed border-white/15 bg-[#101113] flex flex-col items-center justify-center text-center"
+                    >
+                      <Sparkles className="w-12 h-12 text-white/25 mb-3" />
+                      <div className="text-sm font-black text-white">未找到任何结果</div>
+                      <div className="text-xs text-white/40 mt-2">换一个分类，或继续上传图片和视频素材。</div>
+                    </button>
+                  )}
+                  {selectionRect && (
+                    <div
+                      className="pointer-events-none absolute z-30 border border-white bg-white/15 rounded-lg"
+                      style={{
+                        left: selectionRect.x,
+                        top: selectionRect.y,
+                        width: selectionRect.width,
+                        height: selectionRect.height,
+                      }}
+                    />
+                  )}
+                </section>
+              )}
+
+              {!hasGenerationView && script.length > 0 && (
                 <section className="mt-8">
                   <div className="mb-4">
-                    <h2 className="text-lg font-black flex items-center gap-2">
-                      <Clapperboard className="w-5 h-5 text-pastel-highlight" />分镜面板
+                    <h2 className="text-lg font-black flex items-center gap-2 text-white">
+                      <Clapperboard className="w-5 h-5 text-white/75" />分镜面板
                     </h2>
-                    <p className="text-xs text-pastel-muted mt-1">每张卡片都可以作为后续图片或视频生成 prompt 的起点。</p>
+                    <p className="text-xs text-white/40 mt-1">每张卡片都可以作为后续图片或视频生成 prompt 的起点。</p>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {script.map((scene, index) => (
-                      <article key={`${scene.time}-${index}`} className="bg-white border border-pastel-border rounded-2xl shadow-sm overflow-hidden">
-                        <div className="h-36 bg-pastel-card border-b border-pastel-border flex items-center justify-center">
-                          <div className="w-16 h-16 rounded-2xl bg-white border border-pastel-border flex items-center justify-center">
-                            <Clapperboard className="w-7 h-7 text-pastel-highlight" />
+                      <article key={`${scene.time}-${index}`} className="bg-[#151618] border border-white/10 rounded-lg shadow-sm overflow-hidden">
+                        <div className="h-36 bg-[#101113] border-b border-white/10 flex items-center justify-center">
+                          <div className="w-16 h-16 rounded-2xl bg-[#1b1c1e] border border-white/10 flex items-center justify-center">
+                            <Clapperboard className="w-7 h-7 text-white/75" />
                           </div>
                         </div>
                         <div className="p-4 space-y-3">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="h-7 px-2.5 rounded-full bg-pastel-pink text-pastel-text text-xs font-black flex items-center gap-1.5">
+                            <span className="h-7 px-2.5 rounded-full bg-[#303134] text-white text-xs font-black flex items-center gap-1.5">
                               <Clock className="w-3.5 h-3.5" />{scene.time}
                             </span>
                             <button
                               onClick={() => copyScenePrompt(scene, index)}
-                              className="w-8 h-8 rounded-full border border-pastel-border text-pastel-muted hover:text-pastel-highlight hover:border-pastel-highlight/40 flex items-center justify-center"
+                              className="w-8 h-8 rounded-full border border-white/10 text-white/55 hover:text-white hover:border-white/30 flex items-center justify-center"
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                          <div><div className="text-[11px] font-black text-pastel-muted mb-1">画面</div><p className="text-sm text-pastel-text leading-relaxed">{scene.visual}</p></div>
-                          <div><div className="text-[11px] font-black text-pastel-muted mb-1">声音</div><p className="text-sm text-pastel-muted leading-relaxed">{scene.audio}</p></div>
-                          <div className="rounded-xl bg-pastel-bg border border-pastel-border p-3 text-sm font-bold text-pastel-text">{scene.overlay}</div>
+                          <div><div className="text-[11px] font-black text-white/40 mb-1">画面</div><p className="text-sm text-white/85 leading-relaxed">{scene.visual}</p></div>
+                          <div><div className="text-[11px] font-black text-white/40 mb-1">声音</div><p className="text-sm text-white/55 leading-relaxed">{scene.audio}</p></div>
+                          <div className="rounded-xl bg-black border border-white/10 p-3 text-sm font-bold text-white/85">{scene.overlay}</div>
                           {copiedIndex === index && <div className="text-[11px] text-green-600 font-bold">已复制到剪贴板</div>}
                         </div>
                       </article>
@@ -589,25 +914,36 @@ const StoryboardTab: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute left-1/2 bottom-5 -translate-x-1/2 w-[min(640px,calc(100%-3rem))]">
-          {showAddMenu && (
-            <div className="absolute left-1/2 bottom-[118px] -translate-x-1/2 w-[min(780px,calc(100vw-18rem))] rounded-2xl bg-white border border-pastel-border shadow-2xl p-3 z-20">
+        <div className={`absolute left-1/2 ${centerLeftClass} bottom-5 -translate-x-1/2 w-[min(640px,calc(100%-3rem))] transition-[left] duration-300`}>
+          {showLinkPanel && (
+            <div className="absolute left-1/2 bottom-[102px] -translate-x-1/2 w-[min(780px,calc(100vw-18rem))] rounded-[22px] bg-[#171819] border border-white/10 shadow-2xl p-3 z-20">
               <div className="flex items-center gap-2 mb-3">
-                <button className="h-9 px-3 rounded-full bg-pastel-pink text-pastel-text text-xs font-black">今天</button>
+                <button className="h-9 px-3 rounded-full text-white/65 text-xs font-black flex items-center gap-2">
+                  6月06日 <ArrowRight className="w-3 h-3 rotate-90" />
+                </button>
                 <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-pastel-muted" />
+                  <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-white/45" />
                   <input
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="搜索资源"
-                    className="w-full h-9 rounded-xl bg-pastel-card border border-pastel-border pl-9 pr-3 text-xs outline-none focus:border-pastel-highlight"
+                    className="w-full h-10 rounded-xl bg-[#2a2b2e] border border-white/10 pl-10 pr-3 text-xs text-white outline-none placeholder:text-white/35 focus:border-white/25"
                   />
                 </div>
-                <button className="h-9 px-3 rounded-xl bg-pastel-card border border-pastel-border text-xs font-bold text-pastel-muted">最近</button>
+                <button className="h-10 px-4 rounded-xl bg-[#2a2b2e] border border-white/10 text-xs font-bold text-white/70 flex items-center gap-2">
+                  最近 <ArrowRight className="w-3 h-3 rotate-90" />
+                </button>
               </div>
-              <div className="grid grid-cols-[140px_1fr_38%] gap-3 h-[520px]">
+              <div className="grid grid-cols-[128px_1fr_38%] gap-3 h-[500px]">
                 <div className="relative space-y-1">
-                  {filters.map((filter) => {
+                  {[
+                    { id: 'all' as AssetFilter, label: '全部', icon: Grid3X3 },
+                    { id: 'image' as AssetFilter, label: '图片', icon: ImageIcon },
+                    { id: 'video' as AssetFilter, label: '视频', icon: Video },
+                    { id: 'scene' as AssetFilter, label: '分镜', icon: Clapperboard },
+                    { id: 'character' as AssetFilter, label: '角色', icon: UserRound },
+                    { id: 'uploaded' as AssetFilter, label: '上传的内容', icon: Upload },
+                  ].map((filter) => {
                     const Icon = filter.icon;
                     const active = activeFilter === filter.id;
                     return (
@@ -615,37 +951,59 @@ const StoryboardTab: React.FC = () => {
                         key={filter.id}
                         onClick={() => setActiveFilter(filter.id)}
                         className={`w-full h-9 px-3 rounded-lg flex items-center justify-between text-xs font-black ${
-                          active ? 'bg-pastel-pink text-pastel-text' : 'text-pastel-muted hover:bg-pastel-bg'
+                          active ? 'bg-[#56575a] text-white' : 'text-white/45 hover:bg-white/10 hover:text-white'
                         }`}
                       >
                         <span className="flex items-center gap-2"><Icon className="w-3.5 h-3.5" />{filter.label}</span>
-                        <span className="text-[10px]">{counts[filter.id]}</span>
+                        <span className="text-[10px]">{filter.id === 'scene' ? script.length : counts[filter.id]}</span>
                       </button>
                     );
                   })}
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute left-1 bottom-0 h-9 px-3 rounded-lg text-xs font-black text-pastel-highlight hover:bg-pastel-bg flex items-center gap-2"
+                    className="absolute left-1 bottom-0 h-9 px-3 rounded-lg text-xs font-black text-white hover:bg-white/10 flex items-center gap-2"
                   >
                     <Upload className="w-3.5 h-3.5" />上传媒体
                   </button>
                 </div>
 
-                <div className="rounded-xl bg-white flex items-center justify-center overflow-hidden">
-                  {filteredAssets.length === 0 && filteredPendingUploads.length === 0 ? (
+                <div className="rounded-2xl bg-[#151617] flex items-center justify-center overflow-hidden">
+                  {linkPanelItems.length === 0 && filteredPendingUploads.length === 0 ? (
                     <div className="text-center">
-                      <Sparkles className="w-12 h-12 mx-auto text-pastel-muted/40 mb-3" />
-                      <div className="text-sm font-black text-pastel-text">未找到任何结果</div>
+                      <Sparkles className="w-12 h-12 mx-auto text-white/35 mb-3" />
+                      <div className="text-sm font-black text-white">未找到任何结果</div>
                     </div>
                   ) : (
-                    <div className="w-full h-full grid grid-cols-2 gap-3 overflow-y-auto custom-scrollbar pr-1">
+                    <div className="w-full h-full grid grid-cols-2 gap-3 overflow-y-auto custom-scrollbar p-3">
                       {filteredPendingUploads.slice(0, 12).map((asset) => renderPendingTile(asset))}
-                      {filteredAssets.slice(0, 12).map((asset) => renderAssetTile(asset, true))}
+                      {linkPanelItems.slice(0, 16).map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            const found = assets.find((asset) => asset.id === item.id);
+                            if (found) setZoomAsset(found);
+                          }}
+                          className="group relative aspect-[4/5] rounded-lg overflow-hidden bg-[#232427] border border-white/10 text-left hover:border-white/30"
+                        >
+                          {item.type === 'image' ? (
+                            <img src={item.previewUrl} alt={item.name} className="w-full h-full object-cover" />
+                          ) : item.type === 'video' ? (
+                            <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Clapperboard className="w-8 h-8 text-white/50" />
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                            <div className="text-[11px] font-black text-white truncate">{item.name}</div>
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
 
-                <div className="rounded-xl bg-pastel-card border border-pastel-border flex items-center justify-center text-center px-6">
+                <div className="rounded-2xl bg-[#222325] border border-white/5 flex items-center justify-center text-center px-6">
                   {filteredAssets[0] ? (
                     <button onClick={() => setZoomAsset(filteredAssets[0])} className="w-full h-full rounded-xl overflow-hidden">
                       {filteredAssets[0].type === 'image' ? (
@@ -656,9 +1014,9 @@ const StoryboardTab: React.FC = () => {
                     </button>
                   ) : (
                     <div>
-                      <Sparkles className="w-12 h-12 mx-auto text-pastel-muted/30 mb-3" />
-                      <div className="text-sm font-black text-pastel-text">预览区域</div>
-                      <div className="text-xs text-pastel-muted mt-2">上传后这里会显示当前素材预览</div>
+                      <Sparkles className="w-12 h-12 mx-auto text-white/20 mb-3" />
+                      <div className="text-sm font-black text-white/80">预览区域</div>
+                      <div className="text-xs text-white/35 mt-2">上传后这里会显示当前素材预览</div>
                     </div>
                   )}
                 </div>
@@ -666,64 +1024,108 @@ const StoryboardTab: React.FC = () => {
             </div>
           )}
 
-          {showSettingsPanel && (
-            <div className="absolute right-16 bottom-[72px] w-72 rounded-2xl bg-white border border-pastel-border shadow-2xl p-2 z-20">
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => { setOutputKind('image'); setAspectRatio('9:16'); }} className={`h-9 rounded-xl text-xs font-black border flex items-center justify-center gap-1.5 ${outputKind === 'image' ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>
+          {showGenerationPanel && !isAgentActive && (
+            <div className="absolute right-9 bottom-[72px] w-[280px] rounded-[18px] bg-[#171819] border border-white/10 shadow-2xl p-2 z-20">
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#222325] p-1">
+                <button
+                  onClick={() => { setOutputKind('image'); setAspectRatio('16:9'); }}
+                  className={`h-9 rounded-xl text-xs font-black flex items-center justify-center gap-2 ${outputKind === 'image' ? 'bg-white text-black' : 'text-white/75 hover:text-white'}`}
+                >
                   <ImageIcon className="w-3.5 h-3.5" />图片
                 </button>
-                <button onClick={() => { setOutputKind('video'); setAspectRatio('9:16'); }} className={`h-9 rounded-xl text-xs font-black border flex items-center justify-center gap-1.5 ${outputKind === 'video' ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>
-                  <FileVideo className="w-3.5 h-3.5" />视频
+                <button
+                  onClick={() => { setOutputKind('video'); setAspectRatio('16:9'); setShowImageModelMenu(false); }}
+                  className={`h-9 rounded-xl text-xs font-black flex items-center justify-center gap-2 ${outputKind === 'video' ? 'bg-white text-black' : 'text-white/75 hover:text-white'}`}
+                >
+                  <Video className="w-3.5 h-3.5" />视频
                 </button>
               </div>
 
               {outputKind === 'video' && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <button onClick={() => setSourceKind('frame')} className={`h-9 rounded-xl text-xs font-black border flex items-center justify-center gap-1.5 ${sourceKind === 'frame' ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#222325] p-1 mt-1">
+                  <button
+                    onClick={() => setSourceKind('frame')}
+                    className={`h-9 rounded-xl text-xs font-black flex items-center justify-center gap-2 ${sourceKind === 'frame' ? 'bg-white text-black' : 'text-white/75 hover:text-white'}`}
+                  >
                     <Grid3X3 className="w-3.5 h-3.5" />帧
                   </button>
-                  <button onClick={() => setSourceKind('asset')} className={`h-9 rounded-xl text-xs font-black border flex items-center justify-center gap-1.5 ${sourceKind === 'asset' ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>
+                  <button
+                    onClick={() => setSourceKind('asset')}
+                    className={`h-9 rounded-xl text-xs font-black flex items-center justify-center gap-2 ${sourceKind === 'asset' ? 'bg-white text-black' : 'text-white/75 hover:text-white'}`}
+                  >
                     <FolderUp className="w-3.5 h-3.5" />素材
                   </button>
                 </div>
               )}
 
-              <div className={`grid gap-2 mt-2 ${outputKind === 'image' ? 'grid-cols-5' : 'grid-cols-2'}`}>
+              <div className={`grid gap-1 rounded-xl bg-[#222325] p-1 mt-1 ${outputKind === 'image' ? 'grid-cols-5' : 'grid-cols-2'}`}>
                 {(outputKind === 'image' ? imageAspectRatios : videoAspectRatios).map((ratio) => (
-                  <button key={ratio} onClick={() => setAspectRatio(ratio)} className={`h-11 rounded-xl text-xs font-black border ${aspectRatio === ratio ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>{ratio}</button>
+                  <button
+                    key={ratio}
+                    onClick={() => setAspectRatio(ratio)}
+                    className={`h-12 rounded-xl text-xs font-black ${aspectRatio === ratio ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}
+                  >
+                    <span className="block text-[10px] mb-0.5">▭</span>{ratio}
+                  </button>
                 ))}
               </div>
 
-              <div className="grid grid-cols-4 gap-2 mt-2">
+              <div className="grid grid-cols-4 gap-1 rounded-xl bg-[#222325] p-1 mt-1">
                 {[1, 2, 3, 4].map((count) => (
-                  <button key={count} onClick={() => setVariationCount(count)} className={`h-9 rounded-xl text-xs font-black border ${variationCount === count ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>x{count}</button>
+                  <button
+                    key={count}
+                    onClick={() => setVariationCount(count)}
+                    className={`h-9 rounded-xl text-xs font-black ${variationCount === count ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}
+                  >
+                    x{count}
+                  </button>
                 ))}
               </div>
 
               {outputKind === 'image' ? (
-                <select
-                  value={selectedImageModel}
-                  onChange={(event) => setSelectedImageModel(event.target.value)}
-                  className="mt-2 w-full h-9 rounded-xl bg-pastel-card border border-pastel-border px-3 text-xs font-black text-pastel-text outline-none"
-                >
-                  {imageModelOptions.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label} · {option.subLabel}</option>
-                  ))}
-                </select>
+                <>
+                  <button
+                    onClick={() => setShowImageModelMenu((value) => !value)}
+                    className="mt-1 w-full h-10 rounded-xl bg-[#222325] px-3 text-xs font-black text-white flex items-center justify-between"
+                  >
+                    {imageModelOptions.find((option) => option.id === selectedImageModel)?.label || 'Nano Banana 2'}
+                    <ArrowRight className={`w-3 h-3 text-white/60 transition-transform ${showImageModelMenu ? '-rotate-90' : 'rotate-90'}`} />
+                  </button>
+                  {showImageModelMenu && (
+                    <div className="mt-1 rounded-xl bg-[#191a1c] p-1">
+                      {imageModelOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => {
+                            setSelectedImageModel(option.id);
+                            setShowImageModelMenu(false);
+                          }}
+                          className={`w-full h-10 rounded-lg px-3 text-left text-xs font-black flex items-center gap-2 ${
+                            selectedImageModel === option.id ? 'bg-[#343538] text-white' : 'text-white/80 hover:bg-white/10'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
-                  <select
-                    value={selectedVideoModel}
-                    onChange={(event) => setSelectedVideoModel(event.target.value)}
-                    className="mt-2 w-full h-9 rounded-xl bg-pastel-card border border-pastel-border px-3 text-xs font-black text-pastel-text outline-none"
-                  >
-                    {videoModelOptions.map((option) => (
-                      <option key={option.id} value={option.id}>{option.label}</option>
-                    ))}
-                  </select>
-                  <div className="grid grid-cols-4 gap-2 mt-2">
+                  <button className="mt-1 w-full h-10 rounded-xl bg-[#222325] px-3 text-xs font-black text-white flex items-center justify-between">
+                    {videoModelOptions.find((option) => option.id === selectedVideoModel)?.label || 'Omni Flash'}
+                    <ArrowRight className="w-3 h-3 rotate-90 text-white/60" />
+                  </button>
+                  <div className="grid grid-cols-4 gap-1 rounded-xl bg-[#222325] p-1 mt-1">
                     {durationOptions.map((option) => (
-                      <button key={option} onClick={() => setDuration(option)} className={`h-9 rounded-xl text-xs font-black border ${duration === option ? 'bg-pastel-pink border-pastel-border' : 'bg-pastel-card border-pastel-border'}`}>{option}</button>
+                      <button
+                        key={option}
+                        onClick={() => setDuration(option)}
+                        className={`h-9 rounded-xl text-xs font-black ${duration === option ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}
+                      >
+                        {option}
+                      </button>
                     ))}
                   </div>
                 </>
@@ -731,9 +1133,23 @@ const StoryboardTab: React.FC = () => {
             </div>
           )}
 
-          <div className="bg-white/95 backdrop-blur-xl border border-pastel-border shadow-xl rounded-2xl p-3">
+          <div className={`relative overflow-hidden bg-[#191a1c]/95 backdrop-blur-xl border border-white/10 shadow-2xl rounded-[22px] p-3 transition-all duration-500 ${
+            isAgentActive ? 'shadow-white/10 ring-1 ring-white/15' : ''
+          }`}>
+            {isAgentTransitioning && (
+              <div className="pointer-events-none absolute inset-0 opacity-90">
+                <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.04),rgba(255,255,255,0.2),rgba(120,120,120,0.1),rgba(255,255,255,0.04))] animate-pulse" />
+                <div className="absolute -inset-y-10 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-white/30 to-transparent blur-xl animate-[spin_1.2s_linear_infinite]" />
+              </div>
+            )}
+            {isAgentActive && !isAgentTransitioning && (
+              <div className="pointer-events-none absolute inset-0 opacity-60">
+                <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-white/12 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-r from-white/[0.03] via-white/[0.01] to-white/[0.04]" />
+              </div>
+            )}
             {error && (
-              <div className="mb-3 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm flex items-start gap-2">
+              <div className="relative mb-3 p-3 rounded-xl bg-red-500/10 border border-red-400/20 text-red-200 text-sm flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                 <div className="flex-1">{error}</div>
                 {error.includes('API') && (
@@ -747,42 +1163,94 @@ const StoryboardTab: React.FC = () => {
               value={creativePrompt}
               onChange={(event) => setCreativePrompt(event.target.value)}
               placeholder="你希望创作什么内容？"
-              rows={2}
-              className="w-full resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-pastel-muted/70"
+              rows={creativePrompt.length > 180 ? 8 : 2}
+              className="relative w-full max-h-[260px] resize-none overflow-y-auto custom-scrollbar bg-transparent px-2 py-2 text-sm text-white outline-none placeholder:text-white/25"
             />
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-pastel-border">
+            <div className="relative flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
               <button
-                onClick={() => { setShowAddMenu((value) => !value); setShowSettingsPanel(false); }}
+                onClick={() => { setShowLinkPanel((value) => !value); setShowAddMenu(false); setShowSettingsPanel(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
                 className={`w-9 h-9 rounded-full border flex items-center justify-center ${
-                  showAddMenu ? 'bg-pastel-pink border-pastel-border text-pastel-text' : 'border-pastel-border text-pastel-muted hover:text-pastel-highlight hover:border-pastel-highlight/40'
+                  showLinkPanel ? 'bg-[#404044] border-white/15 text-white' : 'border-white/10 text-white/60 hover:text-white hover:border-white/25'
                 }`}
               >
                 <Plus className="w-4 h-4" />
               </button>
-              <span className="h-9 px-3 rounded-full bg-pastel-card border border-pastel-border text-xs font-bold text-pastel-muted flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-pastel-highlight" />智能体
-              </span>
               <button
-                onClick={() => { setShowSettingsPanel((value) => !value); setShowAddMenu(false); }}
-                className={`ml-auto h-9 px-3 rounded-full border text-xs font-black flex items-center gap-2 ${
-                  showSettingsPanel ? 'bg-pastel-pink border-pastel-border text-pastel-text' : 'bg-pastel-card border-pastel-border text-pastel-text'
+                onClick={handleAgentClick}
+                className={`h-9 px-4 rounded-full border text-xs font-black flex items-center gap-1 transition-all ${
+                  isAgentActive && !isAgentTransitioning
+                    ? 'bg-white text-black border-white shadow-lg shadow-white/15'
+                    : 'bg-[#252629] border-white/10 text-white/65 hover:text-white hover:border-white/25'
                 }`}
               >
-                {outputKind === 'image'
-                  ? `${imageModelOptions.find((option) => option.id === selectedImageModel)?.label || 'Banana 2'} · ${variationCount}x`
-                  : `${videoModelOptions.find((option) => option.id === selectedVideoModel)?.label || 'Omni Flash'} · ${duration} · ${variationCount}x`}
+                <Sparkles className={`w-3.5 h-3.5 ${isAgentActive && !isAgentTransitioning ? 'text-black' : 'text-white/75'}`} />智能体
               </button>
+              {isAgentActive && !isAgentTransitioning && (
+                <div className="ml-auto flex items-center gap-2 text-white/55">
+                  <button
+                    onClick={() => setAgentDrawer('commands')}
+                    className={`w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center ${agentDrawer === 'commands' ? 'text-white bg-white/10' : ''}`}
+                    title="智能体指令"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setAgentDrawer('settings')}
+                    className={`w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center ${agentDrawer === 'settings' ? 'text-white bg-white/10' : ''}`}
+                    title="智能体设置"
+                  >
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              {!isAgentActive && (
+                <button
+                  onClick={() => {
+                    setShowGenerationPanel((value) => !value);
+                    setShowSettingsPanel(false);
+                    setShowAddMenu(false);
+                    setShowLinkPanel(false);
+                    setShowImageModelMenu(false);
+                  }}
+                  className={`ml-auto h-9 px-3 rounded-full border text-xs font-black flex items-center gap-2 ${
+                    showGenerationPanel ? 'bg-[#404044] border-white/15 text-white' : 'bg-[#252629] border-white/10 text-white/70'
+                  }`}
+                >
+                  {outputKind === 'image' ? (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                      {selectedImageModelLabel}
+                      <span className="text-white/45">▭</span>
+                      {aspectRatio}
+                      <span className="text-white/45">·</span>
+                      {variationCount}x
+                    </>
+                  ) : (
+                    <>
+                      <Video className="w-3.5 h-3.5 text-white/55" />
+                      {selectedVideoModelLabel}
+                      <span className="text-white/45">▭</span>
+                      {aspectRatio}
+                      <span className="text-white/45">·</span>
+                      {duration}
+                      <span className="text-white/45">·</span>
+                      {variationCount}x
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 onClick={handleGenerate}
-                disabled={assets.length === 0 || isLoading}
-                className={`h-10 px-4 rounded-full text-sm font-black flex items-center gap-2 transition-all ${
-                  assets.length === 0 || isLoading ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-pastel-highlight text-white hover:bg-orange-600 shadow-sm'
+                disabled={!canGenerate || isLoading}
+                className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${
+                  !canGenerate || isLoading ? 'bg-[#26272a] text-white/25 cursor-not-allowed' : 'bg-white text-black hover:bg-white/90 shadow-sm shadow-white/10'
                 }`}
+                title="生成"
               >
                 {isLoading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" />生成中</>
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <>生成分镜<ArrowRight className="w-4 h-4" /></>
+                  <ArrowRight className="w-4 h-4" />
                 )}
               </button>
             </div>
@@ -790,22 +1258,121 @@ const StoryboardTab: React.FC = () => {
         </div>
       </main>
 
+      <aside
+        className={`fixed right-3 top-20 bottom-3 z-40 w-80 rounded-2xl bg-[#191a1b] border border-white/10 shadow-2xl transition-transform duration-500 ease-out ${
+          agentDrawer ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)]'
+        }`}
+      >
+        {agentDrawer === 'commands' && (
+          <div className="h-full flex flex-col p-2">
+            <div className="h-12 px-3 flex items-center gap-3">
+              <button onClick={() => setAgentDrawer(null)} className="w-8 h-8 rounded-full text-white/65 hover:bg-white/10 hover:text-white flex items-center justify-center">
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <div className="text-base font-black text-white">智能体指令</div>
+            </div>
+            <button className="h-10 rounded-lg border border-white/35 text-white text-xs font-black flex items-center justify-center gap-2 hover:bg-white/10">
+              <Plus className="w-4 h-4" />添加指令
+            </button>
+            <div className="flex-1" />
+            <button onClick={() => setAgentDrawer(null)} className="h-10 rounded-xl bg-white text-black text-xs font-black hover:bg-white/90">
+              完成
+            </button>
+          </div>
+        )}
+
+        {agentDrawer === 'settings' && (
+          <div className="h-full flex flex-col p-2">
+            <div className="h-12 px-3 flex items-center gap-3">
+              <button onClick={() => setAgentDrawer(null)} className="w-8 h-8 rounded-full text-white/65 hover:bg-white/10 hover:text-white flex items-center justify-center">
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <div className="text-base font-black text-white">智能体设置</div>
+            </div>
+
+            <div className="px-1 py-2 space-y-5 overflow-y-auto custom-scrollbar">
+              <section>
+                <div className="text-xs font-black text-white/45 mb-2">生成前先确认</div>
+                <div className="space-y-2">
+                  {[
+                    { title: '始终', desc: '智能体将在生成媒体内容之前征求确认。', active: true },
+                    { title: '永不', desc: '智能体将自动生成媒体内容并消耗点数。', active: false },
+                  ].map((item) => (
+                    <button key={item.title} className={`w-full rounded-lg p-3 text-left flex gap-2 ${item.active ? 'bg-[#242527]' : 'hover:bg-white/5'}`}>
+                      <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${item.active ? 'border-white' : 'border-white/60'}`}>
+                        {item.active && <span className="w-2 h-2 rounded-full bg-white" />}
+                      </span>
+                      <span>
+                        <span className="block text-sm font-black text-white">{item.title}</span>
+                        <span className="block text-[11px] text-white/45 mt-0.5">{item.desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <div className="text-xs font-black text-white/45 mb-2">图片生成默认设置</div>
+                <div className="grid grid-cols-5 rounded-xl bg-[#222325] p-1">
+                  {imageAspectRatios.map((ratio, index) => (
+                    <button key={ratio} onClick={() => setAspectRatio(ratio)} className={`h-14 rounded-lg text-xs font-black ${index === 0 ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>
+                      <span className="block text-[10px] mb-1">▭</span>{ratio}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-4 rounded-xl bg-[#222325] p-1 mt-1">
+                  {[1, 2, 3, 4].map((count) => (
+                    <button key={count} onClick={() => setVariationCount(count)} className={`h-9 rounded-lg text-xs font-black ${variationCount === count ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>x{count}</button>
+                  ))}
+                </div>
+                <button className="mt-1 w-full h-9 rounded-xl bg-[#222325] px-3 text-xs font-black text-white flex items-center justify-between">
+                  Nano Banana 2 <ArrowRight className="w-3 h-3 rotate-90 text-white/60" />
+                </button>
+              </section>
+
+              <section>
+                <div className="text-xs font-black text-white/45 mb-2">视频生成默认设置</div>
+                <div className="grid grid-cols-2 rounded-xl bg-[#222325] p-1">
+                  {videoAspectRatios.map((ratio) => (
+                    <button key={ratio} onClick={() => setAspectRatio(ratio)} className={`h-14 rounded-lg text-xs font-black ${ratio === '16:9' ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>
+                      <span className="block text-[10px] mb-1">▭</span>{ratio}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-4 rounded-xl bg-[#222325] p-1 mt-1">
+                  {[1, 2, 3, 4].map((count) => (
+                    <button key={count} onClick={() => setVariationCount(count)} className={`h-9 rounded-lg text-xs font-black ${count === 1 ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>x{count}</button>
+                  ))}
+                </div>
+                <button className="mt-1 w-full h-9 rounded-xl bg-[#222325] px-3 text-xs font-black text-white flex items-center justify-between">
+                  Omni Flash <ArrowRight className="w-3 h-3 rotate-90 text-white/60" />
+                </button>
+              </section>
+            </div>
+
+            <button onClick={() => setAgentDrawer(null)} className="mt-auto h-10 rounded-xl bg-white text-black text-xs font-black hover:bg-white/90">
+              保存
+            </button>
+          </div>
+        )}
+      </aside>
+
       {zoomAsset && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6" onClick={() => setZoomAsset(null)}>
+        <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-6" onClick={() => setZoomAsset(null)}>
           <div className="relative max-w-4xl max-h-[90vh]" onClick={(event) => event.stopPropagation()}>
-            <button onClick={() => setZoomAsset(null)} className="absolute -top-4 -right-4 w-9 h-9 rounded-full bg-white text-pastel-text shadow-lg flex items-center justify-center">
+            <button onClick={() => setZoomAsset(null)} className="absolute -top-4 -right-4 w-9 h-9 rounded-full bg-[#242528] text-white shadow-lg flex items-center justify-center">
               <X className="w-4 h-4" />
             </button>
             {zoomAsset.type === 'image' ? (
-              <img src={zoomAsset.previewUrl} alt={zoomAsset.name} className="max-h-[84vh] max-w-full rounded-2xl shadow-2xl object-contain" />
+              <img src={zoomAsset.previewUrl} alt={zoomAsset.name} className="max-h-[84vh] max-w-full rounded-lg shadow-2xl object-contain border border-white/10" />
             ) : (
-              <video src={zoomAsset.previewUrl} className="max-h-[84vh] max-w-full rounded-2xl shadow-2xl" controls autoPlay />
+              <video src={zoomAsset.previewUrl} className="max-h-[84vh] max-w-full rounded-lg shadow-2xl border border-white/10" controls autoPlay />
             )}
             <div className="mt-3 flex items-center justify-center gap-2">
-              <button onClick={() => downloadAsset(zoomAsset)} className="h-10 px-4 rounded-full bg-white text-pastel-text text-sm font-bold flex items-center gap-2 shadow-sm">
+              <button onClick={() => downloadAsset(zoomAsset)} className="h-10 px-4 rounded-full bg-[#242528] text-white text-sm font-bold flex items-center gap-2 shadow-sm">
                 <Download className="w-4 h-4" />下载素材
               </button>
-              <button onClick={() => setZoomAsset(null)} className="h-10 px-4 rounded-full bg-pastel-highlight text-white text-sm font-bold flex items-center gap-2 shadow-sm">
+              <button onClick={() => setZoomAsset(null)} className="h-10 px-4 rounded-full bg-[#3a3a3d] text-white text-sm font-bold flex items-center gap-2 shadow-sm">
                 <Maximize2 className="w-4 h-4" />返回工作台
               </button>
             </div>

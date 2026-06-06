@@ -107,7 +107,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const handleCardClick = async (prompt: string, title?: string) => {
     if (title === "模特工厂") {
       onStart("/model-factory", [], selectedModel, WorkflowStep.MODEL_FACTORY);
-    } else if (title === "AI创意视频") {
+    } else if (title === "视频工厂") {
       // 跳转到 Cyzx4 工作台的分镜创作 Tab
       onStart("/storyboard", [], selectedModel, WorkflowStep.STORYBOARD_CREATION);
     } else if (title === "小彻工作站") {
@@ -166,8 +166,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
       Visual: ModelVisual
     },
     {
-      title: "AI创意视频",
-      prompt: "/storyboard 分镜创作",
+      title: "视频工厂",
+      prompt: "/storyboard 视频工厂",
       bgClass: "from-white to-red-50/50 dark:from-white/5 dark:to-red-900/20",
       borderClass: "hover:border-red-200 dark:hover:border-red-500/30",
       textClass: "text-gray-800 dark:text-gray-100",
