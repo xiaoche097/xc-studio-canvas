@@ -45,13 +45,17 @@ type SourceFilter = 'uploaded' | 'generated';
 
 interface FlowAsset {
   id: string;
-  file: File;
+  file?: File;
   previewUrl: string;
   type: 'image' | 'video';
   role: AssetRole;
   mimeType: string;
   name: string;
   aspectRatio?: string;
+  source?: 'uploaded' | 'generated';
+  prompt?: string;
+  modelLabel?: string;
+  createdAt?: number;
 }
 
 interface PendingUpload {
@@ -160,6 +164,12 @@ const getAssetTileStyle = (aspectRatio?: string, fallback = '4 / 5') => {
   };
 };
 
+const previewUrlToBase64 = async (previewUrl: string) => {
+  if (previewUrl.startsWith('data:')) return previewUrl.split(',')[1] || previewUrl;
+  const response = await fetch(previewUrl);
+  return blobToBase64(await response.blob());
+};
+
 const StoryboardTab: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const agentTimerRef = useRef<number | null>(null);
@@ -196,6 +206,8 @@ const StoryboardTab: React.FC = () => {
   const [zoomAsset, setZoomAsset] = useState<FlowAsset | null>(null);
   const [zoomOutput, setZoomOutput] = useState<GeneratedOutput | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [assetMenuId, setAssetMenuId] = useState<string | null>(null);
+  const [promptAssetIds, setPromptAssetIds] = useState<Set<string>>(new Set());
   const [outputMenuId, setOutputMenuId] = useState<string | null>(null);
   const [favoriteOutputIds, setFavoriteOutputIds] = useState<Set<string>>(new Set());
   const [typeFilters, setTypeFilters] = useState<Set<'image' | 'video'>>(new Set());
@@ -259,6 +271,7 @@ const StoryboardTab: React.FC = () => {
             mimeType: item.mimeType,
             name: item.name,
             aspectRatio: item.aspectRatio,
+            source: 'uploaded',
           }, ...prev]);
         }, 900 + index * 110);
       }, index * 60);
@@ -293,7 +306,8 @@ const StoryboardTab: React.FC = () => {
         asset.role === activeFilter;
       const matchesType = typeFilters.size === 0 || typeFilters.has(asset.type);
       const matchesRole = roleFilters.size === 0 || roleFilters.has(asset.role);
-      const matchesSource = sourceFilters.size === 0 || sourceFilters.has('uploaded');
+      const assetSource = asset.source || 'uploaded';
+      const matchesSource = sourceFilters.size === 0 || sourceFilters.has(assetSource);
       const matchesSearch = !query || asset.name.toLowerCase().includes(query);
       return matchesFilter && matchesType && matchesRole && matchesSource && matchesSearch;
     });
@@ -337,8 +351,9 @@ const StoryboardTab: React.FC = () => {
   const centerLeftClass = isSidebarCollapsed ? 'lg:left-[calc(50%-32px)]' : 'lg:left-[calc(50%-120px)]';
   const selectedImageModelLabel = imageModelOptions.find((option) => option.id === selectedImageModel)?.label || 'Nano Banana 2';
   const selectedVideoModelLabel = videoModelOptions.find((option) => option.id === selectedVideoModel)?.label || 'Omni Flash';
-  const canGenerate = creativePrompt.trim().length > 0 || assets.length > 0;
-  const hasGenerationView = generationCards.length > 0 || generatedOutputs.length > 0;
+  const canGenerate = creativePrompt.trim().length > 0 || promptAssetIds.size > 0;
+  const hasGenerationView = false;
+  const promptAssets = assets.filter((asset) => promptAssetIds.has(asset.id));
   const generationGridClass = ['9:16', '3:4'].includes(aspectRatio)
     ? 'grid-cols-[repeat(auto-fill,minmax(220px,1fr))] max-w-6xl'
     : aspectRatio === '1:1'
@@ -421,8 +436,28 @@ const StoryboardTab: React.FC = () => {
       if (target) URL.revokeObjectURL(target.previewUrl);
       return prev.filter((asset) => asset.id !== id);
     });
+    setPromptAssetIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setAssetMenuId(null);
     setScript([]);
   };
+
+  const addAssetToPrompt = (asset: FlowAsset) => {
+    setPromptAssetIds((prev) => new Set(prev).add(asset.id));
+    setCreativePrompt((current) => current.trim() ? current : `参考素材：${asset.name}`);
+    setAssetMenuId(null);
+  };
+
+  const assetToGenerationPayload = async (asset: FlowAsset) => ({
+    base64: asset.file ? await blobToBase64(asset.file) : await previewUrlToBase64(asset.previewUrl),
+    mimeType: asset.mimeType,
+    name: asset.name,
+    role: asset.role,
+    type: asset.type,
+  });
 
   const downloadGeneratedOutput = (output: GeneratedOutput) => {
     if (!output.previewUrl) return;
@@ -460,7 +495,6 @@ const StoryboardTab: React.FC = () => {
     setError(null);
     setShowGenerationPanel(false);
     setShowLinkPanel(false);
-    setGeneratedOutputs([]);
 
     const count = variationCount;
     const prompt = creativePrompt.trim() || '基于上传素材生成一组适合电商投放的创意视频分镜。';
@@ -483,13 +517,8 @@ const StoryboardTab: React.FC = () => {
     }, 260);
 
     try {
-      const payload = await Promise.all(assets.slice(0, 12).map(async (asset) => ({
-        base64: await blobToBase64(asset.file),
-        mimeType: asset.mimeType,
-        name: asset.name,
-        role: asset.role,
-        type: asset.type,
-      })));
+      const referenceAssets = assets.filter((asset) => promptAssetIds.has(asset.id)).slice(0, 12);
+      const payload = await Promise.all(referenceAssets.map(assetToGenerationPayload));
 
       if (outputKind === 'image') {
         const resultImages = await generateImageToImage(
@@ -507,7 +536,7 @@ const StoryboardTab: React.FC = () => {
         );
 
         const createdAt = Date.now();
-        const outputs = resultImages.slice(0, count).map((url, index) => ({
+        const outputs = await Promise.all(resultImages.slice(0, count).map(async (url, index) => ({
           id: `${Date.now()}-image-${index}`,
           type: 'image' as const,
           previewUrl: url,
@@ -516,13 +545,25 @@ const StoryboardTab: React.FC = () => {
           prompt,
           modelLabel,
           createdAt: createdAt + index,
-        }));
+        })));
+        const generatedAssets = await Promise.all(outputs.map(async (output) => ({
+          id: output.id,
+          previewUrl: output.previewUrl,
+          type: 'image' as const,
+          role: 'reference' as AssetRole,
+          mimeType: 'image/png',
+          name: `${output.modelLabel} #${output.order}`,
+          aspectRatio: await getMediaAspectRatio(output.previewUrl, 'image'),
+          source: 'generated' as const,
+          prompt: output.prompt,
+          modelLabel: output.modelLabel,
+          createdAt: output.createdAt,
+        } satisfies FlowAsset)));
 
         setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
         window.setTimeout(() => {
-          setGeneratedOutputs(outputs);
+          setAssets((prev) => [...generatedAssets, ...prev]);
           setGenerationCards([]);
-          setActiveFilter('image');
         }, 450);
       } else {
         const result = await generateVideoScript(
@@ -536,18 +577,7 @@ const StoryboardTab: React.FC = () => {
         setScript(nextScript);
         setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
         window.setTimeout(() => {
-          const createdAt = Date.now();
-          setGeneratedOutputs(nextCards.map((card, index) => ({
-            id: `${Date.now()}-video-${index}`,
-            type: 'video' as const,
-            aspectRatio,
-            order: index + 1,
-            prompt: nextScript[index]?.prompt || prompt,
-            modelLabel,
-            createdAt: createdAt + index,
-          })));
           setGenerationCards([]);
-          setActiveFilter('video');
         }, 450);
       }
     } catch {
@@ -657,6 +687,25 @@ const StoryboardTab: React.FC = () => {
     </div>
   );
 
+  const renderGenerationTile = (card: GenerationCard) => (
+    <div
+      key={card.id}
+      className="relative shrink-0 rounded-lg overflow-hidden bg-[#17181a] border border-white/10 shadow-sm"
+      style={getAssetTileStyle(card.aspectRatio.replace(':', ' / '), card.kind === 'video' ? '9 / 16' : '4 / 5')}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-[#25282b] via-[#5d6368] to-[#111315]" />
+      <div className="absolute left-3 top-3 text-white/70">
+        {card.kind === 'video' ? <Video className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}
+      </div>
+      <div className="absolute right-3 top-3 text-white/80 text-sm font-black">{card.progress}%</div>
+      <div className="absolute left-3 right-3 bottom-3">
+        <div className="h-1 rounded-full bg-white/20 overflow-hidden">
+          <div className="h-full bg-white/80 transition-all duration-200" style={{ width: `${card.progress}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+
   const renderAssetTile = (asset: FlowAsset, compact = false) => {
     const selected = selectedAssetIds.has(asset.id);
     return (
@@ -695,13 +744,35 @@ const StoryboardTab: React.FC = () => {
           <Heart className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => { event.stopPropagation(); setAssetMenuId((id) => id === asset.id ? null : asset.id); }}
           className="w-7 h-7 rounded-full text-white/75 hover:bg-white/15 hover:text-white flex items-center justify-center"
           title="更多"
         >
           <MoreVertical className="w-3.5 h-3.5" />
         </button>
       </div>
+      {assetMenuId === asset.id && (
+        <div className="absolute right-2 top-12 w-44 rounded-xl bg-[#1b1c1e]/98 border border-white/10 shadow-2xl overflow-hidden z-30 backdrop-blur" onClick={(event) => event.stopPropagation()}>
+          <button
+            onClick={() => addAssetToPrompt(asset)}
+            className="w-full h-10 px-3 text-left text-xs font-black text-white/85 hover:bg-white/10 flex items-center gap-3"
+          >
+            <Plus className="w-4 h-4" />添加到提示
+          </button>
+          <button
+            onClick={() => downloadAsset(asset)}
+            className="w-full h-10 px-3 text-left text-xs font-black text-white/85 hover:bg-white/10 flex items-center gap-3"
+          >
+            <Download className="w-4 h-4" />下载
+          </button>
+          <button
+            onClick={() => removeAsset(asset.id)}
+            className="w-full h-10 px-3 text-left text-xs font-black text-red-400 hover:bg-red-500/15 flex items-center gap-3 border-t border-white/10"
+          >
+            <Trash2 className="w-4 h-4" />移至回收站
+          </button>
+        </div>
+      )}
       <div className="hidden absolute left-2 top-2 h-7 px-2 rounded-full bg-black/70 border border-white/15 text-white/90 text-[10px] font-black items-center gap-1 shadow-sm backdrop-blur">
         {asset.type === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
         {asset.type === 'video' ? '视频' : '图片'}
@@ -1186,8 +1257,9 @@ const StoryboardTab: React.FC = () => {
                     </button>
                   </div>
 
-                  {filteredAssets.length > 0 || filteredPendingUploads.length > 0 ? (
+                  {filteredAssets.length > 0 || filteredPendingUploads.length > 0 || generationCards.length > 0 ? (
                     <div className="flex flex-wrap items-start gap-4">
+                      {generationCards.map((card) => renderGenerationTile(card))}
                       {filteredPendingUploads.map((asset) => renderPendingTile(asset))}
                       {filteredAssets.map((asset) => renderAssetTile(asset))}
                     </div>
@@ -1500,6 +1572,30 @@ const StoryboardTab: React.FC = () => {
                     <Key className="w-3 h-3" />切换密钥
                   </button>
                 )}
+              </div>
+            )}
+            {promptAssets.length > 0 && (
+              <div className="relative mb-2 flex flex-wrap gap-2 px-1">
+                {promptAssets.map((asset) => (
+                  <div key={asset.id} className="group/reference relative w-14 h-14 rounded-lg overflow-hidden border border-white/15 bg-[#101113]">
+                    {asset.type === 'image' ? (
+                      <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <video src={asset.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                    )}
+                    <button
+                      onClick={() => setPromptAssetIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(asset.id);
+                        return next;
+                      })}
+                      className="absolute right-1 top-1 w-5 h-5 rounded-full bg-black/70 text-white/80 opacity-0 group-hover/reference:opacity-100 hover:text-white flex items-center justify-center"
+                      title="移除参考"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
             <textarea
