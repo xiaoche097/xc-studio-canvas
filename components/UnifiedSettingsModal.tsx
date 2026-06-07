@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
 import { storageService, CacheStats } from '../services/storageService';
+import { deleteFromStorage } from '../XcAISTUDIO-main/services/storage';
 
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
@@ -240,6 +241,8 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       if (mode === 'all') {
         const before = await storageService.getCacheStats();
         await storageService.deleteAllProjects();
+        await deleteFromStorage('assets');
+        window.dispatchEvent(new Event('video-factory-assets-cleared'));
         deleted = before.projectCount;
       }
       await loadCacheStats();

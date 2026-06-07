@@ -348,6 +348,12 @@ export const App = () => {
         saveToStorage('groups', groups);
     }, [assetHistory, workflows, nodes, connections, groups, isLoaded]);
 
+    useEffect(() => {
+        const handleAssetsCleared = () => setAssetHistory([]);
+        window.addEventListener('video-factory-assets-cleared', handleAssetsCleared);
+        return () => window.removeEventListener('video-factory-assets-cleared', handleAssetsCleared);
+    }, []);
+
 
     const getApproxNodeHeight = (node: AppNode) => {
         if (node.height) return node.height;
@@ -497,13 +503,43 @@ export const App = () => {
         setNodes(prev => [...prev, newNode]);
     }, [pan, scale, saveHistory]);
 
-    const handleAssetGenerated = useCallback((type: 'image' | 'video' | 'audio', src: string, title: string) => {
-        setAssetHistory(h => {
-            const exists = h.find(a => a.src === src);
-            if (exists) return h;
-            return [{ id: `a-${Date.now()}`, type, src, title, timestamp: Date.now() }, ...h];
+    const persistAssetHistory = useCallback((updater: (current: any[]) => any[]) => {
+        setAssetHistory(current => {
+            const next = updater(current);
+            if (next !== current) {
+                saveToStorage('assets', next).catch(error => console.error('Failed to persist assets', error));
+            }
+            return next;
         });
     }, []);
+
+    const handleAssetGenerated = useCallback((type: 'image' | 'video' | 'audio', src: string, title: string) => {
+        if (!src) return;
+        persistAssetHistory(h => {
+            const exists = h.find(a => a.src === src);
+            if (exists) return h;
+            return [{ id: `a-${Date.now()}-${Math.floor(Math.random() * 1000)}`, type, src, title, timestamp: Date.now() }, ...h];
+        });
+    }, [persistAssetHistory]);
+
+    const handleAssetsGenerated = useCallback((type: 'image' | 'video' | 'audio', srcs: string[], title: string) => {
+        const cleanSrcs = srcs.filter(Boolean);
+        if (cleanSrcs.length === 0) return;
+        persistAssetHistory(h => {
+            const existing = new Set(h.map(a => a.src));
+            const timestamp = Date.now();
+            const additions = cleanSrcs
+                .filter(src => !existing.has(src))
+                .map((src, index) => ({
+                    id: `a-${timestamp}-${index}-${Math.floor(Math.random() * 1000)}`,
+                    type,
+                    src,
+                    title: cleanSrcs.length > 1 ? `${title} #${index + 1}` : title,
+                    timestamp: timestamp + index
+                }));
+            return additions.length > 0 ? [...additions, ...h] : h;
+        });
+    }, [persistAssetHistory]);
 
     const handleSketchResult = (type: 'image' | 'video', result: string, prompt: string) => {
         const centerX = (-pan.x + window.innerWidth / 2) / scale - 210;
@@ -517,6 +553,15 @@ export const App = () => {
 
         handleAssetGenerated(type, result, prompt || 'Sketch Output');
     };
+
+    const handleDeleteAsset = useCallback((id: string) => {
+        persistAssetHistory(current => current.filter(a => a.id !== id));
+    }, [persistAssetHistory]);
+
+    const handleBatchDeleteAssets = useCallback((ids: string[]) => {
+        const idSet = new Set(ids);
+        persistAssetHistory(current => current.filter(a => !idSet.has(a.id)));
+    }, [persistAssetHistory]);
 
     const handleMultiFrameGenerate = async (frames: SmartSequenceItem[]): Promise<string> => {
         const complexPrompt = compileMultiFramePrompt(frames as any[]);
@@ -773,8 +818,13 @@ export const App = () => {
                 const updated = { ...n, data: { ...n.data, ...data }, title: title || n.title };
                 if (size) { if (size.width) updated.width = size.width; if (size.height) updated.height = size.height; }
 
-                if (data.image) {
+                if (data.images?.length) {
+                    handleAssetsGenerated('image', data.images, updated.title);
+                } else if (data.image) {
                     handleAssetGenerated('image', data.image, updated.title);
+                }
+
+                if (data.image) {
                     // Auto-Save Image Project
                     if (n.type === NodeType.IMAGE_GENERATOR) {
                         storageService.saveProject({
@@ -787,8 +837,13 @@ export const App = () => {
                         }).catch(console.error);
                     }
                 }
-                if (data.videoUri) {
+                if (data.videoUris?.length) {
+                    handleAssetsGenerated('video', data.videoUris, updated.title);
+                } else if (data.videoUri) {
                     handleAssetGenerated('video', data.videoUri, updated.title);
+                }
+
+                if (data.videoUri) {
                     // Auto-Save Video Project
                     storageService.saveProject({
                         id: crypto.randomUUID(),
@@ -805,7 +860,7 @@ export const App = () => {
             }
             return n;
         }));
-    }, [handleAssetGenerated]);
+    }, [handleAssetGenerated, handleAssetsGenerated]);
 
     const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
         const file = e.target.files?.[0];
@@ -1538,8 +1593,8 @@ export const App = () => {
                         addNode(type, undefined, undefined, data);
                         setIsHistoryModalOpen(false);
                     }}
-                    onDeleteAsset={(id) => setAssetHistory(prev => prev.filter(a => a.id !== id))}
-                    onBatchDeleteAssets={(ids) => setAssetHistory(prev => prev.filter(a => !ids.includes(a.id)))}
+                    onDeleteAsset={handleDeleteAsset}
+                    onBatchDeleteAssets={handleBatchDeleteAssets}
                 />
 
                 <SidebarDock
@@ -1561,7 +1616,7 @@ export const App = () => {
                                      { audioUri: item.src };
                         addNode(type, undefined, undefined, data);
                     }}
-                    onDeleteAsset={(id) => setAssetHistory(prev => prev.filter(a => a.id !== id))}
+                    onDeleteAsset={handleDeleteAsset}
                     workflows={workflows}
                     selectedWorkflowId={selectedWorkflowId}
                     onSelectWorkflow={loadWorkflow}
