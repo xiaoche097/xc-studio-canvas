@@ -12,6 +12,7 @@ import {
   FileVideo,
   FolderUp,
   Grid3X3,
+  Heart,
   Image as ImageIcon,
   Key,
   Loader2,
@@ -39,6 +40,8 @@ type AssetRole = 'product' | 'scene' | 'character' | 'reference';
 type AssetFilter = 'all' | 'image' | 'video' | 'character' | 'scene' | 'uploaded';
 type OutputAspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
 type AgentDrawer = 'commands' | 'settings' | null;
+type SortOrder = 'newest' | 'oldest';
+type SourceFilter = 'uploaded' | 'generated';
 
 interface FlowAsset {
   id: string;
@@ -48,6 +51,7 @@ interface FlowAsset {
   role: AssetRole;
   mimeType: string;
   name: string;
+  aspectRatio?: string;
 }
 
 interface PendingUpload {
@@ -58,6 +62,7 @@ interface PendingUpload {
   mimeType: string;
   name: string;
   progress: number;
+  aspectRatio?: string;
 }
 
 interface ScriptScene {
@@ -84,6 +89,7 @@ interface GeneratedOutput {
   order: number;
   prompt: string;
   modelLabel: string;
+  createdAt: number;
 }
 
 const filters: Array<{ id: AssetFilter; label: string; icon: React.ElementType }> = [
@@ -123,6 +129,37 @@ const settingsRows = [
   { label: '提交后清除提示', icon: Eraser },
 ];
 
+const getMediaAspectRatio = (previewUrl: string, type: 'image' | 'video') => new Promise<string>((resolve) => {
+  if (type === 'image') {
+    const image = new Image();
+    image.onload = () => resolve(`${image.naturalWidth} / ${image.naturalHeight}`);
+    image.onerror = () => resolve('4 / 5');
+    image.src = previewUrl;
+    return;
+  }
+
+  const video = document.createElement('video');
+  video.preload = 'metadata';
+  video.onloadedmetadata = () => resolve(`${video.videoWidth || 9} / ${video.videoHeight || 16}`);
+  video.onerror = () => resolve('9 / 16');
+  video.src = previewUrl;
+});
+
+const getAspectValue = (aspectRatio?: string) => {
+  if (!aspectRatio) return 0;
+  const [width, height] = aspectRatio.split('/').map((part) => Number(part.trim()));
+  return width > 0 && height > 0 ? width / height : 0;
+};
+
+const getAssetTileStyle = (aspectRatio?: string, fallback = '4 / 5') => {
+  const ratio = getAspectValue(aspectRatio || fallback) || getAspectValue(fallback) || 0.8;
+  return {
+    width: `${Math.round(260 * ratio)}px`,
+    height: '260px',
+    aspectRatio: aspectRatio || fallback,
+  };
+};
+
 const StoryboardTab: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const agentTimerRef = useRef<number | null>(null);
@@ -142,6 +179,7 @@ const StoryboardTab: React.FC = () => {
   const [variationCount, setVariationCount] = useState(1);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showLinkPanel, setShowLinkPanel] = useState(false);
   const [showGenerationPanel, setShowGenerationPanel] = useState(false);
   const [showImageModelMenu, setShowImageModelMenu] = useState(false);
@@ -156,7 +194,16 @@ const StoryboardTab: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [zoomAsset, setZoomAsset] = useState<FlowAsset | null>(null);
+  const [zoomOutput, setZoomOutput] = useState<GeneratedOutput | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [outputMenuId, setOutputMenuId] = useState<string | null>(null);
+  const [favoriteOutputIds, setFavoriteOutputIds] = useState<Set<string>>(new Set());
+  const [typeFilters, setTypeFilters] = useState<Set<'image' | 'video'>>(new Set());
+  const [roleFilters, setRoleFilters] = useState<Set<AssetRole>>(new Set());
+  const [aspectFilters, setAspectFilters] = useState<Set<OutputAspectRatio>>(new Set());
+  const [sourceFilters, setSourceFilters] = useState<Set<SourceFilter>>(new Set());
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
@@ -167,22 +214,25 @@ const StoryboardTab: React.FC = () => {
     if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
   }, []);
 
-  const addFiles = (files: File[]) => {
+  const addFiles = async (files: File[]) => {
     const mediaFiles = files.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
     if (mediaFiles.length === 0) return;
 
-    const pendingItems = mediaFiles.map((file) => {
+    const pendingItems = await Promise.all(mediaFiles.map(async (file) => {
       const type = file.type.startsWith('video/') ? 'video' : 'image';
+      const previewUrl = URL.createObjectURL(file);
+      const aspectRatio = await getMediaAspectRatio(previewUrl, type);
       return {
         id: `${Date.now()}-${file.name}-${Math.random().toString(36).slice(2)}`,
         file,
-        previewUrl: URL.createObjectURL(file),
+        previewUrl,
         type,
         mimeType: file.type,
         name: file.name,
         progress: 0,
+        aspectRatio,
       } satisfies PendingUpload;
-    });
+    }));
 
     setPendingUploads((prev) => [...pendingItems, ...prev]);
     setActiveFilter('uploaded');
@@ -208,6 +258,7 @@ const StoryboardTab: React.FC = () => {
             role: item.type === 'video' ? 'reference' : 'product',
             mimeType: item.mimeType,
             name: item.name,
+            aspectRatio: item.aspectRatio,
           }, ...prev]);
         }, 900 + index * 110);
       }, index * 60);
@@ -234,16 +285,20 @@ const StoryboardTab: React.FC = () => {
 
   const filteredAssets = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return assets.filter((asset) => {
+    const list = assets.filter((asset) => {
       const matchesFilter =
         activeFilter === 'all' ||
         activeFilter === 'uploaded' ||
         asset.type === activeFilter ||
         asset.role === activeFilter;
+      const matchesType = typeFilters.size === 0 || typeFilters.has(asset.type);
+      const matchesRole = roleFilters.size === 0 || roleFilters.has(asset.role);
+      const matchesSource = sourceFilters.size === 0 || sourceFilters.has('uploaded');
       const matchesSearch = !query || asset.name.toLowerCase().includes(query);
-      return matchesFilter && matchesSearch;
+      return matchesFilter && matchesType && matchesRole && matchesSource && matchesSearch;
     });
-  }, [activeFilter, assets, searchQuery]);
+    return sortOrder === 'newest' ? list : list.slice().reverse();
+  }, [activeFilter, assets, roleFilters, searchQuery, sortOrder, sourceFilters, typeFilters]);
 
   const filteredPendingUploads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -253,6 +308,29 @@ const StoryboardTab: React.FC = () => {
       return matchesFilter && matchesSearch;
     });
   }, [activeFilter, pendingUploads, searchQuery]);
+
+  const filteredGeneratedOutputs = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const list = generatedOutputs.filter((output) => {
+      const matchesActive =
+        activeFilter === 'all' ||
+        output.type === activeFilter ||
+        (activeFilter === 'image' && output.type === 'image') ||
+        (activeFilter === 'video' && output.type === 'video');
+      const matchesType = typeFilters.size === 0 || typeFilters.has(output.type);
+      const matchesAspect = aspectFilters.size === 0 || aspectFilters.has(output.aspectRatio);
+      const matchesSource = sourceFilters.size === 0 || sourceFilters.has('generated');
+      const matchesFavorite = !onlyFavorites || favoriteOutputIds.has(output.id);
+      const matchesSearch = !query ||
+        output.prompt.toLowerCase().includes(query) ||
+        output.modelLabel.toLowerCase().includes(query) ||
+        `${output.order}`.includes(query);
+      return matchesActive && matchesType && matchesAspect && matchesSource && matchesFavorite && matchesSearch;
+    });
+    return list.slice().sort((a, b) => sortOrder === 'newest' ? b.createdAt - a.createdAt : a.createdAt - b.createdAt);
+  }, [activeFilter, aspectFilters, favoriteOutputIds, generatedOutputs, onlyFavorites, searchQuery, sortOrder, sourceFilters, typeFilters]);
+
+  const activeFilterCount = typeFilters.size + roleFilters.size + aspectFilters.size + sourceFilters.size + (onlyFavorites ? 1 : 0) + (sortOrder === 'oldest' ? 1 : 0);
 
   const totalAssetCount = assets.length + pendingUploads.length;
   const centerOffsetClass = isSidebarCollapsed ? 'lg:-translate-x-8' : 'lg:-translate-x-[120px]';
@@ -319,6 +397,24 @@ const StoryboardTab: React.FC = () => {
     setAssets((prev) => prev.map((asset) => (asset.id === id ? { ...asset, role } : asset)));
   };
 
+  const toggleSetValue = <T,>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, value: T) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
+
+  const clearAllFilters = () => {
+    setTypeFilters(new Set());
+    setRoleFilters(new Set());
+    setAspectFilters(new Set());
+    setSourceFilters(new Set());
+    setOnlyFavorites(false);
+    setSortOrder('newest');
+  };
+
   const removeAsset = (id: string) => {
     setAssets((prev) => {
       const target = prev.find((asset) => asset.id === id);
@@ -326,6 +422,36 @@ const StoryboardTab: React.FC = () => {
       return prev.filter((asset) => asset.id !== id);
     });
     setScript([]);
+  };
+
+  const downloadGeneratedOutput = (output: GeneratedOutput) => {
+    if (!output.previewUrl) return;
+    const link = document.createElement('a');
+    link.href = output.previewUrl;
+    link.download = `video-factory-${output.type}-${output.order}.${output.type === 'image' ? 'png' : 'mp4'}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const appendPromptFromOutput = (output: GeneratedOutput) => {
+    setCreativePrompt((current) => current.trim() ? `${current.trim()}\n${output.prompt}` : output.prompt);
+  };
+
+  const copyGeneratedPrompt = async (output: GeneratedOutput) => {
+    await navigator.clipboard.writeText(output.prompt);
+    setCopiedIndex(output.order);
+    window.setTimeout(() => setCopiedIndex(null), 1200);
+  };
+
+  const removeGeneratedOutput = (id: string) => {
+    setGeneratedOutputs((prev) => prev.filter((output) => output.id !== id));
+    setFavoriteOutputIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setOutputMenuId(null);
   };
 
   const handleGenerate = async () => {
@@ -380,6 +506,7 @@ const StoryboardTab: React.FC = () => {
           }
         );
 
+        const createdAt = Date.now();
         const outputs = resultImages.slice(0, count).map((url, index) => ({
           id: `${Date.now()}-image-${index}`,
           type: 'image' as const,
@@ -388,6 +515,7 @@ const StoryboardTab: React.FC = () => {
           order: index + 1,
           prompt,
           modelLabel,
+          createdAt: createdAt + index,
         }));
 
         setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
@@ -408,6 +536,7 @@ const StoryboardTab: React.FC = () => {
         setScript(nextScript);
         setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
         window.setTimeout(() => {
+          const createdAt = Date.now();
           setGeneratedOutputs(nextCards.map((card, index) => ({
             id: `${Date.now()}-video-${index}`,
             type: 'video' as const,
@@ -415,6 +544,7 @@ const StoryboardTab: React.FC = () => {
             order: index + 1,
             prompt: nextScript[index]?.prompt || prompt,
             modelLabel,
+            createdAt: createdAt + index,
           })));
           setGenerationCards([]);
           setActiveFilter('video');
@@ -507,8 +637,12 @@ const StoryboardTab: React.FC = () => {
     addFiles(Array.from(event.dataTransfer.files || []));
   };
 
-  const renderPendingTile = (asset: PendingUpload) => (
-    <div key={asset.id} className="relative rounded-lg overflow-hidden bg-[#17181a] border border-white/10 shadow-sm aspect-[5/7]">
+  const renderPendingTile = (asset: PendingUpload, compact = false) => (
+    <div
+      key={asset.id}
+      className={`relative shrink-0 rounded-lg overflow-hidden bg-[#17181a] border border-white/10 shadow-sm ${compact ? '' : ''}`}
+      style={compact ? { aspectRatio: asset.aspectRatio || (asset.type === 'video' ? '9 / 16' : '4 / 5') } : getAssetTileStyle(asset.aspectRatio, asset.type === 'video' ? '9 / 16' : '4 / 5')}
+    >
       <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-500 to-slate-950 opacity-80" />
       <div className="absolute inset-0 backdrop-blur-sm" />
       <div className="absolute left-3 top-3 text-white/70">
@@ -531,28 +665,54 @@ const StoryboardTab: React.FC = () => {
       ref={(element) => {
         if (!compact) assetCardRefs.current[asset.id] = element;
       }}
-      className={`group relative rounded-lg overflow-hidden bg-[#151618] border transition-all ${
+      className={`group relative shrink-0 rounded-lg overflow-hidden bg-[#151618] border transition-all ${
         selected && !compact ? 'border-white ring-2 ring-white/25' : 'border-white/10 hover:border-white/30'
       }`}
+      style={compact ? undefined : getAssetTileStyle(asset.aspectRatio, asset.type === 'video' ? '9 / 16' : '4 / 5')}
     >
-      <button onClick={() => setZoomAsset(asset)} className={`block w-full bg-[#101113] overflow-hidden ${compact ? 'aspect-[4/5]' : 'aspect-[5/7]'}`}>
+        <button
+          onClick={() => setZoomAsset(asset)}
+          className="block w-full h-full bg-[#101113] overflow-hidden"
+          style={{ aspectRatio: compact ? '4 / 5' : asset.aspectRatio || (asset.type === 'video' ? '9 / 16' : '4 / 5') }}
+        >
         {asset.type === 'image' ? (
           <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover" />
         ) : (
           <video src={asset.previewUrl} className="w-full h-full object-cover" muted playsInline />
         )}
       </button>
-      <div className="absolute left-2 top-2 h-7 px-2 rounded-full bg-black/70 border border-white/15 text-white/90 text-[10px] font-black flex items-center gap-1 shadow-sm backdrop-blur">
+      <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/75 via-transparent to-black/15 opacity-80 group-hover:opacity-100 transition-opacity" />
+      <div className="absolute left-2 bottom-2 right-2 flex items-center gap-1.5 text-white">
+        {asset.type === 'video' ? <Video className="w-3.5 h-3.5 shrink-0 drop-shadow" /> : <ImageIcon className="w-3.5 h-3.5 shrink-0 drop-shadow" />}
+        <span className="text-[11px] font-black truncate drop-shadow" title={asset.name}>{asset.name}</span>
+      </div>
+      <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/45 border border-white/10 p-1 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur">
+        <button
+          onClick={(event) => event.stopPropagation()}
+          className="w-7 h-7 rounded-full text-white/75 hover:bg-white/15 hover:text-white flex items-center justify-center"
+          title="收藏"
+        >
+          <Heart className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(event) => event.stopPropagation()}
+          className="w-7 h-7 rounded-full text-white/75 hover:bg-white/15 hover:text-white flex items-center justify-center"
+          title="更多"
+        >
+          <MoreVertical className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="hidden absolute left-2 top-2 h-7 px-2 rounded-full bg-black/70 border border-white/15 text-white/90 text-[10px] font-black items-center gap-1 shadow-sm backdrop-blur">
         {asset.type === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
         {asset.type === 'video' ? '视频' : '图片'}
       </div>
       <button
         onClick={() => removeAsset(asset.id)}
-        className="absolute right-2 top-2 w-7 h-7 rounded-full bg-black/70 text-white/60 opacity-0 group-hover:opacity-100 hover:text-red-300 transition-all flex items-center justify-center backdrop-blur"
+        className="hidden absolute right-2 top-2 w-7 h-7 rounded-full bg-black/70 text-white/60 opacity-0 group-hover:opacity-100 hover:text-red-300 transition-all items-center justify-center backdrop-blur"
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      {!compact && (
+      {false && !compact && (
         <div className="p-3 space-y-2">
           <div className="text-xs font-bold text-white truncate" title={asset.name}>{asset.name}</div>
           <div className="grid grid-cols-2 gap-1">
@@ -648,11 +808,43 @@ const StoryboardTab: React.FC = () => {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="搜索资源"
-              className="w-full h-10 rounded-2xl border border-white/10 bg-[#1b1b1d] pl-12 pr-4 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/25 focus:ring-2 focus:ring-white/10"
+              className="w-full h-10 rounded-2xl border border-white/10 bg-[#1b1b1d] pl-12 pr-12 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/25 focus:ring-2 focus:ring-white/10"
             />
+            <button
+              onClick={() => { setShowFilterPanel((value) => !value); setShowAddMenu(false); setShowSettingsPanel(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
+              className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
+                showFilterPanel || activeFilterCount > 0
+                  ? 'bg-[#3a3b3e] text-white'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+              title="筛选"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 min-w-3.5 h-3.5 px-1 rounded-full bg-white text-black text-[9px] font-black flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
           </div>
           <button
-            onClick={() => { setShowAddMenu((value) => !value); setShowSettingsPanel(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
+            onClick={() => { setShowFilterPanel((value) => !value); setShowAddMenu(false); setShowSettingsPanel(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
+            className={`hidden relative w-10 h-10 rounded-2xl border items-center justify-center transition-colors ${
+              showFilterPanel || activeFilterCount > 0
+                ? 'bg-[#2f3033] border-white/15 text-white'
+                : 'bg-[#1b1b1d] border-white/10 text-white/80 hover:bg-[#2a2a2d] hover:text-white'
+            }`}
+            title="筛选条件"
+          >
+            <SlidersHorizontal className="w-5 h-5" />
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 min-w-4 h-4 px-1 rounded-full bg-white text-black text-[10px] font-black flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => { setShowAddMenu((value) => !value); setShowFilterPanel(false); setShowSettingsPanel(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
             className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-colors ${
               showAddMenu
                 ? 'bg-[#2f3033] border-white/10 text-white'
@@ -662,7 +854,7 @@ const StoryboardTab: React.FC = () => {
             <Plus className="w-5 h-5" />
           </button>
           <button
-            onClick={() => { setShowSettingsPanel((value) => !value); setShowAddMenu(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
+            onClick={() => { setShowSettingsPanel((value) => !value); setShowFilterPanel(false); setShowAddMenu(false); setShowGenerationPanel(false); setShowImageModelMenu(false); }}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
               showSettingsPanel ? 'bg-[#1f2022] text-white' : 'bg-transparent text-white hover:bg-white/10'
             }`}
@@ -692,6 +884,87 @@ const StoryboardTab: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+          )}
+          {showFilterPanel && (
+            <div className="absolute left-1/2 top-14 w-[336px] -translate-x-1/2 rounded-2xl bg-[#1b1c1e]/98 border border-white/10 shadow-2xl backdrop-blur-xl overflow-hidden">
+              <div className="h-12 px-4 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-black text-white">
+                  <SlidersHorizontal className="w-4 h-4" />过滤条件
+                </div>
+                <button onClick={clearAllFilters} className="text-[11px] font-black text-white/45 hover:text-white">重置</button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <section>
+                  <div className="text-[11px] font-black text-white/35 mb-2">类型</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'image' as const, label: '图片', icon: ImageIcon },
+                      { id: 'video' as const, label: '视频', icon: Video },
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      const active = typeFilters.has(item.id);
+                      return (
+                        <button key={item.id} onClick={() => toggleSetValue(setTypeFilters, item.id)} className={`h-9 px-3 rounded-lg border text-xs font-black flex items-center gap-2 ${active ? 'bg-white text-black border-white' : 'bg-[#222325] text-white/75 border-white/10 hover:text-white'}`}>
+                          <Icon className="w-3.5 h-3.5" />{item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="text-[11px] font-black text-white/35 mb-2">角色/来源</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {roleOptions.map((role) => {
+                      const active = roleFilters.has(role.id);
+                      return (
+                        <button key={role.id} onClick={() => toggleSetValue(setRoleFilters, role.id)} className={`h-9 px-3 rounded-lg border text-xs font-black text-left ${active ? 'bg-white text-black border-white' : 'bg-[#222325] text-white/75 border-white/10 hover:text-white'}`}>
+                          {role.label}
+                        </button>
+                      );
+                    })}
+                    {[
+                      { id: 'uploaded' as const, label: '已上传' },
+                      { id: 'generated' as const, label: '已生成' },
+                    ].map((source) => {
+                      const active = sourceFilters.has(source.id);
+                      return (
+                        <button key={source.id} onClick={() => toggleSetValue(setSourceFilters, source.id)} className={`h-9 px-3 rounded-lg border text-xs font-black text-left ${active ? 'bg-white text-black border-white' : 'bg-[#222325] text-white/75 border-white/10 hover:text-white'}`}>
+                          {source.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="text-[11px] font-black text-white/35 mb-2">宽高比</div>
+                  <div className="grid grid-cols-5 gap-1 rounded-xl bg-[#222325] p-1">
+                    {imageAspectRatios.map((ratio) => (
+                      <button key={ratio} onClick={() => toggleSetValue(setAspectFilters, ratio)} className={`h-9 rounded-lg text-[11px] font-black ${aspectFilters.has(ratio) ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}>
+                        {ratio}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setOnlyFavorites((value) => !value)} className={`h-9 px-3 rounded-lg border text-xs font-black flex items-center justify-center gap-2 ${onlyFavorites ? 'bg-white text-black border-white' : 'bg-[#222325] text-white/75 border-white/10 hover:text-white'}`}>
+                    <Heart className="w-3.5 h-3.5" />收藏
+                  </button>
+                  <div className="grid grid-cols-2 rounded-lg bg-[#222325] p-1 border border-white/10">
+                    <button onClick={() => setSortOrder('newest')} className={`h-7 rounded-md text-[11px] font-black ${sortOrder === 'newest' ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}>最新</button>
+                    <button onClick={() => setSortOrder('oldest')} className={`h-7 rounded-md text-[11px] font-black ${sortOrder === 'oldest' ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}>最早</button>
+                  </div>
+                </section>
+              </div>
+
+              <div className="h-12 px-4 border-t border-white/10 flex items-center justify-between text-xs font-black text-white/70">
+                <span>{filteredAssets.length + filteredPendingUploads.length + filteredGeneratedOutputs.length} 条结果</span>
+                <button onClick={() => setShowFilterPanel(false)} className="h-8 px-3 rounded-lg bg-white text-black hover:bg-white/90">完成</button>
+              </div>
             </div>
           )}
           {showSettingsPanel && (
@@ -797,27 +1070,97 @@ const StoryboardTab: React.FC = () => {
                         </div>
                       </article>
                     ))}
-                    {generationCards.length === 0 && generatedOutputs.slice().sort((a, b) => a.order - b.order).map((output) => (
+                    {generationCards.length === 0 && filteredGeneratedOutputs.map((output) => (
                       <article
                         key={output.id}
-                        className="group relative overflow-hidden rounded-xl border border-white/10 bg-[#151617]"
+                        className="group relative overflow-hidden rounded-xl border border-white/10 bg-[#151617] hover:border-white/30 transition-all cursor-zoom-in"
                         style={{ aspectRatio: output.aspectRatio.replace(':', ' / ') }}
+                        onClick={() => setZoomOutput(output)}
                       >
                         {output.previewUrl ? (
-                          <img src={output.previewUrl} alt={output.prompt} className="w-full h-full object-cover" />
+                          <img src={output.previewUrl} alt={output.prompt} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1a1c1f] via-[#4e5255] to-[#101214]">
                             <Video className="w-10 h-10 text-white/50" />
                           </div>
                         )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/25 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                         <div className="absolute left-3 top-3 h-7 px-2 rounded-full bg-black/60 border border-white/10 text-[11px] font-black text-white/80 flex items-center gap-1">
                           #{output.order} {output.aspectRatio}
                         </div>
-                        <div className="absolute right-3 top-3 h-7 px-2 rounded-full bg-black/60 border border-white/10 text-[11px] font-black text-white/80">
+                        <div className="absolute right-3 top-3 h-7 px-2 rounded-full bg-black/60 border border-white/10 text-[11px] font-black text-white/80 transition-opacity group-hover:opacity-0">
                           100%
+                        </div>
+                        <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(event) => event.stopPropagation()}>
+                          <button
+                            onClick={() => setFavoriteOutputIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(output.id)) next.delete(output.id);
+                              else next.add(output.id);
+                              return next;
+                            })}
+                            className={`w-8 h-8 rounded-lg border flex items-center justify-center backdrop-blur ${favoriteOutputIds.has(output.id) ? 'bg-white text-black border-white' : 'bg-white/75 text-black border-white/20 hover:bg-white'}`}
+                            title="收藏"
+                          >
+                            <Heart className={`w-4 h-4 ${favoriteOutputIds.has(output.id) ? 'fill-current' : ''}`} />
+                          </button>
+                          <button
+                            onClick={() => appendPromptFromOutput(output)}
+                            className="w-8 h-8 rounded-lg bg-white/75 text-black border border-white/20 hover:bg-white flex items-center justify-center backdrop-blur"
+                            title="添加到提示"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setOutputMenuId((id) => id === output.id ? null : output.id)}
+                            className="w-8 h-8 rounded-lg bg-white/75 text-black border border-white/20 hover:bg-white flex items-center justify-center backdrop-blur"
+                            title="更多"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {outputMenuId === output.id && (
+                          <div className="absolute right-3 top-12 w-48 rounded-xl bg-[#1b1c1e]/98 border border-white/10 shadow-2xl overflow-hidden z-20 backdrop-blur" onClick={(event) => event.stopPropagation()}>
+                            {[
+                              { label: '添加动画效果', icon: WandSparkles, action: () => { setOutputKind('video'); appendPromptFromOutput(output); setShowGenerationPanel(true); } },
+                              { label: '添加到提示', icon: Plus, action: () => appendPromptFromOutput(output) },
+                              { label: '下载', icon: Download, action: () => downloadGeneratedOutput(output) },
+                              { label: '复制提示', icon: Copy, action: () => copyGeneratedPrompt(output) },
+                              { label: '分享', icon: ArrowRight, action: () => copyGeneratedPrompt(output) },
+                            ].map((item) => {
+                              const Icon = item.icon;
+                              return (
+                                <button
+                                  key={item.label}
+                                  onClick={() => { item.action(); setOutputMenuId(null); }}
+                                  className="w-full h-10 px-3 text-left text-xs font-black text-white/85 hover:bg-white/10 flex items-center gap-3"
+                                >
+                                  <Icon className="w-4 h-4" />{item.label}
+                                </button>
+                              );
+                            })}
+                            <button
+                              onClick={() => removeGeneratedOutput(output.id)}
+                              className="w-full h-10 px-3 text-left text-xs font-black text-red-400 hover:bg-red-500/15 flex items-center gap-3 border-t border-white/10"
+                            >
+                              <Trash2 className="w-4 h-4" />移至回收站
+                            </button>
+                          </div>
+                        )}
+                        <div className="absolute left-3 bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="text-[11px] font-black text-white/80 line-clamp-2">{output.prompt}</div>
+                          {copiedIndex === output.order && <div className="mt-1 text-[10px] font-black text-emerald-300">已复制</div>}
                         </div>
                       </article>
                     ))}
+                    {generationCards.length === 0 && generatedOutputs.length > 0 && filteredGeneratedOutputs.length === 0 && (
+                      <div className="col-span-full h-56 rounded-2xl border border-dashed border-white/15 bg-[#101113] flex flex-col items-center justify-center text-center">
+                        <SlidersHorizontal className="w-10 h-10 text-white/25 mb-3" />
+                        <div className="text-sm font-black text-white">没有符合筛选的生成结果</div>
+                        <button onClick={clearAllFilters} className="mt-3 h-8 px-3 rounded-lg bg-white text-black text-xs font-black">清空筛选</button>
+                      </div>
+                    )}
                   </div>
                 </section>
               )}
@@ -830,7 +1173,7 @@ const StoryboardTab: React.FC = () => {
                   onMouseLeave={handleCanvasMouseUp}
                   className="pt-2 relative select-none"
                 >
-                  <div className="mb-4 flex items-center justify-between">
+                  <div className="hidden mb-4 items-center justify-between">
                     <div>
                       <h2 className="text-lg font-black text-white">{filters.find((item) => item.id === activeFilter)?.label || '所有媒体内容'}</h2>
                       <p className="text-xs text-white/40 mt-1">上传后会自动进入素材库，可按图片、视频、角色、场景或上传内容筛选。</p>
@@ -844,7 +1187,7 @@ const StoryboardTab: React.FC = () => {
                   </div>
 
                   {filteredAssets.length > 0 || filteredPendingUploads.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-7 gap-4">
+                    <div className="flex flex-wrap items-start gap-4">
                       {filteredPendingUploads.map((asset) => renderPendingTile(asset))}
                       {filteredAssets.map((asset) => renderAssetTile(asset))}
                     </div>
@@ -975,7 +1318,7 @@ const StoryboardTab: React.FC = () => {
                     </div>
                   ) : (
                     <div className="w-full h-full grid grid-cols-2 gap-3 overflow-y-auto custom-scrollbar p-3">
-                      {filteredPendingUploads.slice(0, 12).map((asset) => renderPendingTile(asset))}
+                      {filteredPendingUploads.slice(0, 12).map((asset) => renderPendingTile(asset, true))}
                       {linkPanelItems.slice(0, 16).map((item) => (
                         <button
                           key={item.id}
@@ -1358,7 +1701,7 @@ const StoryboardTab: React.FC = () => {
       </aside>
 
       {zoomAsset && (
-        <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-6" onClick={() => setZoomAsset(null)}>
+        <div className="hidden fixed inset-0 bg-black/85 z-50 items-center justify-center p-6" onClick={() => setZoomAsset(null)}>
           <div className="relative max-w-4xl max-h-[90vh]" onClick={(event) => event.stopPropagation()}>
             <button onClick={() => setZoomAsset(null)} className="absolute -top-4 -right-4 w-9 h-9 rounded-full bg-[#242528] text-white shadow-lg flex items-center justify-center">
               <X className="w-4 h-4" />
@@ -1374,6 +1717,132 @@ const StoryboardTab: React.FC = () => {
               </button>
               <button onClick={() => setZoomAsset(null)} className="h-10 px-4 rounded-full bg-[#3a3a3d] text-white text-sm font-bold flex items-center gap-2 shadow-sm">
                 <Maximize2 className="w-4 h-4" />返回工作台
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {zoomAsset && (
+        <div className="fixed inset-0 bg-black z-50 text-white">
+          <div className="absolute left-0 right-0 top-0 h-16 px-6 flex items-center justify-between z-20">
+            <div className="flex items-center gap-4 min-w-0">
+              <button onClick={() => setZoomAsset(null)} className="w-9 h-9 rounded-full text-white hover:bg-white/10 flex items-center justify-center">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="text-sm font-black truncate max-w-[360px]">{zoomAsset.name}</div>
+              <button className="w-8 h-8 rounded-full text-white/85 hover:bg-white/10 flex items-center justify-center" title="信息">
+                <AlertCircle className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="absolute left-1/2 top-4 -translate-x-1/2 flex items-center gap-1.5">
+              {assets.slice(0, 8).map((asset) => (
+                <button
+                  key={asset.id}
+                  onClick={() => setZoomAsset(asset)}
+                  className={`w-7 h-7 rounded-md overflow-hidden border ${asset.id === zoomAsset.id ? 'border-white' : 'border-white/20 hover:border-white/60'}`}
+                  title={asset.name}
+                >
+                  {asset.type === 'image' ? (
+                    <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={asset.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button className="w-9 h-9 rounded-full text-white hover:bg-white/10 flex items-center justify-center" title="收藏">
+                <Heart className="w-4 h-4" />
+              </button>
+              <button onClick={() => downloadAsset(zoomAsset)} className="w-9 h-9 rounded-full text-white hover:bg-white/10 flex items-center justify-center" title="下载">
+                <Download className="w-4 h-4" />
+              </button>
+              <button className="h-10 px-4 rounded-full bg-[#1d1e20] text-xs font-black text-white hover:bg-[#2a2b2d]">隐藏历史记录</button>
+              <button onClick={() => setZoomAsset(null)} className="h-10 px-4 rounded-full bg-white text-xs font-black text-black hover:bg-white/90">完成</button>
+            </div>
+          </div>
+
+          <div className="absolute left-0 top-16 bottom-0 w-20 flex flex-col items-center justify-center gap-6">
+            <button className="w-10 h-10 rounded-full text-white/85 hover:bg-white/10 flex items-center justify-center" title="裁剪">
+              <Maximize2 className="w-5 h-5" />
+            </button>
+            <button className="w-10 h-10 rounded-full bg-[#242528] text-white flex items-center justify-center" title="选择">
+              <Grid3X3 className="w-5 h-5" />
+            </button>
+            <button className="w-10 h-10 rounded-full text-white/85 hover:bg-white/10 flex items-center justify-center" title="编辑">
+              <WandSparkles className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="absolute inset-0 pt-16 pb-48 px-28 flex items-center justify-center">
+            {zoomAsset.type === 'image' ? (
+              <img src={zoomAsset.previewUrl} alt={zoomAsset.name} className="max-h-full max-w-[min(760px,58vw)] rounded-xl object-contain shadow-2xl bg-[#101113]" />
+            ) : (
+              <video src={zoomAsset.previewUrl} className="max-h-full max-w-[min(760px,58vw)] rounded-xl shadow-2xl bg-[#101113]" controls autoPlay />
+            )}
+          </div>
+
+          <div className="absolute right-8 top-24 bottom-24 w-64 border-l border-white/5 pl-6 flex flex-col justify-end">
+            <button className="w-36 rounded-xl overflow-hidden border-2 border-white bg-[#101113] shadow-lg" style={{ aspectRatio: zoomAsset.aspectRatio || (zoomAsset.type === 'video' ? '9 / 16' : '4 / 5') }}>
+              {zoomAsset.type === 'image' ? (
+                <img src={zoomAsset.previewUrl} alt={zoomAsset.name} className="w-full h-full object-cover" />
+              ) : (
+                <video src={zoomAsset.previewUrl} className="w-full h-full object-cover" muted playsInline />
+              )}
+            </button>
+          </div>
+
+          <div className="absolute left-1/2 bottom-5 -translate-x-1/2 w-[min(620px,calc(100%-3rem))] rounded-[20px] bg-[#171819] border border-white/10 shadow-2xl p-3">
+            <textarea
+              value={creativePrompt}
+              onChange={(event) => setCreativePrompt(event.target.value)}
+              placeholder="您想要更改什么？"
+              className="w-full h-12 resize-none bg-transparent text-sm text-white outline-none placeholder:text-white/35"
+            />
+            <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+              <button onClick={() => fileInputRef.current?.click()} className="w-9 h-9 rounded-full border border-white/10 text-white/75 hover:bg-white/10 hover:text-white flex items-center justify-center">
+                <Plus className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <button className="h-8 px-3 rounded-full bg-[#232426] border border-white/10 text-[11px] font-black text-white/70">Nano Banana Pro</button>
+                <button onClick={handleGenerate} disabled={!canGenerate || isLoading} className="w-9 h-9 rounded-full bg-[#242528] text-white/65 disabled:opacity-40 hover:bg-white hover:text-black flex items-center justify-center">
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {zoomOutput && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6" onClick={() => setZoomOutput(null)}>
+          <div className="relative max-w-5xl max-h-[92vh] flex flex-col items-center" onClick={(event) => event.stopPropagation()}>
+            <button onClick={() => setZoomOutput(null)} className="absolute -top-4 -right-4 w-9 h-9 rounded-full bg-[#242528] text-white shadow-lg flex items-center justify-center">
+              <X className="w-4 h-4" />
+            </button>
+            {zoomOutput.previewUrl ? (
+              zoomOutput.type === 'image' ? (
+                <img src={zoomOutput.previewUrl} alt={zoomOutput.prompt} className="max-h-[82vh] max-w-full rounded-lg shadow-2xl object-contain border border-white/10 bg-[#101113]" />
+              ) : (
+                <video src={zoomOutput.previewUrl} className="max-h-[82vh] max-w-full rounded-lg shadow-2xl border border-white/10 bg-[#101113]" controls autoPlay />
+              )
+            ) : (
+              <div className="w-[min(720px,80vw)] aspect-video rounded-lg border border-white/10 bg-gradient-to-br from-[#1a1c1f] via-[#4e5255] to-[#101214] flex items-center justify-center">
+                <Video className="w-12 h-12 text-white/50" />
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <button onClick={() => appendPromptFromOutput(zoomOutput)} className="h-10 px-4 rounded-full bg-[#242528] text-white text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-[#303134]">
+                <Plus className="w-4 h-4" />添加到提示
+              </button>
+              <button onClick={() => downloadGeneratedOutput(zoomOutput)} className="h-10 px-4 rounded-full bg-[#242528] text-white text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-[#303134]">
+                <Download className="w-4 h-4" />下载
+              </button>
+              <button onClick={() => copyGeneratedPrompt(zoomOutput)} className="h-10 px-4 rounded-full bg-[#3a3a3d] text-white text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-[#46464a]">
+                <Copy className="w-4 h-4" />复制提示
               </button>
             </div>
           </div>

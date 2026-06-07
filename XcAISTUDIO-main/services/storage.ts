@@ -35,6 +35,18 @@ export const saveToStorage = async (key: string, data: any) => {
     });
 };
 
+export const deleteFromStorage = async (key: string) => {
+    const db = await getDB();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.delete(key);
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+};
+
 export const loadFromStorage = async <T>(key: string): Promise<T | undefined> => {
     const db = await getDB();
     return new Promise<T | undefined>((resolve, reject) => {
