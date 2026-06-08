@@ -26,6 +26,7 @@ import { MENS_SHORTS_POSES } from '../constants/mensShortsPosePresets';
 import { MENS_PANTS_POSES } from '../constants/mensPantsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
+import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
 
 interface UploadedImage {
     file: File;
@@ -58,7 +59,7 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion' | 'solavibe';
 
 interface AutoPoseAnalysis {
     productType: string;
@@ -78,6 +79,7 @@ const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     swimShorts: '泳裤/沙滩裤动作库',
     longDress: '长裙/连衣裙动作库',
     womensFashion: '通用时尚女装动作库',
+    solavibe: 'Solavibe 度假大码动作库',
 };
 
 const getImageDimensions = (src: string): Promise<{ width: number; height: number }> => {
@@ -424,6 +426,7 @@ const HeroImageTab: React.FC = () => {
 
         const normalizeLibrary = (value: string): AutoPoseLibrary => {
             const normalized = value.trim().toLowerCase();
+            if (normalized.includes('solavibe') || normalized.includes('plus size') || normalized.includes('plussize') || normalized.includes('boho') || normalized.includes('vacation') || normalized.includes('resort dress') || normalized.includes('resort wear') || normalized.includes('resort set') || normalized.includes('relaxed comfort')) return 'solavibe';
             if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('ankle') || normalized.includes('floor') || normalized.includes('gown')) return 'longDress';
             if (normalized.includes('womensfashion') || normalized.includes('women') || normalized.includes('female') || normalized.includes('womenswear') || normalized.includes('fashion')) return 'womensFashion';
             if (normalized.includes('swim') || normalized.includes('boardshort') || normalized.includes('board short') || normalized.includes('trunk')) return 'swimShorts';
@@ -442,9 +445,10 @@ const HeroImageTab: React.FC = () => {
             }));
             parts.push({
                 text: `Classify these uploaded product images for an ecommerce apparel pose library.
-Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|none","confidence":"high|medium|low","reason":"short reason"}.
+Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|solavibe|none","confidence":"high|medium|low","reason":"short reason"}.
 
 Choose:
+- solavibe: plus-size women's vacation/resort/boho/relaxed comfort apparel, including loose shirts, vacation dresses, relaxed two-piece sets, wide-leg pants, resort dresses, plus-size collections, warm approachable SHEIN Solavibe-style products.
 - longDress: women's long dress, maxi dress, ankle-length dress, floor-length dress, long skirt dress, evening dress, long slip dress, long sundress, gown-like dress.
 - womensFashion: generic women's fashion apparel that is not covered by the targeted libraries above, such as women's blouse, short dress, mini/midi dress, skirt, pants, jeans, blazer, coat, jacket, cardigan, vest, top, bodysuit, matching set, suit set, or uncertain womenswear.
 - mensShirt: men's woven button shirt, resort shirt, linen shirt, Hawaiian shirt, button-up shirt.
@@ -456,6 +460,7 @@ Choose:
 - none: not one of the above or uncertain.
 
 Priority rules:
+- If the product or user note suggests Solavibe, plus size, vacation, boho, resort, relaxed comfort, loose resort shirt, vacation dress, relaxed two-piece set, wide-leg vacation pants, or approachable plus-size womenswear, choose solavibe before longDress or womensFashion.
 - If the product is women's apparel but not clearly longDress, choose womensFashion.
 - If the garment is a short dress, mini dress, midi dress, skirt, blouse, blazer, jacket, coat, pants, jeans, cardigan, vest, top, or set, choose womensFashion.
 - If the product is regular men's shorts and not swimwear, choose mensShorts.
@@ -1179,6 +1184,14 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 '长裙', '长款连衣裙', '及踝裙', '拖地裙', '礼服裙', '吊带长裙', '度假长裙'
             ];
             const isLongDress = longDressKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const solavibeKeywords = [
+                'solavibe', 'plus size', 'plussize', 'curve', 'curvy', 'vacation', 'boho', 'bohemian',
+                'relaxed', 'comfort', 'loose shirt', 'oversized shirt', 'vacation dress', 'resort dress',
+                'resort wear', 'resort set', 'two piece set', 'two-piece set', 'matching set', 'wide leg pants', 'wide-leg pants',
+                '大码', '加大码', '胖mm', '度假', '度假风', '波西米亚', '波西米亚风', '宽松衬衫',
+                '宽松上衣', '度假裙', '度假连衣裙', '两件套', '套装', '阔腿裤', '舒适', '休闲度假'
+            ];
+            const isSolavibe = solavibeKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const womensFashionKeywords = [
                 'women', "women's", 'female', 'ladies', 'womenswear', 'fashion dress', 'short dress', 'mini dress', 'midi dress',
                 'skirt', 'blouse', 'camisole', 'tank top', 'crop top', 'bodysuit', 'cardigan', 'blazer', 'jacket', 'coat',
@@ -1190,23 +1203,25 @@ The final image must look like a real professional fashion lookbook shoot at tha
 
             const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
                 ? autoPoseLibrary
-                : isLongDress
-                    ? 'longDress'
-                    : isSwimShorts
-                        ? 'swimShorts'
-                        : isMensShorts
-                            ? 'mensShorts'
-                            : isMensPants
-                                ? 'mensPants'
-                                : isMensTee
-                                    ? 'mensTee'
-                                    : isMensKnit
-                                        ? 'mensKnit'
-                                        : isMensShirt
-                                            ? 'mensShirt'
-                                            : isWomensFashion
-                                                ? 'womensFashion'
-                                                : 'none';
+                : isSolavibe
+                    ? 'solavibe'
+                    : isLongDress
+                        ? 'longDress'
+                        : isSwimShorts
+                            ? 'swimShorts'
+                            : isMensShorts
+                                ? 'mensShorts'
+                                : isMensPants
+                                    ? 'mensPants'
+                                    : isMensTee
+                                        ? 'mensTee'
+                                        : isMensKnit
+                                            ? 'mensKnit'
+                                            : isMensShirt
+                                                ? 'mensShirt'
+                                                : isWomensFashion
+                                                    ? 'womensFashion'
+                                                    : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
 
@@ -1290,6 +1305,12 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 [shuffledWomensFashionPoses[k], shuffledWomensFashionPoses[r]] = [shuffledWomensFashionPoses[r], shuffledWomensFashionPoses[k]];
             }
 
+            let shuffledSolavibePoses = [...SOLAVIBE_POSES];
+            for (let k = shuffledSolavibePoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledSolavibePoses[k], shuffledSolavibePoses[r]] = [shuffledSolavibePoses[r], shuffledSolavibePoses[k]];
+            }
+
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
             const batchPromises = generationIndices.map((i) => {
                 const actionReferenceIndex = i < actionReferences.length ? i : undefined;
@@ -1342,7 +1363,18 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     if (perOutputSupplementaryNotes) {
                         finalPrompt += `\n${perOutputSupplementaryNotes}\n`;
                     }
-                    if (activeAutoPoseLibrary === 'longDress') {
+                    if (activeAutoPoseLibrary === 'solavibe') {
+                        const posePreset = shuffledSolavibePoses[i % shuffledSolavibePoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED SOLAVIBE POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# SOLAVIBE BRAND MOOD LOCK (CRITICAL - MANDATORY): This is a plus-size vacation/resort/boho/relaxed comfort commercial hero image, not a Paris fashion week or high-fashion editorial image. Keep the model approachable, relaxed, friendly, confident, and comfortable.
+# SOLAVIBE SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas and compose a warm SHEIN-style Solavibe lookbook image. The product garment must be clearly readable: loose shirt shape, vacation dress flow, two-piece set proportions, wide-leg pants drape, waistline, hem, sleeve/strap/collar details, fabric texture, and comfortable fit.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this Solavibe image with the EXACT relaxed vacation pose and camera intent described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, hand placement, pocket/waist/hem/bag interaction, walking/leaning/turning state, head direction, garment drape, body angle, and crop must follow this preset as closely as possible.
+# PLUS-SIZE COMFORT RULE: Render realistic plus-size or curvy-friendly proportions when appropriate, natural body balance, flattering 45-degree angles, breathable loose drape, comfortable resort styling, soft smiles or calm expressions, and believable everyday movement. Do not over-slim the body, do not create stiff mannequin posture, and do not replace the product with a luxury runway garment.
+# SOLAVIBE SCENE TASTE: If no scene reference overrides it, prefer warm vacation/resort settings such as european small-town streets, seaside resort hotel, white wall architecture, wood balcony, poolside, cafe, palm walkway, resort corridor, beach boardwalk, or warm stone wall architecture.
+`;
+                        finalPrompt += `\n# SOLAVIBE ACTION LIBRARY DIRECTIVE: Use this selected Solavibe action exactly: ${poseSpec}. This instruction has higher priority than generic womenswear or long-dress pose sets. The product must remain the same product from Image 1 while naturally adapting to a relaxed plus-size vacation resort lookbook mood.\n`;
+                    } else if (activeAutoPoseLibrary === 'longDress') {
                         const posePreset = shuffledLongDressPoses[i % shuffledLongDressPoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED LONG DRESS POSE PRESET: ${posePreset.name} / ${posePreset.id}

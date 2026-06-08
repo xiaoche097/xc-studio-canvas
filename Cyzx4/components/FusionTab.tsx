@@ -1276,7 +1276,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 </div>
 
                 <div 
-                  className="relative group w-full min-h-[180px] overflow-hidden bg-white border border-pastel-border rounded-xl focus-within:ring-2 focus-within:ring-pastel-highlight/50 shadow-sm transition-all hover:border-pastel-highlight/30 cursor-text select-text flex flex-col" 
+                  className="relative group w-full min-h-[180px] overflow-visible bg-white border border-pastel-border rounded-xl focus-within:ring-2 focus-within:ring-pastel-highlight/50 shadow-sm transition-all hover:border-pastel-highlight/30 cursor-text select-text flex flex-col"
                   style={{ height: 'clamp(180px, 42vh, 520px)' }}
                   onClick={() => contentEditableRef.current?.focus()}
                 >
@@ -1323,7 +1323,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       </div>
                   )}
                   {showMentionMenu && previewUrls.length > 0 && (
-                    <div className="absolute z-[100] bg-white border border-pastel-border rounded-2xl shadow-xl p-2 w-56 bottom-full left-4 mb-2 animate-in fade-in zoom-in-95">
+                    <div className="absolute z-[120] bg-white border border-pastel-border rounded-2xl shadow-xl p-2 w-56 top-12 left-4 animate-in fade-in zoom-in-95">
                        <div className="text-xs font-bold text-pastel-muted mb-2 px-2 pt-1">可能@的内容</div>
                        <div className="max-h-48 overflow-y-auto custom-scrollbar">
                          {previewUrls.map((url, idx) => (
