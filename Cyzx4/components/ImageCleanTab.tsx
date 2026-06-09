@@ -50,6 +50,13 @@ interface ModelIdentityAnalysis {
     promptBlock?: string;
 }
 
+interface AccessoryAnalysis {
+    promptBlock?: string;
+    itemChecklist?: string;
+    placementRules?: string;
+    forbiddenDrift?: string;
+}
+
 interface HeroFormState {
     productName: string;
     productCategory: string;
@@ -333,8 +340,8 @@ const HeroImageTab: React.FC = () => {
     const [isPoseOnly, setIsPoseOnly] = useState(true); // 仅参考姿态（默认开启，自动提取线稿以消除背景干扰）
     const [isSafeModeScene, setIsSafeModeScene] = useState(false); // 场景安全模式
     const [isSafeModeModel, setIsSafeModeModel] = useState(false); // 妯＄壒瀹夊叏妯″紡
-    const [isFaceOnly, setIsFaceOnly] = useState(false); // 仅参考脸型
-    const [isSceneOnly, setIsSceneOnly] = useState(false); // 仅参考场景
+    const [isFaceOnly, setIsFaceOnly] = useState(true); // 仅参考脸型
+    const [isSceneOnly, setIsSceneOnly] = useState(true); // 仅参考场景
     const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 正在自动净化场景图
     const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 正在自动净化产品素材图
     const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 是否开启产品图 AI 去噪净化
@@ -751,6 +758,47 @@ User note: ${userPrompt || 'none'}` });
         }
     };
 
+    const analyzeAccessoryReferences = async (images: UploadedImage[]): Promise<AccessoryAnalysis | null> => {
+        if (images.length === 0) return null;
+
+        try {
+            const ai = getAiClient();
+            const parts: any[] = images.map((img, index) => ({
+                inlineData: { mimeType: img.mime!, data: img.base64! }
+            }));
+            parts.push({
+                text: `Analyze these uploaded accessory reference images for a fashion hero-image workflow.
+Return ONLY valid JSON with these exact string fields:
+{
+  "itemChecklist": "numbered inventory of every visible accessory across all images: category, color, material, shape, size, hardware, strap/handle, texture, pattern, and distinctive details",
+  "placementRules": "how each accessory must be worn, held, placed, layered, scaled, and occluded on the model; include left/right hand or body placement when visible",
+  "forbiddenDrift": "short comma-separated list of accessory mistakes to forbid",
+  "promptBlock": "strong English generation prompt block that requires exact accessory identity preservation and forbids invented replacement accessories"
+}
+Rules:
+- Treat each uploaded image as an authorized accessory source, not generic style inspiration.
+- If an image shows shoes, bag, jewelry, earrings, bracelet, watch, necklace, belt, hat, sunglasses, scarf, or handheld prop, describe it as a concrete item that must be reproduced whenever visible.
+- Preserve count, material, color, scale, closure/hardware, strap/handle direction, texture, silhouette, and wearing/carrying logic.
+- Do not invent alternate accessories or change the accessory set between outputs.
+- If an accessory would be hidden by the crop or pose, it may be naturally hidden, but any visible accessory must match the references exactly.`
+            });
+            const response = await generateContentWithAnalysisFallback(ai, {
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: { parts }
+            }, { timeoutMs: 30000, fallbackTimeoutMs: 45000 });
+            const raw = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            return JSON.parse(raw) as AccessoryAnalysis;
+        } catch (err) {
+            console.warn('Accessory reference analysis failed, using direct image-only lock.', err);
+            return {
+                itemChecklist: 'Use every uploaded accessory reference as a concrete source of truth.',
+                placementRules: 'Reproduce each visible accessory with the same item identity, scale, material, color, and wearing/carrying logic whenever visible.',
+                forbiddenDrift: 'invented accessories, changed bag, changed shoes, changed jewelry, changed color, changed material',
+                promptBlock: 'ACCESSORY LOCK: Use the uploaded accessory images as exact accessory identity references, not mood boards. Do not invent or substitute accessories.'
+            };
+        }
+    };
+
     const analyzeModelIdentityReference = async (
         image: UploadedImage | null = modelReference,
         updateUi: boolean = true
@@ -801,6 +849,7 @@ Return ONLY valid JSON with these exact string fields:
 }
 
 Rules:
+- Model identity references are NEVER scene references. Ignore and forbid their background, wall, floor, sea, sky, street, furniture, props, shadows, lighting direction, color temperature, camera crop, lens distance, and environment mood.
 - In FACE-ONLY MODE, the model reference controls only face/head identity. Do NOT use its body shape, clothing, jeans/pants, shoes, accessories, or styling as generation constraints.
 - In FULL MODEL + WARDROBE MODE, the model reference controls identity, hair, skin tone, and body proportions. Product assets control all product garment areas. If the product asset includes a matching bottom, shorts, pants, skirt, set, suit, pajama set, or coordinated outfit, that product bottom MUST replace the model reference bottom. Do not preserve jeans/pants/shorts from the model reference when they conflict with the product asset.
 - Never instruct generation to layer the model's original pants under or over product shorts/pants. Avoid duplicate waistbands, duplicate hems, double drawstrings, and mixed original-model bottom + product bottom artifacts.
@@ -819,6 +868,7 @@ Rules:
                     ? 'FACE-ONLY MODEL LOCK: Preserve only the same face/head identity from the model reference. Ignore model-reference clothing, jeans/pants, shoes, accessories, pose, and body styling.'
                     : [
                         'MODEL IDENTITY LOCK: Preserve the same face, hair, skin tone, body proportions, and person identity from the model reference.',
+                        'MODEL BACKGROUND BAN: Never copy or infer the model reference background, walls, floor, sea, sky, street, architecture, props, shadows, lighting direction, color temperature, camera crop, lens distance, or scene mood.',
                         parsed.outfitLock ? `LOW-PRIORITY MODEL WARDROBE OBSERVATION: ${parsed.outfitLock}` : '',
                         parsed.bottomLock ? `LOW-PRIORITY MODEL BOTTOM OBSERVATION: ${parsed.bottomLock}` : '',
                         'PRODUCT GARMENT OVERRIDE: Product asset garments override model-reference clothing in any overlapping garment area. If the product asset includes shorts, pants, skirt, or a matching set bottom, replace the model reference bottom completely and do not layer or mix both bottoms.'
@@ -903,29 +953,41 @@ Rules:
             const processedAccessories = await Promise.all(
                 accessoryReferences.map(img => processRefImage(img, false))
             );
+            const accessoryVisualAnalysis = await analyzeAccessoryReferences(accessoryReferences);
 
             // 2. 构建图片序列：支持根据动作图索引进行动态独立对齐
             // 严格匹配 API 与 Prompt 契约：产品图必须作为 Image 1（首张图片）传入以确保 100% 一致性锁定
             const getInputImagesForIndex = (actionIndex?: number) => {
                 const list: { base64: string; mimeType: string }[] = [];
+                const routeLines: string[] = [];
+                const addRangeRoute = (label: string, start: number, end: number, note: string) => {
+                    if (start <= 0 || end <= 0) return;
+                    routeLines.push(`- Images ${start === end ? start : `${start}-${end}`}: ${label}. ${note}`);
+                };
                 
                 // 第一优先级：添加产品图作为首张图片（Image 1），与 Prompt 中的 "# CRITICAL REQUIREMENT: The FIRST IMAGE is the [PRODUCT ASSET]" 对齐
+                const productStart = list.length + 1;
                 productImages.forEach(img => {
-                    const isAlreadyAdded = actionReferences.some(ar => ar.base64 === img.base64);
-                    if (!isAlreadyAdded) {
-                        list.push({ base64: img.base64!, mimeType: img.mime! });
-                    }
+                    list.push({ base64: img.base64!, mimeType: img.mime! });
                 });
+                const productEnd = list.length;
+                addRangeRoute('PRODUCT ASSET source of truth', productStart, productEnd, 'Preserve garment/product identity, structure, fabric, color, seams, trims, pattern, and construction exactly. Ignore product-photo background.');
 
                 // 第二优先级：添加模特图，作为人脸特征和长相参考
+                const accessoryStart = processedAccessories.some(Boolean) ? list.length + 1 : 0;
                 processedAccessories.forEach(img => {
                     if (img) list.push(img);
                 });
+                const accessoryEnd = accessoryStart ? list.length : 0;
+                addRangeRoute('ACCESSORY reference set', accessoryStart, accessoryEnd, 'Exact authorized accessories only: clone item identity, count, material, color, scale, hardware, texture, and wearing/carrying logic whenever visible.');
 
+                const modelStart = processedModel ? list.length + 1 : 0;
                 if (processedModel) {
                     list.push(processedModel);
                     list.push(processedModel);
                 }
+                const modelEnd = modelStart ? list.length : 0;
+                addRangeRoute('MODEL identity reference', modelStart, modelEnd, 'Preserve only the allowed identity/body/face information described in the model lock. This is NOT a scene, lighting, camera, background, wall, floor, sea, sky, props, or mood reference. Product assets override wardrobe conflicts.');
                 
                 // 第三优先级：添加特定动作姿态参考图，作为姿态对齐的构图锚点
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
@@ -938,23 +1000,42 @@ Rules:
                     list.push(selectedAction.original);
                     list.push(selectedAction.original);
                 }
+                const actionOriginalEnd = actionOriginalStart ? list.length : 0;
+                addRangeRoute('ORIGINAL ACTION / POSE reference for this output only', actionOriginalStart, actionOriginalEnd, 'Use only pose, camera distance, crop, body scale, body angle, hand placement, and visible body extent. Do not copy clothing, accessories, face, background, or lighting.');
                 const actionLineartStart = selectedAction?.lineart ? list.length + 1 : 0;
                 if (selectedAction?.lineart) {
                     list.push(selectedAction.lineart);
                     list.push(selectedAction.lineart);
                 }
+                const actionLineartEnd = actionLineartStart ? list.length : 0;
+                addRangeRoute('EXTRACTED ACTION EDGE MAP for this output only', actionLineartStart, actionLineartEnd, 'Clean pose skeleton and silhouette support. It is not a scene, clothing, face, or lighting source.');
                 
                 // 第四优先级：添加背景场景参考图
+                const sceneStart = processedScenes.some(Boolean) ? list.length + 1 : 0;
                 processedScenes.forEach(img => {
                     if (img) list.push(img);
                 });
+                const sceneEnd = sceneStart ? list.length : 0;
+                addRangeRoute('SCENE / LOCATION reference', sceneStart, sceneEnd, 'Same-shoot location anchor: preserve location identity, horizon/geometry, ground/wall materials, color palette, lighting direction, shadow softness, color temperature, mood, and recognizable cues. It is the only background source.');
                 
                 return {
                     images: list,
+                    routePrompt: [
+                        '# EXACT IMAGE ROUTING FOR THIS GENERATION CALL (DO NOT GUESS):',
+                        ...routeLines,
+                        '- Priority order: product identity > user-uploaded accessory identity > model identity rules > current action geometry > scene/location lighting and camera geometry.',
+                        '- Never use action-reference background/lighting/accessories as scene or styling sources. Never use product-photo background as scene source.'
+                    ].join('\n'),
+                    accessoryIndexStart: accessoryStart,
+                    accessoryIndexEnd: accessoryEnd,
+                    modelIndexStart: modelStart,
+                    modelIndexEnd: modelEnd,
+                    sceneIndexStart: sceneStart,
+                    sceneIndexEnd: sceneEnd,
                     actionOriginalStart,
-                    actionOriginalEnd: actionOriginalStart ? actionOriginalStart + 2 : 0,
+                    actionOriginalEnd,
                     actionLineartStart,
-                    actionLineartEnd: actionLineartStart ? actionLineartStart + 1 : 0
+                    actionLineartEnd
                 };
             };
 
@@ -987,6 +1068,11 @@ Rules:
                 sceneIndexStart = prevCount + 1;
                 sceneIndexEnd = prevCount + processedScenes.length;
             }
+            void productIndexStart;
+            void actionIndex;
+            void actionLineartIndex;
+            void sceneIndexStart;
+            void sceneIndexEnd;
 
             const measurementStr = (measurements.bust || measurements.waist || measurements.hips) 
                 ? `Model Measurements: Bust ${measurements.bust || 'N/A'}, Waist ${measurements.waist || 'N/A'}, Hips ${measurements.hips || 'N/A'}.` 
@@ -1027,16 +1113,19 @@ Rules:
                 ? (isFaceOnly
                     ? [
                         '# MODEL FACE-ONLY LOCK (HIGHEST PRIORITY AFTER PRODUCT):',
-                        `- Images ${modelIndexStart}-${modelIndexEnd} are FACE IDENTITY references only.`,
+                        `- The MODEL identity reference images are listed in the exact image routing table for this generation call.`,
                         '- Preserve only the model face/head identity: face shape, facial proportions, eyes, eyebrows, nose, lips, jaw/chin, expression, and visible skin tone.',
                         activeModelIdentityAnalysis?.promptBlock ? `- AI analyzed face contract: ${activeModelIdentityAnalysis.promptBlock}` : '',
                         activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
                         '- Do NOT use the model reference clothing, jeans/pants, shoes, accessories, body pose, body shape, or outfit styling as constraints.',
+                        '- MODEL REFERENCE BACKGROUND BAN: Do NOT copy or infer the model-reference background, wall, floor, ocean, sky, architecture, props, shadows, lighting, color temperature, lens, camera crop, or scene mood.',
                         '- Clothing and styling must come from the product asset, accessory references, user prompt, and platform styling only.'
                     ].filter(Boolean).join('\n')
                     : [
                         '# MODEL IDENTITY LOCK + LOW-PRIORITY WARDROBE CONTEXT:',
-                        `- Images ${modelIndexStart}-${modelIndexEnd} are the fixed model identity references. Preserve the same face, facial proportions, hair color/style, skin tone, body proportions, and overall person identity in EVERY output.`,
+                        `- The MODEL identity reference images are listed in the exact image routing table for this generation call. Preserve the same face, facial proportions, hair color/style, skin tone, body proportions, and overall person identity in EVERY output.`,
+                        '- MODEL REFERENCE BACKGROUND BAN: The model identity reference is NOT a scene reference. Ignore and forbid its background, wall, floor, ocean/sea, sky, street, furniture, architecture, props, shadow pattern, lighting direction, color temperature, camera crop, lens distance, and environment mood.',
+                        '- If a separate uploaded scene reference exists, it is the ONLY scene source. If no scene reference exists, use the platform/user scene settings only, never the model identity image environment.',
                         activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
                         activeModelIdentityAnalysis?.hairLock ? `- Hair lock: ${activeModelIdentityAnalysis.hairLock}` : '',
                         activeModelIdentityAnalysis?.bodyLock ? `- Body lock: ${activeModelIdentityAnalysis.bodyLock}` : '',
@@ -1080,6 +1169,15 @@ No accessory reference images were uploaded. The AI-analyzed UNIFIED STYLING PLA
 - If an item is needed or explicitly requested by the user, generate exactly ONE consistent version of that item across ALL outputs: same category, color, material, scale, hardware, shape, placement logic, and styling mood.
 - If an item is not needed, keep it absent across ALL outputs.
 - Never let shoes, pants, bags, rings, necklaces, earrings, bracelets, watches, belts, sunglasses, hats, scarves, or props vary randomly between images. Crops may hide items naturally, but any visible item must match the unified styling plan.`;
+            const accessoryVisualLockPrompt = accessoryReferences.length > 0
+                ? [
+                    '# ACCESSORY VISUAL ANALYSIS LOCK (STRICT):',
+                    `- Accessory inventory: ${accessoryVisualAnalysis?.itemChecklist || 'Follow the uploaded accessory images exactly.'}`,
+                    `- Placement/wearing rules: ${accessoryVisualAnalysis?.placementRules || 'Use the same wearing, carrying, scale, and occlusion logic as the reference images.'}`,
+                    accessoryVisualAnalysis?.promptBlock ? `- AI accessory prompt contract: ${accessoryVisualAnalysis.promptBlock}` : '',
+                    `- Forbidden accessory drift: ${accessoryVisualAnalysis?.forbiddenDrift || 'changed accessory identity, changed color/material, invented accessory, missing referenced accessory, swapped bag/shoes/jewelry'}`
+                ].filter(Boolean).join('\n')
+                : '';
 
             const getPerOutputScenePrompt = (outputNumber: number, isActionLockedOutput: boolean) => {
                 if (sceneReferences.length === 0) return '';
@@ -1118,9 +1216,10 @@ ${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose firs
             
             ${unifiedStylingPlan}
             ${accessoryBatchLockPrompt}
+            ${accessoryVisualLockPrompt}
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (STRICT): Images ${accessoryIndexStart} to ${accessoryIndexEnd} are the ONLY authorized accessory references. If they show a bag, purse, jewelry, ring, necklace, earrings, watch, sunglasses, hat, belt, scarf, bracelet, shoes, or handheld prop, use the same accessory identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# AUTO-STYLING DIRECTIVE (STRICT): The user did not upload accessory reference images, so you must use the UNIFIED STYLING PLAN as the single batch styling contract. Generate only the pants/bottom, shoes, bag, ring, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or prop explicitly selected by that plan or explicitly requested in user supplementary notes. Keep every selected styling item identical across all outputs. Do not add unplanned accessories.'}
+            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (STRICT): The accessory reference images listed in the routing table are the ONLY authorized accessory references. If they show a bag, purse, jewelry, ring, necklace, earrings, watch, sunglasses, hat, belt, scarf, bracelet, shoes, or handheld prop, use the same accessory identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# AUTO-STYLING DIRECTIVE (STRICT): The user did not upload accessory reference images, so you must use the UNIFIED STYLING PLAN as the single batch styling contract. Generate only the pants/bottom, shoes, bag, ring, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or prop explicitly selected by that plan or explicitly requested in user supplementary notes. Keep every selected styling item identical across all outputs. Do not add unplanned accessories.'}
             ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             # OUTPUT FORMAT LOCK: Generate exactly one image in the user-selected ${aspectRatio} aspect ratio. No collage, no split-screen, no side-by-side images, no before/after layout, no horizontal strip, no letterbox/pillarbox, no large blank white canvas.
@@ -1326,7 +1425,16 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 const outputNumber = i + 1;
                 const perOutputSupplementaryNotes = getSupplementaryNotesPrompt(hasOutputActionReference, outputNumber);
                 const perOutputScenePrompt = getPerOutputScenePrompt(outputNumber, hasOutputActionReference);
-                let finalPrompt = globalPrompt;
+                const sceneRoutingLock = sceneReferences.length > 0 && inputPack.sceneIndexStart
+                    ? `# SCENE IMAGE ROUTING FOR OUTPUT #${outputNumber}:
+Images ${inputPack.sceneIndexStart === inputPack.sceneIndexEnd ? inputPack.sceneIndexStart : `${inputPack.sceneIndexStart}-${inputPack.sceneIndexEnd}`} are the ONLY scene/location references for this output. The final model, product, accessories, shadows, exposure, depth of field, and camera perspective must be physically integrated into this same location. Do not use any action-reference or product-photo background as the scene.`
+                    : modelReference
+                        ? `# SCENE SOURCE LOCK FOR OUTPUT #${outputNumber}:
+No uploaded scene reference is available for this output. Build the background only from the selected platform style, user prompt, and global scene realism rules. Do NOT use the model identity reference environment, background, wall, floor, ocean, sky, architecture, props, shadows, lighting direction, color temperature, camera crop, lens distance, or scene mood.`
+                        : '';
+                let finalPrompt = `${inputPack.routePrompt}
+${sceneRoutingLock}
+${globalPrompt}`;
                 let selectedPoseHeader = '';
                 if (hasOutputActionReference) {
                     const actionFrameNote = getPoseReferenceFrameNote(actionReferences[actionReferenceIndex], actionReferenceIndex);
@@ -1494,6 +1602,9 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                         : '',
                     modelReference
                         ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
+                        : '',
+                    modelReference
+                        ? 'copied model reference background, model reference scene, model reference wall, model reference floor, model reference ocean, model reference sea, model reference sky, model reference street, model reference architecture, model reference props, model reference furniture, model reference shadow pattern, model reference lighting direction, model reference color temperature, model reference camera crop, model reference lens distance, model identity image environment'
                         : '',
                     'random accessories, inconsistent accessories, styling drift, different pants, different jeans, different skirt, different shoes, different sandals, different boots, different necklace, different earrings, different rings, different watch, different sunglasses, different hat, different bracelet, different bag, different belt, different scarf, extra jewelry, extra watch, extra sunglasses, extra rings, extra bag, invented unplanned accessories, accessory drift between outputs, shoe drift between outputs, bottom outfit drift between outputs',
                     sceneReferences.length > 0

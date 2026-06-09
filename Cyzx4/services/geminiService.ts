@@ -1248,6 +1248,8 @@ ${forcedPrompt}`;
 
         **MODEL IDENTITY/WARDROBE LOCK**:
         - If the user prompt defines a model identity reference, preserve that exact face, hair, skin tone, body proportions, and person identity.
+        - Model identity references are NEVER scene/background/lighting/camera references. Do NOT copy or infer their background, walls, floors, ocean/sea, sky, street, architecture, furniture, props, shadows, lighting direction, color temperature, lens distance, camera crop, or environment mood.
+        - If the user prompt defines a separate scene reference, that scene reference is the ONLY location/background source. If no scene reference is defined, use only the user's platform/style/background instructions, never the model identity image environment.
         - Preserve all model-reference outfit pieces that do not conflict with the product asset, especially jeans/pants/bottoms, shoes, belts, and simple styling.
         - If the model identity reference wears jeans, the output must keep the same jeans style, wash, fit, and color wherever the crop shows them.
 
