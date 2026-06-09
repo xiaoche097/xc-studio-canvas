@@ -544,9 +544,11 @@ const FusionTab: React.FC = () => {
         ? 'magic-mannequin'
         : selectedStyle?.id === 'model-reference-generation'
           ? 'face-lock'
-          : selectedStyle?.id?.includes('strict-angle') || useWhiteBackgroundBatch
-            ? 'strict-geometry-lock'
-            : undefined;
+          : selectedStyle?.id === 'lighting-replication'
+            ? 'lighting-replication'
+            : selectedStyle?.id?.includes('strict-angle') || useWhiteBackgroundBatch
+              ? 'strict-geometry-lock'
+              : undefined;
 
       // White background production is a per-image batch workflow. Other styles keep
       // the original multi-reference, multi-variant behavior.

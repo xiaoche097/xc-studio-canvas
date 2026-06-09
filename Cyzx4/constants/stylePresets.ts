@@ -11,6 +11,16 @@ export interface StylePreset {
 
 const STYLE_PRESETS_RAW: StylePreset[] = [
     {
+        id: 'lighting-replication',
+        name: '光影复刻',
+        category: '摄影',
+        previewUrl: '/styles/studio.png',
+        description: '锁定图1所有人物、服装、场景与构图，只复刻图2+的光源方向、模特打光、阴影、色温、对比和后期光影质感。',
+        prompt: 'Lighting replication retouch. Use Image 1 as the source image and preserve every visible element exactly: same person, face, body, clothing, accessories, background, props, composition, camera angle, crop, perspective, and object placement. Transfer only the lighting style from Image 2 or the lighting reference images: light direction, key/fill/rim balance, highlight placement, shadow softness and shape, skin exposure, fabric/material light response, color temperature, contrast curve, dynamic range, and subtle color grading. Do not change identity, outfit, pose, scene, layout, background objects, product details, or camera framing.',
+        promptWithRef: '光影复刻专用工作流：\n- Image 1 是唯一内容源，必须完整保留图1的所有元素：人物身份、脸、发型、身体、姿态、服装、配饰、道具、背景、门窗、家具、桌面物体、构图、裁切、镜头角度、透视、景深、主体位置和所有可见细节。\n- Image 2 以及后续参考图只作为光影参考，不是内容参考。只提取并迁移参考图的光源方向、主光/辅光/轮廓光关系、窗口光或太阳光质感、模特脸部和皮肤受光、服装褶皱高光、阴影形状和柔硬、投影方向、色温、曝光、对比度、动态范围、胶片/商业后期调色。\n- 生成结果应看起来像“图1在同一场景中重新布光/重新调色”，而不是换场景、换人物、换衣服、换动作或换背景。\n- 如果图2的光影来自窗边逆光、暖阳、硬太阳斜影、柔光棚拍、低调高反差或清透自然光，请把这些光影物理关系真实地投射到图1的人物、衣服、皮肤、头发、地面、墙面和所有物体上。\n- 允许改变的只有光影、曝光、色温、阴影、明暗体积、局部反射、高光和整体调色；禁止改变任何内容结构。',
+        negativePrompt: 'changed person, changed face, changed identity, changed hair, changed clothing, changed outfit, changed pattern, changed accessories, changed pose, changed body shape, changed background, changed room, changed furniture, changed props, changed scene, changed camera angle, changed crop, changed perspective, moved objects, removed objects, added objects, redesigned garment, different composition, different location, copied lighting reference person, copied lighting reference outfit, copied lighting reference background, content replacement, style transfer changing content, hallucinated elements, distorted anatomy, deformed hands, face drift, overexposed blown highlights, crushed shadows, muddy color, fake shadows, inconsistent shadow direction'
+    },
+    {
         id: 'model-clothing-extraction',
         name: '服装三视图',
         category: '电商',
@@ -143,6 +153,7 @@ const STYLE_PRESETS_RAW: StylePreset[] = [
 ];
 
 const STYLE_PRESET_DISPLAY_ORDER = [
+    'lighting-replication',
     'model-clothing-extraction',
     'clothing-to-3d-mannequin',
 ];
