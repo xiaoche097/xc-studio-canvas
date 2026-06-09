@@ -513,7 +513,35 @@ const FusionTab: React.FC = () => {
       if (selectedStyle) {
           let stylePrompt = images.length > 0 ? selectedStyle.promptWithRef : selectedStyle.prompt;
           
-          if (selectedStyle.id === 'clothing-to-3d-mannequin') {
+          if (selectedStyle.id === 'lighting-replication') {
+              const userIntent = finalPrompt
+                  ? `用户补充要求：${finalPrompt}`
+                  : '用户未填写额外创意描述，请只执行光影复刻。';
+
+              generationPrompt = `光影复刻任务：
+Image 1 是目标原图，也是唯一内容来源。必须保留 Image 1 的人物身份、五官、发型、身体比例、姿势、服装款式/图案/颜色、配饰、背景、窗户、家具、桌面物体、构图、裁切、镜头角度、透视和所有物体位置。
+Image 2 以及后续图片只作为光影参考，绝对不是内容参考。不要复制 Image 2 的人物、衣服、动作、背景、道具或构图。
+
+必须执行明显可见的重新布光和重新调色，禁止原图直返或只做轻微锐化。请把 Image 2 的光影效果真实转移到 Image 1。
+
+亮度分区目标（必须优先执行）：
+- 逐区匹配 Image 2 的明度分布：人物脸部、皮肤、头发、衣服、背景窗户、室外绿植、桌椅道具分别对齐 Image 2 的亮暗关系，而不是整体提亮。
+- 如果 Image 2 是窗边逆光/背光：保留窗户和室外背景偏亮，降低过强正面补光，但必须保留柔和环境补光，让脸部五官、眼睛、笑容、发丝、衣服纹理和手臂皮肤仍然清楚可读，不能死黑。
+- 人物正面可以比背景更暗，但暗部必须有细节、有棕色/肤色层次、有柔和反光，不能变成黑色剪影、黑块或脏暗。
+- 不要把人物打成明亮电商棚拍，也不要把人物压成低曝光死黑；目标是 Image 2 那种柔和、通透、低填充但可读的自然窗光。
+- 深色衣服要保留参考图那种深棕色暗面、局部暖高光和柔和明暗过渡；白色/浅色区域不能变成过曝纯白。
+- 场景整体光影色调也要参考 Image 2：墙面、窗框、桌椅、篮子、食物、花、室外绿植、地面都要统一到 Image 2 的暖白窗光、轻微暖色调、柔和高光、自然阴影和通透空气感，不要只改人物。
+
+光源结构目标：
+- 复刻 Image 2 的主光方向、逆光/轮廓光、低填充光比例、窗口光或太阳光质感。
+- 复刻 Image 2 的高光位置、阴影方向、阴影柔硬、投影密度、局部反射、色温、曝光、对比度、动态范围和商业后期调色。
+- 如果 Image 2 人物更暗、更逆光、更低填充、更高反差或更暖/更冷，Image 1 的人物也必须出现相近的明暗和色温变化，但要保留暗部细节和面部可读性。
+
+成功标准：结果一眼能看出 Image 1 的光影、人物明度、服装受光、背景受光和整体对比已经参考 Image 2 改变，但 Image 1 的所有内容元素保持不变。
+失败标准：输出几乎等同原图、人物亮度没有向 Image 2 靠拢、人物被打得比 Image 2 更亮更平、人物死黑无细节、场景色调没有参考 Image 2、阴影方向无变化、对比无变化、只返回原图。
+
+${userIntent}`;
+          } else if (selectedStyle.id === 'clothing-to-3d-mannequin') {
               // Construct parameters string
               const anglePrompt = viewAngle === 'front' ? 'front view' : '3/4 front-right side view';
               const styleTypePrompt = renderStyle === 'real' ? 'high-end studio photography feel' : 'clean 3D digital render style';
@@ -531,11 +559,13 @@ const FusionTab: React.FC = () => {
               }
           }
           
-          // Replace [SUBJECT] in style prompt if it exists, otherwise append
-          if (stylePrompt.includes('[SUBJECT]')) {
-             generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
-          } else {
-             generationPrompt = finalPrompt ? `${finalPrompt}, ${stylePrompt}` : stylePrompt;
+          if (selectedStyle.id !== 'lighting-replication') {
+              // Replace [SUBJECT] in style prompt if it exists, otherwise append
+              if (stylePrompt.includes('[SUBJECT]')) {
+                 generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
+              } else {
+                 generationPrompt = finalPrompt ? `${finalPrompt}, ${stylePrompt}` : stylePrompt;
+              }
           }
           negativePrompt = selectedStyle.negativePrompt;
       }
