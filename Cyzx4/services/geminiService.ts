@@ -959,6 +959,25 @@ ${forcedPrompt}`;
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'lighting-replication') {
+          gptPrompt = `[ROLE: Senior fashion lighting retoucher and look-development colorist]
+[TASK: Relight Image 1 using only the lighting DNA from Image 2+]
+[INPUT MAPPING]
+- Image 1 is the TARGET CONTENT SOURCE. Preserve every visible element from Image 1.
+- Images 2 and beyond are LIGHTING REFERENCES ONLY. They provide lighting, exposure, shadow, color temperature, contrast, highlight rolloff, skin/fabric light response, and color grading. They are NOT content references.
+
+[ABSOLUTE CONTENT LOCK]
+- Keep Image 1's same person, face, identity, hair, body, pose, clothing, pattern, accessories, background, furniture, props, composition, crop, camera angle, lens perspective, subject placement, and object positions.
+- Do not replace, remove, add, redesign, re-style, move, rotate, zoom, recrop, or reinterpret any Image 1 content.
+- Do not copy any person, outfit, pose, background, furniture, props, scene, or composition from Images 2+.
+
+[LIGHTING TRANSFER ONLY]
+- Transfer only the reference lighting system from Images 2+: key/fill/rim relationship, light direction, shadow angle, shadow softness/hardness, window/sun/studio quality, skin exposure, hair highlights, fabric highlights, contact shadows, bounce light, color temperature, contrast curve, dynamic range, and final color grade.
+- The final image should look like Image 1 was re-lit and regraded with the lighting mood of Images 2+, while all Image 1 content remains unchanged.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
         } else if (workflowHint === 'listing-optimization') {
           gptPrompt = `[ROLE: Senior Amazon A+ Content Visual Strategist & High-Conversion Layout Designer]
 [TASK: Redesign the product listing image based on the optimization brief below]
@@ -1372,6 +1391,39 @@ ${forcedPrompt}`;
         - Enforce real camera geometry: coherent horizon line, vanishing points, ground plane, subject scale, foot/contact placement, shadow direction, lens compression, and depth of field. Subtly correct the uploaded scene reference if needed so the final image obeys physical perspective and camera principles.
         - Close-up / chest-up / waist-up / detail crops must have realistic shallow depth of field. The scene reference should remain recognizable only through blurred location cues, not a crisp flat background. Full-body and wide shots may show more background detail, but must still obey perspective, lighting, shadow, and lens logic.
         - Accessories must be batch-consistent. Use only the accessory set authorized by the user's prompt/reference mapping. Do not randomly change necklaces, watches, sunglasses, hats, bags, belts, bracelets, jewelry, or handheld props between outputs.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : workflowHint === 'lighting-replication'
+                    ? `
+        **ROLE**: Senior Fashion Lighting Retoucher & Commercial Colorist.
+        **TASK**: Relight and regrade Image 1 using ONLY the lighting DNA from Image 2 and any later reference images.
+
+        **STRICT IMAGE ROUTING**:
+        - Image 1 = TARGET CONTENT SOURCE. It is the only source for all visible content.
+        - Images 2+ = LIGHTING REFERENCES ONLY. They provide light direction, key/fill/rim balance, shadow geometry, skin and fabric exposure, color temperature, contrast, dynamic range, and final color grade.
+        - Images 2+ are NOT sources for person identity, pose, garment, accessories, background, props, layout, camera angle, or scene.
+
+        **ABSOLUTE CONTENT FREEZE FOR IMAGE 1**:
+        Preserve Image 1's person, face, identity, hair, body shape, pose, clothing, garment design, print/pattern, accessories, background, furniture, props, architecture, composition, crop, lens perspective, camera angle, subject placement, and every object position.
+        Do NOT change, replace, remove, add, redesign, restyle, move, rotate, zoom, recrop, or reinterpret any Image 1 element.
+
+        **LIGHTING TRANSFER ONLY**:
+        Apply the lighting behavior from Images 2+ to Image 1:
+        - key light direction and height
+        - fill light level and contrast ratio
+        - rim/backlight if present
+        - window light / sun beam / studio softbox quality
+        - highlight placement on face, hair, skin, fabric, metal, glass, furniture, floor, and wall
+        - shadow direction, softness, density, contact shadows, and cast-shadow shape
+        - bounce light color, exposure rolloff, color temperature, white balance, contrast curve, dynamic range, and subtle post-production color grade
+
+        **SUCCESS CRITERION**:
+        The output must look like the exact Image 1 photograph was re-lit and color-graded to match the lighting of Images 2+, while all Image 1 content remains unchanged.
+
+        **FAILURE MODES TO AVOID**:
+        copied reference model, copied reference outfit, copied reference background, changed face, changed pose, changed clothing, changed scene, changed furniture, changed crop, changed camera angle, new props, missing props, content replacement, style transfer that alters content.
+
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
