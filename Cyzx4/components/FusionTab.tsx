@@ -513,7 +513,26 @@ const FusionTab: React.FC = () => {
       if (selectedStyle) {
           let stylePrompt = images.length > 0 ? selectedStyle.promptWithRef : selectedStyle.prompt;
           
-          if (selectedStyle.id === 'clothing-to-3d-mannequin') {
+          if (selectedStyle.id === 'lighting-replication') {
+              const userIntent = finalPrompt
+                  ? `用户补充要求：${finalPrompt}`
+                  : '用户未填写额外创意描述，请只执行光影复刻。';
+
+              generationPrompt = `光影复刻任务：
+Image 1 是目标原图，也是唯一内容来源。必须保留 Image 1 的人物身份、五官、发型、身体比例、姿势、服装款式/图案/颜色、配饰、背景、窗户、家具、桌面物体、构图、裁切、镜头角度、透视和所有物体位置。
+Image 2 以及后续图片只作为光影参考，绝对不是内容参考。不要复制 Image 2 的人物、衣服、动作、背景、道具或构图。
+
+必须执行明显可见的重新布光和重新调色，禁止原图直返或只做轻微锐化。请把 Image 2 的光影效果真实转移到 Image 1：
+- 人物脸部、皮肤、头发、服装和背景的明度关系要向 Image 2 靠拢。
+- 复刻 Image 2 的主光方向、逆光/轮廓光、补光强度、窗口光或太阳光质感。
+- 复刻 Image 2 的高光位置、阴影方向、阴影柔硬、投影密度、局部反射、色温、曝光、对比度、动态范围和商业后期调色。
+- 如果 Image 2 人物更暗、更亮、更逆光、更高反差或更暖/更冷，Image 1 的人物也必须出现同等级别的明暗和色温变化。
+
+成功标准：结果一眼能看出 Image 1 的光影、人物明度、服装受光、背景受光和整体对比已经参考 Image 2 改变，但 Image 1 的所有内容元素保持不变。
+失败标准：输出几乎等同原图、人物亮度没有向 Image 2 靠拢、阴影方向无变化、对比无变化、只返回原图。
+
+${userIntent}`;
+          } else if (selectedStyle.id === 'clothing-to-3d-mannequin') {
               // Construct parameters string
               const anglePrompt = viewAngle === 'front' ? 'front view' : '3/4 front-right side view';
               const styleTypePrompt = renderStyle === 'real' ? 'high-end studio photography feel' : 'clean 3D digital render style';
@@ -531,11 +550,13 @@ const FusionTab: React.FC = () => {
               }
           }
           
-          // Replace [SUBJECT] in style prompt if it exists, otherwise append
-          if (stylePrompt.includes('[SUBJECT]')) {
-             generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
-          } else {
-             generationPrompt = finalPrompt ? `${finalPrompt}, ${stylePrompt}` : stylePrompt;
+          if (selectedStyle.id !== 'lighting-replication') {
+              // Replace [SUBJECT] in style prompt if it exists, otherwise append
+              if (stylePrompt.includes('[SUBJECT]')) {
+                 generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
+              } else {
+                 generationPrompt = finalPrompt ? `${finalPrompt}, ${stylePrompt}` : stylePrompt;
+              }
           }
           negativePrompt = selectedStyle.negativePrompt;
       }

@@ -966,6 +966,11 @@ ${forcedPrompt}`;
 - Image 1 is the TARGET CONTENT SOURCE. Preserve every visible element from Image 1.
 - Images 2 and beyond are LIGHTING REFERENCES ONLY. They provide lighting, exposure, shadow, color temperature, contrast, highlight rolloff, skin/fabric light response, and color grading. They are NOT content references.
 
+[MANDATORY VISIBLE CHANGE]
+- Do NOT return Image 1 unchanged. A near-identical copy is a failure.
+- Perform a real relighting and regrading pass. The viewer must immediately see that subject brightness, face exposure, garment highlights, background illumination, shadow density/direction, contrast, and color temperature have shifted toward Images 2+.
+- If Images 2+ have a darker/brighter/backlit/higher-contrast/warmer/cooler model lighting relationship, Image 1's person and scene must receive the same visible lighting relationship.
+
 [ABSOLUTE CONTENT LOCK]
 - Keep Image 1's same person, face, identity, hair, body, pose, clothing, pattern, accessories, background, furniture, props, composition, crop, camera angle, lens perspective, subject placement, and object positions.
 - Do not replace, remove, add, redesign, re-style, move, rotate, zoom, recrop, or reinterpret any Image 1 content.
@@ -973,6 +978,7 @@ ${forcedPrompt}`;
 
 [LIGHTING TRANSFER ONLY]
 - Transfer only the reference lighting system from Images 2+: key/fill/rim relationship, light direction, shadow angle, shadow softness/hardness, window/sun/studio quality, skin exposure, hair highlights, fabric highlights, contact shadows, bounce light, color temperature, contrast curve, dynamic range, and final color grade.
+- Match the model brightness and light-to-shadow contrast of Images 2+ as strongly as physically plausible on Image 1.
 - The final image should look like Image 1 was re-lit and regraded with the lighting mood of Images 2+, while all Image 1 content remains unchanged.
 
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
@@ -1404,6 +1410,16 @@ ${forcedPrompt}`;
         - Images 2+ = LIGHTING REFERENCES ONLY. They provide light direction, key/fill/rim balance, shadow geometry, skin and fabric exposure, color temperature, contrast, dynamic range, and final color grade.
         - Images 2+ are NOT sources for person identity, pose, garment, accessories, background, props, layout, camera angle, or scene.
 
+        **MANDATORY VISIBLE RELIGHTING**:
+        Do NOT return Image 1 unchanged. A near-identical result is a failed edit.
+        The output must show obvious lighting and tonal changes compared with Image 1:
+        - face and skin brightness must move toward Images 2+
+        - garment highlight/shadow balance must move toward Images 2+
+        - background/window/wall/floor illumination must move toward Images 2+
+        - contrast, exposure, white balance, color temperature, and color grade must move toward Images 2+
+        - cast shadows/contact shadows must reflect the reference light direction and softness
+        If the reference has darker model lighting, stronger backlight, warmer sunlight, cooler window light, deeper shadows, or higher contrast, apply that same visible relationship to Image 1.
+
         **ABSOLUTE CONTENT FREEZE FOR IMAGE 1**:
         Preserve Image 1's person, face, identity, hair, body shape, pose, clothing, garment design, print/pattern, accessories, background, furniture, props, architecture, composition, crop, lens perspective, camera angle, subject placement, and every object position.
         Do NOT change, replace, remove, add, redesign, restyle, move, rotate, zoom, recrop, or reinterpret any Image 1 element.
@@ -1417,12 +1433,13 @@ ${forcedPrompt}`;
         - highlight placement on face, hair, skin, fabric, metal, glass, furniture, floor, and wall
         - shadow direction, softness, density, contact shadows, and cast-shadow shape
         - bounce light color, exposure rolloff, color temperature, white balance, contrast curve, dynamic range, and subtle post-production color grade
+        Match the model brightness and light-to-shadow contrast of Images 2+ as strongly as physically plausible on Image 1.
 
         **SUCCESS CRITERION**:
-        The output must look like the exact Image 1 photograph was re-lit and color-graded to match the lighting of Images 2+, while all Image 1 content remains unchanged.
+        The output must look like the exact Image 1 photograph was visibly re-lit and color-graded to match the lighting of Images 2+, while all Image 1 content remains unchanged.
 
         **FAILURE MODES TO AVOID**:
-        copied reference model, copied reference outfit, copied reference background, changed face, changed pose, changed clothing, changed scene, changed furniture, changed crop, changed camera angle, new props, missing props, content replacement, style transfer that alters content.
+        unchanged source image, original image returned, no visible relighting, same face brightness, same garment brightness, same contrast, same shadows, copied reference model, copied reference outfit, copied reference background, changed face, changed pose, changed clothing, changed scene, changed furniture, changed crop, changed camera angle, new props, missing props, content replacement, style transfer that alters content.
 
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
