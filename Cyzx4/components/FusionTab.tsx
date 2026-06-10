@@ -261,6 +261,8 @@ const FusionTab: React.FC = () => {
         AspectRatio.SQUARE, 
         AspectRatio.LANDSCAPE_3_2, 
         AspectRatio.PORTRAIT_2_3, 
+        AspectRatio.LANDSCAPE_4_3,
+        AspectRatio.PORTRAIT_3_4,
         AspectRatio.LANDSCAPE_16_9, 
         AspectRatio.PORTRAIT_9_16
       ];
@@ -1021,6 +1023,12 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       <option value={AspectRatio.SQUARE}>1:1 (正方形)</option>
                       <option value={AspectRatio.LANDSCAPE_3_2}>3:2 (横构图)</option>
                       <option value={AspectRatio.PORTRAIT_2_3}>2:3 (竖构图)</option>
+                      {selectedModel === 'gpt-image-2' && (
+                        <>
+                          <option value={AspectRatio.PORTRAIT_3_4}>3:4 (人像)</option>
+                          <option value={AspectRatio.LANDSCAPE_4_3}>4:3 (常规)</option>
+                        </>
+                      )}
                       
                       {/* For gpt-image-2, only show official supported ratios if requested, or keep common ones */}
                       {selectedModel !== 'gpt-image-2' && !isMidjourneyModel && (
