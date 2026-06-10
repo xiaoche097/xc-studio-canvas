@@ -749,9 +749,10 @@ User note: ${userPrompt || 'none'}` });
                 `- Unified other accessories for ALL images: ${accessoryReferences.length > 0 ? (parsed.unifiedOtherAccessories || 'follow uploaded accessory reference images exactly') : (parsed.unifiedOtherAccessories || 'none unless explicitly requested or necessary for the selected styling')}`,
                 `- Avoid styling: ${parsed.avoidStyling || 'avoid changing the product garment or adding distracting accessories'}`,
                 '- CONSISTENCY RULE: pants, shoes, bags, belts, jewelry, watches, sunglasses, hats, bracelets, handheld props, and every visible accessory must stay the same style/color/material across every image in this batch unless they are physically hidden by the crop.',
+                accessoryReferences.length > 0 ? '- UPLOADED STYLING REFERENCES OVERRIDE AUTO-STYLING: bottoms/pants, shoes, bags, jewelry, belts, sunglasses, hats, scarves, bracelets, watches, and props visible in uploaded styling references must override any AI-recommended automatic styling item in the same category.' : '',
                 '- AUTO-STYLING LOCK: if the user did not upload accessory references, use the analyzed unified styling above as the only allowed generated outfit support. Do not improvise a new bag, shoe, pant, necklace, ring, belt, sunglasses, hat, watch, bracelet, scarf, or prop in later outputs.',
                 '- ACCESSORY NO-RANDOMIZATION RULE: do not create a different necklace/watch/sunglasses/hat/bag/bracelet/shoe/pant combination for different outputs. Use the single unified styling set above, or no accessories.'
-            ].join('\n');
+            ].filter(Boolean).join('\n');
         } catch (err) {
             console.warn('Hero styling plan analysis failed, using fallback.', err);
             return fallback;
@@ -767,20 +768,21 @@ User note: ${userPrompt || 'none'}` });
                 inlineData: { mimeType: img.mime!, data: img.base64! }
             }));
             parts.push({
-                text: `Analyze these uploaded accessory reference images for a fashion hero-image workflow.
+                text: `Analyze these uploaded accessory / outfit styling reference images for a fashion hero-image workflow.
 Return ONLY valid JSON with these exact string fields:
 {
-  "itemChecklist": "numbered inventory of every visible accessory across all images: category, color, material, shape, size, hardware, strap/handle, texture, pattern, and distinctive details",
-  "placementRules": "how each accessory must be worn, held, placed, layered, scaled, and occluded on the model; include left/right hand or body placement when visible",
-  "forbiddenDrift": "short comma-separated list of accessory mistakes to forbid",
-  "promptBlock": "strong English generation prompt block that requires exact accessory identity preservation and forbids invented replacement accessories"
+  "itemChecklist": "numbered inventory of every visible styling item across all images: bottoms/pants/skirt/shorts, shoes, bag, jewelry, earrings, bracelet, watch, necklace, belt, hat, sunglasses, scarf, handheld prop; include category, color, material, shape, size, hardware, strap/handle, texture, pattern, and distinctive details",
+  "placementRules": "how each styling item must be worn, held, placed, layered, scaled, and occluded on the model; include left/right hand or body placement when visible",
+  "forbiddenDrift": "short comma-separated list of styling mistakes to forbid",
+  "promptBlock": "strong English generation prompt block that requires exact outfit styling item identity preservation and forbids invented replacement accessories or bottoms"
 }
 Rules:
-- Treat each uploaded image as an authorized accessory source, not generic style inspiration.
-- If an image shows shoes, bag, jewelry, earrings, bracelet, watch, necklace, belt, hat, sunglasses, scarf, or handheld prop, describe it as a concrete item that must be reproduced whenever visible.
+- Treat each uploaded image as an authorized concrete styling source, not generic style inspiration.
+- A single uploaded flat-lay image may contain multiple separate items. Split that one image into a numbered per-item inventory and preserve every visible item unless the crop naturally hides it.
+- If an image shows pants, jeans, shorts, skirt, shoes, bag, jewelry, earrings, bracelet, watch, necklace, belt, hat, sunglasses, scarf, or handheld prop, describe it as a concrete item that must be reproduced whenever visible.
 - Preserve count, material, color, scale, closure/hardware, strap/handle direction, texture, silhouette, and wearing/carrying logic.
-- Do not invent alternate accessories or change the accessory set between outputs.
-- If an accessory would be hidden by the crop or pose, it may be naturally hidden, but any visible accessory must match the references exactly.`
+- Do not invent alternate accessories, bottoms, shoes, or styling items, and do not change the styling set between outputs.
+- If a styling item would be hidden by the crop or pose, it may be naturally hidden, but any visible styling item must match the references exactly.`
             });
             const response = await generateContentWithAnalysisFallback(ai, {
                 model: 'gemini-3.1-flash-lite-preview',
@@ -791,10 +793,10 @@ Rules:
         } catch (err) {
             console.warn('Accessory reference analysis failed, using direct image-only lock.', err);
             return {
-                itemChecklist: 'Use every uploaded accessory reference as a concrete source of truth.',
-                placementRules: 'Reproduce each visible accessory with the same item identity, scale, material, color, and wearing/carrying logic whenever visible.',
-                forbiddenDrift: 'invented accessories, changed bag, changed shoes, changed jewelry, changed color, changed material',
-                promptBlock: 'ACCESSORY LOCK: Use the uploaded accessory images as exact accessory identity references, not mood boards. Do not invent or substitute accessories.'
+                itemChecklist: 'Use every uploaded accessory / outfit styling reference as a concrete source of truth, including any visible bottoms, shoes, bags, jewelry, belts, hats, sunglasses, scarves, bracelets, watches, and handheld props.',
+                placementRules: 'Reproduce each visible styling item with the same item identity, scale, material, color, and wearing/carrying logic whenever visible.',
+                forbiddenDrift: 'invented accessories, invented bottoms, changed pants, changed bag, changed shoes, changed jewelry, changed color, changed material',
+                promptBlock: 'ACCESSORY / OUTFIT STYLING LOCK: Use the uploaded styling images as exact item identity references, not mood boards. Do not invent or substitute accessories, bottoms, shoes, or props.'
             };
         }
     };
@@ -979,7 +981,7 @@ Rules:
                     if (img) list.push(img);
                 });
                 const accessoryEnd = accessoryStart ? list.length : 0;
-                addRangeRoute('ACCESSORY reference set', accessoryStart, accessoryEnd, 'Exact authorized accessories only: clone item identity, count, material, color, scale, hardware, texture, and wearing/carrying logic whenever visible.');
+                addRangeRoute('ACCESSORY / OUTFIT STYLING reference set', accessoryStart, accessoryEnd, 'Exact authorized styling items only: clone every visible bottom/pants/skirt/shorts, shoes, bag, jewelry, watch, sunglasses, hat, belt, scarf, bracelet, handheld prop, material, color, scale, hardware, texture, and wearing/carrying logic whenever visible.');
 
                 const modelStart = processedModel ? list.length + 1 : 0;
                 if (processedModel) {
@@ -993,7 +995,7 @@ Rules:
                 const selectedAction = typeof actionIndex === 'number' && processedActions[actionIndex]
                     ? processedActions[actionIndex]
                     : null;
-                const shouldUseActionOriginal = !!selectedAction?.original && !isPoseOnly && activeAutoPoseLibrary !== 'swimShorts';
+                const shouldUseActionOriginal = !!selectedAction?.original && !isSafeMode && activeAutoPoseLibrary !== 'swimShorts';
                 const actionOriginalStart = shouldUseActionOriginal ? list.length + 1 : 0;
                 if (shouldUseActionOriginal && selectedAction?.original) {
                     list.push(selectedAction.original);
@@ -1001,7 +1003,7 @@ Rules:
                     list.push(selectedAction.original);
                 }
                 const actionOriginalEnd = actionOriginalStart ? list.length : 0;
-                addRangeRoute('ORIGINAL ACTION / POSE reference for this output only', actionOriginalStart, actionOriginalEnd, 'Use only pose, camera distance, crop, body scale, body angle, hand placement, and visible body extent. Do not copy clothing, accessories, face, background, or lighting.');
+                addRangeRoute('ORIGINAL ACTION / POSE reference for this output only', actionOriginalStart, actionOriginalEnd, 'PRIMARY geometry master. Match pose, camera distance, crop, body scale, body angle, shoulder/hip tilt, hand placement, limb bends, weight distribution, and visible body extent. Do not copy clothing, accessories, face, background, or lighting.');
                 const actionLineartStart = selectedAction?.lineart ? list.length + 1 : 0;
                 if (selectedAction?.lineart) {
                     list.push(selectedAction.lineart);
@@ -1087,7 +1089,7 @@ Rules:
                 `Scene: ${sceneStrategy}`,
                 photoStrategy,
                 actionReferences.length > 0
-                    ? `Action: uploaded action references constrain only their matching output slots; non-matching outputs use intelligent random/auto poses`
+                    ? `Action: uploaded action references are the highest-priority pose source. Matching outputs must ignore AI-recognized/auto action libraries; only outputs without an uploaded action reference may use intelligent random/auto poses`
                     : `Action: intelligent pose matching`,
                 `Quality: ${QUALITY_BOOSTERS.EDITORIAL}`
             ].join(' | ');
@@ -1161,8 +1163,8 @@ Rules:
             ];
 
             const accessoryBatchLockPrompt = accessoryReferences.length > 0
-                ? `# ACCESSORY BATCH IDENTITY LOCK:
-Images ${accessoryIndexStart}-${accessoryIndexEnd} define the ONLY accessory set allowed in this batch. Use the same bag/jewelry/watch/sunglasses/hat/belt/bracelet/handheld prop identity across every output: same item count, same color, same material, same hardware, same scale, and same styling logic. A crop may hide an accessory naturally, but visible accessories must not change between outputs. Do NOT invent alternate necklaces, watches, sunglasses, hats, bags, belts, bracelets, or props.`
+                ? `# ACCESSORY / OUTFIT STYLING BATCH IDENTITY LOCK:
+Images ${accessoryIndexStart}-${accessoryIndexEnd} define the ONLY authorized styling set allowed in this batch. If one image contains multiple flat-lay items, treat each visible item as a separate required styling reference. Use the same bottom/pants/jeans/skirt/shorts, shoes, bag, jewelry, watch, sunglasses, hat, belt, scarf, bracelet, and handheld prop identity across every output whenever visible: same item count, same color, same material, same hardware, same scale, and same styling logic. A crop may hide a styling item naturally, but visible styling items must not change between outputs. Do NOT invent alternate pants, shoes, necklaces, watches, sunglasses, hats, bags, belts, bracelets, or props.`
                 : `# AUTO-STYLING BATCH IDENTITY LOCK:
 No accessory reference images were uploaded. The AI-analyzed UNIFIED STYLING PLAN above is the ONLY allowed generated styling support for this batch.
 - First decide from the product, platform, persona, scene, and user notes whether the outfit needs pants/bottoms, shoes, bag, rings, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or handheld prop.
@@ -1171,11 +1173,11 @@ No accessory reference images were uploaded. The AI-analyzed UNIFIED STYLING PLA
 - Never let shoes, pants, bags, rings, necklaces, earrings, bracelets, watches, belts, sunglasses, hats, scarves, or props vary randomly between images. Crops may hide items naturally, but any visible item must match the unified styling plan.`;
             const accessoryVisualLockPrompt = accessoryReferences.length > 0
                 ? [
-                    '# ACCESSORY VISUAL ANALYSIS LOCK (STRICT):',
-                    `- Accessory inventory: ${accessoryVisualAnalysis?.itemChecklist || 'Follow the uploaded accessory images exactly.'}`,
+                    '# ACCESSORY / OUTFIT STYLING VISUAL ANALYSIS LOCK (STRICT):',
+                    `- Styling item inventory: ${accessoryVisualAnalysis?.itemChecklist || 'Follow every visible item in the uploaded styling images exactly.'}`,
                     `- Placement/wearing rules: ${accessoryVisualAnalysis?.placementRules || 'Use the same wearing, carrying, scale, and occlusion logic as the reference images.'}`,
                     accessoryVisualAnalysis?.promptBlock ? `- AI accessory prompt contract: ${accessoryVisualAnalysis.promptBlock}` : '',
-                    `- Forbidden accessory drift: ${accessoryVisualAnalysis?.forbiddenDrift || 'changed accessory identity, changed color/material, invented accessory, missing referenced accessory, swapped bag/shoes/jewelry'}`
+                    `- Forbidden styling drift: ${accessoryVisualAnalysis?.forbiddenDrift || 'changed styling item identity, changed color/material, invented accessory, invented pants, missing referenced item, swapped bag/shoes/jewelry/bottoms'}`
                 ].filter(Boolean).join('\n')
                 : '';
 
@@ -1204,6 +1206,12 @@ ${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose firs
             # MISSION: Professional commercial product photography with MANDATORY PRODUCT CONSISTENCY.
             # ABSOLUTE CANVAS RULE:
             The final output MUST be exactly ${aspectRatio}. Fill the ${aspectRatio} canvas with one continuous image. No nested photo, no framed image inside a white page, no letterbox, no pillarbox, no top/bottom blank bands, no side blank bands, no white empty lower half, no collage, no split screen, no comparison grid.
+
+            ${actionReferences.length > 0 ? `# USER-UPLOADED ACTION REFERENCE PRIORITY (ABSOLUTE):
+            The user uploaded action reference image(s). For every output slot that has a matching uploaded action reference, that uploaded action reference is the ONLY valid pose/angle/framing source.
+            AI product recognition, AI category analysis, automatic pose libraries, random commercial pose presets, and inferred action suggestions MUST NOT override, replace, soften, reinterpret, or compete with the uploaded action reference.
+            Use AI-recognized/automatic actions ONLY for output slots that do NOT have any uploaded action reference assigned.` : `# AUTO ACTION SOURCE:
+            No uploaded action reference image was provided, so AI-recognized category/action analysis and automatic pose libraries may be used for pose selection.`}
             
             # CRITICAL REQUIREMENT - MAXIMUM PRODUCT FIDELITY (HIGHEST PRIORITY): 
             The FIRST IMAGE (Image 1) is the [PRODUCT ASSET]. You MUST preserve its exact structural design, clothing shape, collar style, neck cuts, sleeves, pockets, fabric texture, prints/patterns (e.g. leopard print or stripes), stitching, and materials perfectly. 
@@ -1219,7 +1227,7 @@ ${isActionLockedOutput ? '- Respect the uploaded action reference crop/pose firs
             ${accessoryVisualLockPrompt}
             
             ${platformPrompt ? `# PLATFORM VISUAL GENE: ${platformPrompt}` : ''}
-            ${accessoryReferences.length > 0 ? `# ACCESSORY REFERENCE DIRECTIVE (STRICT): The accessory reference images listed in the routing table are the ONLY authorized accessory references. If they show a bag, purse, jewelry, ring, necklace, earrings, watch, sunglasses, hat, belt, scarf, bracelet, shoes, or handheld prop, use the same accessory identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, and placement logic. Do NOT invent extra accessories beyond these images.` : '# AUTO-STYLING DIRECTIVE (STRICT): The user did not upload accessory reference images, so you must use the UNIFIED STYLING PLAN as the single batch styling contract. Generate only the pants/bottom, shoes, bag, ring, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or prop explicitly selected by that plan or explicitly requested in user supplementary notes. Keep every selected styling item identical across all outputs. Do not add unplanned accessories.'}
+            ${accessoryReferences.length > 0 ? `# ACCESSORY / OUTFIT STYLING REFERENCE DIRECTIVE (STRICT): The styling reference images listed in the routing table are the ONLY authorized styling references. If they show pants, jeans, skirt, shorts, shoes, bag, purse, jewelry, ring, necklace, earrings, watch, sunglasses, hat, belt, scarf, bracelet, or handheld prop, use the same item identity across the batch whenever visible and preserve its exact color, material, size, shape, strap/handle direction, hardware, texture, silhouette, and placement logic. A single flat-lay image can contain multiple required items; do not reduce it to a vague mood board. Do NOT invent extra styling items beyond these images, and do NOT replace the referenced bottoms/shoes/bag/jewelry with AI-chosen alternatives.` : '# AUTO-STYLING DIRECTIVE (STRICT): The user did not upload accessory reference images, so you must use the UNIFIED STYLING PLAN as the single batch styling contract. Generate only the pants/bottom, shoes, bag, ring, necklace, earrings, bracelet, watch, belt, sunglasses, hat, scarf, or prop explicitly selected by that plan or explicitly requested in user supplementary notes. Keep every selected styling item identical across all outputs. Do not add unplanned accessories.'}
             ${modelWardrobeLock}
             ${measurementStr ? `# BODY PROPORTIONS: ${measurementStr}` : ''}
             # OUTPUT FORMAT LOCK: Generate exactly one image in the user-selected ${aspectRatio} aspect ratio. No collage, no split-screen, no side-by-side images, no before/after layout, no horizontal strip, no letterbox/pillarbox, no large blank white canvas.
@@ -1419,8 +1427,8 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 const matchedActionReference = hasOutputActionReference ? actionReferences[actionReferenceIndex!] : null;
                 const outputAspectRatio = aspectRatio;
                 const actionReferenceInputDescription = inputPack.actionOriginalStart
-                    ? `Original action reference ${inputPack.actionOriginalStart === inputPack.actionOriginalEnd ? `is Image ${inputPack.actionOriginalStart}` : `images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}`}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the framing/crop master: use it to read exact camera distance, visible body extent, cut-off boundaries, product-display area, and close-up/detail crop. Use the edge map only as supporting pose clarification. Do NOT copy the original action reference's clothing, logo, necklace, face identity, skin details, background, or lighting.`
-                    : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because pose-only mode is enabled; use these edge maps as the clean skeleton/gesture blueprint. Since no action photo pixels are provided, do NOT infer or hallucinate any action-reference background, architecture, room, beach, pool, plants, props, color palette, or lighting.`;
+                    ? `Original action reference ${inputPack.actionOriginalStart === inputPack.actionOriginalEnd ? `is Image ${inputPack.actionOriginalStart}` : `images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}`}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the PRIMARY framing/crop/body-geometry master: use it to read exact camera distance, visible body extent, cut-off boundaries, product-display area, close-up/detail crop, shoulder line, hip angle, hand-to-body spacing, arm bend, leg stance, and body weight distribution. Use the edge map only as supporting pose clarification. Do NOT copy the original action reference's clothing, logo, necklace, face identity, skin details, background, or lighting.`
+                    : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because safe mode requires pose-only extraction; use these edge maps as the clean skeleton/gesture blueprint. Since no action photo pixels are provided, do NOT infer or hallucinate any action-reference background, architecture, room, beach, pool, plants, props, color palette, or lighting.`;
                 
                 const outputNumber = i + 1;
                 const perOutputSupplementaryNotes = getSupplementaryNotesPrompt(hasOutputActionReference, outputNumber);
@@ -1442,6 +1450,7 @@ ${globalPrompt}`;
 Output #${outputNumber} is reserved for uploaded action reference #${actionReferenceIndex + 1}. This output slot must replicate that reference's angle, pose, subject scale, crop boundary, and visible body extent. The action reference images included in this input are the strongest geometry constraint for THIS IMAGE ONLY.
 ${actionFrameNote}
 ${actionReferenceInputDescription}
+AI ACTION ANALYSIS OVERRIDE BAN: AI-recognized category actions, recommended action libraries, random pose presets, product-type pose suggestions, and automatic pose analysis have ZERO authority for this output. They must be ignored completely because the user provided an action reference for this slot.
 STRICT SLOT ROUTING: This is a one-to-one batch assignment. Output #${outputNumber} MUST use uploaded action reference #${actionReferenceIndex + 1}; using a generic pose, another uploaded action reference, an auto pose library pose, or ignoring this reference is a failed result.
 Reference geometry: ${describeImageFraming(matchedActionReference)}. Output aspect ratio MUST be the USER SELECTED ratio ${outputAspectRatio}. Never override it with the action reference ratio.
 Match the uploaded action reference's crop, framing, camera angle, body scale, subject placement, lens distance, left/right facing direction, hand placement, arm bend, shoulder tilt, head direction, torso rotation, hip angle, leg stance, knee bend, foot direction, and visible body silhouette.
