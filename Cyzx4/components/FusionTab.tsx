@@ -541,19 +541,6 @@ Image 2 以及后续图片只作为光影参考，绝对不是内容参考。不
 失败标准：输出几乎等同原图、人物亮度没有向 Image 2 靠拢、人物被打得比 Image 2 更亮更平、人物死黑无细节、场景色调没有参考 Image 2、阴影方向无变化、对比无变化、只返回原图。
 
 ${userIntent}`;
-          } else if (selectedStyle.id === 'outfit-element-extraction') {
-              const exclusionInstruction = finalPrompt?.trim()
-                  ? finalPrompt.trim()
-                  : 'No explicit exclusion was provided. Extract the visible non-main outfit styling elements and present them clearly.';
-              stylePrompt = stylePrompt.replace(/\[SUBJECT\]/g, exclusionInstruction);
-              generationPrompt = `${stylePrompt}
-
-MANDATORY OUTPUT FORMAT:
-- 16:9 landscape extraction board.
-- Only remaining outfit elements after applying the user exclusion instruction.
-- Each element category must be visually separated with clear spacing.
-- Do not rely on text labels for recognition; object silhouettes and materials must be clear enough for AI vision recognition.
-- Never include excluded categories, people, body parts, or a worn outfit photo.`;
           } else if (selectedStyle.id === 'clothing-to-3d-mannequin') {
               // Construct parameters string
               const anglePrompt = viewAngle === 'front' ? 'front view' : '3/4 front-right side view';
@@ -572,7 +559,7 @@ MANDATORY OUTPUT FORMAT:
               }
           }
           
-          if (selectedStyle.id !== 'lighting-replication' && selectedStyle.id !== 'outfit-element-extraction') {
+          if (selectedStyle.id !== 'lighting-replication') {
               // Replace [SUBJECT] in style prompt if it exists, otherwise append
               if (stylePrompt.includes('[SUBJECT]')) {
                  generationPrompt = stylePrompt.replace('[SUBJECT]', finalPrompt || 'a professional subject');
@@ -1754,7 +1741,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
         onClose={() => setIsStyleModalOpen(false)}
         onSelect={(style) => {
           setSelectedStyle(style);
-          const wideStyles = ['model-clothing-extraction', 'master-model-no-ref', 'master-model-with-ref', 'outfit-element-extraction'];
+          const wideStyles = ['model-clothing-extraction', 'master-model-no-ref', 'master-model-with-ref'];
           if (style?.id && wideStyles.includes(style.id)) {
             setAspectRatio(AspectRatio.LANDSCAPE_16_9);
           }

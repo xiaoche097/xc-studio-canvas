@@ -390,20 +390,14 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
  */
 export const getAiClient = (): GoogleGenAI => {
     const config = getApiConfig();
-    return createAiClientFromConfig(config);
-};
-
-export const createAiClientFromConfig = (config: ApiConfig): GoogleGenAI => {
-    const proxiedBaseUrl = getBrowserGeminiProxyBaseUrl(config);
 
     if (config.isYunwu && config.baseUrl) {
         return new GoogleGenAI({
             apiKey: config.apiKey,
             httpOptions: {
-                baseUrl: proxiedBaseUrl || config.baseUrl,
+                baseUrl: config.baseUrl,
                 headers: {
-                    Authorization: `Bearer ${config.apiKey}`,
-                    ...(proxiedBaseUrl ? { "X-Gemini-Proxy-Target": config.baseUrl } : {})
+                    Authorization: `Bearer ${config.apiKey}`
                 }
             },
             apiVersion: config.apiVersion as any // 透传配置中的 apiVersion
@@ -414,14 +408,6 @@ export const createAiClientFromConfig = (config: ApiConfig): GoogleGenAI => {
         apiKey: config.apiKey,
         apiVersion: config.apiVersion as any
     });
-};
-
-const getBrowserGeminiProxyBaseUrl = (config: ApiConfig): string | undefined => {
-    if (!config.isYunwu || !config.baseUrl || typeof window === "undefined") {
-        return undefined;
-    }
-
-    return `${window.location.origin}/api/gemini`;
 };
 
 /**
