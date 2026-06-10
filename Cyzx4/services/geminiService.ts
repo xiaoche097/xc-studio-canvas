@@ -1,4 +1,4 @@
-import { GoogleGenAI, LiveServerMessage, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { LiveServerMessage, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { AspectRatio, ImageResolution } from "../types";
 import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTURE_KEYWORDS, NEGATIVE_PERSPECTIVE, getAngleNegative, getAngleLens, LENS_SIMULATION } from "./promptUtils";
 
@@ -9,6 +9,7 @@ import {
   getActiveApiInfo,
   resolveRuntimeModelId,
   generateContentWithAnalysisFallback,
+  createAiClientFromConfig,
   executeWithTimeout,
   throwIfAborted,
   blobToBase64,
@@ -892,14 +893,7 @@ export const generateImageToImage = async (
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
-    const ai = new GoogleGenAI({
-      apiKey: config.apiKey,
-      httpOptions: config.isYunwu ? { 
-        baseUrl: config.baseUrl,
-        headers: { Authorization: `Bearer ${config.apiKey}` }
-      } : undefined,
-      apiVersion: config.apiVersion as any
-    });
+    const ai = createAiClientFromConfig(config);
 
     try {
       if (isMidjourneyModel) {
@@ -1743,14 +1737,7 @@ export const generateInpainting = async (
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);
-    const ai = new GoogleGenAI({
-      apiKey: config.apiKey,
-      httpOptions: config.isYunwu ? { 
-        baseUrl: config.baseUrl,
-        headers: { Authorization: `Bearer ${config.apiKey}` }
-      } : undefined,
-      apiVersion: config.apiVersion as any
-    });
+    const ai = createAiClientFromConfig(config);
 
     try {
       // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
