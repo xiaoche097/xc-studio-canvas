@@ -862,6 +862,8 @@ export const generateImageToImage = async (
   const isGptModel = targetModel.toLowerCase().includes('gpt');
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all';
   const isMidjourneyModel = targetModel === 'mj_imagine';
+  const usesOpenAiImageEndpoint = (config: ReturnType<typeof getApiConfig>) =>
+    isGptImage2 || (config.isJijing && !isMidjourneyModel);
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -906,10 +908,12 @@ export const generateImageToImage = async (
         );
       }
 
-      // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
-      if (isGptImage2) {
+      // SPECIAL HANDLING FOR image generation endpoints that expose an OpenAI-compatible API.
+      // No.1 Image nodes return 405 on Gemini generateContent for Banana image models in production,
+      // but accept the same models through /v1/images/generations.
+      if (usesOpenAiImageEndpoint(config)) {
         const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
-        console.warn(`[GPT Image 2] Sending optimized request. Size: ${gptSize}, Ratio: ${aspectRatio}, Workflow: ${workflowHint}`);
+        console.warn(`[Image Endpoint] Sending optimized request. Model: ${targetModel}, Size: ${gptSize}, Ratio: ${aspectRatio}, Workflow: ${workflowHint}`);
         
         // Build workflow-aware prompt for GPT (since it doesn't get separate system instructions)
         let gptPrompt = forcedPrompt;
@@ -1040,12 +1044,16 @@ ${forcedPrompt}`;
           size: gptSize,
           quality: "auto",
           response_format: "b64_json",
+          n: sampleCount,
           // Exact match with your doc: array[string]
           // AND adding the prefix for input images as required by most reverse proxies
           image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
         };
 
-        const endpoint = `${config.baseUrl}/v1/images/generations`; 
+        const useBrowserProxy = typeof window !== "undefined" && Boolean(config.baseUrl);
+        const endpoint = useBrowserProxy
+          ? `${window.location.origin}/api/gemini/v1/images/generations`
+          : `${config.baseUrl}/v1/images/generations`;
         
           const fetchResponse = await executeWithTimeout(
           fetch(endpoint, {
@@ -1053,7 +1061,8 @@ ${forcedPrompt}`;
             signal,
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${config.apiKey}`
+              'Authorization': `Bearer ${config.apiKey}`,
+              ...(useBrowserProxy ? { "X-Gemini-Proxy-Target": config.baseUrl } : {})
             },
             body: JSON.stringify(payload)
           }),
@@ -1062,7 +1071,9 @@ ${forcedPrompt}`;
 
         if (!fetchResponse.ok) {
           const errText = await fetchResponse.text();
-          throw new Error(`GPT Image 2 API Error: ${fetchResponse.status} ${errText}`);
+          const apiError = new Error(`Image generation API Error: ${fetchResponse.status} ${errText}`);
+          (apiError as any).status = fetchResponse.status;
+          throw apiError;
         }
 
         const data = await fetchResponse.json();
