@@ -121,6 +121,16 @@ const STYLE_PRESETS_RAW: StylePreset[] = [
         negativePrompt: '避免：简单放大、纯锐化痕迹、过度锐化、边缘白边、边缘发硬、局部糊化、细节涂抹、纹理重复、伪细节堆积、错误高光、错误反射、材质失真、塑料感、蜡像感、过度磨皮、过强颗粒、脏噪点、压缩痕迹、色彩脏灰、颜色漂移、曝光失衡、过曝、欠曝、局部死黑、局部死白、明暗断层、结构崩坏、比例错误、透视错误、空间错乱、肢体异常、五官错位、面部变形、发丝粘连、背景穿帮、图像撕裂、双重边缘、重影、水印、错误文字、乱码、明显AI生成痕迹。'
     },
     {
+        id: 'outfit-element-extraction',
+        name: '搭配提取',
+        category: '电商',
+        previewUrl: '/styles/technical_flat.png',
+        description: '按用户排除指令移除上衣、裤子或指定元素，只输出剩余可搭配单品，清晰分区展示，便于 AI 直接识别。',
+        prompt: 'Outfit element extraction board. Read the user instruction in [SUBJECT] as the exclusion rule, for example "不要上衣", "不要裤子", "不要上衣不要裤子", "不要包", or "不要某一个元素". Generate a clean 16:9 flat-lay catalog board that shows ONLY the remaining styling elements that should be kept. Exclude every user-mentioned item category completely. If no exclusion is specified, infer and display non-main styling elements such as shoes, bag, eyewear, jewelry, belt, hat, scarf, socks, watch, and other accessories. Each remaining item category must be isolated, front-facing or top-down, evenly lit, with generous spacing, clear silhouette, accurate color/material, and no overlap. Arrange categories in a simple grid on a clean warm-white or pure-white background so another AI model can identify each item directly. No human body, no model, no skin, no mannequin, no torso, no legs, no hands. Do not include excluded categories. Do not create a fashion poster; output a practical reference board of separated outfit elements.',
+        promptWithRef: 'Use the uploaded image(s) as the outfit/source reference. The user instruction [SUBJECT] is the highest-priority exclusion rule. Parse it literally: if the user says not to include tops/上衣/shirt/jacket/sweater/coat, remove all upper-body clothing; if the user says not to include pants/裤子/bottoms/skirt/shorts/jeans, remove all bottom garments; if the user names a specific element such as bag, shoes, glasses, hat, jewelry, belt, scarf, socks, watch, remove only that element; if multiple exclusions are mentioned, remove all of them. Output ONLY the remaining matching outfit elements from the reference image(s). Preserve their visual identity as much as possible: category, color, material, shape, hardware, texture, pattern, and scale relationship. Present the remaining elements as a clean 16:9 flat-lay extraction board: separated object groups, no overlap, clear silhouette, front-facing or top-down view, uniform soft studio lighting, clean white/warm-white background, high resolution, crisp edges, enough spacing for each item to be directly recognized by another AI model. Do not output the person/model/body. Do not output excluded clothing or excluded accessories. If the source image contains a complete outfit and the user says "不要上衣不要裤子", output only the other styling items such as shoes, bag, eyewear, jewelry, belt, hat, scarf, socks, watch, and visible accessories. If a remaining item is partially occluded, reconstruct only the visible item category in a plausible clean product view while keeping the reference design.',
+        negativePrompt: 'excluded item, excluded category, tops when excluded, shirt when excluded, jacket when excluded, sweater when excluded, coat when excluded, pants when excluded, jeans when excluded, shorts when excluded, skirt when excluded, dress when excluded, human, person, model, mannequin, body, torso, legs, arms, hands, face, skin, hair, wearing the items, outfit on body, full-body fashion photo, lifestyle scene, room, street, cluttered background, overlapping objects, cropped objects, unclear silhouette, tiny items, messy layout, merged categories, duplicated categories, wrong item category, text-heavy poster, watermark, logo, low resolution, blurry, noisy'
+    },
+    {
         id: 'magic-mannequin-pose-transfer',
         name: '魔法玩偶',
         category: '通用',
@@ -154,6 +164,7 @@ const STYLE_PRESETS_RAW: StylePreset[] = [
 
 const STYLE_PRESET_DISPLAY_ORDER = [
     'lighting-replication',
+    'outfit-element-extraction',
     'model-clothing-extraction',
     'clothing-to-3d-mannequin',
 ];
