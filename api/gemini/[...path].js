@@ -41,6 +41,13 @@ const normalizeTarget = (target) => {
 };
 
 export default async function handler(req, res) {
+  res.setHeader("x-xcai-gemini-proxy", "vercel-function");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
   try {
     const targetBaseUrl = normalizeTarget(req.headers["x-gemini-proxy-target"]);
     const path = Array.isArray(req.query.path) ? req.query.path.join("/") : req.query.path || "";
