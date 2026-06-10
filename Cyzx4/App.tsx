@@ -10,8 +10,8 @@ import FusionTab from './components/FusionTab';
 import InpaintingTab from './components/InpaintingTab';
 import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
-import ProductRepairTab from './components/ProductRepairTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Hammer } from 'lucide-react';
+import OutfitExtractionTab from './components/OutfitExtractionTab';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Scissors } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.FUSION);
@@ -97,10 +97,10 @@ const App: React.FC = () => {
             label="主图生成"
           />
           <NavButton
-            active={activeTab === AppMode.PRODUCT_REPAIR}
-            onClick={() => setActiveTab(AppMode.PRODUCT_REPAIR)}
-            icon={<Hammer className="w-5 h-5" />}
-            label="产品修复"
+            active={activeTab === AppMode.OUTFIT_EXTRACTION}
+            onClick={() => setActiveTab(AppMode.OUTFIT_EXTRACTION)}
+            icon={<Scissors className="w-5 h-5" />}
+            label="搭配提取"
           />
           <NavButton
             active={activeTab === AppMode.RATIO_QUERY}
@@ -126,7 +126,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
             {activeTab === AppMode.IMAGE_CLEAN && "主图生成 (Hero Image)"}
-            {activeTab === AppMode.PRODUCT_REPAIR && "产品修复 (Product Repair)"}
+            {activeTab === AppMode.OUTFIT_EXTRACTION && "搭配提取 (Outfit Extraction)"}
             {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
           </h1>
         </header>
@@ -175,9 +175,9 @@ const App: React.FC = () => {
               <ImageCleanTab />
             </div>
 
-            {/* Persist ProductRepairTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.PRODUCT_REPAIR ? 'block' : 'none', height: '100%' }}>
-              <ProductRepairTab />
+            {/* Persist OutfitExtractionTab state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === AppMode.OUTFIT_EXTRACTION ? 'block' : 'none', height: '100%' }}>
+              <OutfitExtractionTab />
             </div>
             {activeTab === AppMode.RATIO_QUERY && <AspectRatioTab />}
           </div>
