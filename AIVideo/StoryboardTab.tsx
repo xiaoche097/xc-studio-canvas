@@ -42,6 +42,7 @@ type OutputAspectRatio = '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
 type AgentDrawer = 'commands' | 'settings' | null;
 type SortOrder = 'newest' | 'oldest';
 type SourceFilter = 'uploaded' | 'generated';
+type WorkspaceMode = 'library' | 'character' | 'trash';
 
 interface FlowAsset {
   id: string;
@@ -56,6 +57,10 @@ interface FlowAsset {
   prompt?: string;
   modelLabel?: string;
   createdAt?: number;
+}
+
+interface TrashedFlowAsset extends FlowAsset {
+  deletedAt: number;
 }
 
 interface PendingUpload {
@@ -111,7 +116,6 @@ const roleOptions: Array<{ id: AssetRole; label: string }> = [
   { id: 'character', label: '角色' },
   { id: 'reference', label: '参考' },
 ];
-
 const imageModelOptions = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', subLabel: '3.1 Flash' },
   { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', subLabel: '3 Pro' },
@@ -122,17 +126,47 @@ const videoModelOptions = [
   { id: 'omni-flash', label: 'Omni Flash' },
 ];
 
+const characterPresets = [
+  {
+    title: '写实男模',
+    description: '具有电影级质感的写实男模。柔和的阴影与高精细度的皮肤细节，适合男装及配件展示。',
+    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=160&q=80',
+    prompt: '电影级写实，男性角色，时尚男模，高清，质感皮肤，自然光线，适合电商产品推广视频。',
+  },
+  {
+    title: '青春女模',
+    description: '唯美清新的写实女模。优雅温和的表情与柔顺发丝，适合美妆、女装等品类的创意呈现。',
+    image: 'https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=160&q=80',
+    prompt: '电影级写实，女性角色，优雅气质，精致五官，柔和自然光，高清画质，适合服装和美妆视频展示。',
+  },
+  {
+    title: '时尚女模',
+    description: '极具时尚感的职场女性角色。展现优雅的都市女性风范，适合女装和办公用品视频。',
+    image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=160&q=80',
+    prompt: '电影级写实，年轻女性，白领丽人，时尚穿搭，柔和室内光，超高清。',
+  },
+  {
+    title: '户外少女',
+    description: '青春活力的阳光女孩。适合户外、运动、旅游以及日常休闲生活场景。',
+    image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=160&q=80',
+    prompt: '电影级写实，阳光少女，户外自然光，微笑表情，高清画质，朝气蓬勃。',
+  },
+];
 const imageAspectRatios: OutputAspectRatio[] = ['16:9', '4:3', '1:1', '3:4', '9:16'];
 const videoAspectRatios: OutputAspectRatio[] = ['9:16', '16:9'];
 const durationOptions = ['4s', '6s', '8s', '10s'];
+const FLOW_STORAGE_KEY = 'xcai-video-factory-state-v1';
+
+const darkMenuClass = 'absolute rounded-[15px] overflow-hidden z-30 bg-[#202123] border border-white/[0.07] shadow-[0_18px_44px_rgba(0,0,0,0.58)]';
+const darkMenuItemClass = 'w-full h-11 px-4 text-left text-xs font-black text-white/92 hover:bg-white/[0.07] flex items-center gap-3 transition-colors';
+const darkDangerItemClass = 'w-full h-11 px-4 text-left text-xs font-black text-red-400 hover:bg-red-500/12 flex items-center gap-3 border-t border-white/[0.08] transition-colors';
 
 const settingsRows = [
-  { label: '光标悬停时播放声音', icon: Volume2 },
-  { label: '返回无声视频', icon: Mic },
-  { label: '显示功能块详细信息', icon: Eye },
-  { label: '提交后清除提示', icon: Eraser },
+  { label: '视频音效', icon: Volume2 },
+  { label: '旁白配音', icon: Mic },
+  { label: '显示详细信息', icon: Eye },
+  { label: '自动清除提示', icon: Eraser },
 ];
-
 const getMediaAspectRatio = (previewUrl: string, type: 'image' | 'video') => new Promise<string>((resolve) => {
   if (type === 'image') {
     const image = new Image();
@@ -170,13 +204,31 @@ const previewUrlToBase64 = async (previewUrl: string) => {
   return blobToBase64(await response.blob());
 };
 
+const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const serializeAsset = <T extends FlowAsset>(asset: T): Omit<T, 'file'> => {
+  const { file, ...serializable } = asset;
+  return serializable;
+};
+
 const StoryboardTab: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const agentTimerRef = useRef<number | null>(null);
   const generationTimerRef = useRef<number | null>(null);
+  const assetMenuCloseTimerRef = useRef<number | null>(null);
+  const outputMenuCloseTimerRef = useRef<number | null>(null);
   const selectionContainerRef = useRef<HTMLDivElement>(null);
+  const generationPanelRef = useRef<HTMLDivElement>(null);
+  const generationToggleRef = useRef<HTMLButtonElement>(null);
   const assetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [assets, setAssets] = useState<FlowAsset[]>([]);
+  const [trashedAssets, setTrashedAssets] = useState<TrashedFlowAsset[]>([]);
+  const [storageHydrated, setStorageHydrated] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [activeFilter, setActiveFilter] = useState<AssetFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -184,6 +236,7 @@ const StoryboardTab: React.FC = () => {
   const [selectedImageModel, setSelectedImageModel] = useState(imageModelOptions[0].id);
   const [selectedVideoModel, setSelectedVideoModel] = useState(videoModelOptions[0].id);
   const [aspectRatio, setAspectRatio] = useState<OutputAspectRatio>('16:9');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('library');
   const [outputKind, setOutputKind] = useState<'image' | 'video'>('image');
   const [sourceKind, setSourceKind] = useState<'frame' | 'asset'>('asset');
   const [variationCount, setVariationCount] = useState(1);
@@ -198,6 +251,8 @@ const StoryboardTab: React.FC = () => {
   const [agentDrawer, setAgentDrawer] = useState<AgentDrawer>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [creativePrompt, setCreativePrompt] = useState('');
+  const [characterPrompt, setCharacterPrompt] = useState('');
+  const [characterPreviewUrl, setCharacterPreviewUrl] = useState<string | null>(null);
   const [script, setScript] = useState<ScriptScene[]>([]);
   const [generationCards, setGenerationCards] = useState<GenerationCard[]>([]);
   const [generatedOutputs, setGeneratedOutputs] = useState<GeneratedOutput[]>([]);
@@ -207,8 +262,10 @@ const StoryboardTab: React.FC = () => {
   const [zoomOutput, setZoomOutput] = useState<GeneratedOutput | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [assetMenuId, setAssetMenuId] = useState<string | null>(null);
+  const [closingAssetMenuId, setClosingAssetMenuId] = useState<string | null>(null);
   const [promptAssetIds, setPromptAssetIds] = useState<Set<string>>(new Set());
   const [outputMenuId, setOutputMenuId] = useState<string | null>(null);
+  const [closingOutputMenuId, setClosingOutputMenuId] = useState<string | null>(null);
   const [favoriteOutputIds, setFavoriteOutputIds] = useState<Set<string>>(new Set());
   const [typeFilters, setTypeFilters] = useState<Set<'image' | 'video'>>(new Set());
   const [roleFilters, setRoleFilters] = useState<Set<AssetRole>>(new Set());
@@ -224,7 +281,59 @@ const StoryboardTab: React.FC = () => {
   useEffect(() => () => {
     if (agentTimerRef.current) window.clearTimeout(agentTimerRef.current);
     if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
+    if (assetMenuCloseTimerRef.current) window.clearTimeout(assetMenuCloseTimerRef.current);
+    if (outputMenuCloseTimerRef.current) window.clearTimeout(outputMenuCloseTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FLOW_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as {
+          assets?: FlowAsset[];
+          trashedAssets?: TrashedFlowAsset[];
+          generatedOutputs?: GeneratedOutput[];
+          script?: ScriptScene[];
+        };
+        setAssets(Array.isArray(parsed.assets) ? parsed.assets : []);
+        setTrashedAssets(Array.isArray(parsed.trashedAssets) ? parsed.trashedAssets : []);
+        setGeneratedOutputs(Array.isArray(parsed.generatedOutputs) ? parsed.generatedOutputs : []);
+        setScript(Array.isArray(parsed.script) ? parsed.script : []);
+      }
+    } catch {
+      // Ignore corrupt local cache; the current session can rebuild it.
+    } finally {
+      setStorageHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) return;
+    try {
+      localStorage.setItem(FLOW_STORAGE_KEY, JSON.stringify({
+        assets: assets.map(serializeAsset),
+        trashedAssets: trashedAssets.map(serializeAsset),
+        generatedOutputs,
+        script,
+      }));
+    } catch {
+      // Local storage can be full for large media; keep the in-memory workspace alive.
+    }
+  }, [assets, generatedOutputs, script, storageHydrated, trashedAssets]);
+
+  useEffect(() => {
+    if (!showGenerationPanel) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (generationPanelRef.current?.contains(target) || generationToggleRef.current?.contains(target)) return;
+      setShowGenerationPanel(false);
+      setShowImageModelMenu(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [showGenerationPanel]);
 
   const addFiles = async (files: File[]) => {
     const mediaFiles = files.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
@@ -262,17 +371,33 @@ const StoryboardTab: React.FC = () => {
         window.setTimeout(() => {
           window.clearInterval(timer);
           setPendingUploads((prev) => prev.filter((pending) => pending.id !== item.id));
-          setAssets((prev) => [{
-            id: item.id,
-            file: item.file,
-            previewUrl: item.previewUrl,
-            type: item.type,
-            role: item.type === 'video' ? 'reference' : 'product',
-            mimeType: item.mimeType,
-            name: item.name,
-            aspectRatio: item.aspectRatio,
-            source: 'uploaded',
-          }, ...prev]);
+          fileToDataUrl(item.file).then((persistedUrl) => {
+            URL.revokeObjectURL(item.previewUrl);
+            setAssets((prev) => [{
+              id: item.id,
+              previewUrl: persistedUrl,
+              type: item.type,
+              role: item.type === 'video' ? 'reference' : 'product',
+              mimeType: item.mimeType,
+              name: item.name,
+              aspectRatio: item.aspectRatio,
+              source: 'uploaded',
+              createdAt: Date.now(),
+            }, ...prev]);
+          }).catch(() => {
+            setAssets((prev) => [{
+              id: item.id,
+              file: item.file,
+              previewUrl: item.previewUrl,
+              type: item.type,
+              role: item.type === 'video' ? 'reference' : 'product',
+              mimeType: item.mimeType,
+              name: item.name,
+              aspectRatio: item.aspectRatio,
+              source: 'uploaded',
+              createdAt: Date.now(),
+            }, ...prev]);
+          });
         }, 900 + index * 110);
       }, index * 60);
 
@@ -353,7 +478,19 @@ const StoryboardTab: React.FC = () => {
   const selectedVideoModelLabel = videoModelOptions.find((option) => option.id === selectedVideoModel)?.label || 'Omni Flash';
   const canGenerate = creativePrompt.trim().length > 0 || promptAssetIds.size > 0;
   const hasGenerationView = false;
-  const promptAssets = assets.filter((asset) => promptAssetIds.has(asset.id));
+  const promptAssets = Array.from(promptAssetIds)
+    .map((id) => assets.find((asset) => asset.id === id))
+    .filter((asset): asset is FlowAsset => Boolean(asset));
+  const filteredTrashedAssets = trashedAssets.filter((asset) => {
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || asset.name.toLowerCase().includes(query);
+    const matchesFilter =
+      activeFilter === 'all' ||
+      activeFilter === 'uploaded' ||
+      asset.type === activeFilter ||
+      asset.role === activeFilter;
+    return matchesSearch && matchesFilter;
+  });
   const generationGridClass = ['9:16', '3:4'].includes(aspectRatio)
     ? 'grid-cols-[repeat(auto-fill,minmax(220px,1fr))] max-w-6xl'
     : aspectRatio === '1:1'
@@ -433,7 +570,9 @@ const StoryboardTab: React.FC = () => {
   const removeAsset = (id: string) => {
     setAssets((prev) => {
       const target = prev.find((asset) => asset.id === id);
-      if (target) URL.revokeObjectURL(target.previewUrl);
+      if (target) {
+        setTrashedAssets((current) => [{ ...serializeAsset(target), deletedAt: Date.now() }, ...current]);
+      }
       return prev.filter((asset) => asset.id !== id);
     });
     setPromptAssetIds((prev) => {
@@ -445,9 +584,55 @@ const StoryboardTab: React.FC = () => {
     setScript([]);
   };
 
+  const restoreAsset = (id: string) => {
+    setTrashedAssets((prev) => {
+      const target = prev.find((asset) => asset.id === id);
+      if (target) {
+        const { deletedAt, ...restored } = target;
+        setAssets((current) => [restored, ...current]);
+      }
+      return prev.filter((asset) => asset.id !== id);
+    });
+  };
+
+  const permanentlyDeleteAsset = (id: string) => {
+    setTrashedAssets((prev) => prev.filter((asset) => asset.id !== id));
+  };
+
+  const restoreAllAssets = () => {
+    setAssets((prev) => [
+      ...trashedAssets.map(({ deletedAt, ...asset }) => asset),
+      ...prev,
+    ]);
+    setTrashedAssets([]);
+  };
+
+  const emptyTrash = () => {
+    setTrashedAssets([]);
+  };
+
+  const closeAssetMenuWithAnimation = () => {
+    if (!assetMenuId) return;
+    if (assetMenuCloseTimerRef.current) window.clearTimeout(assetMenuCloseTimerRef.current);
+    setClosingAssetMenuId(assetMenuId);
+    assetMenuCloseTimerRef.current = window.setTimeout(() => {
+      setAssetMenuId(null);
+      setClosingAssetMenuId(null);
+    }, 150);
+  };
+
+  const closeOutputMenuWithAnimation = () => {
+    if (!outputMenuId) return;
+    if (outputMenuCloseTimerRef.current) window.clearTimeout(outputMenuCloseTimerRef.current);
+    setClosingOutputMenuId(outputMenuId);
+    outputMenuCloseTimerRef.current = window.setTimeout(() => {
+      setOutputMenuId(null);
+      setClosingOutputMenuId(null);
+    }, 150);
+  };
+
   const addAssetToPrompt = (asset: FlowAsset) => {
     setPromptAssetIds((prev) => new Set(prev).add(asset.id));
-    setCreativePrompt((current) => current.trim() ? current : `参考素材：${asset.name}`);
     setAssetMenuId(null);
   };
 
@@ -497,7 +682,7 @@ const StoryboardTab: React.FC = () => {
     setShowLinkPanel(false);
 
     const count = variationCount;
-    const prompt = creativePrompt.trim() || '基于上传素材生成一组适合电商投放的创意视频分镜。';
+      const prompt = creativePrompt.trim() || 'ϴزһʺϵͶŵĴƵ־';
     const modelLabel = outputKind === 'image' ? selectedImageModelLabel : selectedVideoModelLabel;
     const nextCards = Array.from({ length: count }, (_, index) => ({
       id: `${Date.now()}-${index}`,
@@ -517,54 +702,108 @@ const StoryboardTab: React.FC = () => {
     }, 260);
 
     try {
-      const referenceAssets = assets.filter((asset) => promptAssetIds.has(asset.id)).slice(0, 12);
+      const referenceAssets = promptAssets.slice(0, 12);
       const payload = await Promise.all(referenceAssets.map(assetToGenerationPayload));
 
       if (outputKind === 'image') {
-        const resultImages = await generateImageToImage(
-          payload.filter((asset) => asset.type === 'image').map((asset) => ({
-            base64: asset.base64,
-            mimeType: asset.mimeType,
-          })),
-          prompt,
-          {
-            aspectRatio: aspectRatio as AspectRatio,
-            resolution: ImageResolution.RES_2K,
-            modelId: selectedImageModel,
-            sampleCount: count,
-          }
-        );
+        const bridgeUrl = 'http://localhost:3001';
+        
+        const firstImageRef = payload.find((asset) => asset.type === 'image');
+        let refImage = null;
+        if (firstImageRef) {
+          const pureBase64 = firstImageRef.base64;
+          const mimeType = firstImageRef.mimeType || 'image/png';
+          refImage = pureBase64.startsWith('data:') ? pureBase64 : `data:${mimeType};base64,${pureBase64}`;
+        }
 
-        const createdAt = Date.now();
-        const outputs = await Promise.all(resultImages.slice(0, count).map(async (url, index) => ({
-          id: `${Date.now()}-image-${index}`,
-          type: 'image' as const,
-          previewUrl: url,
-          aspectRatio,
-          order: index + 1,
-          prompt,
-          modelLabel,
-          createdAt: createdAt + index,
-        })));
-        const generatedAssets = await Promise.all(outputs.map(async (output) => ({
-          id: output.id,
-          previewUrl: output.previewUrl,
-          type: 'image' as const,
-          role: 'reference' as AssetRole,
-          mimeType: 'image/png',
-          name: `${output.modelLabel} #${output.order}`,
-          aspectRatio: await getMediaAspectRatio(output.previewUrl, 'image'),
-          source: 'generated' as const,
-          prompt: output.prompt,
-          modelLabel: output.modelLabel,
-          createdAt: output.createdAt,
-        } satisfies FlowAsset)));
+        const submitRes = await fetch(`${bridgeUrl}/api/submit-task`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: prompt,
+            aspectRatio: aspectRatio,
+            numImages: `x${count}`,
+            refImage: refImage
+          })
+        });
 
-        setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
-        window.setTimeout(() => {
-          setAssets((prev) => [...generatedAssets, ...prev]);
-          setGenerationCards([]);
-        }, 450);
+        const submitData = await submitRes.json();
+        if (!submitData.success) {
+          throw new Error(submitData.message || '提交任务到本地桥接服务失败');
+        }
+
+        // 停止之前的虚拟进度更新定时器，改用轮询器来更新进度并等待生成结果
+        if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
+
+        await new Promise<void>((resolvePromise, rejectPromise) => {
+          let checkInterval = window.setInterval(async () => {
+            try {
+              const statusRes = await fetch(`${bridgeUrl}/api/task-status`);
+              const statusData = await statusRes.json();
+
+              if (statusData.status === 'completed') {
+                window.clearInterval(checkInterval);
+                
+                const resultImage = statusData.resultImage;
+                if (!resultImage) {
+                  rejectPromise(new Error('服务端返回的图像数据为空'));
+                  return;
+                }
+
+                const createdAt = Date.now();
+                const outputs = [{
+                  id: `${Date.now()}-image-0`,
+                  type: 'image' as const,
+                  previewUrl: resultImage,
+                  aspectRatio,
+                  order: 1,
+                  prompt,
+                  modelLabel,
+                  createdAt,
+                }];
+
+                const generatedAssets = [{
+                  id: outputs[0].id,
+                  previewUrl: resultImage,
+                  type: 'image' as const,
+                  role: 'reference' as AssetRole,
+                  mimeType: 'image/png',
+                  name: `${modelLabel} #1`,
+                  aspectRatio: await getMediaAspectRatio(resultImage, 'image'),
+                  source: 'generated' as const,
+                  prompt,
+                  modelLabel,
+                  createdAt,
+                } satisfies FlowAsset];
+
+                setGenerationCards((prev) => prev.map((card) => ({ ...card, progress: 100 })));
+                window.setTimeout(() => {
+                  setAssets((prev) => [...generatedAssets, ...prev]);
+                  setGenerationCards([]);
+                  resolvePromise();
+                }, 450);
+
+              } else if (statusData.status === 'error') {
+                window.clearInterval(checkInterval);
+                rejectPromise(new Error(statusData.errorMessage || 'Google Flow 自动生成失败'));
+              } else if (statusData.status === 'processing') {
+                setGenerationCards((prev) => prev.map((card) => ({
+                  ...card,
+                  progress: Math.min(95, card.progress + 2 + Math.round(Math.random() * 3))
+                })));
+              } else if (statusData.status === 'pending') {
+                setGenerationCards((prev) => prev.map((card) => ({
+                  ...card,
+                  progress: Math.min(30, card.progress + 1)
+                })));
+              }
+            } catch (err) {
+              // 忽略网络异常以进行容错
+            }
+          }, 1500);
+
+          generationTimerRef.current = checkInterval;
+        });
       } else {
         const result = await generateVideoScript(
           payload,
@@ -582,15 +821,60 @@ const StoryboardTab: React.FC = () => {
       }
     } catch {
       setGenerationCards([]);
-      setError(outputKind === 'image' ? '图片生成失败，请检查模型、提示词或 API 密钥后重试。' : '生成分镜失败，请检查素材、模型或 API 密钥后重试。');
+      setError(outputKind === 'image' ? 'ͼƬʧܣģ͡ʾʻ API Կԡ' : 'ɷ־ʧܣزġģͻ API Կԡ');
     } finally {
       if (generationTimerRef.current) window.clearInterval(generationTimerRef.current);
       setIsLoading(false);
     }
   };
 
+  const handleGenerateCharacter = async () => {
+    const prompt = characterPrompt.trim();
+    if (!prompt || isLoading) return;
+
+    setIsLoading(true);
+      setError('Character generation failed. Check model, prompt, or API key and retry.');
+    try {
+      const resultImages = await generateImageToImage(
+        [],
+        `Create a reusable AI video character/model reference. ${prompt}`,
+        {
+          aspectRatio: AspectRatio.PORTRAIT_3_4,
+          resolution: ImageResolution.RES_2K,
+          modelId: selectedImageModel,
+          sampleCount: 1,
+        }
+      );
+
+      const [previewUrl] = resultImages;
+      if (!previewUrl) throw new Error('No character image returned');
+
+      const createdAt = Date.now();
+      const characterAsset: FlowAsset = {
+        id: `${createdAt}-character`,
+        previewUrl,
+        type: 'image',
+        role: 'character',
+        mimeType: 'image/png',
+        name: `${selectedImageModelLabel} character`,
+        aspectRatio: await getMediaAspectRatio(previewUrl, 'image'),
+        source: 'generated',
+        prompt,
+        modelLabel: selectedImageModelLabel,
+        createdAt,
+      };
+
+      setAssets((prev) => [characterAsset, ...prev]);
+      setCharacterPreviewUrl(previewUrl);
+    } catch {
+      setError('Character generation failed. Check model, prompt, or API key and retry.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const copyScenePrompt = async (scene: ScriptScene, index: number) => {
-    const text = scene.prompt || `${scene.time}\n画面：${scene.visual}\n声音：${scene.audio}\n字幕：${scene.overlay}`;
+    const text = scene.prompt || `${scene.time}\nVisual: ${scene.visual}\nAudio: ${scene.audio}\nCaption: ${scene.overlay}`;
     await navigator.clipboard.writeText(text);
     setCopiedIndex(index);
     window.setTimeout(() => setCopiedIndex(null), 1200);
@@ -744,30 +1028,41 @@ const StoryboardTab: React.FC = () => {
           <Heart className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={(event) => { event.stopPropagation(); setAssetMenuId((id) => id === asset.id ? null : asset.id); }}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (assetMenuCloseTimerRef.current) window.clearTimeout(assetMenuCloseTimerRef.current);
+            setClosingAssetMenuId(null);
+            setAssetMenuId((id) => id === asset.id ? null : asset.id);
+          }}
           className="w-7 h-7 rounded-full text-white/75 hover:bg-white/15 hover:text-white flex items-center justify-center"
-          title="更多"
+          title="更"
         >
           <MoreVertical className="w-3.5 h-3.5" />
         </button>
       </div>
-      {assetMenuId === asset.id && (
-        <div className="absolute right-2 top-12 w-44 rounded-xl bg-[#1b1c1e]/98 border border-white/10 shadow-2xl overflow-hidden z-30 backdrop-blur" onClick={(event) => event.stopPropagation()}>
+      {(assetMenuId === asset.id || closingAssetMenuId === asset.id) && (
+        <div
+          className={`${darkMenuClass} right-2 top-12 w-44 origin-top-right transition-all duration-150 ease-out ${
+            closingAssetMenuId === asset.id ? 'opacity-0 scale-95 translate-y-1 pointer-events-none' : 'opacity-100 scale-100 translate-y-0'
+          }`}
+          onClick={(event) => event.stopPropagation()}
+          onMouseLeave={closeAssetMenuWithAnimation}
+        >
           <button
             onClick={() => addAssetToPrompt(asset)}
-            className="w-full h-10 px-3 text-left text-xs font-black text-white/85 hover:bg-white/10 flex items-center gap-3"
+            className={darkMenuItemClass}
           >
-            <Plus className="w-4 h-4" />添加到提示
+            <Plus className="w-4 h-4" />添加到提示词
           </button>
           <button
             onClick={() => downloadAsset(asset)}
-            className="w-full h-10 px-3 text-left text-xs font-black text-white/85 hover:bg-white/10 flex items-center gap-3"
+            className={darkMenuItemClass}
           >
             <Download className="w-4 h-4" />下载
           </button>
           <button
             onClick={() => removeAsset(asset.id)}
-            className="w-full h-10 px-3 text-left text-xs font-black text-red-400 hover:bg-red-500/15 flex items-center gap-3 border-t border-white/10"
+            className={darkDangerItemClass}
           >
             <Trash2 className="w-4 h-4" />移至回收站
           </button>
@@ -807,6 +1102,241 @@ const StoryboardTab: React.FC = () => {
     );
   };
 
+  if (workspaceMode === 'character' && (isLoading || characterPreviewUrl)) {
+    return (
+      <div className="relative h-full overflow-hidden bg-black text-white font-sans">
+        <header className="absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between px-5">
+          <button
+            onClick={() => setWorkspaceMode('library')}
+            className="flex h-10 items-center gap-3 rounded-full pr-4 text-white hover:bg-white/10"
+          >
+            <span className="flex h-9 w-9 items-center justify-center rounded-full">
+              <ArrowLeft className="h-5 w-5" />
+            </span>
+            <span className="text-base font-black">未命名的角色</span>
+          </button>
+          <div className="flex items-center gap-3">
+            <button className="flex h-9 w-9 items-center justify-center rounded-full text-white hover:bg-white/10" title="收藏">
+              <Heart className="h-5 w-5" />
+            </button>
+            <button className="flex h-9 w-9 items-center justify-center rounded-full text-red-300 hover:bg-red-500/10" title="删除">
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button className="flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-[#171819] px-4 text-xs font-black text-white/85 hover:bg-[#222326]">
+              <Clock className="h-4 w-4" />显示历史记录
+            </button>
+            <button
+              onClick={() => {
+                setActiveFilter('character');
+                setWorkspaceMode('library');
+              }}
+              className="h-10 rounded-full bg-white px-5 text-sm font-black text-black hover:bg-white/90"
+            >
+              完成
+            </button>
+          </div>
+        </header>
+
+        <main className="h-full overflow-hidden px-6 pb-5 pt-24">
+          <section className="mx-auto grid h-[calc(100vh-7.25rem)] max-w-[1232px] grid-cols-[352px_1fr] gap-12">
+            <aside className="pt-12">
+              <h1 className="mb-7 text-[30px] font-black tracking-normal text-white">未命名的角色</h1>
+              <button className="mb-6 h-14 w-full rounded-[18px] border border-white/[0.07] bg-[#191a1c] text-sm font-black text-white/75 hover:bg-[#222326]">
+                ?选择语音
+              </button>
+              <label className="mb-2 block text-xs font-black text-white/55">角色信息（可选）</label>
+              <textarea
+                value={characterPrompt}
+                onChange={(event) => setCharacterPrompt(event.target.value)}
+                placeholder="描述角色的为方?.."
+                className="h-[374px] w-full resize-none rounded-[14px] border border-white/10 bg-[#070808] p-4 text-sm leading-relaxed text-white outline-none placeholder:text-white/25 focus:border-white/25"
+              />
+              <p className="mt-4 text-xs font-bold leading-relaxed text-white/32">
+                Flow 智能体可以利用信息，帮助您根据角色创作场景?              </p>
+            </aside>
+
+            <section className="relative flex flex-col items-center justify-center">
+              <div className="relative flex h-[484px] w-full max-w-[858px] items-center justify-center overflow-hidden rounded-[16px] border border-white/[0.06] bg-[#292d31] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+                {characterPreviewUrl ? (
+                  <img src={characterPreviewUrl} alt="角色预" className="h-full w-full bg-[#101113] object-contain" />
+                ) : (
+                  <>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_62%_18%,rgba(255,255,255,0.18),transparent_42%),linear-gradient(135deg,#252a2f,#5c636a_58%,#292d31)]" />
+                    {isLoading && <Loader2 className="relative z-10 h-10 w-10 animate-spin text-white/65" />}
+                  </>
+                )}
+              </div>
+
+              <div className="mt-16 flex items-center gap-2">
+                <button className="h-10 w-10 rounded-xl border-2 border-white bg-[#5e6469]" title="当前画面" />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#191a1c] text-white/55 hover:bg-[#222326] hover:text-white"
+                  title="Action"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mt-6 w-[min(576px,100%)]">
+                {error && (
+                  <div className="mb-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">
+                    {error}
+                  </div>
+                )}
+                <div className="rounded-[18px] border border-white/10 bg-[#171819] p-3 shadow-2xl">
+                  <textarea
+                    value={characterPrompt}
+                    onChange={(event) => setCharacterPrompt(event.target.value)}
+                    placeholder="您想要更改什么？"
+                    rows={2}
+                    className="w-full resize-none bg-transparent px-1 py-2 text-sm text-white outline-none placeholder:text-white/30"
+                  />
+                  <div className="mt-2 flex items-center gap-2 border-t border-white/10 pt-2">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                      title="Action"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </button>
+                    <div className="ml-auto flex items-center gap-2">
+                      <button className="flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-[#232426] px-3 text-xs font-black text-white/80">
+                        <Sparkles className="h-3.5 w-3.5 text-yellow-300" />
+                        {selectedImageModelLabel}
+                        <ArrowRight className="h-3 w-3 rotate-90 text-white/55" />
+                      </button>
+                      <button
+                        onClick={handleGenerateCharacter}
+                        disabled={!characterPrompt.trim() || isLoading}
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition-colors disabled:bg-[#303134] disabled:text-white/35"
+                        title="生成角色"
+                      >
+                        {isLoading ? "Preparing your outputs." : `Created ${aspectRatio} results.`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+        </main>
+        <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" onChange={handleFileChange} className="hidden" />
+      </div>
+    );
+  }
+
+  if (workspaceMode === 'character') {
+    return (
+      <div className="h-full bg-black text-white overflow-hidden font-sans relative">
+        <header className="absolute left-0 right-0 top-0 h-16 px-5 flex items-center justify-between z-20">
+          <button
+            onClick={() => setWorkspaceMode('library')}
+            className="h-10 rounded-full text-white hover:bg-white/10 flex items-center gap-3 pr-4"
+          >
+            <span className="w-9 h-9 rounded-full flex items-center justify-center">
+              <ArrowLeft className="w-5 h-5" />
+            </span>
+            <span className="text-base font-black">新</span>
+          </button>
+          <div />
+        </header>
+
+        <main className="h-full overflow-y-auto custom-scrollbar px-6 pt-28 pb-24">
+          <section className="mx-auto flex min-h-[calc(100vh-8.5rem)] w-full max-w-[880px] flex-col items-center justify-center">
+            <div className="mb-16 max-w-[760px] text-center">
+              <h1 className="text-[32px] leading-tight font-semibold tracking-normal text-white/50">
+                创建并重复使用色，制作风格致的视<br />
+                使用下面的示例提示，或从头开始创建。              </h1>
+            </div>
+
+            <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
+              {characterPresets.map((preset) => (
+                <button
+                  key={preset.title}
+                  onClick={() => setCharacterPrompt(preset.prompt)}
+                  className="group flex h-28 items-center gap-4 rounded-[22px] bg-[#19191b] border border-white/[0.06] p-4 text-left transition-colors hover:bg-[#222326] hover:border-white/12"
+                >
+                  <img
+                    src={preset.image}
+                    alt={preset.title}
+                    className="h-24 w-24 shrink-0 rounded-xl object-cover bg-[#101113]"
+                  />
+                  <div className="min-w-0">
+                    <div className="mb-1 text-sm font-black text-white/90">{preset.title}</div>
+                    <p className="line-clamp-3 text-xs font-bold leading-relaxed text-white/48 group-hover:text-white/62">
+                      {preset.description}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-44 w-[min(576px,100%)]">
+              {error && (
+                <div className="mb-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">
+                  {error}
+                </div>
+              )}
+              <div className="rounded-[18px] bg-[#18191b] border border-white/10 p-3 shadow-2xl">
+                <textarea
+                  value={characterPrompt}
+                  onChange={(event) => setCharacterPrompt(event.target.value)}
+                  placeholder="描述您的角色..."
+                  rows={2}
+                  className="w-full resize-none bg-transparent px-1 py-2 text-sm text-white outline-none placeholder:text-white/30"
+                />
+                <div className="mt-2 flex items-center gap-2 border-t border-white/10 pt-2">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-9 h-9 rounded-full text-white/70 hover:bg-white/10 hover:text-white flex items-center justify-center"
+                    title="Action"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button className="h-9 px-3 rounded-xl bg-[#232426] border border-white/10 text-xs font-black text-white/80 flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                      {selectedImageModelLabel}
+                      <ArrowRight className="w-3 h-3 rotate-90 text-white/55" />
+                    </button>
+                    <button
+                      onClick={handleGenerateCharacter}
+                      disabled={!characterPrompt.trim() || isLoading}
+                      className="w-10 h-10 rounded-full bg-white text-black disabled:bg-[#303134] disabled:text-white/35 flex items-center justify-center transition-colors"
+                      title="生成角色"
+                    >
+                        {isLoading ? "Preparing your outputs." : `Created ${aspectRatio} results.`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-12 rounded-2xl bg-[#18191b] border border-white/10 text-sm font-black text-white/85 hover:bg-[#222326] flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-4 h-4" />上传
+                </button>
+                <button
+                  onClick={() => {
+                    setWorkspaceMode('library');
+                    setShowLinkPanel(true);
+                  }}
+                  className="h-12 rounded-2xl bg-[#18191b] border border-white/10 text-sm font-black text-white/85 hover:bg-[#222326] flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />从项目中添加
+                </button>
+              </div>
+            </div>
+          </section>
+        </main>
+        <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" onChange={handleFileChange} className="hidden" />
+      </div>
+    );
+  }
+
   return (
     <div className="h-full bg-black text-white overflow-hidden flex font-sans">
       <aside className={`${isSidebarCollapsed ? 'w-16' : 'w-60'} shrink-0 bg-black border-r border-white/10 flex flex-col transition-all duration-300`}>
@@ -829,11 +1359,20 @@ const StoryboardTab: React.FC = () => {
         <nav className="px-3 py-2 space-y-1">
           {filters.map((filter) => {
             const Icon = filter.icon;
-            const active = activeFilter === filter.id;
+            const active = filter.id === 'character' ? (workspaceMode as string) === 'character' : activeFilter === filter.id;
             return (
               <button
                 key={filter.id}
-                onClick={() => setActiveFilter(filter.id)}
+                onClick={() => {
+                  if (filter.id === 'character') {
+                    setCharacterPreviewUrl(null);
+                    setError(null);
+                    setWorkspaceMode('character');
+                    return;
+                  }
+                  setWorkspaceMode('library');
+                  setActiveFilter(filter.id);
+                }}
                 title={isSidebarCollapsed ? filter.label : undefined}
                 className={`w-full h-12 px-3 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} text-sm font-bold transition-all ${
                   active ? 'bg-[#3a3a3a] text-white shadow-sm' : 'text-white/70 hover:bg-white/10 hover:text-white'
@@ -852,8 +1391,16 @@ const StoryboardTab: React.FC = () => {
           </button>
         </div>
         <div className="mt-auto px-3 pb-4 pt-3 border-t border-white/15 space-y-1">
-          <button title={isSidebarCollapsed ? '回收站' : undefined} className={`w-full h-11 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'} text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white`}>
-            <Trash2 className="w-4 h-4 shrink-0" /><span className={isSidebarCollapsed ? 'hidden' : 'inline'}>回收站</span>
+          <button
+            onClick={() => { setActiveFilter('all'); setWorkspaceMode('trash'); }}
+            title={isSidebarCollapsed ? 'Trash' : undefined}
+            className={`w-full h-11 rounded-xl flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'} text-sm font-bold ${
+              workspaceMode === 'trash' ? 'bg-[#3a3a3a] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Trash2 className="w-4 h-4 shrink-0" />
+            <span className={isSidebarCollapsed ? 'hidden' : 'inline'}>回收站</span>
+            <span className={`ml-auto text-[10px] text-white/35 ${isSidebarCollapsed ? 'hidden' : 'inline'}`}>{trashedAssets.length}</span>
           </button>
           <button
             onClick={() => setIsSidebarCollapsed((value) => !value)}
@@ -872,6 +1419,98 @@ const StoryboardTab: React.FC = () => {
         onDragLeave={() => setIsDraggingFiles(false)}
         onDrop={handleCanvasDrop}
       >
+        {workspaceMode === 'trash' ? (
+          <div className="h-full overflow-y-auto custom-scrollbar px-6 pb-12">
+            <div className="h-16 flex items-center gap-3">
+              <button
+                onClick={() => setWorkspaceMode('library')}
+                className="w-10 h-10 rounded-full text-white hover:bg-white/10 flex items-center justify-center"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div className="text-base font-black text-white">Trash</div>
+              <div className="relative mx-auto w-[min(590px,48vw)]">
+                <Search className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-white/45" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="w-full h-10 rounded-2xl border border-white/10 bg-[#1b1b1d] pl-12 pr-4 text-sm text-white outline-none placeholder:text-white/35"
+                  placeholder="Search"
+                />
+              </div>
+              <button className="w-10 h-10 rounded-full bg-[#1b1b1d] text-white/80 hover:bg-[#2a2a2d] flex items-center justify-center">
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-center">
+              <div className="h-10 rounded-2xl bg-[#252629] border border-white/10 flex items-center overflow-hidden text-xs font-black text-white/70">
+                <span className="px-4">回收站中有{trashedAssets.length} 项内</span>
+                <button
+                  onClick={restoreAllAssets}
+                  disabled={trashedAssets.length === 0}
+                  className="h-full px-4 border-l border-white/10 hover:bg-white/10 disabled:opacity-40"
+                >
+                  全部恢复
+                </button>
+                <button
+                  onClick={emptyTrash}
+                  disabled={trashedAssets.length === 0}
+                  className="h-full px-4 border-l border-white/10 text-red-200 hover:bg-red-500/15 disabled:opacity-40"
+                >
+                  全部删除
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-8">
+
+              <section className="min-w-0">
+                {filteredTrashedAssets.length > 0 ? (
+                  <div className="flex flex-wrap items-start gap-4">
+                    {filteredTrashedAssets.map((asset) => (
+                      <article
+                        key={asset.id}
+                        className="group relative shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#151618]"
+                        style={getAssetTileStyle(asset.aspectRatio, asset.type === 'video' ? '9 / 16' : '4 / 5')}
+                      >
+                        {asset.type === 'image' ? (
+                          <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <video src={asset.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/15" />
+                        <div className="absolute left-2 bottom-2 right-2 flex items-center gap-1.5 text-white">
+                          {asset.type === 'video' ? <Video className="w-3.5 h-3.5 shrink-0 drop-shadow" /> : <ImageIcon className="w-3.5 h-3.5 shrink-0 drop-shadow" />}
+                          <span className="text-[11px] font-black truncate drop-shadow" title={asset.name}>{asset.name}</span>
+                        </div>
+                        <div className="absolute right-2 top-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => restoreAsset(asset.id)}
+                            className="h-8 px-3 rounded-lg bg-white text-black text-xs font-black hover:bg-white/90"
+                          >
+                            恢
+                          </button>
+                          <button
+                            onClick={() => permanentlyDeleteAsset(asset.id)}
+                            className="h-8 px-3 rounded-lg bg-red-500/90 text-white text-xs font-black hover:bg-red-500"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="h-[calc(100vh-180px)] flex items-center justify-center text-center">
+                    <div className="text-2xl font-black text-white/85">回收站是空的</div>
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="h-16 px-6 flex items-center gap-3 relative z-30">
           <div className={`relative w-[min(520px,45vw)] mx-auto transition-transform duration-300 ${centerOffsetClass}`}>
             <Search className="w-4 h-4 absolute left-5 top-1/2 -translate-y-1/2 text-white/45" />
@@ -888,7 +1527,7 @@ const StoryboardTab: React.FC = () => {
                   ? 'bg-[#3a3b3e] text-white'
                   : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
-              title="筛选"
+              title="Action"
             >
               <SlidersHorizontal className="w-4 h-4" />
               {activeFilterCount > 0 && (
@@ -905,7 +1544,7 @@ const StoryboardTab: React.FC = () => {
                 ? 'bg-[#2f3033] border-white/15 text-white'
                 : 'bg-[#1b1b1d] border-white/10 text-white/80 hover:bg-[#2a2a2d] hover:text-white'
             }`}
-            title="筛选条件"
+            title="Action"
           >
             <SlidersHorizontal className="w-5 h-5" />
             {activeFilterCount > 0 && (
@@ -941,7 +1580,7 @@ const StoryboardTab: React.FC = () => {
               {[
                 { label: '上传媒体', icon: Upload, action: () => fileInputRef.current?.click() },
                 { label: '创建集合', icon: FolderUp, action: () => undefined },
-                { label: '创建角色', icon: UserRound, action: () => setActiveFilter('character') },
+                { label: '创建角色', icon: UserRound, action: () => { setCharacterPreviewUrl(null); setError(null); setWorkspaceMode('character'); } },
                 { label: '创建场景', icon: Clapperboard, action: () => setActiveFilter('scene') },
               ].map((item) => {
                 const Icon = item.icon;
@@ -972,7 +1611,7 @@ const StoryboardTab: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { id: 'image' as const, label: '图片', icon: ImageIcon },
-                      { id: 'video' as const, label: '视频', icon: Video },
+                      { id: 'video' as const, label: '视', icon: Video },
                     ].map((item) => {
                       const Icon = item.icon;
                       const active = typeFilters.has(item.id);
@@ -997,8 +1636,8 @@ const StoryboardTab: React.FC = () => {
                       );
                     })}
                     {[
-                      { id: 'uploaded' as const, label: '已上传' },
-                      { id: 'generated' as const, label: '已生成' },
+                        { id: 'uploaded' as const, label: 'Uploaded' },
+                        { id: 'generated' as const, label: 'Generated' },
                     ].map((source) => {
                       const active = sourceFilters.has(source.id);
                       return (
@@ -1011,7 +1650,7 @@ const StoryboardTab: React.FC = () => {
                 </section>
 
                 <section>
-                  <div className="text-[11px] font-black text-white/35 mb-2">宽高比</div>
+                  <div className="text-[11px] font-black text-white/35 mb-2">宽高</div>
                   <div className="grid grid-cols-5 gap-1 rounded-xl bg-[#222325] p-1">
                     {imageAspectRatios.map((ratio) => (
                       <button key={ratio} onClick={() => toggleSetValue(setAspectFilters, ratio)} className={`h-9 rounded-lg text-[11px] font-black ${aspectFilters.has(ratio) ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}>
@@ -1026,8 +1665,8 @@ const StoryboardTab: React.FC = () => {
                     <Heart className="w-3.5 h-3.5" />收藏
                   </button>
                   <div className="grid grid-cols-2 rounded-lg bg-[#222325] p-1 border border-white/10">
-                    <button onClick={() => setSortOrder('newest')} className={`h-7 rounded-md text-[11px] font-black ${sortOrder === 'newest' ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}>最新</button>
-                    <button onClick={() => setSortOrder('oldest')} className={`h-7 rounded-md text-[11px] font-black ${sortOrder === 'oldest' ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}>最早</button>
+                    <button onClick={() => setSortOrder('newest')} className={`h-7 rounded-md text-[11px] font-black ${sortOrder === 'newest' ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}></button>
+                    <button onClick={() => setSortOrder('oldest')} className={`h-7 rounded-md text-[11px] font-black ${sortOrder === 'oldest' ? 'bg-white text-black' : 'text-white/65 hover:text-white'}`}></button>
                   </div>
                 </section>
               </div>
@@ -1094,7 +1733,7 @@ const StoryboardTab: React.FC = () => {
                 <Sparkles className="w-8 h-8 text-white" />
               </div>
               <div className="text-lg font-black text-white/80">开始创建或拖放媒体</div>
-              <div className="text-sm text-white/35 mt-2">上传产品、角色、场景图，再用底部输入框生成分镜</div>
+              <div className="text-sm text-white/35 mt-2">上传产品、角色或场景，再用底部输入生成分镜</div>
               {isDraggingFiles && (
                 <div className="mt-6 h-11 px-5 rounded-full bg-[#1b1c1e] border border-white/20 text-white text-sm font-black flex items-center gap-2 shadow-sm">
                   <Upload className="w-4 h-4" />松开鼠标开始上传
@@ -1107,9 +1746,9 @@ const StoryboardTab: React.FC = () => {
                 <section className="pt-2 mb-8">
                   <div className="mb-4 flex items-center justify-between">
                     <div>
-                      <h2 className="text-lg font-black text-white">{isLoading ? '正在生成' : '生成结果'}</h2>
+                      <h2 className="text-lg font-black text-white">{isLoading ? "Generating" : "Generation result"}</h2>
                       <p className="text-xs text-white/40 mt-1">
-                        {isLoading ? '按当前比例生成，完成后会自动排序。' : `已按 ${aspectRatio} 和生成顺序排列。`}
+                        {isLoading ? "Preparing your outputs." : `Created ${aspectRatio} results.`}
                       </p>
                     </div>
                     <span className="h-8 px-3 rounded-full bg-[#252629] border border-white/10 text-xs font-black text-white/65 flex items-center gap-2">
@@ -1178,34 +1817,44 @@ const StoryboardTab: React.FC = () => {
                           <button
                             onClick={() => appendPromptFromOutput(output)}
                             className="w-8 h-8 rounded-lg bg-white/75 text-black border border-white/20 hover:bg-white flex items-center justify-center backdrop-blur"
-                            title="添加到提示"
+                            title="Action"
                           >
                             <Copy className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => setOutputMenuId((id) => id === output.id ? null : output.id)}
+                            onClick={() => {
+                              if (outputMenuCloseTimerRef.current) window.clearTimeout(outputMenuCloseTimerRef.current);
+                              setClosingOutputMenuId(null);
+                              setOutputMenuId((id) => id === output.id ? null : output.id);
+                            }}
                             className="w-8 h-8 rounded-lg bg-white/75 text-black border border-white/20 hover:bg-white flex items-center justify-center backdrop-blur"
-                            title="更多"
+                            title="更"
                           >
                             <MoreVertical className="w-4 h-4" />
                           </button>
                         </div>
 
-                        {outputMenuId === output.id && (
-                          <div className="absolute right-3 top-12 w-48 rounded-xl bg-[#1b1c1e]/98 border border-white/10 shadow-2xl overflow-hidden z-20 backdrop-blur" onClick={(event) => event.stopPropagation()}>
+                        {(outputMenuId === output.id || closingOutputMenuId === output.id) && (
+                          <div
+                            className={`${darkMenuClass} right-3 top-12 w-48 z-20 origin-top-right transition-all duration-150 ease-out ${
+                              closingOutputMenuId === output.id ? 'opacity-0 scale-95 translate-y-1 pointer-events-none' : 'opacity-100 scale-100 translate-y-0'
+                            }`}
+                            onClick={(event) => event.stopPropagation()}
+                            onMouseLeave={closeOutputMenuWithAnimation}
+                          >
                             {[
-                              { label: '添加动画效果', icon: WandSparkles, action: () => { setOutputKind('video'); appendPromptFromOutput(output); setShowGenerationPanel(true); } },
-                              { label: '添加到提示', icon: Plus, action: () => appendPromptFromOutput(output) },
-                              { label: '下载', icon: Download, action: () => downloadGeneratedOutput(output) },
-                              { label: '复制提示', icon: Copy, action: () => copyGeneratedPrompt(output) },
-                              { label: '分享', icon: ArrowRight, action: () => copyGeneratedPrompt(output) },
+                              { label: 'Add animation', icon: WandSparkles, action: () => { setOutputKind('video'); appendPromptFromOutput(output); setShowGenerationPanel(true); } },
+                              { label: 'Add to prompt', icon: Plus, action: () => appendPromptFromOutput(output) },
+                              { label: 'Download', icon: Download, action: () => downloadGeneratedOutput(output) },
+                              { label: 'Copy prompt', icon: Copy, action: () => copyGeneratedPrompt(output) },
+                              { label: 'Share', icon: ArrowRight, action: () => copyGeneratedPrompt(output) },
                             ].map((item) => {
                               const Icon = item.icon;
                               return (
                                 <button
                                   key={item.label}
                                   onClick={() => { item.action(); setOutputMenuId(null); }}
-                                  className="w-full h-10 px-3 text-left text-xs font-black text-white/85 hover:bg-white/10 flex items-center gap-3"
+                                  className={darkMenuItemClass}
                                 >
                                   <Icon className="w-4 h-4" />{item.label}
                                 </button>
@@ -1213,7 +1862,7 @@ const StoryboardTab: React.FC = () => {
                             })}
                             <button
                               onClick={() => removeGeneratedOutput(output.id)}
-                              className="w-full h-10 px-3 text-left text-xs font-black text-red-400 hover:bg-red-500/15 flex items-center gap-3 border-t border-white/10"
+                              className={darkDangerItemClass}
                             >
                               <Trash2 className="w-4 h-4" />移至回收站
                             </button>
@@ -1221,15 +1870,15 @@ const StoryboardTab: React.FC = () => {
                         )}
                         <div className="absolute left-3 bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
                           <div className="text-[11px] font-black text-white/80 line-clamp-2">{output.prompt}</div>
-                          {copiedIndex === output.order && <div className="mt-1 text-[10px] font-black text-emerald-300">已复制</div>}
+                          {copiedIndex === output.order && <div className="mt-1 text-[10px] font-black text-emerald-300">已</div>}
                         </div>
                       </article>
                     ))}
                     {generationCards.length === 0 && generatedOutputs.length > 0 && filteredGeneratedOutputs.length === 0 && (
                       <div className="col-span-full h-56 rounded-2xl border border-dashed border-white/15 bg-[#101113] flex flex-col items-center justify-center text-center">
                         <SlidersHorizontal className="w-10 h-10 text-white/25 mb-3" />
-                        <div className="text-sm font-black text-white">没有符合筛选的生成结果</div>
-                        <button onClick={clearAllFilters} className="mt-3 h-8 px-3 rounded-lg bg-white text-black text-xs font-black">清空筛选</button>
+                        <div className="text-sm font-black text-white">没有符合筛的生成结果</div>
+                        <button onClick={clearAllFilters} className="mt-3 h-8 px-3 rounded-lg bg-white text-black text-xs font-black">清空筛</button>
                       </div>
                     )}
                   </div>
@@ -1246,8 +1895,8 @@ const StoryboardTab: React.FC = () => {
                 >
                   <div className="hidden mb-4 items-center justify-between">
                     <div>
-                      <h2 className="text-lg font-black text-white">{filters.find((item) => item.id === activeFilter)?.label || '所有媒体内容'}</h2>
-                      <p className="text-xs text-white/40 mt-1">上传后会自动进入素材库，可按图片、视频、角色、场景或上传内容筛选。</p>
+                        <h2 className="text-lg font-black text-white">{filters.find((item) => item.id === activeFilter)?.label || 'All media'}</h2>
+                      <p className="text-xs text-white/40 mt-1">上传后会臊进入素材库，双图片、频色场晈上传内筛</p>
                     </div>
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -1269,8 +1918,8 @@ const StoryboardTab: React.FC = () => {
                       className="h-[360px] w-full rounded-2xl border border-dashed border-white/15 bg-[#101113] flex flex-col items-center justify-center text-center"
                     >
                       <Sparkles className="w-12 h-12 text-white/25 mb-3" />
-                      <div className="text-sm font-black text-white">未找到任何结果</div>
-                      <div className="text-xs text-white/40 mt-2">换一个分类，或继续上传图片和视频素材。</div>
+                      <div className="text-sm font-black text-white">有到任何结</div>
+                      <div className="text-xs text-white/40 mt-2">捸丈类，或继绸传图片和视素材</div>
                     </button>
                   )}
                   {selectionRect && (
@@ -1293,7 +1942,7 @@ const StoryboardTab: React.FC = () => {
                     <h2 className="text-lg font-black flex items-center gap-2 text-white">
                       <Clapperboard className="w-5 h-5 text-white/75" />分镜面板
                     </h2>
-                    <p className="text-xs text-white/40 mt-1">每张卡片都可以作为后续图片或视频生成 prompt 的起点。</p>
+                    <p className="text-xs text-white/40 mt-1">每张卡片都可以作为后绛片或视生成 prompt 的起点</p>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {script.map((scene, index) => (
@@ -1318,7 +1967,7 @@ const StoryboardTab: React.FC = () => {
                           <div><div className="text-[11px] font-black text-white/40 mb-1">画面</div><p className="text-sm text-white/85 leading-relaxed">{scene.visual}</p></div>
                           <div><div className="text-[11px] font-black text-white/40 mb-1">声音</div><p className="text-sm text-white/55 leading-relaxed">{scene.audio}</p></div>
                           <div className="rounded-xl bg-black border border-white/10 p-3 text-sm font-bold text-white/85">{scene.overlay}</div>
-                          {copiedIndex === index && <div className="text-[11px] text-green-600 font-bold">已复制到剪贴板</div>}
+                          {copiedIndex === index && <div className="text-[11px] text-green-600 font-bold">已制到剴</div>}
                         </div>
                       </article>
                     ))}
@@ -1334,7 +1983,7 @@ const StoryboardTab: React.FC = () => {
             <div className="absolute left-1/2 bottom-[102px] -translate-x-1/2 w-[min(780px,calc(100vw-18rem))] rounded-[22px] bg-[#171819] border border-white/10 shadow-2xl p-3 z-20">
               <div className="flex items-center gap-2 mb-3">
                 <button className="h-9 px-3 rounded-full text-white/65 text-xs font-black flex items-center gap-2">
-                  6月06日 <ArrowRight className="w-3 h-3 rotate-90" />
+                  6?6?<ArrowRight className="w-3 h-3 rotate-90" />
                 </button>
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-white/45" />
@@ -1346,7 +1995,7 @@ const StoryboardTab: React.FC = () => {
                   />
                 </div>
                 <button className="h-10 px-4 rounded-xl bg-[#2a2b2e] border border-white/10 text-xs font-bold text-white/70 flex items-center gap-2">
-                  最近 <ArrowRight className="w-3 h-3 rotate-90" />
+                  ?<ArrowRight className="w-3 h-3 rotate-90" />
                 </button>
               </div>
               <div className="grid grid-cols-[128px_1fr_38%] gap-3 h-[500px]">
@@ -1354,10 +2003,10 @@ const StoryboardTab: React.FC = () => {
                   {[
                     { id: 'all' as AssetFilter, label: '全部', icon: Grid3X3 },
                     { id: 'image' as AssetFilter, label: '图片', icon: ImageIcon },
-                    { id: 'video' as AssetFilter, label: '视频', icon: Video },
+                    { id: 'video' as AssetFilter, label: '视', icon: Video },
                     { id: 'scene' as AssetFilter, label: '分镜', icon: Clapperboard },
                     { id: 'character' as AssetFilter, label: '角色', icon: UserRound },
-                    { id: 'uploaded' as AssetFilter, label: '上传的内容', icon: Upload },
+                      { id: 'uploaded' as AssetFilter, label: 'Uploaded', icon: Upload },
                   ].map((filter) => {
                     const Icon = filter.icon;
                     const active = activeFilter === filter.id;
@@ -1386,7 +2035,7 @@ const StoryboardTab: React.FC = () => {
                   {linkPanelItems.length === 0 && filteredPendingUploads.length === 0 ? (
                     <div className="text-center">
                       <Sparkles className="w-12 h-12 mx-auto text-white/35 mb-3" />
-                      <div className="text-sm font-black text-white">未找到任何结果</div>
+                      <div className="text-sm font-black text-white">有到任何结</div>
                     </div>
                   ) : (
                     <div className="w-full h-full grid grid-cols-2 gap-3 overflow-y-auto custom-scrollbar p-3">
@@ -1430,8 +2079,8 @@ const StoryboardTab: React.FC = () => {
                   ) : (
                     <div>
                       <Sparkles className="w-12 h-12 mx-auto text-white/20 mb-3" />
-                      <div className="text-sm font-black text-white/80">预览区域</div>
-                      <div className="text-xs text-white/35 mt-2">上传后这里会显示当前素材预览</div>
+                      <div className="text-sm font-black text-white/80">预区域</div>
+                      <div className="text-xs text-white/35 mt-2">上传后这里会显示当前素材预</div>
                     </div>
                   )}
                 </div>
@@ -1440,7 +2089,7 @@ const StoryboardTab: React.FC = () => {
           )}
 
           {showGenerationPanel && !isAgentActive && (
-            <div className="absolute right-9 bottom-[72px] w-[280px] rounded-[18px] bg-[#171819] border border-white/10 shadow-2xl p-2 z-20">
+            <div ref={generationPanelRef} className="absolute right-9 bottom-[72px] w-[280px] rounded-[18px] bg-[#171819] border border-white/10 shadow-2xl p-2 z-20">
               <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#222325] p-1">
                 <button
                   onClick={() => { setOutputKind('image'); setAspectRatio('16:9'); }}
@@ -1452,7 +2101,7 @@ const StoryboardTab: React.FC = () => {
                   onClick={() => { setOutputKind('video'); setAspectRatio('16:9'); setShowImageModelMenu(false); }}
                   className={`h-9 rounded-xl text-xs font-black flex items-center justify-center gap-2 ${outputKind === 'video' ? 'bg-white text-black' : 'text-white/75 hover:text-white'}`}
                 >
-                  <Video className="w-3.5 h-3.5" />视频
+                  <Video className="w-3.5 h-3.5" />视
                 </button>
               </div>
 
@@ -1462,7 +2111,7 @@ const StoryboardTab: React.FC = () => {
                     onClick={() => setSourceKind('frame')}
                     className={`h-9 rounded-xl text-xs font-black flex items-center justify-center gap-2 ${sourceKind === 'frame' ? 'bg-white text-black' : 'text-white/75 hover:text-white'}`}
                   >
-                    <Grid3X3 className="w-3.5 h-3.5" />帧
+                    <Grid3X3 className="w-3.5 h-3.5" />?
                   </button>
                   <button
                     onClick={() => setSourceKind('asset')}
@@ -1480,7 +2129,7 @@ const StoryboardTab: React.FC = () => {
                     onClick={() => setAspectRatio(ratio)}
                     className={`h-12 rounded-xl text-xs font-black ${aspectRatio === ratio ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}
                   >
-                    <span className="block text-[10px] mb-0.5">▭</span>{ratio}
+                    <span className="block text-[10px] mb-0.5"></span>{ratio}
                   </button>
                 ))}
               </div>
@@ -1576,13 +2225,16 @@ const StoryboardTab: React.FC = () => {
             )}
             {promptAssets.length > 0 && (
               <div className="relative mb-2 flex flex-wrap gap-2 px-1">
-                {promptAssets.map((asset) => (
+                {promptAssets.map((asset, index) => (
                   <div key={asset.id} className="group/reference relative w-14 h-14 rounded-lg overflow-hidden border border-white/15 bg-[#101113]">
                     {asset.type === 'image' ? (
                       <img src={asset.previewUrl} alt={asset.name} className="w-full h-full object-cover" />
                     ) : (
                       <video src={asset.previewUrl} className="w-full h-full object-cover" muted playsInline />
                     )}
+                    <div className="absolute left-1 bottom-1 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-black text-white/90">
+                      ͼ {index + 1}
+                    </div>
                     <button
                       onClick={() => setPromptAssetIds((prev) => {
                         const next = new Set(prev);
@@ -1590,7 +2242,7 @@ const StoryboardTab: React.FC = () => {
                         return next;
                       })}
                       className="absolute right-1 top-1 w-5 h-5 rounded-full bg-black/70 text-white/80 opacity-0 group-hover/reference:opacity-100 hover:text-white flex items-center justify-center"
-                      title="移除参考"
+                      title="Action"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -1629,14 +2281,14 @@ const StoryboardTab: React.FC = () => {
                   <button
                     onClick={() => setAgentDrawer('commands')}
                     className={`w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center ${agentDrawer === 'commands' ? 'text-white bg-white/10' : ''}`}
-                    title="智能体指令"
+                    title="Action"
                   >
                     <Copy className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setAgentDrawer('settings')}
                     className={`w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center ${agentDrawer === 'settings' ? 'text-white bg-white/10' : ''}`}
-                    title="智能体设置"
+                    title="Action"
                   >
                     <SlidersHorizontal className="w-4 h-4" />
                   </button>
@@ -1644,6 +2296,7 @@ const StoryboardTab: React.FC = () => {
               )}
               {!isAgentActive && (
                 <button
+                  ref={generationToggleRef}
                   onClick={() => {
                     setShowGenerationPanel((value) => !value);
                     setShowSettingsPanel(false);
@@ -1659,7 +2312,7 @@ const StoryboardTab: React.FC = () => {
                     <>
                       <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
                       {selectedImageModelLabel}
-                      <span className="text-white/45">▭</span>
+                      <span className="text-white/45"></span>
                       {aspectRatio}
                       <span className="text-white/45">·</span>
                       {variationCount}x
@@ -1668,7 +2321,7 @@ const StoryboardTab: React.FC = () => {
                     <>
                       <Video className="w-3.5 h-3.5 text-white/55" />
                       {selectedVideoModelLabel}
-                      <span className="text-white/45">▭</span>
+                      <span className="text-white/45"></span>
                       {aspectRatio}
                       <span className="text-white/45">·</span>
                       {duration}
@@ -1684,7 +2337,7 @@ const StoryboardTab: React.FC = () => {
                 className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${
                   !canGenerate || isLoading ? 'bg-[#26272a] text-white/25 cursor-not-allowed' : 'bg-white text-black hover:bg-white/90 shadow-sm shadow-white/10'
                 }`}
-                title="生成"
+                title=""
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1695,6 +2348,8 @@ const StoryboardTab: React.FC = () => {
             </div>
           </div>
         </div>
+        </>
+        )}
       </main>
 
       <aside
@@ -1731,11 +2386,11 @@ const StoryboardTab: React.FC = () => {
 
             <div className="px-1 py-2 space-y-5 overflow-y-auto custom-scrollbar">
               <section>
-                <div className="text-xs font-black text-white/45 mb-2">生成前先确认</div>
+                <div className="text-xs font-black text-white/45 mb-2">生成前先</div>
                 <div className="space-y-2">
                   {[
-                    { title: '始终', desc: '智能体将在生成媒体内容之前征求确认。', active: true },
-                    { title: '永不', desc: '智能体将自动生成媒体内容并消耗点数。', active: false },
+                    { title: 'ʼ', desc: '彫ý֮ǰȷϡ', active: true },
+                    { title: '', desc: '彫Զýݲĵ', active: false },
                   ].map((item) => (
                     <button key={item.title} className={`w-full rounded-lg p-3 text-left flex gap-2 ${item.active ? 'bg-[#242527]' : 'hover:bg-white/5'}`}>
                       <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${item.active ? 'border-white' : 'border-white/60'}`}>
@@ -1751,11 +2406,11 @@ const StoryboardTab: React.FC = () => {
               </section>
 
               <section>
-                <div className="text-xs font-black text-white/45 mb-2">图片生成默认设置</div>
+                <div className="text-xs font-black text-white/45 mb-2">图片生成默设置</div>
                 <div className="grid grid-cols-5 rounded-xl bg-[#222325] p-1">
                   {imageAspectRatios.map((ratio, index) => (
                     <button key={ratio} onClick={() => setAspectRatio(ratio)} className={`h-14 rounded-lg text-xs font-black ${index === 0 ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>
-                      <span className="block text-[10px] mb-1">▭</span>{ratio}
+                      <span className="block text-[10px] mb-1"></span>{ratio}
                     </button>
                   ))}
                 </div>
@@ -1770,11 +2425,11 @@ const StoryboardTab: React.FC = () => {
               </section>
 
               <section>
-                <div className="text-xs font-black text-white/45 mb-2">视频生成默认设置</div>
+                <div className="text-xs font-black text-white/45 mb-2">视生成默设置</div>
                 <div className="grid grid-cols-2 rounded-xl bg-[#222325] p-1">
                   {videoAspectRatios.map((ratio) => (
                     <button key={ratio} onClick={() => setAspectRatio(ratio)} className={`h-14 rounded-lg text-xs font-black ${ratio === '16:9' ? 'bg-[#56575a] text-white' : 'text-white/75 hover:text-white'}`}>
-                      <span className="block text-[10px] mb-1">▭</span>{ratio}
+                      <span className="block text-[10px] mb-1"></span>{ratio}
                     </button>
                   ))}
                 </div>
@@ -1812,7 +2467,7 @@ const StoryboardTab: React.FC = () => {
                 <Download className="w-4 h-4" />下载素材
               </button>
               <button onClick={() => setZoomAsset(null)} className="h-10 px-4 rounded-full bg-[#3a3a3d] text-white text-sm font-bold flex items-center gap-2 shadow-sm">
-                <Maximize2 className="w-4 h-4" />返回工作台
+                <Maximize2 className="w-4 h-4" />返回工作?
               </button>
             </div>
           </div>
@@ -1932,7 +2587,7 @@ const StoryboardTab: React.FC = () => {
             )}
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
               <button onClick={() => appendPromptFromOutput(zoomOutput)} className="h-10 px-4 rounded-full bg-[#242528] text-white text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-[#303134]">
-                <Plus className="w-4 h-4" />添加到提示
+                <Plus className="w-4 h-4" />添加到提示词
               </button>
               <button onClick={() => downloadGeneratedOutput(zoomOutput)} className="h-10 px-4 rounded-full bg-[#242528] text-white text-sm font-bold flex items-center gap-2 shadow-sm hover:bg-[#303134]">
                 <Download className="w-4 h-4" />下载
