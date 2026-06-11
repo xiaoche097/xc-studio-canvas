@@ -45,7 +45,7 @@ const COT_STEPS = [
 
 const ModelGenerationTab: React.FC = () => {
     // Selection states
-    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_2_3);
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [showAdvanced, setShowAdvanced] = useState(true);
@@ -71,6 +71,8 @@ const ModelGenerationTab: React.FC = () => {
     // Refs
     const primaryInputRef = useRef<HTMLInputElement>(null);
     const posesInputRef = useRef<HTMLInputElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
 
     // Helper for image dimensions and aspect ratio detection
     const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
@@ -125,9 +127,6 @@ const ModelGenerationTab: React.FC = () => {
     const handlePrimaryUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         if (files.length === 0) return;
-        const dims = await getImageDimensions(files[0]);
-        const detectedRatio = autoDetectRatio(dims.width, dims.height);
-        setAspectRatio(detectedRatio);
         const processed = await processFiles(files);
         setPrimaryModelImages(prev => [...prev, ...processed].slice(0, 5));
     };
@@ -173,8 +172,21 @@ const ModelGenerationTab: React.FC = () => {
         link.click();
     };
 
+    const handleDownloadAll = () => {
+        const completed = tasks.filter(t => t.status === 'completed' && t.resultImage);
+        completed.forEach((task, i) => {
+            setTimeout(() => {
+                const link = document.createElement('a');
+                link.href = task.resultImage!;
+                link.download = `model-pose-${Date.now()}-${task.poseIndex}.png`;
+                link.click();
+            }, i * 300);
+        });
+    };
+
     // 并发任务运行器 - 单个任务执行
-    const runSingleTask = async (taskIdx: number) => {
+    const runSingleTask = async (taskIdx: number, signal?: AbortSignal) => {
+        if (signal?.aborted) return;
         const ref = poseReferences[taskIdx];
         if (!ref) return;
 
@@ -239,19 +251,22 @@ const ModelGenerationTab: React.FC = () => {
 
             const identityConstraints = strictFaceLock 
                 ? `
-            - **CRITICAL: 100% PERFECT FACE & IDENTITY CLONE (MAXIMUM PRIORITY)**:
-              1. The person's face in the generated image MUST be an ABSOLUTE 100% PERFECT CLONE of the model provided in Image 3 (Primary Model Image). Every single facial detail, including eye shape, iris color, eyebrow shape, nose structure, lips, mouth size, skin texture, skin tone, cheekbones, and face shape MUST match Image 3 exactly, with zero deviation.
-              2. Hair Style & Color: The hair style, hair length, hair texture, and hair color in the generated image MUST be a perfect clone of the hair in Image 3. Absolutely NO features (color, style, length) from the hair in Image 1 & 2 may leak or influence the generation.
-              3. Body & Proportions: The model's physical height, body build, shoulders, waist-to-hip ratio, and overall limb proportions MUST be a perfect match to the body structure in Image 3.
-              4. TOTAL DISCARD: The human identity, face, expression, hair color, and skin of the person in Image 1 & 2 (Pose reference) are PLACEHOLDERS. You MUST completely discard, ignore, and delete the identity of the person in Image 1 & 2. Do not copy any facial details or hair colors from Image 1 & 2.
+            - **CRITICAL: 100% PERFECT FACE & IDENTITY MATCH (MAXIMUM PRIORITY)**:
+              1. The person's face in the generated image MUST perfectly match the model in Image 3. Every facial detail — eye shape, iris color, eyebrow shape, nose structure, lips, mouth size, skin tone, cheekbones, and face shape — MUST match Image 3 exactly.
+              2. Hair Style & Color: The hair style, hair length, hair texture, and hair color MUST be a perfect match of the hair in Image 3. NO features from Image 1 & 2 may leak into the generation.
+              3. Body & Proportions: The model's physical height, body build, shoulders, waist-to-hip ratio, and overall limb proportions MUST perfectly match Image 3.
+              4. TOTAL DISCARD: The person identity, face, expression, hair color of Image 1 & 2 are PLACEHOLDERS. Completely discard their identity. Do not copy any facial details or hair colors from Image 1 & 2.
             `
                 : "";
 
+            const negativePrompt = `different person, different face, different hairstyle, different clothing, different outfit, changed garment, modified clothing, altered fabric, different background, accessories from pose image, low quality, blurry`;
+
             const prompt = `
-            # [CRITICAL COMMAND: MAXIMUM PRIORITY IDENTITY LOCK]
-            The absolute highest priority constraint is to achieve 100% exact face cloning of the model in Image 3. The face, eyes, hair, skin, and body shape in the final generated output must be completely identical and indistinguishable from the model in Image 3.
+            # [CRITICAL: E-COMMERCE PRODUCT PRESERVATION]
+            This is e-commerce product photo generation. The clothing/product on Image 3 is the PRODUCT being sold. It MUST be preserved 100% pixel-perfect. ANY change to the garment = FAILED generation.
 
             # SYSTEM CONSTRAINTS (CRITICAL & ENFORCED):
+            # BATCH CONSISTENCY: ALL results must show the SAME person face, SAME product, SAME background from Image 3.
             1. MODEL HAIR, FACE & CLOTHING FIDELITY (HIGHEST WEIGHT):
                - The generated model MUST have the EXACT SAME hairstyle, facial features, face shape, body shape, and hair color as the model in Image 3 (Primary Model Image). Do NOT change hairstyle, color or facial features.
                - The clothing in the generated image MUST remain PIXEL-IDENTICAL to the garment shown in Image 3. Do not modify, deform, or change any style, pattern, fabric, or cut of the clothing.
@@ -266,7 +281,7 @@ const ModelGenerationTab: React.FC = () => {
 				- Absolutely no background elements from Image 1 & 2.
 				- Absolutely no accessories from Image 1 & 2.
 
-            # DETAILS: ${enhancePrompt(userPrompt || "High fidelity pose transfer", 'EDITORIAL')}, ${QUALITY_BOOSTERS.RETOUCHING}
+            # DETAILS: ${enhancePrompt(userPrompt || "High fidelity e-commerce pose transfer", 'EDITORIAL')}, ${QUALITY_BOOSTERS.RETOUCHING}
             `;
 
             const results = await generateImageToImage(inputImages, prompt, {
@@ -274,7 +289,9 @@ const ModelGenerationTab: React.FC = () => {
                 resolution,
                 modelId: selectedModel,
                 workflowHint: 'pose-transfer',
-                hasModelRef: true
+                hasModelRef: true,
+                signal,
+                negativePrompt
             });
 
             clearInterval(interval);
@@ -308,11 +325,44 @@ const ModelGenerationTab: React.FC = () => {
         } catch (err) {
             clearInterval(interval);
             const errMsg = getErrorMessage(err);
+            const isSafetyBlock = errMsg.includes('safety') || errMsg.includes('SAFETY') || errMsg.includes('安全策略') || errMsg.includes('IMAGE_SAFETY');
+
+            // 安全策略拦截 → 重试一次，用更温和的 prompt
+            if (isSafetyBlock && !signal?.aborted) {
+                console.warn(`[Safety Retry] Task #${taskIdx + 1} 触发安全策略，使用降级 prompt 重试...`);
+                const safePrompt = `Generate a professional e-commerce fashion photo. 
+                Use the EXACT clothing from the product reference image. 
+                Use the EXACT face and hair from the model reference image.
+                Only change the pose to match the pose reference image.
+                Pure white studio background. Professional lighting. No nudity, modest fashion.`;
+                
+                try {
+                    const safeResults = await generateImageToImage(inputImages, safePrompt, {
+                        aspectRatio,
+                        resolution,
+                        modelId: selectedModel,
+                        workflowHint: 'pose-transfer',
+                        hasModelRef: true,
+                        signal
+                    });
+                    clearInterval(interval); // Already cleared but safe
+                    setTasks(prev => prev.map((t, i) => i === taskIdx ? {
+                        ...t,
+                        status: 'completed',
+                        progress: 100,
+                        resultImage: safeResults[0]
+                    } : t));
+                    return;
+                } catch (retryErr) {
+                    console.error(`[Safety Retry Failed] Task #${taskIdx + 1}:`, getErrorMessage(retryErr));
+                }
+            }
+
             setTasks(prev => prev.map((t, i) => i === taskIdx ? {
                 ...t,
                 status: 'failed',
                 progress: 100,
-                error: errMsg
+                error: isSafetyBlock ? `安全策略拦截(已重试) — 请尝试换一张动作参考图或关闭骨骼线稿提取` : errMsg
             } : t));
         }
     };
@@ -321,6 +371,11 @@ const ModelGenerationTab: React.FC = () => {
     const triggerConcurrentGeneration = async () => {
         if (primaryModelImages.length === 0) return;
         if (poseReferences.length === 0) return;
+
+        // 创建 AbortController 并标记为生成中
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        setIsGenerating(true);
 
         // 重置任务列表
         const initialTasks = poseReferences.map((ref, idx) => ({
@@ -335,8 +390,34 @@ const ModelGenerationTab: React.FC = () => {
         }));
         setTasks(initialTasks);
 
-        // 并发启动所有任务！
-        initialTasks.forEach((_, idx) => runSingleTask(idx));
+        // 并发启动所有任务，传递 AbortSignal
+        initialTasks.forEach((_, idx) => runSingleTask(idx, controller.signal));
+
+        // 轮询等待所有任务完成
+        await new Promise<void>((resolve) => {
+            const check = setInterval(() => {
+                setTasks(prev => {
+                    const allDone = prev.every(t => t.status === 'completed' || t.status === 'failed');
+                    if (allDone || prev.length === 0) {
+                        clearInterval(check);
+                        resolve();
+                    }
+                    return prev;
+                });
+            }, 500);
+        });
+        setIsGenerating(false);
+        abortControllerRef.current = null;
+    };
+
+    // 取消所有进行中的生成任务
+    const handleCancelAll = () => {
+        abortControllerRef.current?.abort();
+        setIsGenerating(false);
+        abortControllerRef.current = null;
+        setTasks(prev => prev.map(t =>
+            t.status === 'loading' ? { ...t, status: 'failed' as const, error: '用户取消' } : t
+        ));
     };
 
     return (
@@ -651,22 +732,34 @@ const ModelGenerationTab: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Concurrent trigger button */}
-                        <button 
-                            onClick={triggerConcurrentGeneration} 
-                            disabled={primaryModelImages.length === 0 || poseReferences.length === 0} 
+                        {/* Generate / Cancel button */}
+                        <button
+                            onClick={isGenerating ? handleCancelAll : triggerConcurrentGeneration}
+                            disabled={!isGenerating && (primaryModelImages.length === 0 || poseReferences.length === 0)}
                             className={`w-full py-4 rounded-2xl font-black text-white shadow-lg transition-all flex items-center justify-center gap-3 ${
-                                primaryModelImages.length === 0 || poseReferences.length === 0 
-                                ? 'bg-gray-300 cursor-not-allowed' 
-                                : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01] hover:shadow-xl'
+                                isGenerating
+                                    ? 'bg-red-500 hover:bg-red-600'
+                                    : primaryModelImages.length === 0 || poseReferences.length === 0
+                                        ? 'bg-gray-300 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01] hover:shadow-xl'
                             }`}
                         >
-                            <Sparkles className="w-5 h-5 animate-pulse" />
-                            {primaryModelImages.length === 0 
-                                ? '请先上传模特原图' 
-                                : poseReferences.length === 0 
-                                ? '请上传动作姿势参考图' 
-                                : `并发启动 ${poseReferences.length} 个高保真姿态生成任务`}
+                            {isGenerating ? (
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    取消全部生成 ({tasks.filter(t => t.status === 'loading').length} 个进行中)
+                                </>
+                            ) : primaryModelImages.length === 0
+                                ? '请先上传模特原图'
+                                : poseReferences.length === 0
+                                ? '请上传动作姿势参考图'
+                                : (
+                                    <>
+                                        <Sparkles className="w-5 h-5 animate-pulse" />
+                                        并发启动 {poseReferences.length} 个高保真姿态生成任务
+                                    </>
+                                )
+                            }
                         </button>
                     </div>
 
@@ -682,6 +775,15 @@ const ModelGenerationTab: React.FC = () => {
                                 </div>
                                 {tasks.length > 0 && (
                                     <div className="flex items-center gap-2">
+                                        {tasks.filter(t => t.status === 'completed').length > 0 && (
+                                            <button
+                                                onClick={handleDownloadAll}
+                                                className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-pink-500 text-white text-[10px] font-bold rounded-full hover:scale-105 transition-all flex items-center gap-1 shadow-sm"
+                                            >
+                                                <Download className="w-3 h-3" />
+                                                一键下载全部 ({tasks.filter(t => t.status === 'completed').length})
+                                            </button>
+                                        )}
                                         <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full font-bold border border-purple-100">
                                             生成中 {tasks.filter(t => t.status === 'loading').length} 个
                                         </span>
