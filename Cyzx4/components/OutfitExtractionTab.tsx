@@ -202,33 +202,37 @@ const OutfitExtractionTab: React.FC = () => {
         const ratioDisplay = ratio.replace(':', '：');
         const ratioText = ratio === AspectRatio.SQUARE ? '1:1' : ratio;
 
-        return `[ROLE: Senior fashion image masking and garment extraction specialist]
-[TASK: Perform exact in-place garment extraction from the source image]
+        return `[ROLE: Senior e-commerce fashion product retoucher and catalog image generator]
+[TASK: Generate a polished standalone product image from the source outfit photo]
 [EXTRACT TARGET: ${itemLabel}]
 
 [ABSOLUTE GOAL]
-- Extract ONLY the "${itemLabel}" from the image.
-- Keep the "${itemLabel}" exactly where it is in the original image.
-- Preserve the original camera angle, pose-driven shape, perspective, folds, stretch, wrinkles, drape, fabric shadows, and occlusion contours.
-- Do NOT straighten, rotate, recenter, resize, redraw, complete, beautify, or redesign the clothing.
-- The output must look like the source image with every non-"${itemLabel}" pixel painted pure white.
+- Generate ONLY the "${itemLabel}" as a clean, refined e-commerce product image.
+- Use the source image as the truth for design, color, material, pattern, trims, hardware, seams, proportions, and visible construction details.
+- Remove the person, body parts, other garments, background, props, and image clutter.
+- Do NOT return a raw cutout or an in-place mask. The final result must look like a professionally retouched catalog product shot.
+- Center the product naturally in the frame with clean margins and polished edges.
 
-[STRICT KEEP]
-- Preserve all visible "${itemLabel}" pixels exactly as they appear: silhouette, color, pattern, trims, buttons, zippers, seams, folds, drape, fabric texture, stitching, labels, and construction details.
-- If "${itemLabel}" overlaps with other garments, keep only the "${itemLabel}" portion and paint the overlapping areas white where they are hidden.
+[PRODUCT FIDELITY]
+- Preserve the exact product identity: silhouette, color, print, fabric texture, weave/knit direction, buttons, zippers, seams, stitching, straps, soles, handles, buckles, metal hardware, labels, and distinctive design details.
+- If the product is partially blocked by hands, hair, body, or another item, reconstruct only the missing blocked portion in a believable way that matches the visible product.
+- Keep the same product style and proportions. Do not redesign, simplify, add logos, change color, change pattern, or invent decorative elements.
 
 [STRICT REMOVE]
 - Remove ALL non-"${itemLabel}" pixels:${removal}
 - Remove: body, skin, face, head, hair, hands, arms, legs, feet, background, room, studio, floor, props, accessories, jewelry, bags, phones, hanger, mannequin, text, watermark, and logo overlays.
 - Remove all OTHER clothing items that are NOT "${itemLabel}".
-- Where removed body parts or props occluded the garment, do not hallucinate missing fabric; leave those removed/occluded pixels pure white.
 
 [OUTPUT]
-- Same garment placement and angle as the original source image.
-- Pure white background (#FFFFFF), not transparent and not checkerboard.
+- Premium product catalog photo on pure white background (#FFFFFF), not transparent and not checkerboard.
+- Clean refined edges, no jagged mask, no leftover skin/hair/background pixels, no white holes, no pasted-crop feeling.
+- Natural product presentation: flat-lay, ghost-mannequin, or standalone packshot as appropriate for "${itemLabel}".
+- Add a very subtle natural contact shadow only if it helps the product read as a finished catalog image.
 - No visible person, body parts, mannequin, hanger, or extra objects.
-- Preserve pixel-level alignment as closely as possible.
-- The extracted "${itemLabel}" must fill the frame naturally at ${ratioText} aspect ratio.`;
+- The "${itemLabel}" must fill the frame naturally at ${ratioText} aspect ratio.
+
+[NEGATIVE]
+raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body, leftover skin, leftover hair, background fragments, white holes, occlusion gaps, incomplete product, distorted product, changed color, changed pattern, added logo, low resolution, blurry, messy shadow`;
     };
 
     const extractSingleItem = async (itemLabel: string, signal?: AbortSignal): Promise<string> => {
@@ -242,7 +246,6 @@ const OutfitExtractionTab: React.FC = () => {
                 aspectRatio: selectedRatio,
                 resolution: selectedResolution,
                 modelId: selectedModel,
-                workflowHint: 'garment-extraction',
                 signal,
                 sampleCount: 1,
             }
@@ -287,8 +290,6 @@ const OutfitExtractionTab: React.FC = () => {
         abortRef.current = controller;
 
         try {
-            const results: ExtractedItem[] = [];
-
             for (const itemLabel of allItemLabels) {
                 setItems(prev => prev.map(i =>
                     i.label === itemLabel ? { ...i, status: 'processing' as const } : i
@@ -296,26 +297,20 @@ const OutfitExtractionTab: React.FC = () => {
 
                 try {
                     const imageUrl = await extractSingleItem(itemLabel, controller.signal);
-                    results.push({
-                        id: itemLabel,
-                        label: itemLabel,
-                        imageUrl,
-                        status: 'done' as const,
-                    });
+                    setItems(prev => prev.map(i =>
+                        i.label === itemLabel
+                            ? { ...i, imageUrl, status: 'done' as const, error: undefined }
+                            : i
+                    ));
                 } catch (err) {
                     if (isAbortError(err)) throw err;
                     console.error(`Extraction failed for "${itemLabel}":`, err);
-                    results.push({
-                        id: itemLabel,
-                        label: itemLabel,
-                        imageUrl: null,
-                        status: 'error' as const,
-                        error: getErrorMessage(err),
-                    });
+                    setItems(prev => prev.map(i =>
+                        i.label === itemLabel
+                            ? { ...i, imageUrl: null, status: 'error' as const, error: getErrorMessage(err) }
+                            : i
+                    ));
                 }
-
-                // Update items progressively
-                setItems([...results]);
             }
         } catch (err) {
             if (!isAbortError(err)) {
@@ -344,8 +339,7 @@ const OutfitExtractionTab: React.FC = () => {
     const totalSelected = selectedPresets.size + customItems.length;
     const canExtract = sourceImage && totalSelected > 0 && !isProcessing;
 
-    // Display results skipping the first item
-    const displayItems = items.slice(1);
+    const displayItems = items;
     const displayDoneCount = displayItems.filter(i => i.status === 'done').length;
 
     return (

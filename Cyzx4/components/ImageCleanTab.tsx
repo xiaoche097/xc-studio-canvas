@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
+﻿import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { 
     Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
     Layout, Sun, Image as ImageIcon, CheckCircle2, 
@@ -76,6 +76,17 @@ interface AutoPoseAnalysis {
     confidence: string;
 }
 
+type ManualPoseLibrary = AutoPoseLibrary | 'sleepwear' | 'clothing';
+
+interface ManualPoseOption {
+    key: string;
+    library: ManualPoseLibrary;
+    libraryLabel: string;
+    id: string;
+    name: string;
+    prompt: string;
+}
+
 const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     none: '通用服装动作库 / 智能随机动作',
     mensShirt: '男士衬衫动作库',
@@ -88,6 +99,41 @@ const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     womensFashion: '通用时尚女装动作库',
     solavibe: 'Solavibe 度假大码动作库',
 };
+
+const MANUAL_POSE_LIBRARY_LABELS: Record<ManualPoseLibrary, string> = {
+    ...AUTO_POSE_LIBRARY_LABELS,
+    sleepwear: '睡衣/居家动作库',
+    clothing: '通用服装动作库',
+};
+
+const buildManualPoseOptions = (): ManualPoseOption[] => {
+    const libraries: Array<{ library: ManualPoseLibrary; poses: Array<{ id: string; name: string; prompt: string }> }> = [
+        { library: 'mensShirt', poses: MENS_SHIRT_POSES },
+        { library: 'mensKnit', poses: MENS_KNIT_POSES },
+        { library: 'mensTee', poses: MENS_TEE_POSES },
+        { library: 'mensShorts', poses: MENS_SHORTS_POSES },
+        { library: 'mensPants', poses: MENS_PANTS_POSES },
+        { library: 'swimShorts', poses: SWIM_SHORTS_POSES },
+        { library: 'longDress', poses: LONG_DRESS_POSES },
+        { library: 'womensFashion', poses: WOMENS_FASHION_POSES },
+        { library: 'solavibe', poses: SOLAVIBE_POSES },
+        { library: 'sleepwear', poses: SLEEPWEAR_POSES },
+        { library: 'clothing', poses: CLOTHING_POSES },
+    ];
+
+    return libraries.flatMap(({ library, poses }) =>
+        poses.map((pose) => ({
+            key: library + ':' + pose.id,
+            library,
+            libraryLabel: MANUAL_POSE_LIBRARY_LABELS[library],
+            id: pose.id,
+            name: pose.name,
+            prompt: pose.prompt,
+        }))
+    );
+};
+
+const MANUAL_POSE_OPTIONS = buildManualPoseOptions();
 
 const getImageDimensions = (src: string): Promise<{ width: number; height: number }> => {
     return new Promise((resolve) => {
@@ -359,6 +405,10 @@ const HeroImageTab: React.FC = () => {
     const [actionReferences, setActionReferences] = useState<UploadedImage[]>([]);
     const [autoPoseLibrary, setAutoPoseLibrary] = useState<AutoPoseLibrary>('none');
     const [autoPoseAnalysis, setAutoPoseAnalysis] = useState<AutoPoseAnalysis | null>(null);
+    const [isAnalyzingPoseLibrary, setIsAnalyzingPoseLibrary] = useState(false);
+    const [manualPoseLibraryFilter, setManualPoseLibraryFilter] = useState<ManualPoseLibrary | 'auto' | 'all'>('auto');
+    const [manualPoseSearch, setManualPoseSearch] = useState('');
+    const [selectedManualPoseKey, setSelectedManualPoseKey] = useState<string | null>(null);
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
     const [accessoryReferences, setAccessoryReferences] = useState<UploadedImage[]>([]);
     const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
@@ -403,6 +453,27 @@ const HeroImageTab: React.FC = () => {
     const [hoveredSlot, setHoveredSlot] = useState<'product' | 'action' | 'scene' | 'accessory' | 'model' | null>(null);
     const [isDragging, setIsDragging] = useState<string | null>(null);
 
+    const selectedManualPose = useMemo(
+        () => MANUAL_POSE_OPTIONS.find((pose) => pose.key === selectedManualPoseKey) || null,
+        [selectedManualPoseKey]
+    );
+
+    const visibleManualPoseOptions = useMemo(() => {
+        const detectedLibrary: ManualPoseLibrary = autoPoseLibrary !== 'none' ? autoPoseLibrary : 'clothing';
+        const activeFilter = manualPoseLibraryFilter === 'auto' ? detectedLibrary : manualPoseLibraryFilter;
+        const keyword = manualPoseSearch.trim().toLowerCase();
+
+        return MANUAL_POSE_OPTIONS.filter((pose) => {
+            const matchesLibrary = activeFilter === 'all' || pose.library === activeFilter;
+            const matchesKeyword = !keyword
+                || pose.name.toLowerCase().includes(keyword)
+                || pose.id.toLowerCase().includes(keyword)
+                || pose.libraryLabel.toLowerCase().includes(keyword)
+                || pose.prompt.toLowerCase().includes(keyword);
+            return matchesLibrary && matchesKeyword;
+        });
+    }, [autoPoseLibrary, manualPoseLibraryFilter, manualPoseSearch]);
+
     // Image processing
     const processFiles = async (files: File[]) => {
         const results: UploadedImage[] = [];
@@ -445,6 +516,7 @@ const HeroImageTab: React.FC = () => {
             return 'none';
         };
 
+        setIsAnalyzingPoseLibrary(true);
         try {
             const ai = getAiClient();
             const parts: any[] = images.slice(0, 2).map(img => ({
@@ -502,12 +574,16 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                 confidence: 'low',
                 reason: '产品分类服务未返回可用结果，生成时仍会使用通用服装动作与补充描述。',
             });
+        } finally {
+            setIsAnalyzingPoseLibrary(false);
         }
     };
 
     const handleProductUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
+        setSelectedManualPoseKey(null);
+        setManualPoseLibraryFilter('auto');
         
         if (isProductPurifyEnabled && processed.length > 0) {
             setIsPurifyingProduct(true);
@@ -1480,7 +1556,18 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     if (perOutputSupplementaryNotes) {
                         finalPrompt += `\n${perOutputSupplementaryNotes}\n`;
                     }
-                    if (activeAutoPoseLibrary === 'solavibe') {
+                    if (selectedManualPose) {
+                        const posePreset = selectedManualPose;
+                        const poseSpec = posePreset.library === 'swimShorts' ? sanitizeSwimShortsPosePrompt(posePreset.prompt) : posePreset.prompt;
+                        selectedPoseHeader = `# USER SELECTED MANUAL ACTION PRESET: ${posePreset.libraryLabel} / ${posePreset.name} / ${posePreset.id}
+# MANUAL ACTION OVERRIDE (CRITICAL - MANDATORY): The user explicitly selected this action from the visible action library UI. For this output, use this selected pose instead of AI-recognized random/auto pose selection.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): Generate the model/product with the EXACT pose, body posture, hand placement, walking/sitting/leaning state, body angle, crop intent, and garment interaction described here: ${poseSpec}. Preserve the product identity from Image 1 with zero design drift, but adapt the body and garment naturally to this selected action.
+# PRIORITY RULE: Uploaded action reference images still have higher priority. This manual action applies only to output slots without an uploaded action reference.
+`;
+                        finalPrompt += `
+# MANUAL ACTION LIBRARY DIRECTIVE: Use the user-selected action exactly: ${poseSpec}. Do not fall back to generic catalog standing, do not randomly choose another library action, and do not ignore the selected hand/leg/torso/crop details.
+`;
+                    } else if (activeAutoPoseLibrary === 'solavibe') {
                         const posePreset = shuffledSolavibePoses[i % shuffledSolavibePoses.length];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED SOLAVIBE POSE PRESET: ${posePreset.name} / ${posePreset.id}
@@ -1606,7 +1693,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     finalPrompt += `\n${perOutputScenePrompt}\n`;
                 }
                 const negativePrompt = [
-                    hasOutputActionReference || activeAutoPoseLibrary !== 'none'
+                    hasOutputActionReference || activeAutoPoseLibrary !== 'none' || !!selectedManualPose
                         ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, ignored close-up crop, zoomed-out portrait when reference is close-up, full face visible when reference cuts off the face, full head visible when reference cuts off the head, waist visible when reference is chest-only, legs visible when reference is torso-only, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, copied action reference shirt, copied action reference logo, copied action reference necklace, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, copied action reference architecture, action reference arches, action reference room, action reference interior, action reference wall, action reference floor, action reference furniture, action reference pool, action reference plants, action reference props, beach background from pose library, pool background from pose library, ocean background from pose library'
                         : '',
                     modelReference
@@ -1862,6 +1949,91 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     </div>
                                 </div>
                             )}
+                        </div>
+
+                        {/* 2.5 Manual Action Library */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+                                <div className="flex items-start gap-2 min-w-0">
+                                    <Scan className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
+                                    <div className="min-w-0">
+                                        <h3 className="font-bold text-pastel-text text-sm">{"\u52a8\u4f5c\u9009\u62e9"}</h3>
+                                        <p className="text-[10px] text-pastel-muted mt-0.5 leading-relaxed">{"AI\u68c0\u6d4b\u4fdd\u7559\uff0c\u89c9\u5f97\u4e0d\u51c6\u53ef\u91cd\u65b0\u5206\u6790\uff0c\u4e5f\u53ef\u4ece\u73b0\u6709\u52a8\u4f5c\u5e93\u624b\u52a8\u9009\u62e9"}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => detectAutoPoseLibrary(productImages)}
+                                    disabled={productImages.length === 0 || isAnalyzingPoseLibrary}
+                                    className="shrink-0 min-h-[36px] px-3 py-2 rounded-xl bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-1.5"
+                                >
+                                    {isAnalyzingPoseLibrary ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                                    {isAnalyzingPoseLibrary ? '\u5206\u6790\u4e2d' : autoPoseAnalysis ? '\u91cd\u65b0\u5206\u6790' : 'AI \u5206\u6790'}
+                                </button>
+                            </div>
+
+                            <div className="rounded-xl border border-purple-100 bg-purple-50/40 px-3 py-2 text-[11px] text-purple-800 mb-3">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <span className="font-black">{"AI\u68c0\u6d4b"}</span>
+                                    <span>{autoPoseAnalysis ? autoPoseAnalysis.productType : '\u5c1a\u672a\u5206\u6790'}</span>
+                                    <span className="text-purple-300">|</span>
+                                    <span className="font-bold">{autoPoseAnalysis?.libraryLabel || MANUAL_POSE_LIBRARY_LABELS.clothing}</span>
+                                    {autoPoseAnalysis && <span className="px-2 py-0.5 rounded-full bg-white border border-purple-100 text-[10px] font-bold">{autoPoseAnalysis.confidence}</span>}
+                                </div>
+                                {selectedManualPose && (
+                                    <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white border border-purple-100 px-2 py-1.5">
+                                        <span className="truncate"><b>{"\u5df2\u624b\u9009"}</b> {selectedManualPose.libraryLabel} / {selectedManualPose.name} #{selectedManualPose.id}</span>
+                                        <button type="button" onClick={() => setSelectedManualPoseKey(null)} className="text-[10px] text-red-500 font-bold shrink-0">{"\u6e05\u9664"}</button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-2 mb-3">
+                                <select
+                                    value={manualPoseLibraryFilter}
+                                    onChange={(e) => setManualPoseLibraryFilter(e.target.value as ManualPoseLibrary | 'auto' | 'all')}
+                                    className="min-h-[40px] bg-pastel-bg border border-pastel-border rounded-xl px-3 py-2 text-xs font-bold text-pastel-text focus:outline-none focus:ring-1 focus:ring-purple-200"
+                                >
+                                    <option value="auto">{"\u8ddf\u968fAI\u68c0\u6d4b\u5e93"}</option>
+                                    <option value="all">{"\u5168\u90e8\u52a8\u4f5c\u5e93"}</option>
+                                    {Object.entries(MANUAL_POSE_LIBRARY_LABELS).filter(([key]) => key !== 'none').map(([key, label]) => (
+                                        <option key={key} value={key}>{label}</option>
+                                    ))}
+                                </select>
+                                <input
+                                    value={manualPoseSearch}
+                                    onChange={(e) => setManualPoseSearch(e.target.value)}
+                                    placeholder={"\u641c\u7d22\u52a8\u4f5c\u540d / ID / prompt"}
+                                    className="min-h-[40px] bg-pastel-bg border border-pastel-border rounded-xl px-3 py-2 text-xs text-pastel-text focus:outline-none focus:ring-1 focus:ring-purple-200"
+                                />
+                            </div>
+
+                            <div className="max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {visibleManualPoseOptions.map((pose) => (
+                                        <button
+                                            key={pose.key}
+                                            type="button"
+                                            title={pose.prompt}
+                                            onClick={() => setSelectedManualPoseKey(pose.key)}
+                                            className={`min-h-[56px] text-left rounded-xl border px-3 py-2 transition-all ${selectedManualPoseKey === pose.key ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-100' : 'bg-white border-pastel-border hover:border-purple-200 hover:bg-purple-50/30'}`}
+                                        >
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className={`text-[11px] font-black truncate ${selectedManualPoseKey === pose.key ? 'text-purple-700' : 'text-pastel-text'}`}>{pose.name}</span>
+                                                <span className="text-[9px] text-pastel-muted shrink-0">#{pose.id}</span>
+                                            </div>
+                                            <div className="mt-1 text-[9px] text-purple-500 font-bold truncate">{pose.libraryLabel}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                                {visibleManualPoseOptions.length === 0 && (
+                                    <div className="py-6 text-center text-xs text-pastel-muted">{"\u6ca1\u6709\u5339\u914d\u7684\u52a8\u4f5c"}</div>
+                                )}
+                            </div>
+                            <div className="mt-3 text-[10px] text-pastel-muted flex flex-wrap items-center gap-2">
+                                <span>{"\u5f53\u524d\u663e\u793a"} {visibleManualPoseOptions.length} / {MANUAL_POSE_OPTIONS.length}</span>
+                                {actionReferences.length > 0 && <span className="text-purple-600 font-bold">{"\u5df2\u4e0a\u4f20\u52a8\u4f5c\u53c2\u8003\u56fe\u65f6\uff0c\u524d\u51e0\u5f20\u4ecd\u4f18\u5148\u9501\u5b9a\u53c2\u8003\u56fe"}</span>}
+                            </div>
                         </div>
 
                         {/* 3. Specialized References (Pose & Scene) */}
