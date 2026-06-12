@@ -391,6 +391,7 @@ const HeroImageTab: React.FC = () => {
     const [isPurifyingScene, setIsPurifyingScene] = useState(false); // 正在自动净化场景图
     const [isPurifyingProduct, setIsPurifyingProduct] = useState(false); // 正在自动净化产品素材图
     const [isProductPurifyEnabled, setIsProductPurifyEnabled] = useState(true); // 是否开启产品图 AI 去噪净化
+    const [isScenePurifyEnabled, setIsScenePurifyEnabled] = useState(true); // 是否开启场景图 AI 去人净化
     const [showModelGuideModal, setShowModelGuideModal] = useState(false); // 控制 AI 模特规则上传指南弹窗的显示
     const [isAnalyzingModelIdentity, setIsAnalyzingModelIdentity] = useState(false);
     const [modelIdentityAnalysis, setModelIdentityAnalysis] = useState<ModelIdentityAnalysis | null>(null);
@@ -406,6 +407,7 @@ const HeroImageTab: React.FC = () => {
     const [autoPoseLibrary, setAutoPoseLibrary] = useState<AutoPoseLibrary>('none');
     const [autoPoseAnalysis, setAutoPoseAnalysis] = useState<AutoPoseAnalysis | null>(null);
     const [isAnalyzingPoseLibrary, setIsAnalyzingPoseLibrary] = useState(false);
+    const [isPoseAutoDetectEnabled, setIsPoseAutoDetectEnabled] = useState(true);
     const [manualPoseLibraryFilter, setManualPoseLibraryFilter] = useState<ManualPoseLibrary | 'auto' | 'all'>('auto');
     const [manualPoseSearch, setManualPoseSearch] = useState('');
     const [selectedManualPoseKey, setSelectedManualPoseKey] = useState<string | null>(null);
@@ -583,7 +585,16 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
         setSelectedManualPoseKey(null);
-        setManualPoseLibraryFilter('auto');
+        setManualPoseLibraryFilter(isPoseAutoDetectEnabled ? 'auto' : 'all');
+
+        const updatePoseDetection = (images: UploadedImage[]) => {
+            if (isPoseAutoDetectEnabled) {
+                void detectAutoPoseLibrary(images);
+            } else {
+                setAutoPoseLibrary('none');
+                setAutoPoseAnalysis(null);
+            }
+        };
         
         if (isProductPurifyEnabled && processed.length > 0) {
             setIsPurifyingProduct(true);
@@ -625,18 +636,18 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                     return img;
                 }));
                 setProductImages(prev => [...prev, ...purified].slice(0, 4));
-                void detectAutoPoseLibrary(purified);
+                updatePoseDetection(purified);
             } catch (err) {
                 console.error("Purify product image failed:", err);
                 // 降级回退到原始图片
                 setProductImages(prev => [...prev, ...processed].slice(0, 4));
-                void detectAutoPoseLibrary(processed);
+                updatePoseDetection(processed);
             } finally {
                 setIsPurifyingProduct(false);
             }
         } else {
             setProductImages(prev => [...prev, ...processed].slice(0, 4));
-            void detectAutoPoseLibrary(processed);
+            updatePoseDetection(processed);
         }
         setError(null);
     };
@@ -651,6 +662,12 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
     const handleSceneUpload = async (e: React.ChangeEvent<HTMLInputElement> | File[]) => {
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
+
+        if (!isScenePurifyEnabled) {
+            setSceneReferences(prev => [...prev, ...processed].slice(0, 3));
+            setError(null);
+            return;
+        }
         
         setIsPurifyingScene(true);
         setError(null);
@@ -1784,6 +1801,17 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
         link.click();
     };
 
+    const handleDownloadAsset = (img: UploadedImage, type: 'product' | 'scene', idx: number) => {
+        const source = img.preview || (img.base64 && img.mime ? `data:${img.mime};base64,${img.base64}` : '');
+        if (!source) return;
+
+        const extension = img.mime?.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+        const link = document.createElement('a');
+        link.href = source;
+        link.download = `${type}-reference-${Date.now()}-${idx + 1}.${extension}`;
+        link.click();
+    };
+
     const handleDownloadAll = () => {
         generatedImages.forEach((img, idx) => {
             setTimeout(() => {
@@ -1909,6 +1937,14 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                         {productImages.map((img, idx) => (
                                             <div key={idx} className="relative group/item">
                                                 <img src={img.preview} className="w-full h-20 object-cover rounded-lg border border-pastel-border" alt="product" />
+                                                <button
+                                                    type="button"
+                                                    title="下载这张产品素材图"
+                                                    onClick={(e) => { e.stopPropagation(); handleDownloadAsset(img, 'product', idx); }}
+                                                    className="absolute bottom-1 right-1 z-20 bg-black/65 text-white rounded-full p-1 opacity-0 group-hover/item:opacity-100 transition-opacity shadow-sm hover:bg-black/80"
+                                                >
+                                                    <Download className="w-3 h-3" />
+                                                </button>
                                                 <button onClick={(e) => { e.stopPropagation(); setProductImages(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
                                             </div>
                                         ))}
@@ -1958,26 +1994,48 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     <Scan className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
                                     <div className="min-w-0">
                                         <h3 className="font-bold text-pastel-text text-sm">{"\u52a8\u4f5c\u9009\u62e9"}</h3>
-                                        <p className="text-[10px] text-pastel-muted mt-0.5 leading-relaxed">{"AI\u68c0\u6d4b\u4fdd\u7559\uff0c\u89c9\u5f97\u4e0d\u51c6\u53ef\u91cd\u65b0\u5206\u6790\uff0c\u4e5f\u53ef\u4ece\u73b0\u6709\u52a8\u4f5c\u5e93\u624b\u52a8\u9009\u62e9"}</p>
+                                        <p className="text-[10px] text-pastel-muted mt-0.5 leading-relaxed">AI检测可关闭；检测不准时直接手动选动作库和动作，不再消耗分析次数</p>
                                     </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => detectAutoPoseLibrary(productImages)}
-                                    disabled={productImages.length === 0 || isAnalyzingPoseLibrary}
-                                    className="shrink-0 min-h-[36px] px-3 py-2 rounded-xl bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-1.5"
-                                >
-                                    {isAnalyzingPoseLibrary ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                                    {isAnalyzingPoseLibrary ? '\u5206\u6790\u4e2d' : autoPoseAnalysis ? '\u91cd\u65b0\u5206\u6790' : 'AI \u5206\u6790'}
-                                </button>
+                                <div className="shrink-0 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsPoseAutoDetectEnabled((enabled) => {
+                                                const next = !enabled;
+                                                if (!next) {
+                                                    setAutoPoseLibrary('none');
+                                                    setAutoPoseAnalysis(null);
+                                                    setManualPoseLibraryFilter('all');
+                                                } else {
+                                                    setManualPoseLibraryFilter('auto');
+                                                }
+                                                return next;
+                                            });
+                                        }}
+                                        className={`min-h-[36px] px-3 py-2 rounded-xl border text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${isPoseAutoDetectEnabled ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-slate-900 border-slate-900 text-white'}`}
+                                    >
+                                        {isPoseAutoDetectEnabled ? <Brain className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
+                                        {isPoseAutoDetectEnabled ? 'AI检测开启' : '手动选择'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => detectAutoPoseLibrary(productImages)}
+                                        disabled={!isPoseAutoDetectEnabled || productImages.length === 0 || isAnalyzingPoseLibrary}
+                                        className="min-h-[36px] px-3 py-2 rounded-xl bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 disabled:bg-gray-200 disabled:text-gray-400 transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                        {isAnalyzingPoseLibrary ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                                        {isAnalyzingPoseLibrary ? '\u5206\u6790\u4e2d' : autoPoseAnalysis ? '\u91cd\u65b0\u5206\u6790' : 'AI \u5206\u6790'}
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="rounded-xl border border-purple-100 bg-purple-50/40 px-3 py-2 text-[11px] text-purple-800 mb-3">
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                                     <span className="font-black">{"AI\u68c0\u6d4b"}</span>
-                                    <span>{autoPoseAnalysis ? autoPoseAnalysis.productType : '\u5c1a\u672a\u5206\u6790'}</span>
+                                    <span>{isPoseAutoDetectEnabled ? (autoPoseAnalysis ? autoPoseAnalysis.productType : '\u5c1a\u672a\u5206\u6790') : '已关闭，使用手动动作库'}</span>
                                     <span className="text-purple-300">|</span>
-                                    <span className="font-bold">{autoPoseAnalysis?.libraryLabel || MANUAL_POSE_LIBRARY_LABELS.clothing}</span>
+                                    <span className="font-bold">{isPoseAutoDetectEnabled ? (autoPoseAnalysis?.libraryLabel || MANUAL_POSE_LIBRARY_LABELS.clothing) : '全部动作库可选'}</span>
                                     {autoPoseAnalysis && <span className="px-2 py-0.5 rounded-full bg-white border border-purple-100 text-[10px] font-bold">{autoPoseAnalysis.confidence}</span>}
                                 </div>
                                 {selectedManualPose && (
@@ -1994,7 +2052,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     onChange={(e) => setManualPoseLibraryFilter(e.target.value as ManualPoseLibrary | 'auto' | 'all')}
                                     className="min-h-[40px] bg-pastel-bg border border-pastel-border rounded-xl px-3 py-2 text-xs font-bold text-pastel-text focus:outline-none focus:ring-1 focus:ring-purple-200"
                                 >
-                                    <option value="auto">{"\u8ddf\u968fAI\u68c0\u6d4b\u5e93"}</option>
+                                    {isPoseAutoDetectEnabled && <option value="auto">{"\u8ddf\u968fAI\u68c0\u6d4b\u5e93"}</option>}
                                     <option value="all">{"\u5168\u90e8\u52a8\u4f5c\u5e93"}</option>
                                     {Object.entries(MANUAL_POSE_LIBRARY_LABELS).filter(([key]) => key !== 'none').map(([key, label]) => (
                                         <option key={key} value={key}>{label}</option>
@@ -2138,6 +2196,15 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                             />
                                             <span className="text-[10px] text-gray-500 group-hover:text-orange-600 transition-colors font-medium">安全脱敏</span>
                                         </label>
+                                        <label className="flex items-center gap-1.5 cursor-pointer group" title="关闭后，上传场景图时不再用 AI 检测人物或自动去人">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isScenePurifyEnabled}
+                                                onChange={(e) => setIsScenePurifyEnabled(e.target.checked)}
+                                                className="w-3.5 h-3.5 text-orange-500 rounded border-gray-300 focus:ring-orange-500 cursor-pointer"
+                                            />
+                                            <span className="text-[10px] text-gray-500 group-hover:text-orange-600 transition-colors font-medium">AI去人</span>
+                                        </label>
                                     </div>
                                 </div>
                                 <div 
@@ -2164,6 +2231,14 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                             {sceneReferences.map((img, idx) => (
                                                 <div key={idx} className="relative group/scene">
                                                     <img src={img.preview} className="w-full h-12 object-cover rounded border border-orange-200" alt="scene" />
+                                                    <button
+                                                        type="button"
+                                                        title="下载这张场景参考图"
+                                                        onClick={(e) => { e.stopPropagation(); handleDownloadAsset(img, 'scene', idx); }}
+                                                        className="absolute bottom-0.5 right-0.5 z-20 bg-black/65 text-white rounded-full p-0.5 opacity-0 group-hover/scene:opacity-100 transition-opacity shadow-sm hover:bg-black/80"
+                                                    >
+                                                        <Download className="w-2.5 h-2.5" />
+                                                    </button>
                                                     <button onClick={(e) => { e.stopPropagation(); setSceneReferences(prev => prev.filter((_, i) => i !== idx)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"><X className="w-2 h-2" /></button>
                                                 </div>
                                             ))}
