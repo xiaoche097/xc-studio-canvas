@@ -311,6 +311,8 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({
               onImageGenerated={(url) => handleImageUpdate('p3-main', url)}
               autoGenerate={false}
               allowedRatios={['1:1', '3:4']}
+              enableFormatSelector
+              defaultOutputFormat="jpg"
             />
             {/* Show Prompt details for P3 only in P3/All mode */}
             {hasRealPrompt && (

@@ -16,6 +16,7 @@ import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 import { extractEdges } from '../utils/imageProcessor';
+import { convertImageDataUrlsFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
 import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
@@ -381,6 +382,7 @@ const HeroImageTab: React.FC = () => {
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
+    const [outputFormat, setOutputFormat] = useState<OutputImageFormat>('jpg');
     const [showAdvanced, setShowAdvanced] = useState(true);
     const [isSafeMode, setIsSafeMode] = useState(false); // 动作安全模式
     const [isPoseOnly, setIsPoseOnly] = useState(true); // 仅参考姿态（默认开启，自动提取线稿以消除背景干扰）
@@ -1741,14 +1743,16 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
             const flatResults = batchResults.flat();
             const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio, resolution);
             assertCurrentGenerationTask(taskId, signal);
+            const formattedResults = await convertImageDataUrlsFormat(normalizedResults, outputFormat);
+            assertCurrentGenerationTask(taskId, signal);
             if (isSingleRegenerate) {
-                setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (normalizedResults[0] || img) : img));
+                setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (formattedResults[0] || img) : img));
             } else {
-                setGeneratedImages(normalizedResults);
+                setGeneratedImages(formattedResults);
             }
             await saveGeneratedProject({
                 type: 'RETOUCHING',
-                generated: normalizedResults,
+                generated: formattedResults,
                 original: [
                     ...productImages.map(img => `data:${img.mime};base64,${img.base64}`),
                     ...actionReferences.map(img => `data:${img.mime};base64,${img.base64}`),
@@ -1762,7 +1766,8 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     model: selectedModel,
                     aspectRatio,
                     resolution,
-                    count: normalizedResults.length,
+                    outputFormat,
+                    count: formattedResults.length,
                     singleRegenerate: isSingleRegenerate,
                     platform: selectedPlatform
                 }
@@ -1797,7 +1802,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
     const handleDownload = (img: string, idx: number) => {
         const link = document.createElement('a');
         link.href = img;
-        link.download = `hero-${Date.now()}-${idx}.jpg`;
+        link.download = `hero-${Date.now()}-${idx}.${getImageDownloadExtension(img, outputFormat)}`;
         link.click();
     };
 
@@ -1817,7 +1822,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
             setTimeout(() => {
                 const link = document.createElement('a');
                 link.href = img;
-                link.download = `hero-all-${Date.now()}-${idx + 1}.jpg`;
+                link.download = `hero-all-${Date.now()}-${idx + 1}.${getImageDownloadExtension(img, outputFormat)}`;
                 link.click();
             }, idx * 250);
         });
@@ -1879,6 +1884,31 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                         <span className="text-lg mb-1">{platform.icon}</span>
                                         <span className={`text-[10px] font-bold ${selectedPlatform === platform.id ? 'text-pastel-highlight' : 'text-pastel-text'}`}>{platform.label}</span>
                                         <span className="text-[8px] text-pastel-muted scale-90 whitespace-nowrap">{platform.desc.split(' / ')[0]}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 1.2 Output Format */}
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Download className="w-4 h-4 text-pastel-highlight" />
+                                <h3 className="font-bold text-pastel-text text-sm">输出格式</h3>
+                                <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">下载与历史保存格式</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { id: 'jpg' as OutputImageFormat, label: 'JPG', desc: '默认' },
+                                    { id: 'png' as OutputImageFormat, label: 'PNG', desc: '高清' },
+                                ].map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setOutputFormat(item.id)}
+                                        className={`flex flex-col items-center justify-center py-2.5 rounded-xl border transition-all ${outputFormat === item.id ? 'bg-orange-50 border-pastel-highlight ring-1 ring-orange-100 text-pastel-highlight' : 'bg-pastel-bg/30 border-pastel-border text-pastel-muted hover:border-orange-200'}`}
+                                    >
+                                        <span className="text-[11px] font-bold">{item.label}</span>
+                                        <span className="text-[9px] opacity-60">{item.desc}</span>
                                     </button>
                                 ))}
                             </div>
