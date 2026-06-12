@@ -4,6 +4,8 @@ import { RefreshIcon, UploadIcon, DownloadIcon, ZoomIcon } from './Icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
 
+type OutputFormat = 'jpg' | 'png';
+
 interface VisualizerProps {
   prompt: string;
   aspectRatio?: string;
@@ -12,11 +14,13 @@ interface VisualizerProps {
   initialImage?: string | null;
   autoGenerate?: boolean;
   onImageGenerated?: (url: string) => void;
+  enableFormatSelector?: boolean;
+  defaultOutputFormat?: OutputFormat;
 }
 
 const DETAIL_LEVELS = ['Standard', 'High Detail', 'Ultra (4K)'];
 
-export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1:1", allowedRatios = ['1:1', '3:4'], label = "PREVIEW", initialImage, autoGenerate = false, onImageGenerated }) => {
+export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1:1", allowedRatios = ['1:1', '3:4'], label = "PREVIEW", initialImage, autoGenerate = false, onImageGenerated, enableFormatSelector = false, defaultOutputFormat = 'jpg' }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(initialImage || null);
   const [loading, setLoading] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
@@ -24,8 +28,51 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
   const [hasStarted, setHasStarted] = useState<boolean>(!!initialImage || autoGenerate);
   const [selectedRatio, setSelectedRatio] = useState(allowedRatios.includes(aspectRatio) ? aspectRatio : allowedRatios[0]);
   const [resolution, setResolution] = useState('High Detail'); // Changed initial resolution to 'High Detail'
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'fit' | 'original'>('fit'); // New state for zoom modal
+
+  const convertImageFormat = (src: string, format: OutputFormat): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas is not available.'));
+          return;
+        }
+
+        if (format === 'jpg') {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL(format === 'jpg' ? 'image/jpeg' : 'image/png', 0.95));
+      };
+      img.onerror = () => reject(new Error('Generated image could not be loaded for format conversion.'));
+      img.src = src;
+    });
+  };
+
+  const getDownloadFormat = (url: string): OutputFormat => {
+    if (url.startsWith('data:image/png')) return 'png';
+    if (url.startsWith('data:image/jpeg') || url.startsWith('data:image/jpg')) return 'jpg';
+    return outputFormat;
+  };
+
+  const downloadImage = () => {
+    if (!imageUrl) return;
+    const format = getDownloadFormat(imageUrl);
+    const link = document.createElement('a');
+    link.href = imageUrl;
+    link.download = `skysper-gen-${Date.now()}.${format}`;
+    link.click();
+  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = await compressImageFiles(Array.from(e.target.files));
@@ -76,8 +123,16 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
       // Enhanced prompt
       const technicalPrompt = `${prompt}, aspect ratio ${selectedRatio}, ${detailKeywords}`;
       const result = await gemini.generateImage(technicalPrompt, referenceImages, { aspectRatio: selectedRatio, resolution: apiResolution });
-      setImageUrl(result);
-      if (onImageGenerated) onImageGenerated(result);
+      let finalResult = result;
+      if (enableFormatSelector) {
+        try {
+          finalResult = await convertImageFormat(result, outputFormat);
+        } catch (conversionError) {
+          console.warn("Image format conversion failed. Using original generated image.", conversionError);
+        }
+      }
+      setImageUrl(finalResult);
+      if (onImageGenerated) onImageGenerated(finalResult);
     } catch (err: any) {
       console.error("Visualizer Error:", err);
       // Fallback for demo if API fails (or key invalid)
@@ -148,6 +203,23 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
               <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </div>
           </div>
+
+          {enableFormatSelector && (
+            <div className="relative group/select flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Format:</span>
+              <select
+                value={outputFormat}
+                onChange={(e) => setOutputFormat(e.target.value as OutputFormat)}
+                className="appearance-none bg-white dark:bg-white/5 text-sm font-medium border border-gray-200 dark:border-white/10 rounded-lg pl-3 pr-8 py-1.5 outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange/50 text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/10 transition-colors shadow-sm"
+              >
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+              </select>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </div>
+            </div>
+          )}
 
           <div className="w-px h-6 bg-gray-200 dark:bg-white/10 mx-1"></div>
 
@@ -236,10 +308,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        const link = document.createElement('a');
-                        link.href = imageUrl;
-                        link.download = `skysper-gen-${Date.now()}.png`;
-                        link.click();
+                        downloadImage();
                       }}
                       className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white flex flex-col items-center justify-center shadow-2xl transition-all group/btn"
                       title="下载原图"
@@ -334,10 +403,7 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = imageUrl;
-                    link.download = `skysper-gen-${Date.now()}.png`;
-                    link.click();
+                    downloadImage();
                   }}
                   className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border border-white/10"
                 >

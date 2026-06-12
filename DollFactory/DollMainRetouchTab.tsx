@@ -4,6 +4,7 @@ import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
 import { DollImageEditor, EditorBox } from './components/DollImageEditor';
 import { saveGeneratedProject } from '../services/projectHistoryService';
+import { convertImageDataUrlsFormat, getImageDownloadExtension, OutputImageFormat } from './utils/imageFormat';
 
 // --- Reference Refinement Prompt ---
 const REFINEMENT_PROMPT = {
@@ -157,6 +158,7 @@ const DollMainRetouchTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [intensity, setIntensity] = useState<IntensityLevel>('standard');
   const [variantCount, setVariantCount] = useState(1);
+  const [outputFormat, setOutputFormat] = useState<OutputImageFormat>('jpg');
   const [preview, setPreview] = useState<{ src: string, title: string } | null>(null);
 
   // Reference Images (Up to 3)
@@ -441,11 +443,12 @@ ${styleAnalysis.overall_atmosphere || ''}
       const flattenedResult = allResults.flat().filter(img => !!img);
 
       if (flattenedResult.length > 0) {
-        setResultImages(flattenedResult);
+        const formattedResults = await convertImageDataUrlsFormat(flattenedResult, outputFormat);
+        setResultImages(formattedResults);
         setSelectedResultIndex(0);
         await saveGeneratedProject({
           type: 'RETOUCHING',
-          generated: flattenedResult,
+          generated: formattedResults,
           original: [
             `data:${compressedImage.mime};base64,${compressedImage.base64}`,
             ...refInputImages.map(img => `data:${img.mimeType};base64,${img.base64}`)
@@ -457,6 +460,7 @@ ${styleAnalysis.overall_atmosphere || ''}
             aspectRatio: outputAspectRatio,
             resolution,
             intensity,
+            outputFormat,
             variantCount
           }
         });
@@ -738,6 +742,18 @@ ${styleAnalysis.overall_atmosphere || ''}
              </select>
           </div>
 
+          <div className="space-y-2">
+             <h3 className="text-xs font-bold text-pastel-muted mb-2">输出格式</h3>
+             <select
+               value={outputFormat}
+               onChange={(e) => setOutputFormat(e.target.value as OutputImageFormat)}
+               className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-3 text-xs font-bold outline-none transition-all"
+             >
+               <option value="jpg">JPG</option>
+               <option value="png">PNG</option>
+             </select>
+          </div>
+
           {/* 变体数量选择 */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-pastel-muted uppercase tracking-wider mb-2">生成变体数量 (Variants)</h3>
@@ -848,7 +864,7 @@ ${styleAnalysis.overall_atmosphere || ''}
                </div>
                
                <button
-                 onClick={() => downloadImage(resultImages[selectedResultIndex], `doll-adjust-${selectedResultIndex}-${Date.now()}.png`)}
+                 onClick={() => downloadImage(resultImages[selectedResultIndex], `doll-adjust-${selectedResultIndex}-${Date.now()}.${getImageDownloadExtension(resultImages[selectedResultIndex], outputFormat)}`)}
                  className="flex items-center justify-center gap-2 rounded-xl border border-pastel-highlight/20 bg-pastel-highlight/10 px-4 py-2 text-xs font-bold text-pastel-highlight hover:bg-pastel-highlight/15 shadow-sm"
                >
                  <Download className="h-3.5 w-3.5" /> 下载当前变体
@@ -907,7 +923,7 @@ ${styleAnalysis.overall_atmosphere || ''}
             <div className="flex items-center justify-between gap-4 border-b border-white/10 px-8 py-6 text-white bg-white/5">
               <div className="text-xl font-black tracking-tight">{preview.title}</div>
               <button
-                onClick={() => downloadImage(preview.src, `download-${Date.now()}.png`)}
+                onClick={() => downloadImage(preview.src, `download-${Date.now()}.${getImageDownloadExtension(preview.src, outputFormat)}`)}
                 className="flex items-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-sm font-black text-white hover:bg-orange-600 transition-all active:scale-95"
               >
                 <Download className="h-4 w-4" /> 下载图片
