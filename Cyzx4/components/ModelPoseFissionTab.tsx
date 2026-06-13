@@ -18,10 +18,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { generateImageToImage } from '../services/geminiService';
-import { compressImage, getErrorMessage } from '../utils/apiHelpers';
+import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
 import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
@@ -332,6 +333,14 @@ const ModelPoseFissionTab: React.FC = () => {
   const [error, setError] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    isCurrentGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
 
   const activeLibrary = useMemo(() => getLibrary(poseLibraryKey), [poseLibraryKey]);
   const activePlatform = useMemo(() => PLATFORM_STYLES.find((platform) => platform.key === selectedPlatform) || PLATFORM_STYLES[1], [selectedPlatform]);
@@ -408,7 +417,7 @@ const ModelPoseFissionTab: React.FC = () => {
     return inputs;
   };
 
-  const generateOne = async (index: number): Promise<ResultItem> => {
+  const generateOne = async (index: number, signal?: AbortSignal): Promise<ResultItem> => {
     const pose = getPoseForOutput(index);
     const hasActionReference = actionImages.length > 0 && index < actionImages.length;
     const prompt = buildPrompt({
@@ -429,6 +438,7 @@ const ModelPoseFissionTab: React.FC = () => {
       modelId: selectedModel,
       workflowHint: hasActionReference ? 'hero-pose-lock' : 'scene-product-lock',
       hasModelRef: true,
+      signal,
     });
     if (!imageUrl) throw new Error('模型未返回图片');
     return { id: `${Date.now()}-${index}`, imageUrl, status: 'done', prompt, poseLabel: pose.label };
@@ -440,6 +450,7 @@ const ModelPoseFissionTab: React.FC = () => {
       return;
     }
     setError('');
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
     setRegeneratingIndex(regenerateIndex ?? null);
     const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
@@ -459,10 +470,12 @@ const ModelPoseFissionTab: React.FC = () => {
     try {
       const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
       for (const index of indices) {
+        assertCurrentGenerationTask(taskId, signal);
         setStatusMessage(`正在生成第 ${index + 1} 张 / 共 ${regenerateIndex !== undefined ? results.length || 1 : total} 张...`);
         setResults((prev) => prev.map((item, idx) => (idx === index ? { ...item, status: 'generating' } : item)));
         try {
-          const item = await generateOne(index);
+          const item = await generateOne(index, signal);
+          assertCurrentGenerationTask(taskId, signal);
           generated.push(item);
           setResults((prev) => {
             const next = [...prev];
@@ -479,6 +492,7 @@ const ModelPoseFissionTab: React.FC = () => {
           if (regenerateIndex !== undefined) throw itemError;
         }
       }
+      assertCurrentGenerationTask(taskId, signal);
       if (generated.length > 0) {
         await saveGeneratedProject({
           type: 'MODEL',
@@ -510,11 +524,29 @@ const ModelPoseFissionTab: React.FC = () => {
       }
       setStatusMessage('生成完成');
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (!isAbortError(err)) {
+        setError(getErrorMessage(err));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
       setRegeneratingIndex(null);
     }
+  };
+
+  const handleCancelGenerate = () => {
+    cancelGenerationTask();
+    setStatusMessage('已中止生成');
+    setIsGenerating(false);
+    setRegeneratingIndex(null);
+    setResults((prev) => prev.map((item) => (
+      item.status === 'generating' || item.status === 'pending'
+        ? { ...item, status: item.imageUrl ? 'done' : 'error', error: item.imageUrl ? undefined : '已中止生成' }
+        : item
+    )));
   };
 
   const handleDownload = (img: string, idx: number) => {
@@ -756,6 +788,15 @@ const ModelPoseFissionTab: React.FC = () => {
               {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               {isGenerating ? 'Agent 正在裂变...' : '一键生成模特姿势裂变'}
             </button>
+            {isGenerating && (
+              <button type="button" onClick={handleCancelGenerate} className="flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-2xl bg-gray-900 py-3 text-sm font-bold text-white shadow-md transition-all hover:bg-gray-950">
+                <X className="h-4 w-4" />
+                中止生成
+              </button>
+            )}
+            {cancelMessage && !isGenerating && (
+              <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-4">
