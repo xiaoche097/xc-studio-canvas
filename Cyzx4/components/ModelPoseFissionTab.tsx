@@ -325,7 +325,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const [selectedPoseId, setSelectedPoseId] = useState('');
   const [generateCount, setGenerateCount] = useState(4);
   const [productCategory, setProductCategory] = useState('');
-  const [scenePrompt, setScenePrompt] = useState('背面展示，全身');
+  const [scenePrompt, setScenePrompt] = useState('');
   const [extraNotes, setExtraNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
