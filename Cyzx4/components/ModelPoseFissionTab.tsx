@@ -336,6 +336,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const activePlatform = useMemo(() => PLATFORM_STYLES.find((platform) => platform.key === selectedPlatform) || PLATFORM_STYLES[1], [selectedPlatform]);
   const manualPose = activeLibrary.poses.find((pose) => pose.id === selectedPoseId) || activeLibrary.poses[0];
   const effectivePoseMode: PoseSourceMode = actionImages.length > 0 ? 'reference' : poseSourceMode;
+  const effectiveGenerateCount = actionImages.length > 0 ? actionImages.length : generateCount;
 
   const addImages = async (
     files: File[],
@@ -439,7 +440,7 @@ const ModelPoseFissionTab: React.FC = () => {
     }
     setError('');
     setIsGenerating(true);
-    const total = regenerateIndex !== undefined ? 1 : Math.max(generateCount, actionImages.length || 0);
+    const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
     if (regenerateIndex === undefined) {
       setResults(Array.from({ length: total }, (_, index) => ({
         id: `pending-${index}`,
@@ -719,9 +720,10 @@ const ModelPoseFissionTab: React.FC = () => {
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-bold text-pastel-muted">批量</label>
-                  <select value={generateCount} onChange={(event) => setGenerateCount(Number(event.target.value))} className="min-h-[2.75rem] w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-100">
-                    {[1, 2, 4, 6, 8, 10].map((count) => <option key={count} value={count}>{count}张</option>)}
+                  <select value={effectiveGenerateCount} disabled={actionImages.length > 0} onChange={(event) => setGenerateCount(Number(event.target.value))} className="min-h-[2.75rem] w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:border-purple-200 disabled:bg-purple-50 disabled:text-purple-700">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => <option key={count} value={count}>{count}张</option>)}
                   </select>
+                  {actionImages.length > 0 && <p className="mt-1 text-[0.68rem] font-semibold text-purple-600">已按 {actionImages.length} 张动作参考图锁定生成数量</p>}
                 </div>
               </div>
 
