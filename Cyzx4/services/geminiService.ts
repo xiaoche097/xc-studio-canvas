@@ -959,6 +959,23 @@ ${forcedPrompt}`;
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'pose-fission') {
+          gptPrompt = `[ROLE: Senior Fashion Pose Fission Director]
+[TASK: Create a same-shoot ecommerce fashion pose variation with a visibly different body pose]
+[INPUT PRIORITY]
+1. Image 1 is the identity, outfit, product, scene, lighting, and commercial look anchor.
+2. Preserve the same model identity, face, hair, body proportions, outfit/product structure, color, fabric, scene DNA, and lighting mood.
+3. Rebuild the body pose as a new fashion pose. The change must be obvious at thumbnail size.
+
+[MANDATORY POSE DIVERSITY]
+- Do NOT return a near-identical standing pose.
+- Change multiple pose landmarks when possible: leg stance, knee bend, hip angle, torso rotation, shoulder line, head direction, arm/hand placement, walking/sitting/leaning geometry, and subject rhythm.
+- Product fidelity must not shrink the pose change. Adapt the garment naturally onto the new body geometry.
+- Keep anatomy natural, physically plausible, and commercial.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
         } else if (workflowHint === 'lighting-replication') {
           gptPrompt = `[ROLE: Senior fashion lighting retoucher and look-development colorist]
 [TASK: Relight Image 1 using only the lighting DNA from Image 2+]
@@ -1281,6 +1298,30 @@ ${forcedPrompt}`;
         - If the user prompt defines a separate scene reference, that scene reference is the ONLY location/background source. If no scene reference is defined, use only the user's platform/style/background instructions, never the model identity image environment.
         - Preserve all model-reference outfit pieces that do not conflict with the product asset, especially jeans/pants/bottoms, shoes, belts, and simple styling.
         - If the model identity reference wears jeans, the output must keep the same jeans style, wash, fit, and color wherever the crop shows them.
+
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                : workflowHint === 'pose-fission'
+                  ? `
+        **ROLE**: Senior Fashion Pose Fission Director.
+        **MISSION**: Create ONE same-shoot ecommerce fashion image where the model keeps the same identity, outfit/product, scene DNA, lighting mood, and commercial quality, but the body pose is visibly different.
+
+        **INPUT CONTRACT**:
+        - Image 1 is the master anchor for the model identity, face, hair, skin tone, body proportions, worn product, styling, scene, lighting, color palette, and commercial direction.
+        - Optional later model/product/scene images reinforce identity, product details, and scene cues only.
+        - The user prompt provides the target pose instruction.
+
+        **MANDATORY POSE DIVERSITY**:
+        - Do NOT return a near-identical pose or tiny catalog variation.
+        - The result must read as a new pose at thumbnail size.
+        - Change multiple pose landmarks when possible: leg stance, knee bend, hip angle, torso rotation, shoulder line, head direction, arm/hand placement, walking/sitting/leaning geometry, and overall body rhythm.
+        - If the source is standing straight, avoid another straight front-standing pose unless the requested action explicitly requires it.
+        - Product fidelity must never be used as a reason to shrink the pose change. Keep garment details accurate by draping the same clothing naturally over the new body geometry.
+
+        **LOCKS**:
+        - Preserve the same person identity, age impression, face, hair, skin tone, body proportions, product color, fabric, seams, trims, print/pattern, accessories authorized by the reference, scene identity, lighting mood, and camera feel.
+        - Keep anatomy natural, hands plausible, feet grounded, perspective coherent, and product readable.
 
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}

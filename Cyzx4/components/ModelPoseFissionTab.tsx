@@ -143,6 +143,14 @@ const MODEL_OPTIONS = [
 const getLibrary = (key: PoseLibraryKey) => POSE_LIBRARIES.find((item) => item.key === key) || POSE_LIBRARIES[0];
 const toApiImage = (image: UploadedImage) => ({ base64: image.base64, mimeType: image.mime });
 const getDataUrl = (image: UploadedImage) => `data:${image.mime};base64,${image.base64}`;
+const getResultAspectClass = (ratio: AspectRatio) => {
+  if (ratio === AspectRatio.SQUARE) return 'aspect-square';
+  if (ratio === AspectRatio.PORTRAIT_2_3) return 'aspect-[2/3]';
+  if (ratio === AspectRatio.PORTRAIT_3_4) return 'aspect-[3/4]';
+  if (ratio === AspectRatio.PORTRAIT_9_16) return 'aspect-[9/16]';
+  if (ratio === AspectRatio.LANDSCAPE_16_9) return 'aspect-video';
+  return 'aspect-[3/4]';
+};
 
 const shuffle = <T,>(items: T[]) => {
   const next = [...items];
@@ -152,6 +160,9 @@ const shuffle = <T,>(items: T[]) => {
   }
   return next;
 };
+
+const POSE_FISSION_DIVERSITY_DIRECTIVE =
+  'MANDATORY visible pose diversity: make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Avoid tiny catalog variations. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
 
 const buildPrompt = (options: {
   outputNumber: number;
@@ -199,6 +210,8 @@ ${hasActionReference ? '- The final uploaded action reference for this output is
 # POSE DIRECTIVE
 Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseLabel}.
 Pose instruction: ${poseText}
+- ${POSE_FISSION_DIVERSITY_DIRECTIVE}
+- The pose change must be obvious at thumbnail size. Preserve garment readability by adapting the clothing naturally onto the new body geometry, not by shrinking the pose change.
 
 # PRODUCT, PLATFORM AND SCENE
 - Platform visual DNA: ${platformStyle}
@@ -417,8 +430,8 @@ const ModelPoseFissionTab: React.FC = () => {
     return inputs;
   };
 
-  const generateOne = async (index: number, signal?: AbortSignal): Promise<ResultItem> => {
-    const pose = getPoseForOutput(index);
+  const generateOne = async (index: number, signal?: AbortSignal, plannedPose = getPoseForOutput(index)): Promise<ResultItem> => {
+    const pose = plannedPose;
     const hasActionReference = actionImages.length > 0 && index < actionImages.length;
     const prompt = buildPrompt({
       outputNumber: index + 1,
@@ -436,7 +449,7 @@ const ModelPoseFissionTab: React.FC = () => {
       aspectRatio,
       resolution,
       modelId: selectedModel,
-      workflowHint: hasActionReference ? 'hero-pose-lock' : 'scene-product-lock',
+      workflowHint: hasActionReference ? 'hero-pose-lock' : 'pose-fission',
       hasModelRef: true,
       signal,
     });
@@ -454,27 +467,28 @@ const ModelPoseFissionTab: React.FC = () => {
     setIsGenerating(true);
     setRegeneratingIndex(regenerateIndex ?? null);
     const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
+    const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
+    const plannedPoses = new Map(indices.map((index) => [index, getPoseForOutput(index)]));
     if (regenerateIndex === undefined) {
       setResults(Array.from({ length: total }, (_, index) => ({
         id: `pending-${index}`,
         imageUrl: null,
         status: 'pending',
         prompt: '',
-        poseLabel: getPoseForOutput(index).label,
+        poseLabel: plannedPoses.get(index)?.label || getPoseForOutput(index).label,
       })));
     } else {
-      setResults((prev) => prev.map((item, idx) => (idx === regenerateIndex ? { ...item, status: 'generating', error: undefined } : item)));
+      setResults((prev) => prev.map((item, idx) => (idx === regenerateIndex ? { ...item, status: 'generating', error: undefined, poseLabel: plannedPoses.get(idx)?.label || item.poseLabel } : item)));
     }
 
     const generated: ResultItem[] = [];
     try {
-      const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
       for (const index of indices) {
         assertCurrentGenerationTask(taskId, signal);
         setStatusMessage(`正在生成第 ${index + 1} 张 / 共 ${regenerateIndex !== undefined ? results.length || 1 : total} 张...`);
-        setResults((prev) => prev.map((item, idx) => (idx === index ? { ...item, status: 'generating' } : item)));
+        setResults((prev) => prev.map((item, idx) => (idx === index ? { ...item, status: 'generating', poseLabel: plannedPoses.get(index)?.label || item.poseLabel } : item)));
         try {
-          const item = await generateOne(index, signal);
+          const item = await generateOne(index, signal, plannedPoses.get(index));
           assertCurrentGenerationTask(taskId, signal);
           generated.push(item);
           setResults((prev) => {
@@ -839,16 +853,22 @@ const ModelPoseFissionTab: React.FC = () => {
                   <div className="grid w-full content-start gap-5 overflow-y-auto p-5 sm:grid-cols-2">
                     {results.map((item, idx) => (
                       <div key={item.id} className="group relative overflow-hidden rounded-2xl border border-white bg-white shadow-xl">
-                        <div className="flex min-h-[16rem] items-center justify-center bg-white">
+                        <div className={`relative flex ${getResultAspectClass(aspectRatio)} min-h-[16rem] items-center justify-center bg-white ${item.status === 'generating' && item.imageUrl ? '[&>div:first-child]:hidden' : ''}`}>
                           {item.status === 'generating' && <div className="flex flex-col items-center gap-2 text-orange-500"><Loader2 className="h-7 w-7 animate-spin" /><span className="text-xs font-bold">生成中...</span></div>}
                           {item.status === 'error' && <div className="p-5 text-center text-xs font-bold text-red-500">{item.error || '生成失败'}</div>}
-                          {item.imageUrl && <img src={item.imageUrl} alt={item.poseLabel} className="h-auto w-full object-contain" />}
+                          {item.imageUrl && <img src={item.imageUrl} alt={item.poseLabel} className={`h-full w-full object-contain transition-opacity ${item.status === 'generating' ? 'opacity-45' : 'opacity-100'}`} />}
                           {item.status === 'pending' && <div className="text-xs font-bold text-pastel-muted">等待生成</div>}
+                          {item.status === 'generating' && item.imageUrl && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/45 text-orange-500 backdrop-blur-[1px]">
+                              <Loader2 className="h-7 w-7 animate-spin" />
+                              <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-bold shadow-sm">重新生成中...</span>
+                            </div>
+                          )}
                         </div>
                         <div className="border-t border-pastel-border bg-white px-3 py-2">
                           <div className="truncate text-[10px] font-bold text-pastel-text">{item.poseLabel}</div>
                         </div>
-                        {item.imageUrl && (
+                        {item.imageUrl && item.status !== 'generating' && (
                           <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
                             <button type="button" onClick={() => setSelectedPreview(item.imageUrl)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Maximize className="h-5 w-5" /></button>
                             <button type="button" onClick={() => handleGenerate(idx)} disabled={isGenerating} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40 disabled:opacity-50"><RefreshCw className="h-5 w-5" /></button>

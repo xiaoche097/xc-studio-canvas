@@ -179,6 +179,7 @@ export interface SearchResult {
 
 export type WorkflowHint = 
   | 'pose-transfer' 
+  | 'pose-fission'
   | 'hero-pose-lock' 
   | 'main-angle-lock' 
   | 'scene-product-lock' 
