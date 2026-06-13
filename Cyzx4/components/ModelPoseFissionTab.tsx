@@ -18,10 +18,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { generateImageToImage } from '../services/geminiService';
-import { compressImage, getErrorMessage } from '../utils/apiHelpers';
+import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
 import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
@@ -324,18 +325,28 @@ const ModelPoseFissionTab: React.FC = () => {
   const [selectedPoseId, setSelectedPoseId] = useState('');
   const [generateCount, setGenerateCount] = useState(4);
   const [productCategory, setProductCategory] = useState('');
-  const [scenePrompt, setScenePrompt] = useState('背面展示，全身');
+  const [scenePrompt, setScenePrompt] = useState('');
   const [extraNotes, setExtraNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    isCurrentGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
 
   const activeLibrary = useMemo(() => getLibrary(poseLibraryKey), [poseLibraryKey]);
   const activePlatform = useMemo(() => PLATFORM_STYLES.find((platform) => platform.key === selectedPlatform) || PLATFORM_STYLES[1], [selectedPlatform]);
   const manualPose = activeLibrary.poses.find((pose) => pose.id === selectedPoseId) || activeLibrary.poses[0];
   const effectivePoseMode: PoseSourceMode = actionImages.length > 0 ? 'reference' : poseSourceMode;
+  const effectiveGenerateCount = actionImages.length > 0 ? actionImages.length : generateCount;
 
   const addImages = async (
     files: File[],
@@ -406,7 +417,7 @@ const ModelPoseFissionTab: React.FC = () => {
     return inputs;
   };
 
-  const generateOne = async (index: number): Promise<ResultItem> => {
+  const generateOne = async (index: number, signal?: AbortSignal): Promise<ResultItem> => {
     const pose = getPoseForOutput(index);
     const hasActionReference = actionImages.length > 0 && index < actionImages.length;
     const prompt = buildPrompt({
@@ -427,6 +438,7 @@ const ModelPoseFissionTab: React.FC = () => {
       modelId: selectedModel,
       workflowHint: hasActionReference ? 'hero-pose-lock' : 'scene-product-lock',
       hasModelRef: true,
+      signal,
     });
     if (!imageUrl) throw new Error('模型未返回图片');
     return { id: `${Date.now()}-${index}`, imageUrl, status: 'done', prompt, poseLabel: pose.label };
@@ -438,8 +450,10 @@ const ModelPoseFissionTab: React.FC = () => {
       return;
     }
     setError('');
+    const { taskId, signal } = startGenerationTask();
     setIsGenerating(true);
-    const total = regenerateIndex !== undefined ? 1 : Math.max(generateCount, actionImages.length || 0);
+    setRegeneratingIndex(regenerateIndex ?? null);
+    const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
     if (regenerateIndex === undefined) {
       setResults(Array.from({ length: total }, (_, index) => ({
         id: `pending-${index}`,
@@ -456,10 +470,12 @@ const ModelPoseFissionTab: React.FC = () => {
     try {
       const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
       for (const index of indices) {
+        assertCurrentGenerationTask(taskId, signal);
         setStatusMessage(`正在生成第 ${index + 1} 张 / 共 ${regenerateIndex !== undefined ? results.length || 1 : total} 张...`);
         setResults((prev) => prev.map((item, idx) => (idx === index ? { ...item, status: 'generating' } : item)));
         try {
-          const item = await generateOne(index);
+          const item = await generateOne(index, signal);
+          assertCurrentGenerationTask(taskId, signal);
           generated.push(item);
           setResults((prev) => {
             const next = [...prev];
@@ -476,6 +492,7 @@ const ModelPoseFissionTab: React.FC = () => {
           if (regenerateIndex !== undefined) throw itemError;
         }
       }
+      assertCurrentGenerationTask(taskId, signal);
       if (generated.length > 0) {
         await saveGeneratedProject({
           type: 'MODEL',
@@ -507,10 +524,29 @@ const ModelPoseFissionTab: React.FC = () => {
       }
       setStatusMessage('生成完成');
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (!isAbortError(err)) {
+        setError(getErrorMessage(err));
+      }
     } finally {
+      if (!isCurrentGenerationTask(taskId)) {
+        return;
+      }
+      finishGenerationTask(taskId);
       setIsGenerating(false);
+      setRegeneratingIndex(null);
     }
+  };
+
+  const handleCancelGenerate = () => {
+    cancelGenerationTask();
+    setStatusMessage('已中止生成');
+    setIsGenerating(false);
+    setRegeneratingIndex(null);
+    setResults((prev) => prev.map((item) => (
+      item.status === 'generating' || item.status === 'pending'
+        ? { ...item, status: item.imageUrl ? 'done' : 'error', error: item.imageUrl ? undefined : '已中止生成' }
+        : item
+    )));
   };
 
   const handleDownload = (img: string, idx: number) => {
@@ -719,9 +755,10 @@ const ModelPoseFissionTab: React.FC = () => {
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-bold text-pastel-muted">批量</label>
-                  <select value={generateCount} onChange={(event) => setGenerateCount(Number(event.target.value))} className="min-h-[2.75rem] w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-100">
-                    {[1, 2, 4, 6, 8, 10].map((count) => <option key={count} value={count}>{count}张</option>)}
+                  <select value={effectiveGenerateCount} disabled={actionImages.length > 0} onChange={(event) => setGenerateCount(Number(event.target.value))} className="min-h-[2.75rem] w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:border-purple-200 disabled:bg-purple-50 disabled:text-purple-700">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => <option key={count} value={count}>{count}张</option>)}
                   </select>
+                  {actionImages.length > 0 && <p className="mt-1 text-[0.68rem] font-semibold text-purple-600">已按 {actionImages.length} 张动作参考图锁定生成数量</p>}
                 </div>
               </div>
 
@@ -751,6 +788,15 @@ const ModelPoseFissionTab: React.FC = () => {
               {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               {isGenerating ? 'Agent 正在裂变...' : '一键生成模特姿势裂变'}
             </button>
+            {isGenerating && (
+              <button type="button" onClick={handleCancelGenerate} className="flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-2xl bg-gray-900 py-3 text-sm font-bold text-white shadow-md transition-all hover:bg-gray-950">
+                <X className="h-4 w-4" />
+                中止生成
+              </button>
+            )}
+            {cancelMessage && !isGenerating && (
+              <p className="text-center text-xs font-bold text-orange-600">{cancelMessage}</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-4">
@@ -777,7 +823,7 @@ const ModelPoseFissionTab: React.FC = () => {
               </div>
 
               <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg/50">
-                {isGenerating && (
+                {isGenerating && regeneratingIndex === null && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center space-y-5 bg-white/80 backdrop-blur-sm">
                     <div className="flex h-20 w-20 items-center justify-center rounded-full border bg-white text-orange-500 shadow-xl">
                       <Loader2 className="h-8 w-8 animate-spin" />
