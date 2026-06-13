@@ -853,8 +853,8 @@ const ModelPoseFissionTab: React.FC = () => {
                   <div className="grid w-full content-start gap-5 overflow-y-auto p-5 sm:grid-cols-2">
                     {results.map((item, idx) => (
                       <div key={item.id} className="group relative overflow-hidden rounded-2xl border border-white bg-white shadow-xl">
-                        <div className={`relative flex ${getResultAspectClass(aspectRatio)} min-h-[16rem] items-center justify-center bg-white ${item.status === 'generating' && item.imageUrl ? '[&>div:first-child]:hidden' : ''}`}>
-                          {item.status === 'generating' && <div className="flex flex-col items-center gap-2 text-orange-500"><Loader2 className="h-7 w-7 animate-spin" /><span className="text-xs font-bold">生成中...</span></div>}
+                        <div className={`relative flex ${getResultAspectClass(aspectRatio)} min-h-[16rem] items-center justify-center bg-white`}>
+                          {item.status === 'generating' && !item.imageUrl && <div className="flex flex-col items-center gap-2 text-orange-500"><Loader2 className="h-7 w-7 animate-spin" /><span className="text-xs font-bold">生成中...</span></div>}
                           {item.status === 'error' && <div className="p-5 text-center text-xs font-bold text-red-500">{item.error || '生成失败'}</div>}
                           {item.imageUrl && <img src={item.imageUrl} alt={item.poseLabel} className={`h-full w-full object-contain transition-opacity ${item.status === 'generating' ? 'opacity-45' : 'opacity-100'}`} />}
                           {item.status === 'pending' && <div className="text-xs font-bold text-pastel-muted">等待生成</div>}
