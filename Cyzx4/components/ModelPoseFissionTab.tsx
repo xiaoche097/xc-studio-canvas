@@ -327,6 +327,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const [scenePrompt, setScenePrompt] = useState('背面展示，全身');
   const [extraNotes, setExtraNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
@@ -440,6 +441,7 @@ const ModelPoseFissionTab: React.FC = () => {
     }
     setError('');
     setIsGenerating(true);
+    setRegeneratingIndex(regenerateIndex ?? null);
     const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
     if (regenerateIndex === undefined) {
       setResults(Array.from({ length: total }, (_, index) => ({
@@ -511,6 +513,7 @@ const ModelPoseFissionTab: React.FC = () => {
       setError(getErrorMessage(err));
     } finally {
       setIsGenerating(false);
+      setRegeneratingIndex(null);
     }
   };
 
@@ -779,7 +782,7 @@ const ModelPoseFissionTab: React.FC = () => {
               </div>
 
               <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg/50">
-                {isGenerating && (
+                {isGenerating && regeneratingIndex === null && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center space-y-5 bg-white/80 backdrop-blur-sm">
                     <div className="flex h-20 w-20 items-center justify-center rounded-full border bg-white text-orange-500 shadow-xl">
                       <Loader2 className="h-8 w-8 animate-spin" />
