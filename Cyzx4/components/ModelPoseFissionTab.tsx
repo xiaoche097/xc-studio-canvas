@@ -11,6 +11,7 @@ import {
   Scan,
   Sparkles,
   Store,
+  Sun,
   Upload,
   UserCircle2,
   Wand2,
@@ -21,6 +22,7 @@ import { generateImageToImage } from '../services/geminiService';
 import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
+import { applyColorCorrection, ColorCorrectionMode } from '../utils/imageProcessor';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
@@ -35,8 +37,8 @@ import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
 
-type UploadKind = 'model' | 'product' | 'scene' | 'action';
-type MainReferenceKind = UploadKind | 'overall';
+type UploadKind = 'model' | 'product' | 'scene' | 'action' | 'accessory';
+type MainReferenceKind = UploadKind | 'overall' | 'color';
 type PoseSourceMode = 'random' | 'manual' | 'reference';
 type PlatformKey = 'amazon' | 'shein' | 'temu' | 'tmall' | 'independent';
 type PoseLibraryKey =
@@ -143,6 +145,14 @@ const MODEL_OPTIONS = [
 const getLibrary = (key: PoseLibraryKey) => POSE_LIBRARIES.find((item) => item.key === key) || POSE_LIBRARIES[0];
 const toApiImage = (image: UploadedImage) => ({ base64: image.base64, mimeType: image.mime });
 const getDataUrl = (image: UploadedImage) => `data:${image.mime};base64,${image.base64}`;
+const getResultAspectClass = (ratio: AspectRatio) => {
+  if (ratio === AspectRatio.SQUARE) return 'aspect-square';
+  if (ratio === AspectRatio.PORTRAIT_2_3) return 'aspect-[2/3]';
+  if (ratio === AspectRatio.PORTRAIT_3_4) return 'aspect-[3/4]';
+  if (ratio === AspectRatio.PORTRAIT_9_16) return 'aspect-[9/16]';
+  if (ratio === AspectRatio.LANDSCAPE_16_9) return 'aspect-video';
+  return 'aspect-[3/4]';
+};
 
 const shuffle = <T,>(items: T[]) => {
   const next = [...items];
@@ -153,6 +163,9 @@ const shuffle = <T,>(items: T[]) => {
   return next;
 };
 
+const POSE_FISSION_DIVERSITY_DIRECTIVE =
+  'MANDATORY visible pose diversity: make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Avoid tiny catalog variations. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
+
 const buildPrompt = (options: {
   outputNumber: number;
   poseSourceMode: PoseSourceMode;
@@ -160,6 +173,7 @@ const buildPrompt = (options: {
   poseLabel: string;
   hasScene: boolean;
   hasActionReference: boolean;
+  hasAccessoryReference: boolean;
   platformStyle: string;
   scenePrompt: string;
   productCategory: string;
@@ -172,6 +186,7 @@ const buildPrompt = (options: {
     poseLabel,
     hasScene,
     hasActionReference,
+    hasAccessoryReference,
     platformStyle,
     scenePrompt,
     productCategory,
@@ -186,6 +201,7 @@ Create ONE photorealistic ecommerce fashion image for model pose fission output 
 - Preserve Image 1's person identity, face, hair, skin tone, body proportions, worn product, styling logic, scene identity, lighting mood, color palette, and overall commercial look unless the action directive requires a new pose.
 - Optional model identity images after Image 1 may reinforce face/body consistency only.
 - Optional product/garment images after Image 1 may reinforce garment structure, silhouette, color, fabric, seams, trim, print, pattern, and fit.
+${hasAccessoryReference ? '- Optional accessory/styling reference images define bags, jewelry, hats, shoes, handheld props, and styling add-ons to integrate naturally with Image 1. Use them as matching references only; keep the main outfit and model identity from Image 1.' : ''}
 ${hasScene ? '- Scene reference images define the background/location identity, lighting mood, materials, and environment cues.' : '- No scene reference is uploaded. Build a clean commercial scene from the text instructions only.'}
 ${hasActionReference ? '- The final uploaded action reference for this output is POSE ONLY: copy its pose, crop, camera distance, body angle, gesture, limb placement, and framing. Do NOT copy its clothing, face, background, lighting, props, or color palette.' : ''}
 
@@ -199,19 +215,22 @@ ${hasActionReference ? '- The final uploaded action reference for this output is
 # POSE DIRECTIVE
 Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseLabel}.
 Pose instruction: ${poseText}
+- ${POSE_FISSION_DIVERSITY_DIRECTIVE}
+- The pose change must be obvious at thumbnail size. Preserve garment readability by adapting the clothing naturally onto the new body geometry, not by shrinking the pose change.
 
 # PRODUCT, PLATFORM AND SCENE
 - Platform visual DNA: ${platformStyle}
 - Product category: ${productCategory || 'fashion apparel'}.
 - Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
 - Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
+- If accessory/styling references are uploaded, add them only when they look natural for the pose and platform. Keep scale, placement, and material believable; do not let accessories cover important garment details.
 - If the scene or pose conflicts with product fidelity, preserve product identity and adapt the garment naturally to the pose.
 
 # USER NOTES
 ${extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-wrong person, identity drift, changed face, changed hair, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, copied action-reference clothing, wrong garment, changed color, changed fabric, missing seams, invented accessories, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details.
+wrong person, identity drift, changed face, changed hair, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, copied action-reference clothing, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details.
 `.trim();
 };
 
@@ -315,11 +334,15 @@ const ModelPoseFissionTab: React.FC = () => {
   const [productImages, setProductImages] = useState<UploadedImage[]>([]);
   const [sceneImages, setSceneImages] = useState<UploadedImage[]>([]);
   const [actionImages, setActionImages] = useState<UploadedImage[]>([]);
+  const [accessoryImages, setAccessoryImages] = useState<UploadedImage[]>([]);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformKey>('shein');
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
   const [outputFormat, setOutputFormat] = useState<OutputImageFormat>('png');
+  const [colorCorrectionMode, setColorCorrectionMode] = useState<ColorCorrectionMode>('off');
+  const [colorReferenceImages, setColorReferenceImages] = useState<UploadedImage[]>([]);
+  const [colorCorrectionBlend, setColorCorrectionBlend] = useState(0.85);
   const [poseSourceMode, setPoseSourceMode] = useState<PoseSourceMode>('random');
   const [poseLibraryKey, setPoseLibraryKey] = useState<PoseLibraryKey>('clothing');
   const [selectedPoseId, setSelectedPoseId] = useState('');
@@ -329,10 +352,12 @@ const ModelPoseFissionTab: React.FC = () => {
   const [extraNotes, setExtraNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [regeneratingIndices, setRegeneratingIndices] = useState<number[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const regenerateControllersRef = useRef<Map<number, AbortController>>(new Map());
   const {
     cancelMessage,
     startGenerationTask,
@@ -347,6 +372,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const manualPose = activeLibrary.poses.find((pose) => pose.id === selectedPoseId) || activeLibrary.poses[0];
   const effectivePoseMode: PoseSourceMode = actionImages.length > 0 ? 'reference' : poseSourceMode;
   const effectiveGenerateCount = actionImages.length > 0 ? actionImages.length : generateCount;
+  const isRegeneratingAny = regeneratingIndices.length > 0;
 
   const addImages = async (
     files: File[],
@@ -383,6 +409,8 @@ const ModelPoseFissionTab: React.FC = () => {
     if (kind === 'product') removeFrom(setProductImages);
     if (kind === 'scene') removeFrom(setSceneImages);
     if (kind === 'action') removeFrom(setActionImages);
+    if (kind === 'accessory') removeFrom(setAccessoryImages);
+    if (kind === 'color') removeFrom(setColorReferenceImages);
     setResults([]);
   };
 
@@ -411,14 +439,15 @@ const ModelPoseFissionTab: React.FC = () => {
       ...overallImages.map(toApiImage),
       ...modelImages.map(toApiImage),
       ...productImages.map(toApiImage),
+      ...accessoryImages.map(toApiImage),
       ...sceneImages.map(toApiImage),
     ];
     if (actionImages.length > 0 && index < actionImages.length) inputs.push(toApiImage(actionImages[index]));
     return inputs;
   };
 
-  const generateOne = async (index: number, signal?: AbortSignal): Promise<ResultItem> => {
-    const pose = getPoseForOutput(index);
+  const generateOne = async (index: number, signal?: AbortSignal, plannedPose = getPoseForOutput(index)): Promise<ResultItem> => {
+    const pose = plannedPose;
     const hasActionReference = actionImages.length > 0 && index < actionImages.length;
     const prompt = buildPrompt({
       outputNumber: index + 1,
@@ -427,6 +456,7 @@ const ModelPoseFissionTab: React.FC = () => {
       poseLabel: pose.label,
       hasScene: sceneImages.length > 0 || overallImages.length > 0,
       hasActionReference,
+      hasAccessoryReference: accessoryImages.length > 0,
       platformStyle: activePlatform.prompt,
       scenePrompt,
       productCategory,
@@ -436,15 +466,65 @@ const ModelPoseFissionTab: React.FC = () => {
       aspectRatio,
       resolution,
       modelId: selectedModel,
-      workflowHint: hasActionReference ? 'hero-pose-lock' : 'scene-product-lock',
+      workflowHint: hasActionReference ? 'hero-pose-lock' : 'pose-fission',
       hasModelRef: true,
       signal,
     });
     if (!imageUrl) throw new Error('模型未返回图片');
-    return { id: `${Date.now()}-${index}`, imageUrl, status: 'done', prompt, poseLabel: pose.label };
+    const correctedImageUrl = await applyColorCorrection(imageUrl, {
+      mode: colorCorrectionMode,
+      reference: colorReferenceImages[0] ? getDataUrl(colorReferenceImages[0]) : undefined,
+      blend: colorCorrectionBlend,
+    });
+    return { id: `${Date.now()}-${index}`, imageUrl: correctedImageUrl, status: 'done', prompt, poseLabel: pose.label };
+  };
+
+  const handleRegenerateOne = async (index: number) => {
+    if (overallImages.length === 0) {
+      setError('Please upload the main model reference image first.');
+      return;
+    }
+    if (regenerateControllersRef.current.has(index)) return;
+
+    const controller = new AbortController();
+    regenerateControllersRef.current.set(index, controller);
+    const plannedPose = getPoseForOutput(index);
+    setError('');
+    setRegeneratingIndices((prev) => (prev.includes(index) ? prev : [...prev, index]));
+    setResults((prev) => prev.map((item, idx) => (
+      idx === index
+        ? { ...item, status: 'generating', error: undefined, poseLabel: plannedPose.label }
+        : item
+    )));
+
+    try {
+      const item = await generateOne(index, controller.signal, plannedPose);
+      if (controller.signal.aborted) return;
+      setResults((prev) => {
+        const next = [...prev];
+        next[index] = item;
+        return next;
+      });
+    } catch (itemError) {
+      if (!isAbortError(itemError)) {
+        const message = getErrorMessage(itemError);
+        setResults((prev) => {
+          const next = [...prev];
+          next[index] = { ...(next[index] || { id: `error-${index}`, imageUrl: null, prompt: '', poseLabel: plannedPose.label }), status: 'error', imageUrl: null, error: message };
+          return next;
+        });
+      }
+    } finally {
+      regenerateControllersRef.current.delete(index);
+      setRegeneratingIndices((prev) => prev.filter((item) => item !== index));
+    }
   };
 
   const handleGenerate = async (regenerateIndex?: number) => {
+    if (regenerateIndex !== undefined) {
+      await handleRegenerateOne(regenerateIndex);
+      return;
+    }
     if (overallImages.length === 0) {
       setError('请先上传模特整体参考图，用于锁定已换好产品和场景的完整效果。');
       return;
@@ -454,27 +534,28 @@ const ModelPoseFissionTab: React.FC = () => {
     setIsGenerating(true);
     setRegeneratingIndex(regenerateIndex ?? null);
     const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
+    const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
+    const plannedPoses = new Map(indices.map((index) => [index, getPoseForOutput(index)]));
     if (regenerateIndex === undefined) {
       setResults(Array.from({ length: total }, (_, index) => ({
         id: `pending-${index}`,
         imageUrl: null,
         status: 'pending',
         prompt: '',
-        poseLabel: getPoseForOutput(index).label,
+        poseLabel: plannedPoses.get(index)?.label || getPoseForOutput(index).label,
       })));
     } else {
-      setResults((prev) => prev.map((item, idx) => (idx === regenerateIndex ? { ...item, status: 'generating', error: undefined } : item)));
+      setResults((prev) => prev.map((item, idx) => (idx === regenerateIndex ? { ...item, status: 'generating', error: undefined, poseLabel: plannedPoses.get(idx)?.label || item.poseLabel } : item)));
     }
 
     const generated: ResultItem[] = [];
     try {
-      const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
       for (const index of indices) {
         assertCurrentGenerationTask(taskId, signal);
         setStatusMessage(`正在生成第 ${index + 1} 张 / 共 ${regenerateIndex !== undefined ? results.length || 1 : total} 张...`);
-        setResults((prev) => prev.map((item, idx) => (idx === index ? { ...item, status: 'generating' } : item)));
+        setResults((prev) => prev.map((item, idx) => (idx === index ? { ...item, status: 'generating', poseLabel: plannedPoses.get(index)?.label || item.poseLabel } : item)));
         try {
-          const item = await generateOne(index, signal);
+          const item = await generateOne(index, signal, plannedPoses.get(index));
           assertCurrentGenerationTask(taskId, signal);
           generated.push(item);
           setResults((prev) => {
@@ -501,6 +582,7 @@ const ModelPoseFissionTab: React.FC = () => {
             ...overallImages.map(getDataUrl),
             ...modelImages.map(getDataUrl),
             ...productImages.map(getDataUrl),
+            ...accessoryImages.map(getDataUrl),
             ...sceneImages.map(getDataUrl),
             ...actionImages.map(getDataUrl),
           ],
@@ -644,6 +726,16 @@ const ModelPoseFissionTab: React.FC = () => {
               <UploadCard title="动作参考图" desc="可选。上传后优先按每张参考图裂变" icon={<Wand2 className="h-4 w-4" />} images={actionImages} max={10} onUpload={(files) => { setPoseSourceMode('reference'); addImages(files, setActionImages, 10); }} onRemove={(id) => removeImage('action', id)} />
             </div>
 
+            <UploadCard
+              title="配饰参考图（可选）"
+              desc="包包 / 首饰 / 帽子 / 道具。上传后会参考主图风格自然加入搭配。"
+              icon={<ImageIcon className="h-4 w-4" />}
+              images={accessoryImages}
+              max={10}
+              onUpload={(files) => addImages(files, setAccessoryImages, 10)}
+              onRemove={(id) => removeImage('accessory', id)}
+            />
+
             <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-start gap-2">
@@ -784,7 +876,47 @@ const ModelPoseFissionTab: React.FC = () => {
               </div>
             </section>
 
-            <button type="button" onClick={() => handleGenerate()} disabled={isGenerating || overallImages.length === 0} className={`flex min-h-[3.75rem] w-full items-center justify-center gap-3 rounded-2xl py-4 font-bold text-white shadow-lg transition-all ${isGenerating || overallImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01] hover:shadow-orange-500/30'}`}>
+            <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center gap-2">
+                <Sun className="h-4 w-4 text-pastel-highlight" />
+                <h3 className="text-sm font-bold text-pastel-text">色彩校准 Color Match</h3>
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-600">生成后统一色调</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'off' as ColorCorrectionMode, label: '关闭', desc: '原图输出' },
+                  { id: 'match' as ColorCorrectionMode, label: '参考图匹配', desc: '最推荐' },
+                  { id: 'autoWhiteBalance' as ColorCorrectionMode, label: '自动白平衡', desc: 'Gray World' },
+                  { id: 'redSuppress' as ColorCorrectionMode, label: '压红补青', desc: '偏红修正' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setColorCorrectionMode(item.id)}
+                    className={`min-h-[3.25rem] rounded-xl border px-2 py-2 text-center transition-all ${colorCorrectionMode === item.id ? 'border-blue-300 bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'border-pastel-border bg-pastel-bg/30 text-pastel-muted hover:border-blue-200'}`}
+                  >
+                    <span className="block text-[11px] font-black">{item.label}</span>
+                    <span className="mt-0.5 block text-[9px] opacity-70">{item.desc}</span>
+                  </button>
+                ))}
+              </div>
+              {colorCorrectionMode === 'match' && (
+                <div className="mt-3">
+                  <UploadCard title="标准色参考图" desc="上传白平衡正确、色调满意的图，只用于生成后色彩映射" icon={<ImageIcon className="h-4 w-4" />} images={colorReferenceImages} max={1} multiple={false} onUpload={(files) => addImages(files, setColorReferenceImages, 1, true)} onRemove={(id) => removeImage('color', id)} />
+                </div>
+              )}
+              {colorCorrectionMode !== 'off' && (
+                <div className="mt-3">
+                  <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-pastel-muted">
+                    <span>混合度</span>
+                    <span>{Math.round(colorCorrectionBlend * 100)}%</span>
+                  </div>
+                  <input type="range" min="0.3" max="1" step="0.05" value={colorCorrectionBlend} onChange={(event) => setColorCorrectionBlend(Number(event.target.value))} className="w-full accent-blue-500" />
+                </div>
+              )}
+            </section>
+
+            <button type="button" onClick={() => handleGenerate()} disabled={isGenerating || isRegeneratingAny || overallImages.length === 0} className={`flex min-h-[3.75rem] w-full items-center justify-center gap-3 rounded-2xl py-4 font-bold text-white shadow-lg transition-all ${isGenerating || isRegeneratingAny || overallImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01] hover:shadow-orange-500/30'}`}>
               {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               {isGenerating ? 'Agent 正在裂变...' : '一键生成模特姿势裂变'}
             </button>
@@ -836,22 +968,28 @@ const ModelPoseFissionTab: React.FC = () => {
                 )}
 
                 {results.length > 0 ? (
-                  <div className="grid w-full content-start gap-5 overflow-y-auto p-5 sm:grid-cols-2">
+                  <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] content-start gap-5 overflow-y-auto p-5">
                     {results.map((item, idx) => (
                       <div key={item.id} className="group relative overflow-hidden rounded-2xl border border-white bg-white shadow-xl">
-                        <div className="flex min-h-[16rem] items-center justify-center bg-white">
-                          {item.status === 'generating' && <div className="flex flex-col items-center gap-2 text-orange-500"><Loader2 className="h-7 w-7 animate-spin" /><span className="text-xs font-bold">生成中...</span></div>}
+                        <div className={`relative flex ${getResultAspectClass(aspectRatio)} min-h-[16rem] items-center justify-center bg-white`}>
+                          {item.status === 'generating' && !item.imageUrl && <div className="flex flex-col items-center gap-2 text-orange-500"><Loader2 className="h-7 w-7 animate-spin" /><span className="text-xs font-bold">生成中...</span></div>}
                           {item.status === 'error' && <div className="p-5 text-center text-xs font-bold text-red-500">{item.error || '生成失败'}</div>}
-                          {item.imageUrl && <img src={item.imageUrl} alt={item.poseLabel} className="h-auto w-full object-contain" />}
+                          {item.imageUrl && <img src={item.imageUrl} alt={item.poseLabel} className={`h-full w-full object-contain transition-opacity ${item.status === 'generating' ? 'opacity-45' : 'opacity-100'}`} />}
                           {item.status === 'pending' && <div className="text-xs font-bold text-pastel-muted">等待生成</div>}
+                          {item.status === 'generating' && item.imageUrl && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/45 text-orange-500 backdrop-blur-[1px]">
+                              <Loader2 className="h-7 w-7 animate-spin" />
+                              <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-bold shadow-sm">重新生成中...</span>
+                            </div>
+                          )}
                         </div>
                         <div className="border-t border-pastel-border bg-white px-3 py-2">
                           <div className="truncate text-[10px] font-bold text-pastel-text">{item.poseLabel}</div>
                         </div>
-                        {item.imageUrl && (
+                        {item.imageUrl && item.status !== 'generating' && (
                           <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
                             <button type="button" onClick={() => setSelectedPreview(item.imageUrl)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Maximize className="h-5 w-5" /></button>
-                            <button type="button" onClick={() => handleGenerate(idx)} disabled={isGenerating} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40 disabled:opacity-50"><RefreshCw className="h-5 w-5" /></button>
+                            <button type="button" onClick={() => handleGenerate(idx)} disabled={isGenerating || regeneratingIndices.includes(idx)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40 disabled:opacity-50"><RefreshCw className={`h-5 w-5 ${regeneratingIndices.includes(idx) ? 'animate-spin' : ''}`} /></button>
                             <button type="button" onClick={() => handleDownload(item.imageUrl!, idx)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Download className="h-5 w-5" /></button>
                           </div>
                         )}

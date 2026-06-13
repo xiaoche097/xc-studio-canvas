@@ -15,7 +15,7 @@ import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
-import { extractEdges } from '../utils/imageProcessor';
+import { applyColorCorrectionBatch, ColorCorrectionMode, extractEdges } from '../utils/imageProcessor';
 import { convertImageDataUrlsFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
@@ -383,6 +383,9 @@ const HeroImageTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [outputFormat, setOutputFormat] = useState<OutputImageFormat>('jpg');
+    const [colorCorrectionMode, setColorCorrectionMode] = useState<ColorCorrectionMode>('off');
+    const [colorReference, setColorReference] = useState<UploadedImage | null>(null);
+    const [colorCorrectionBlend, setColorCorrectionBlend] = useState(0.85);
     const [showAdvanced, setShowAdvanced] = useState(true);
     const [isSafeMode, setIsSafeMode] = useState(false); // 动作安全模式
     const [isPoseOnly, setIsPoseOnly] = useState(true); // 仅参考姿态（默认开启，自动提取线稿以消除背景干扰）
@@ -1761,7 +1764,13 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
             const flatResults = batchResults.flat();
             const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio, resolution);
             assertCurrentGenerationTask(taskId, signal);
-            const formattedResults = await convertImageDataUrlsFormat(normalizedResults, outputFormat);
+            const colorCorrectedResults = await applyColorCorrectionBatch(normalizedResults, {
+                mode: colorCorrectionMode,
+                reference: colorReference ? `data:${colorReference.mime};base64,${colorReference.base64}` : undefined,
+                blend: colorCorrectionBlend,
+            });
+            assertCurrentGenerationTask(taskId, signal);
+            const formattedResults = await convertImageDataUrlsFormat(colorCorrectedResults, outputFormat);
             assertCurrentGenerationTask(taskId, signal);
             if (isSingleRegenerate) {
                 setGeneratedImages(prev => prev.map((img, idx) => idx === regenerateIndex ? (formattedResults[0] || img) : img));
@@ -1930,6 +1939,68 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     </button>
                                 ))}
                             </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl border border-pastel-border p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Sun className="w-4 h-4 text-pastel-highlight" />
+                                <h3 className="font-bold text-pastel-text text-sm">色彩校准 Color Match</h3>
+                                <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">生成后自动统一色调</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { id: 'off' as ColorCorrectionMode, label: '关闭', desc: '原图输出' },
+                                    { id: 'match' as ColorCorrectionMode, label: '参考图匹配', desc: '最推荐' },
+                                    { id: 'autoWhiteBalance' as ColorCorrectionMode, label: '自动白平衡', desc: 'Gray World' },
+                                    { id: 'redSuppress' as ColorCorrectionMode, label: '压红补青', desc: '偏红修正' },
+                                ].map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setColorCorrectionMode(item.id)}
+                                        className={`min-h-[3.25rem] rounded-xl border px-2 py-2 text-center transition-all ${colorCorrectionMode === item.id ? 'bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-100' : 'bg-pastel-bg/30 border-pastel-border text-pastel-muted hover:border-blue-200'}`}
+                                    >
+                                        <span className="block text-[11px] font-black">{item.label}</span>
+                                        <span className="mt-0.5 block text-[9px] opacity-70">{item.desc}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            {colorCorrectionMode === 'match' && (
+                                <div className="mt-3 rounded-xl border border-dashed border-blue-200 bg-blue-50/30 p-3">
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        id="hero-color-reference"
+                                        onChange={async (e) => {
+                                            const processed = await processFiles(Array.from(e.target.files || []));
+                                            if (processed[0]) setColorReference(processed[0]);
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                    <label htmlFor="hero-color-reference" className="flex min-h-[4.5rem] cursor-pointer items-center justify-center gap-3 rounded-lg bg-white/70 px-3 text-center text-xs font-bold text-blue-700 hover:bg-white">
+                                        {colorReference ? <img src={colorReference.preview} className="h-14 w-14 rounded-lg object-cover" /> : <Upload className="h-5 w-5" />}
+                                        <span>{colorReference ? '已上传标准色参考图，点击替换' : '上传颜色正确的参考图'}</span>
+                                    </label>
+                                </div>
+                            )}
+                            {colorCorrectionMode !== 'off' && (
+                                <div className="mt-3">
+                                    <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-pastel-muted">
+                                        <span>混合度</span>
+                                        <span>{Math.round(colorCorrectionBlend * 100)}%</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.3"
+                                        max="1"
+                                        step="0.05"
+                                        value={colorCorrectionBlend}
+                                        onChange={(e) => setColorCorrectionBlend(Number(e.target.value))}
+                                        className="w-full accent-blue-500"
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         {/* 2. Product Assets */}

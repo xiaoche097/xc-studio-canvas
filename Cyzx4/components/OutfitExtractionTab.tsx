@@ -6,7 +6,7 @@ import {
     ShoppingBag, Watch, Footprints, Crown, Plus, Trash2,
     Glasses, Gem, MonitorSmartphone, Ratio, Cpu
 } from 'lucide-react';
-import { generateImageToImage, compressImage } from '../services/geminiService';
+import { analyzeOutfitItems, generateImageToImage, compressImage, type OutfitAnalysisItem } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 
@@ -22,7 +22,17 @@ interface ExtractedItem {
     label: string;
     imageUrl: string | null;
     status: 'pending' | 'processing' | 'done' | 'error';
+    analysis?: OutfitAnalysisItem;
     error?: string;
+}
+
+type ExtractionMode = 'precise' | 'rebuild';
+
+interface ExtractionTarget {
+    id: string;
+    label: string;
+    englishName: string;
+    analysis?: OutfitAnalysisItem;
 }
 
 // Preset clothing item tags
@@ -85,22 +95,28 @@ const OutfitExtractionTab: React.FC = () => {
     const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
     const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-image-preview');
+    const [extractionMode, setExtractionMode] = useState<ExtractionMode>('precise');
 
     // Items to extract
     const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
+    const [detectedItems, setDetectedItems] = useState<OutfitAnalysisItem[]>([]);
+    const [selectedDetectedIds, setSelectedDetectedIds] = useState<Set<string>>(new Set());
     const [customItems, setCustomItems] = useState<string[]>([]);
     const [customInput, setCustomInput] = useState('');
 
     // Generation state
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [items, setItems] = useState<ExtractedItem[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
 
     // Preview
     const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
 
     const inputRef = useRef<HTMLInputElement>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const analysisAbortRef = useRef<AbortController | null>(null);
 
     // --- Image Upload ---
     const processUploadFile = async (file: File): Promise<UploadedImage> => {
@@ -117,10 +133,41 @@ const OutfitExtractionTab: React.FC = () => {
         if (!file?.type.startsWith('image/')) return;
         setIsProcessing(true);
         setError(null);
+        setAnalysisNotice(null);
+        analysisAbortRef.current?.abort();
         try {
             const uploaded = await processUploadFile(file);
             setSourceImage(uploaded);
             setItems([]);
+            setDetectedItems([]);
+            setSelectedDetectedIds(new Set());
+            setIsProcessing(false);
+
+            const controller = new AbortController();
+            analysisAbortRef.current = controller;
+            setIsAnalyzing(true);
+            setAnalysisNotice('正在识别模特身上的搭配...');
+            try {
+                const analysis = await analyzeOutfitItems(
+                    { base64: uploaded.base64 || '', mimeType: uploaded.mime || 'image/png' },
+                    controller.signal
+                );
+                const detected = analysis.items.slice(0, 8);
+                setDetectedItems(detected);
+                setSelectedDetectedIds(new Set(detected.map(item => item.id)));
+                setAnalysisNotice(
+                    detected.length > 0
+                        ? `AI 已识别 ${detected.length} 件可提取单品`
+                        : '自动识别未找到明确单品，可手动选择单品继续提取。'
+                );
+            } catch (analysisError) {
+                if (!isAbortError(analysisError)) {
+                    setAnalysisNotice('自动识别失败，可手动选择单品继续提取。');
+                }
+            } finally {
+                if (analysisAbortRef.current === controller) analysisAbortRef.current = null;
+                setIsAnalyzing(false);
+            }
         } catch {
             setError('图片处理失败，请重试');
         } finally {
@@ -149,10 +196,14 @@ const OutfitExtractionTab: React.FC = () => {
     };
 
     const removeImage = () => {
+        analysisAbortRef.current?.abort();
         if (sourceImage?.preview) URL.revokeObjectURL(sourceImage.preview);
         setSourceImage(null);
         setItems([]);
+        setDetectedItems([]);
+        setSelectedDetectedIds(new Set());
         setError(null);
+        setAnalysisNotice(null);
     };
 
     // --- Remove Tags ---
@@ -175,6 +226,15 @@ const OutfitExtractionTab: React.FC = () => {
         });
     };
 
+    const toggleDetectedItem = (id: string) => {
+        setSelectedDetectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
     const addCustomItem = () => {
         const trimmed = customInput.trim();
         if (!trimmed || customItems.includes(trimmed)) return;
@@ -188,6 +248,34 @@ const OutfitExtractionTab: React.FC = () => {
 
     const removeCustomItem = (item: string) => {
         setCustomItems(prev => prev.filter(i => i !== item));
+    };
+
+    const getExtractionTargets = (): ExtractionTarget[] => {
+        const targets: ExtractionTarget[] = [];
+        const seen = new Set<string>();
+        detectedItems
+            .filter(item => selectedDetectedIds.has(item.id))
+            .forEach(item => {
+                const key = `${item.label}-${item.englishName}`.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                targets.push({ id: item.id, label: item.label, englishName: item.englishName, analysis: item });
+            });
+        Array.from(selectedPresets).forEach(id => {
+            const preset = PRESET_ITEMS.find(p => p.id === id);
+            const label = preset?.label || id;
+            const key = label.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            targets.push({ id, label, englishName: label });
+        });
+        customItems.forEach((label, index) => {
+            const key = label.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            targets.push({ id: `custom-${index}-${label}`, label, englishName: label });
+        });
+        return targets.slice(0, 8);
     };
 
     // --- Extraction Logic ---
@@ -257,13 +345,119 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
         return results[0];
     };
 
-    const handleExtract = async () => {
-        const allItemLabels: string[] = [
-            ...Array.from(selectedPresets).map(id => PRESET_ITEMS.find(p => p.id === id)?.label || id),
-            ...customItems,
-        ];
+    const buildSmartExtractionPrompt = (target: ExtractionTarget, ratio: AspectRatio): string => {
+        const analysis = target.analysis;
+        const itemLabel = target.label;
+        const selectedLabels = REMOVE_TAGS.filter(t => removeTags.has(t.id)).map(t => t.label);
+        const removal = selectedLabels.length > 0
+            ? `\n[EXTRA STRICT REMOVE in addition to body/skin/face/hands/feet/background]: ${selectedLabels.join(', ')}`
+            : '';
+        const ratioText = ratio === AspectRatio.SQUARE ? '1:1' : ratio;
+        const analysisGuide = analysis
+            ? `
+[AI DETECTED TARGET PROFILE]
+- Chinese label: ${analysis.label}
+- English extraction target: ${analysis.englishName}
+- Category: ${analysis.category}
+- Visibility: ${analysis.visibility}
+- Occlusion: ${analysis.occlusion}
+- Color/material: ${analysis.colorMaterial}
+- Key visible details: ${analysis.keyDetails}
+- Confidence: ${Math.round(analysis.confidence * 100)}%
+`
+            : `
+[USER TARGET PROFILE]
+- Target label: ${target.label}
+- English extraction target: ${target.englishName}
+- Category: user-specified
+`;
 
-        if (allItemLabels.length === 0) {
+        if (extractionMode === 'precise') {
+            return `[ROLE: Senior fashion image masking and exact outfit extraction specialist]
+[TASK: Extract ONLY the target item from the source outfit photo]
+[EXTRACT TARGET: ${itemLabel} / ${target.englishName}]
+${analysisGuide}
+
+[ABSOLUTE GOAL]
+- Preserve the target item exactly as it appears in Image 1.
+- Keep its original pose-driven shape, camera angle, perspective, crop, folds, wrinkles, drape, shadows, material texture, color, pattern, trims, seams, and visible construction details.
+- Do NOT straighten, rotate, recenter, resize, redraw, beautify, complete, redesign, restyle, recolor, or add logos.
+- Output must look like Image 1 with every non-target pixel painted pure white.
+
+[STRICT KEEP]
+- Keep ONLY visible pixels belonging to "${itemLabel}".
+- Preserve visible edges and occlusion contours exactly, including where hands, hair, body, other garments, or accessories cover the target.
+- If part of the item is hidden, do not hallucinate the hidden part. Leave hidden/removed areas pure white.
+
+[STRICT REMOVE]
+- Remove ALL non-"${itemLabel}" pixels:${removal}
+- Remove person, skin, face, head, hair, hands, arms, legs, feet, background, floor, props, text, watermark, logo overlays, and all other outfit items.
+- If the target is a shoe, bag, jewelry, hat, belt, scarf, glasses, or small accessory, keep that accessory and remove clothing/body around it.
+
+[OUTPUT]
+- Pure white background (#FFFFFF), not transparent and not checkerboard.
+- Preserve original item placement as much as possible inside ${ratioText}; do not force a polished flat-lay if it changes the true shape.
+- Clean mask edges, no leftover skin/hair/background, no jagged edge, no white holes inside visible target pixels.
+
+[NEGATIVE]
+wrong item, all clothing kept, extra garments, leftover body, leftover skin, leftover hair, background fragments, changed color, changed pattern, invented logo, completed hidden parts, redesigned item, blurry product details`;
+        }
+
+        return `[ROLE: Senior e-commerce fashion product retoucher and catalog image generator]
+[TASK: Generate a polished standalone product image from the source outfit photo]
+[EXTRACT TARGET: ${itemLabel} / ${target.englishName}]
+${analysisGuide}
+
+[ABSOLUTE GOAL]
+- Generate ONLY the "${itemLabel}" as a clean, refined e-commerce product image.
+- Use the source image and AI target profile as the truth for design, color, material, pattern, trims, hardware, seams, proportions, and visible construction details.
+- Remove the person, body parts, other garments, background, props, and image clutter.
+- Center the product naturally in the frame with clean margins and polished edges.
+
+[PRODUCT FIDELITY]
+- Preserve the exact product identity: silhouette, color, print, fabric texture, weave/knit direction, buttons, zippers, seams, stitching, straps, soles, handles, buckles, metal hardware, labels, and distinctive design details.
+- If the product is partially blocked by hands, hair, body, or another item, reconstruct only the missing blocked portion in a believable way that matches the visible product and the AI target profile.
+- Keep the same product style and proportions. Do not redesign, simplify, add logos, change color, change pattern, or invent decorative elements.
+
+[STRICT REMOVE]
+- Remove ALL non-"${itemLabel}" pixels:${removal}
+- Remove: body, skin, face, head, hair, hands, arms, legs, feet, background, room, studio, floor, props, unrelated accessories, other clothing, phones, hanger, mannequin, text, watermark, and logo overlays.
+
+[OUTPUT]
+- Premium product catalog photo on pure white background (#FFFFFF), not transparent and not checkerboard.
+- Natural product presentation: flat-lay, ghost-mannequin, or standalone packshot as appropriate for "${itemLabel}".
+- Add a very subtle natural contact shadow only if it helps the product read as a finished catalog image.
+- The "${itemLabel}" must fill the frame naturally at ${ratioText} aspect ratio.
+
+[NEGATIVE]
+raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body, leftover skin, leftover hair, background fragments, white holes, occlusion gaps, incomplete product, distorted product, changed color, changed pattern, added logo, low resolution, blurry, messy shadow`;
+    };
+
+    const extractSingleTarget = async (target: ExtractionTarget, signal?: AbortSignal): Promise<string> => {
+        if (!sourceImage?.base64) throw new Error('No source image');
+        const prompt = buildSmartExtractionPrompt(target, selectedRatio);
+        const results = await generateImageToImage(
+            [{ base64: sourceImage.base64, mimeType: sourceImage.mime || 'image/png' }],
+            prompt,
+            {
+                aspectRatio: selectedRatio,
+                resolution: selectedResolution,
+                modelId: selectedModel,
+                signal,
+                sampleCount: 1,
+                workflowHint: extractionMode === 'precise' ? 'garment-extraction' : undefined,
+            }
+        );
+        if (!results || results.length === 0) {
+            throw new Error(`未能生成 ${target.label}`);
+        }
+        return results[0];
+    };
+
+    const handleExtract = async () => {
+        const targets = getExtractionTargets();
+
+        if (targets.length === 0) {
             setError('请至少选择一个要提取的单品');
             return;
         }
@@ -277,9 +471,10 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
         setError(null);
 
         // Initialize items
-        const initialItems: ExtractedItem[] = allItemLabels.map(label => ({
-            id: label,
-            label,
+        const initialItems: ExtractedItem[] = targets.map(target => ({
+            id: target.id,
+            label: target.label,
+            analysis: target.analysis,
             imageUrl: null,
             status: 'pending' as const,
         }));
@@ -290,23 +485,23 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
         abortRef.current = controller;
 
         try {
-            for (const itemLabel of allItemLabels) {
+            for (const target of targets) {
                 setItems(prev => prev.map(i =>
-                    i.label === itemLabel ? { ...i, status: 'processing' as const } : i
+                    i.id === target.id ? { ...i, status: 'processing' as const } : i
                 ));
 
                 try {
-                    const imageUrl = await extractSingleItem(itemLabel, controller.signal);
+                    const imageUrl = await extractSingleTarget(target, controller.signal);
                     setItems(prev => prev.map(i =>
-                        i.label === itemLabel
+                        i.id === target.id
                             ? { ...i, imageUrl, status: 'done' as const, error: undefined }
                             : i
                     ));
                 } catch (err) {
                     if (isAbortError(err)) throw err;
-                    console.error(`Extraction failed for "${itemLabel}":`, err);
+                    console.error(`Extraction failed for "${target.label}":`, err);
                     setItems(prev => prev.map(i =>
-                        i.label === itemLabel
+                        i.id === target.id
                             ? { ...i, imageUrl: null, status: 'error' as const, error: getErrorMessage(err) }
                             : i
                     ));
@@ -336,7 +531,7 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
         document.body.removeChild(link);
     };
 
-    const totalSelected = selectedPresets.size + customItems.length;
+    const totalSelected = getExtractionTargets().length;
     const canExtract = sourceImage && totalSelected > 0 && !isProcessing;
 
     const displayItems = items;
@@ -412,6 +607,18 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                                     <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent">
                                         <span className="text-white text-xs font-bold">穿搭原图</span>
                                     </div>
+                                </div>
+                            )}
+                            {(isAnalyzing || analysisNotice) && (
+                                <div className={`mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${
+                                    isAnalyzing
+                                        ? 'border-purple-100 bg-purple-50 text-purple-700'
+                                        : detectedItems.length > 0
+                                            ? 'border-green-100 bg-green-50 text-green-700'
+                                            : 'border-orange-100 bg-orange-50 text-orange-700'
+                                }`}>
+                                    {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                                    <span>{analysisNotice}</span>
                                 </div>
                             )}
                         </div>
@@ -494,6 +701,35 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                                     ))}
                                 </div>
                             </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
+                                    <Scissors className="w-3 h-3" /> 输出模式
+                                </label>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    {[
+                                        { id: 'precise' as ExtractionMode, title: '精准提取', desc: '保留原图轮廓、褶皱和遮挡，不补画隐藏部分' },
+                                        { id: 'rebuild' as ExtractionMode, title: '商品重建', desc: '生成更完整的白底商品图，允许合理补全遮挡' },
+                                    ].map(mode => {
+                                        const active = extractionMode === mode.id;
+                                        return (
+                                            <button
+                                                key={mode.id}
+                                                type="button"
+                                                onClick={() => setExtractionMode(mode.id)}
+                                                disabled={isProcessing}
+                                                className={`min-h-[4.25rem] rounded-xl border p-3 text-left transition-all ${
+                                                    active
+                                                        ? 'border-purple-300 bg-purple-50 text-purple-700 ring-1 ring-purple-100'
+                                                        : 'border-gray-100 bg-white text-pastel-muted hover:border-purple-100'
+                                                } disabled:opacity-50`}
+                                            >
+                                                <span className="block text-xs font-black">{mode.title}</span>
+                                                <span className="mt-1 block text-[10px] leading-relaxed opacity-75">{mode.desc}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Remove Elements */}
@@ -536,6 +772,47 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                             <p className="text-[11px] text-pastel-muted mb-3">
                                 选择或输入你想从穿搭中提取出来的单品（最多 8 件）
                             </p>
+
+                            {detectedItems.length > 0 && (
+                                <div className="mb-4 rounded-2xl border border-green-100 bg-green-50/50 p-3">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 text-xs font-black text-green-700">
+                                            <Sparkles className="h-4 w-4" />
+                                            AI 已识别搭配
+                                        </div>
+                                        <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-green-700">
+                                            已预选 {selectedDetectedIds.size}/{detectedItems.length}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                        {detectedItems.map(item => {
+                                            const sel = selectedDetectedIds.has(item.id);
+                                            return (
+                                                <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    onClick={() => !isProcessing && toggleDetectedItem(item.id)}
+                                                    disabled={isProcessing}
+                                                    className={`min-h-[5.5rem] rounded-xl border p-3 text-left transition-all ${
+                                                        sel
+                                                            ? 'border-green-300 bg-white text-green-800 shadow-sm'
+                                                            : 'border-green-100 bg-white/60 text-pastel-muted hover:border-green-200'
+                                                    } disabled:opacity-40`}
+                                                >
+                                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                                        <span className="truncate text-xs font-black">{item.label}</span>
+                                                        <span className="shrink-0 rounded-full bg-green-50 px-2 py-0.5 text-[9px] font-bold text-green-700">
+                                                            {Math.round(item.confidence * 100)}%
+                                                        </span>
+                                                    </div>
+                                                    <p className="line-clamp-2 text-[10px] leading-relaxed opacity-80">{item.colorMaterial}</p>
+                                                    <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed opacity-70">{item.occlusion || item.keyDetails}</p>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Preset Tags */}
                             <div className="flex flex-wrap gap-2 mb-4">
