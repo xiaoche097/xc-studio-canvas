@@ -6,6 +6,7 @@ export enum AppMode {
   SEAT_COVER = 'SEAT_COVER', // Seat Cover Fit (New)
   COPYWRITING = 'COPYWRITING', // Listing Copilot (New)
   IMAGE_CLEAN = 'IMAGE_CLEAN', // Image Cleanup Tool (Replaces Video)
+  MODEL_POSE_FISSION = 'MODEL_POSE_FISSION', // Model Pose Fission
   PRODUCT_REPAIR = 'PRODUCT_REPAIR', // 产品修复 (Product Repair) [deprecated]
   OUTFIT_EXTRACTION = 'OUTFIT_EXTRACTION', // 搭配提取 (Outfit Extraction)
   RATIO_QUERY = 'RATIO_QUERY', // Aspect Ratio Query (New)

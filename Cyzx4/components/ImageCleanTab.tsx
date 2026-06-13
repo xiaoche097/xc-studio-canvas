@@ -587,7 +587,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
         const files = Array.isArray(e) ? e : Array.from(e.target.files || []);
         const processed = await processFiles(files);
         setSelectedManualPoseKey(null);
-        setManualPoseLibraryFilter(isPoseAutoDetectEnabled ? 'auto' : 'all');
+        setManualPoseLibraryFilter(isPoseAutoDetectEnabled ? 'auto' : 'clothing');
 
         const updatePoseDetection = (images: UploadedImage[]) => {
             if (isPoseAutoDetectEnabled) {
@@ -1513,6 +1513,15 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 [shuffledSolavibePoses[k], shuffledSolavibePoses[r]] = [shuffledSolavibePoses[r], shuffledSolavibePoses[k]];
             }
 
+            const manualLibraryRandomOptions = !isPoseAutoDetectEnabled
+                && !selectedManualPose
+                && manualPoseLibraryFilter !== 'all'
+                && manualPoseLibraryFilter !== 'auto'
+                ? MANUAL_POSE_OPTIONS
+                    .filter((pose) => pose.library === manualPoseLibraryFilter)
+                    .sort(() => Math.random() - 0.5)
+                : [];
+
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
             const batchPromises = generationIndices.map((i) => {
                 const actionReferenceIndex = i < actionReferences.length ? i : undefined;
@@ -1575,16 +1584,25 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     if (perOutputSupplementaryNotes) {
                         finalPrompt += `\n${perOutputSupplementaryNotes}\n`;
                     }
-                    if (selectedManualPose) {
-                        const posePreset = selectedManualPose;
+                    const manualLibraryRandomPose = manualLibraryRandomOptions.length > 0
+                        ? manualLibraryRandomOptions[i % manualLibraryRandomOptions.length]
+                        : null;
+                    if (selectedManualPose || manualLibraryRandomPose) {
+                        const posePreset = selectedManualPose || manualLibraryRandomPose!;
                         const poseSpec = posePreset.library === 'swimShorts' ? sanitizeSwimShortsPosePrompt(posePreset.prompt) : posePreset.prompt;
-                        selectedPoseHeader = `# USER SELECTED MANUAL ACTION PRESET: ${posePreset.libraryLabel} / ${posePreset.name} / ${posePreset.id}
-# MANUAL ACTION OVERRIDE (CRITICAL - MANDATORY): The user explicitly selected this action from the visible action library UI. For this output, use this selected pose instead of AI-recognized random/auto pose selection.
+                        const manualActionSource = selectedManualPose
+                            ? 'USER SELECTED MANUAL ACTION PRESET'
+                            : 'USER SELECTED MANUAL ACTION LIBRARY RANDOM PRESET';
+                        const manualActionRule = selectedManualPose
+                            ? 'The user explicitly selected this action from the visible action library UI. For this output, use this selected pose instead of AI-recognized random/auto pose selection.'
+                            : 'The user explicitly selected a whole manual action library while AI detection is disabled. For this output, use this randomly chosen pose from that selected library instead of AI-recognized random/auto pose selection.';
+                        selectedPoseHeader = `# ${manualActionSource}: ${posePreset.libraryLabel} / ${posePreset.name} / ${posePreset.id}
+# MANUAL ACTION OVERRIDE (CRITICAL - MANDATORY): ${manualActionRule}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): Generate the model/product with the EXACT pose, body posture, hand placement, walking/sitting/leaning state, body angle, crop intent, and garment interaction described here: ${poseSpec}. Preserve the product identity from Image 1 with zero design drift, but adapt the body and garment naturally to this selected action.
 # PRIORITY RULE: Uploaded action reference images still have higher priority. This manual action applies only to output slots without an uploaded action reference.
 `;
                         finalPrompt += `
-# MANUAL ACTION LIBRARY DIRECTIVE: Use the user-selected action exactly: ${poseSpec}. Do not fall back to generic catalog standing, do not randomly choose another library action, and do not ignore the selected hand/leg/torso/crop details.
+# MANUAL ACTION LIBRARY DIRECTIVE: Use this chosen manual-library action exactly: ${poseSpec}. Do not fall back to generic catalog standing, do not choose from another library, and do not ignore the selected hand/leg/torso/crop details.
 `;
                     } else if (activeAutoPoseLibrary === 'solavibe') {
                         const posePreset = shuffledSolavibePoses[i % shuffledSolavibePoses.length];
@@ -1712,7 +1730,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     finalPrompt += `\n${perOutputScenePrompt}\n`;
                 }
                 const negativePrompt = [
-                    hasOutputActionReference || activeAutoPoseLibrary !== 'none' || !!selectedManualPose
+                    hasOutputActionReference || activeAutoPoseLibrary !== 'none' || !!selectedManualPose || manualLibraryRandomOptions.length > 0
                         ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, ignored close-up crop, zoomed-out portrait when reference is close-up, full face visible when reference cuts off the face, full head visible when reference cuts off the head, waist visible when reference is chest-only, legs visible when reference is torso-only, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, copied action reference shirt, copied action reference logo, copied action reference necklace, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, copied action reference architecture, action reference arches, action reference room, action reference interior, action reference wall, action reference floor, action reference furniture, action reference pool, action reference plants, action reference props, beach background from pose library, pool background from pose library, ocean background from pose library'
                         : '',
                     modelReference
@@ -2036,7 +2054,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                                 if (!next) {
                                                     setAutoPoseLibrary('none');
                                                     setAutoPoseAnalysis(null);
-                                                    setManualPoseLibraryFilter('all');
+                                                    setManualPoseLibraryFilter('clothing');
                                                 } else {
                                                     setManualPoseLibraryFilter('auto');
                                                 }
@@ -2065,7 +2083,13 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                     <span className="font-black">{"AI\u68c0\u6d4b"}</span>
                                     <span>{isPoseAutoDetectEnabled ? (autoPoseAnalysis ? autoPoseAnalysis.productType : '\u5c1a\u672a\u5206\u6790') : '已关闭，使用手动动作库'}</span>
                                     <span className="text-purple-300">|</span>
-                                    <span className="font-bold">{isPoseAutoDetectEnabled ? (autoPoseAnalysis?.libraryLabel || MANUAL_POSE_LIBRARY_LABELS.clothing) : '全部动作库可选'}</span>
+                                    <span className="font-bold">
+                                        {isPoseAutoDetectEnabled
+                                            ? (autoPoseAnalysis?.libraryLabel || MANUAL_POSE_LIBRARY_LABELS.clothing)
+                                            : manualPoseLibraryFilter !== 'all' && manualPoseLibraryFilter !== 'auto'
+                                                ? `${MANUAL_POSE_LIBRARY_LABELS[manualPoseLibraryFilter]} 随机`
+                                                : '全部动作库可选'}
+                                    </span>
                                     {autoPoseAnalysis && <span className="px-2 py-0.5 rounded-full bg-white border border-purple-100 text-[10px] font-bold">{autoPoseAnalysis.confidence}</span>}
                                 </div>
                                 {selectedManualPose && (
@@ -2074,12 +2098,21 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                         <button type="button" onClick={() => setSelectedManualPoseKey(null)} className="text-[10px] text-red-500 font-bold shrink-0">{"\u6e05\u9664"}</button>
                                     </div>
                                 )}
+                                {!selectedManualPose && !isPoseAutoDetectEnabled && manualPoseLibraryFilter !== 'all' && manualPoseLibraryFilter !== 'auto' && (
+                                    <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white border border-purple-100 px-2 py-1.5">
+                                        <span className="truncate"><b>已选动作库随机</b> {MANUAL_POSE_LIBRARY_LABELS[manualPoseLibraryFilter]}</span>
+                                        <button type="button" onClick={() => setManualPoseLibraryFilter('all')} className="text-[10px] text-red-500 font-bold shrink-0">{"\u6e05\u9664"}</button>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-2 mb-3">
                                 <select
                                     value={manualPoseLibraryFilter}
-                                    onChange={(e) => setManualPoseLibraryFilter(e.target.value as ManualPoseLibrary | 'auto' | 'all')}
+                                    onChange={(e) => {
+                                        setManualPoseLibraryFilter(e.target.value as ManualPoseLibrary | 'auto' | 'all');
+                                        setSelectedManualPoseKey(null);
+                                    }}
                                     className="min-h-[40px] bg-pastel-bg border border-pastel-border rounded-xl px-3 py-2 text-xs font-bold text-pastel-text focus:outline-none focus:ring-1 focus:ring-purple-200"
                                 >
                                     {isPoseAutoDetectEnabled && <option value="auto">{"\u8ddf\u968fAI\u68c0\u6d4b\u5e93"}</option>}
