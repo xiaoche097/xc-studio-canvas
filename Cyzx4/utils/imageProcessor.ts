@@ -117,3 +117,181 @@ export const extractEdges = (base64: string): Promise<string> => {
         }
     });
 };
+
+export type ColorCorrectionMode = 'off' | 'match' | 'autoWhiteBalance' | 'redSuppress';
+
+export interface ColorCorrectionOptions {
+    mode: ColorCorrectionMode;
+    reference?: string;
+    blend?: number;
+    redAdjust?: number;
+    cyanBoost?: number;
+    saturation?: number;
+    contrast?: number;
+}
+
+const loadCanvasImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image for color correction'));
+    img.src = src;
+});
+
+const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
+
+const getRgbStats = (data: Uint8ClampedArray, neutralPreferred = false) => {
+    const indexes: number[] = [];
+    if (neutralPreferred) {
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const luma = r * 0.299 + g * 0.587 + b * 0.114;
+            const saturationLike = max - min;
+            if (luma > 35 && luma < 245 && saturationLike < 38) {
+                indexes.push(i);
+            }
+        }
+    }
+
+    const useNeutral = indexes.length > data.length / 4 * 0.04;
+    const count = useNeutral ? indexes.length : data.length / 4;
+    const mean = [0, 0, 0];
+    const eachPixel = useNeutral
+        ? (callback: (index: number) => void) => indexes.forEach(callback)
+        : (callback: (index: number) => void) => {
+            for (let i = 0; i < data.length; i += 4) callback(i);
+        };
+
+    eachPixel((i) => {
+        mean[0] += data[i];
+        mean[1] += data[i + 1];
+        mean[2] += data[i + 2];
+    });
+    mean[0] /= count;
+    mean[1] /= count;
+    mean[2] /= count;
+
+    const variance = [0, 0, 0];
+    eachPixel((i) => {
+        variance[0] += (data[i] - mean[0]) ** 2;
+        variance[1] += (data[i + 1] - mean[1]) ** 2;
+        variance[2] += (data[i + 2] - mean[2]) ** 2;
+    });
+    const std = variance.map(v => Math.sqrt(v / count) || 1);
+    return { mean, std };
+};
+
+const adjustSaturation = (r: number, g: number, b: number, saturation: number) => {
+    const gray = r * 0.299 + g * 0.587 + b * 0.114;
+    return [
+        gray + (r - gray) * saturation,
+        gray + (g - gray) * saturation,
+        gray + (b - gray) * saturation,
+    ];
+};
+
+const adjustContrast = (r: number, g: number, b: number, contrast: number) => [
+    (r - 128) * contrast + 128,
+    (g - 128) * contrast + 128,
+    (b - 128) * contrast + 128,
+];
+
+export const applyColorCorrection = async (
+    source: string,
+    options: ColorCorrectionOptions
+): Promise<string> => {
+    if (options.mode === 'off') return source;
+
+    const sourceImage = await loadCanvasImage(source);
+    const canvas = document.createElement('canvas');
+    canvas.width = sourceImage.naturalWidth || sourceImage.width;
+    canvas.height = sourceImage.naturalHeight || sourceImage.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas is not available for color correction.');
+    ctx.drawImage(sourceImage, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const blend = Math.max(0, Math.min(1, options.blend ?? 0.65));
+
+    if (options.mode === 'match' && options.reference) {
+        const refImage = await loadCanvasImage(options.reference);
+        const refCanvas = document.createElement('canvas');
+        refCanvas.width = refImage.naturalWidth || refImage.width;
+        refCanvas.height = refImage.naturalHeight || refImage.height;
+        const refCtx = refCanvas.getContext('2d');
+        if (!refCtx) throw new Error('Canvas is not available for color reference.');
+        refCtx.drawImage(refImage, 0, 0);
+        const refData = refCtx.getImageData(0, 0, refCanvas.width, refCanvas.height).data;
+        const srcStats = getRgbStats(data, true);
+        const refStats = getRgbStats(refData, true);
+
+        for (let i = 0; i < data.length; i += 4) {
+            const originalR = data[i];
+            const originalG = data[i + 1];
+            const originalB = data[i + 2];
+            const originalLuma = originalR * 0.299 + originalG * 0.587 + originalB * 0.114;
+            const mappedRgb = [0, 0, 0];
+            for (let c = 0; c < 3; c += 1) {
+                mappedRgb[c] = ((data[i + c] - srcStats.mean[c]) / srcStats.std[c]) * refStats.std[c] + refStats.mean[c];
+            }
+            let r = originalR * (1 - blend) + mappedRgb[0] * blend;
+            let g = originalG * (1 - blend) + mappedRgb[1] * blend;
+            let b = originalB * (1 - blend) + mappedRgb[2] * blend;
+            const correctedLuma = r * 0.299 + g * 0.587 + b * 0.114;
+            const lumaScale = Math.max(0.72, Math.min(1.28, originalLuma / Math.max(1, correctedLuma)));
+            r = originalLuma * 0.2 + r * lumaScale * 0.8;
+            g = originalLuma * 0.2 + g * lumaScale * 0.8;
+            b = originalLuma * 0.2 + b * lumaScale * 0.8;
+            data[i] = clampByte(r);
+            data[i + 1] = clampByte(g);
+            data[i + 2] = clampByte(b);
+        }
+    } else if (options.mode === 'autoWhiteBalance') {
+        const stats = getRgbStats(data);
+        const target = (stats.mean[0] + stats.mean[1] + stats.mean[2]) / 3;
+        const gains = stats.mean.map(mean => target / Math.max(1, mean));
+        for (let i = 0; i < data.length; i += 4) {
+            data[i] = clampByte(data[i] * (1 + (gains[0] - 1) * blend));
+            data[i + 1] = clampByte(data[i + 1] * (1 + (gains[1] - 1) * blend));
+            data[i + 2] = clampByte(data[i + 2] * (1 + (gains[2] - 1) * blend));
+        }
+    } else if (options.mode === 'redSuppress') {
+        const redAdjust = options.redAdjust ?? -0.08;
+        const cyanBoost = options.cyanBoost ?? 0.025;
+        const saturation = options.saturation ?? 0.92;
+        const contrast = options.contrast ?? 1.04;
+        for (let i = 0; i < data.length; i += 4) {
+            let r = data[i] * (1 + redAdjust * blend);
+            let g = data[i + 1] * (1 + cyanBoost * blend);
+            let b = data[i + 2] * (1 + cyanBoost * blend);
+            [r, g, b] = adjustSaturation(r, g, b, 1 + (saturation - 1) * blend);
+            [r, g, b] = adjustContrast(r, g, b, 1 + (contrast - 1) * blend);
+            data[i] = clampByte(r);
+            data[i + 1] = clampByte(g);
+            data[i + 2] = clampByte(b);
+        }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.toDataURL(source.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.95);
+};
+
+export const applyColorCorrectionBatch = async (
+    images: string[],
+    options: ColorCorrectionOptions
+): Promise<string[]> => {
+    if (options.mode === 'off') return images;
+    if (options.mode === 'match' && !options.reference) return images;
+    return Promise.all(images.map(async image => {
+        try {
+            return await applyColorCorrection(image, options);
+        } catch (error) {
+            console.warn('Color correction failed. Using original image.', error);
+            return image;
+        }
+    }));
+};

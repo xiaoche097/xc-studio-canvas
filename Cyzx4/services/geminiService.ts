@@ -11,6 +11,7 @@ import {
   generateContentWithAnalysisFallback,
   executeWithTimeout,
   throwIfAborted,
+  isAbortError,
   blobToBase64,
   compressImage,
   decodeAudioData,
@@ -36,6 +37,23 @@ export { getActiveApiInfo, blobToBase64, compressImage, decodeAudioData };
 
 // Export the VTON Analyst service
 export { analyzeVtonMaterials, analyzeGarmentFeatures, analyzeImagePerspective } from "./vtonAnalyst";
+
+export interface OutfitAnalysisItem {
+  id: string;
+  label: string;
+  englishName: string;
+  category: string;
+  visibility: string;
+  occlusion: string;
+  colorMaterial: string;
+  keyDetails: string;
+  confidence: number;
+}
+
+export interface OutfitAnalysisResult {
+  items: OutfitAnalysisItem[];
+  summary?: string;
+}
 
 export const GLOBAL_SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -216,6 +234,96 @@ export const generateText = async (
   } catch (error) {
     console.error("Generate text failed", error);
     throw error;
+  }
+};
+
+const normalizeOutfitAnalysisItem = (item: any, index: number): OutfitAnalysisItem | null => {
+  if (!item || typeof item !== 'object') return null;
+  const label = String(item.label || item.name || item.chineseName || '').trim();
+  const englishName = String(item.englishName || item.english_name || item.extractName || item.label_en || label).trim();
+  if (!label && !englishName) return null;
+  const rawConfidence = Number(item.confidence);
+  const confidence = Number.isFinite(rawConfidence) ? Math.max(0, Math.min(1, rawConfidence)) : 0.75;
+  return {
+    id: String(item.id || `${englishName || label}-${index + 1}`)
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `item-${index + 1}`,
+    label: label || englishName,
+    englishName: englishName || label,
+    category: String(item.category || 'other_accessory').trim(),
+    visibility: String(item.visibility || item.visibleRange || 'visible').trim(),
+    occlusion: String(item.occlusion || item.occlusionNotes || 'no obvious occlusion').trim(),
+    colorMaterial: String(item.colorMaterial || item.color_material || item.material || 'analyze from source image').trim(),
+    keyDetails: String(item.keyDetails || item.key_details || item.details || 'preserve all visible construction details').trim(),
+    confidence,
+  };
+};
+
+export const analyzeOutfitItems = async (
+  image: { base64: string; mimeType: string },
+  signal?: AbortSignal
+): Promise<OutfitAnalysisResult> => {
+  const prompt = `
+You are a senior fashion visual analyst for ecommerce asset extraction.
+
+Analyze Image 1 and identify the visible outfit items that are worth extracting as standalone product assets.
+
+Detection scope:
+- top, bottom, dress, outerwear, shoes, bag, hat, glasses, earrings, necklace, bracelet, belt, scarf, other_accessory.
+
+Rules:
+- Only include items that are actually visible in the image.
+- Do not invent hidden items. If the image is half-body, do not list shoes or lower garments unless they are visible.
+- Prefer concrete items over generic labels. Example: "米色针织背心" instead of "上衣".
+- Include visible accessories and styling items such as bags, jewelry, hats, belts, scarves, sunglasses, and handheld fashion props.
+- If multiple similar small accessories exist, include only the ones with enough visible detail to extract.
+- Return at most 8 items, ordered by confidence and visible completeness.
+- confidence must be a number from 0 to 1.
+
+Return ONLY valid JSON, no markdown:
+{
+  "summary": "short Chinese summary of the outfit",
+  "items": [
+    {
+      "id": "stable-kebab-id",
+      "label": "中文单品名称",
+      "englishName": "precise English extraction target",
+      "category": "top|bottom|dress|outerwear|shoes|bag|hat|glasses|earrings|necklace|bracelet|belt|scarf|other_accessory",
+      "visibility": "visible range and completeness in Chinese",
+      "occlusion": "occlusion notes in Chinese",
+      "colorMaterial": "color, fabric/material, texture in Chinese",
+      "keyDetails": "distinctive visible details in Chinese",
+      "confidence": 0.92
+    }
+  ]
+}
+`.trim();
+
+  try {
+    throwIfAborted(signal);
+    const text = await generateText([image], prompt, "gemini-3.1-flash-lite-preview");
+    throwIfAborted(signal);
+    const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned || "{}");
+    const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const seen = new Set<string>();
+    const items = rawItems
+      .map((item: any, index: number) => normalizeOutfitAnalysisItem(item, index))
+      .filter((item: OutfitAnalysisItem | null): item is OutfitAnalysisItem => Boolean(item))
+      .filter((item: OutfitAnalysisItem) => {
+        const key = `${item.label}-${item.englishName}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a: OutfitAnalysisItem, b: OutfitAnalysisItem) => b.confidence - a.confidence)
+      .slice(0, 8);
+    return { summary: String(parsed.summary || ''), items };
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    console.error("Outfit analysis failed", error);
+    return { items: [] };
   }
 };
 
