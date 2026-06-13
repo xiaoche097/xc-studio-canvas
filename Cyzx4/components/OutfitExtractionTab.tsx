@@ -4,7 +4,7 @@ import {
     Download, Scissors, Shirt, Tag,
     CheckCircle2, AlertCircle, Image as ImageIcon,
     ShoppingBag, Watch, Footprints, Crown, Plus, Trash2,
-    Glasses, Gem, MonitorSmartphone, Ratio, Cpu
+    Glasses, Gem, MonitorSmartphone, Ratio, Cpu, RotateCcw, CheckSquare
 } from 'lucide-react';
 import { analyzeOutfitItems, generateImageToImage, compressImage, type OutfitAnalysisItem } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
@@ -108,6 +108,7 @@ const OutfitExtractionTab: React.FC = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [items, setItems] = useState<ExtractedItem[]>([]);
+    const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(new Set());
     const [error, setError] = useState<string | null>(null);
     const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
 
@@ -139,6 +140,7 @@ const OutfitExtractionTab: React.FC = () => {
             const uploaded = await processUploadFile(file);
             setSourceImage(uploaded);
             setItems([]);
+            setSelectedResultIds(new Set());
             setDetectedItems([]);
             setSelectedDetectedIds(new Set());
             setIsProcessing(false);
@@ -200,6 +202,7 @@ const OutfitExtractionTab: React.FC = () => {
         if (sourceImage?.preview) URL.revokeObjectURL(sourceImage.preview);
         setSourceImage(null);
         setItems([]);
+        setSelectedResultIds(new Set());
         setDetectedItems([]);
         setSelectedDetectedIds(new Set());
         setError(null);
@@ -312,15 +315,16 @@ const OutfitExtractionTab: React.FC = () => {
 - Remove all OTHER clothing items that are NOT "${itemLabel}".
 
 [OUTPUT]
-- Premium product catalog photo on pure white background (#FFFFFF), not transparent and not checkerboard.
+- Premium product catalog photo on a completely pure white background (#FFFFFF), not transparent and not checkerboard.
+- Every pixel that is not the "${itemLabel}" must be #FFFFFF. No colored backdrop, no tabletop, no wall, no studio sweep, no props, no gradient, no beige/gray tint, no texture, no clutter.
 - Clean refined edges, no jagged mask, no leftover skin/hair/background pixels, no white holes, no pasted-crop feeling.
 - Natural product presentation: flat-lay, ghost-mannequin, or standalone packshot as appropriate for "${itemLabel}".
-- Add a very subtle natural contact shadow only if it helps the product read as a finished catalog image.
+- Avoid scene shadows and floor shadows; use only the minimum soft self-shadow needed to preserve product shape.
 - No visible person, body parts, mannequin, hanger, or extra objects.
 - The "${itemLabel}" must fill the frame naturally at ${ratioText} aspect ratio.
 
 [NEGATIVE]
-raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body, leftover skin, leftover hair, background fragments, white holes, occlusion gaps, incomplete product, distorted product, changed color, changed pattern, added logo, low resolution, blurry, messy shadow`;
+raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body, leftover skin, leftover hair, background fragments, colored background, gray background, beige background, textured backdrop, tabletop, floor, wall, props, clutter, gradient, cast shadow, messy shadow, white holes, occlusion gaps, incomplete product, distorted product, changed color, changed pattern, added logo, low resolution, blurry`;
     };
 
     const extractSingleItem = async (itemLabel: string, signal?: AbortSignal): Promise<string> => {
@@ -396,11 +400,12 @@ ${analysisGuide}
 
 [OUTPUT]
 - Pure white background (#FFFFFF), not transparent and not checkerboard.
+- Every non-target pixel must be #FFFFFF: no colored backdrop, gray/beige tint, tabletop, wall, floor, props, gradient, texture, or clutter.
 - Preserve original item placement as much as possible inside ${ratioText}; do not force a polished flat-lay if it changes the true shape.
 - Clean mask edges, no leftover skin/hair/background, no jagged edge, no white holes inside visible target pixels.
 
 [NEGATIVE]
-wrong item, all clothing kept, extra garments, leftover body, leftover skin, leftover hair, background fragments, changed color, changed pattern, invented logo, completed hidden parts, redesigned item, blurry product details`;
+wrong item, all clothing kept, extra garments, leftover body, leftover skin, leftover hair, background fragments, colored background, gray background, beige background, textured backdrop, tabletop, floor, wall, props, clutter, gradient, cast shadow, changed color, changed pattern, invented logo, completed hidden parts, redesigned item, blurry product details`;
         }
 
         return `[ROLE: Senior e-commerce fashion product retoucher and catalog image generator]
@@ -424,13 +429,14 @@ ${analysisGuide}
 - Remove: body, skin, face, head, hair, hands, arms, legs, feet, background, room, studio, floor, props, unrelated accessories, other clothing, phones, hanger, mannequin, text, watermark, and logo overlays.
 
 [OUTPUT]
-- Premium product catalog photo on pure white background (#FFFFFF), not transparent and not checkerboard.
+- Premium product catalog photo on a completely pure white background (#FFFFFF), not transparent and not checkerboard.
+- Every pixel that is not the "${itemLabel}" must be #FFFFFF. No colored backdrop, no tabletop, no wall, no studio sweep, no props, no gradient, no beige/gray tint, no texture, no clutter.
 - Natural product presentation: flat-lay, ghost-mannequin, or standalone packshot as appropriate for "${itemLabel}".
-- Add a very subtle natural contact shadow only if it helps the product read as a finished catalog image.
+- Avoid scene shadows and floor shadows; use only the minimum soft self-shadow needed to preserve product shape.
 - The "${itemLabel}" must fill the frame naturally at ${ratioText} aspect ratio.
 
 [NEGATIVE]
-raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body, leftover skin, leftover hair, background fragments, white holes, occlusion gaps, incomplete product, distorted product, changed color, changed pattern, added logo, low resolution, blurry, messy shadow`;
+raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body, leftover skin, leftover hair, background fragments, colored background, gray background, beige background, textured backdrop, tabletop, floor, wall, props, clutter, gradient, cast shadow, messy shadow, white holes, occlusion gaps, incomplete product, distorted product, changed color, changed pattern, added logo, low resolution, blurry`;
     };
 
     const extractSingleTarget = async (target: ExtractionTarget, signal?: AbortSignal): Promise<string> => {
@@ -452,6 +458,31 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
             throw new Error(`未能生成 ${target.label}`);
         }
         return results[0];
+    };
+
+    const runExtractionForTarget = async (target: ExtractionTarget, signal: AbortSignal) => {
+        setItems(prev => prev.map(i =>
+            i.id === target.id ? { ...i, status: 'processing' as const, imageUrl: null, error: undefined } : i
+        ));
+
+        try {
+            const imageUrl = await extractSingleTarget(target, signal);
+            setItems(prev => prev.map(i =>
+                i.id === target.id
+                    ? { ...i, imageUrl, status: 'done' as const, error: undefined }
+                    : i
+            ));
+        } catch (err) {
+            const aborted = isAbortError(err);
+            if (!aborted) {
+                console.error(`Extraction failed for "${target.label}":`, err);
+            }
+            setItems(prev => prev.map(i =>
+                i.id === target.id
+                    ? { ...i, imageUrl: null, status: 'error' as const, error: aborted ? '已取消生成' : getErrorMessage(err) }
+                    : i
+            ));
+        }
     };
 
     const handleExtract = async () => {
@@ -476,37 +507,17 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
             label: target.label,
             analysis: target.analysis,
             imageUrl: null,
-            status: 'pending' as const,
+            status: 'processing' as const,
         }));
         setItems(initialItems);
+        setSelectedResultIds(new Set());
 
         // Create abort controller
         const controller = new AbortController();
         abortRef.current = controller;
 
         try {
-            for (const target of targets) {
-                setItems(prev => prev.map(i =>
-                    i.id === target.id ? { ...i, status: 'processing' as const } : i
-                ));
-
-                try {
-                    const imageUrl = await extractSingleTarget(target, controller.signal);
-                    setItems(prev => prev.map(i =>
-                        i.id === target.id
-                            ? { ...i, imageUrl, status: 'done' as const, error: undefined }
-                            : i
-                    ));
-                } catch (err) {
-                    if (isAbortError(err)) throw err;
-                    console.error(`Extraction failed for "${target.label}":`, err);
-                    setItems(prev => prev.map(i =>
-                        i.id === target.id
-                            ? { ...i, imageUrl: null, status: 'error' as const, error: getErrorMessage(err) }
-                            : i
-                    ));
-                }
-            }
+            await Promise.all(targets.map(target => runExtractionForTarget(target, controller.signal)));
         } catch (err) {
             if (!isAbortError(err)) {
                 setError(getErrorMessage(err));
@@ -522,6 +533,38 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
         setIsProcessing(false);
     };
 
+    const getTargetFromItem = (item: ExtractedItem): ExtractionTarget => ({
+        id: item.id,
+        label: item.label,
+        englishName: item.analysis?.englishName || item.label,
+        analysis: item.analysis,
+    });
+
+    const handleRegenerateItems = async (targetItems: ExtractedItem[]) => {
+        if (!sourceImage || targetItems.length === 0 || isProcessing) return;
+        setIsProcessing(true);
+        setError(null);
+
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        try {
+            await Promise.all(targetItems.map(item => runExtractionForTarget(getTargetFromItem(item), controller.signal)));
+        } finally {
+            setIsProcessing(false);
+            abortRef.current = null;
+        }
+    };
+
+    const toggleResultSelection = (id: string) => {
+        setSelectedResultIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
     const handleDownload = (dataUrl: string, label: string) => {
         const link = document.createElement('a');
         link.href = dataUrl;
@@ -531,11 +574,23 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
         document.body.removeChild(link);
     };
 
+    const handleDownloadAll = async () => {
+        const downloadable = displayItems.filter(item => item.status === 'done' && item.imageUrl);
+        for (let index = 0; index < downloadable.length; index++) {
+            if (index > 0) {
+                await new Promise(resolve => setTimeout(resolve, 250));
+            }
+            handleDownload(downloadable[index].imageUrl!, `${downloadable[index].label}_${index + 1}`);
+        }
+    };
+
     const totalSelected = getExtractionTargets().length;
     const canExtract = sourceImage && totalSelected > 0 && !isProcessing;
 
     const displayItems = items;
     const displayDoneCount = displayItems.filter(i => i.status === 'done').length;
+    const selectedResultItems = displayItems.filter(i => selectedResultIds.has(i.id));
+    const hasDownloadableItems = displayDoneCount > 0;
 
     return (
         <div className="h-full flex flex-col bg-pastel-bg text-pastel-text overflow-hidden">
@@ -928,7 +983,8 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                     {/* RIGHT: Results */}
                     <div className="space-y-4">
                         <div className="bg-white rounded-[1.5rem] border border-pastel-border p-5 shadow-sm min-h-[300px]">
-                            <h3 className="font-bold text-pastel-text text-sm flex items-center gap-2 mb-4">
+                            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="font-bold text-pastel-text text-sm flex items-center gap-2">
                                 <Sparkles className="w-4 h-4 text-green-500" />
                                 提取结果
                                 {displayItems.length > 0 && (
@@ -937,6 +993,38 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                                     </span>
                                 )}
                             </h3>
+                                {displayItems.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedResultIds(new Set(displayItems.map(item => item.id)))}
+                                            disabled={isProcessing}
+                                            className="flex items-center gap-1 rounded-lg border border-pastel-border bg-white px-3 py-1.5 text-[10px] font-bold text-pastel-text transition-all hover:bg-pastel-bg disabled:opacity-40"
+                                        >
+                                            <CheckSquare className="h-3 w-3" />
+                                            全选
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRegenerateItems(selectedResultItems)}
+                                            disabled={isProcessing || selectedResultItems.length === 0}
+                                            className="flex items-center gap-1 rounded-lg border border-purple-100 bg-purple-50 px-3 py-1.5 text-[10px] font-bold text-purple-700 transition-all hover:bg-purple-100 disabled:opacity-40"
+                                        >
+                                            <RotateCcw className="h-3 w-3" />
+                                            重生成选中({selectedResultItems.length})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleDownloadAll}
+                                            disabled={!hasDownloadableItems}
+                                            className="flex items-center gap-1 rounded-lg border border-green-100 bg-green-50 px-3 py-1.5 text-[10px] font-bold text-green-700 transition-all hover:bg-green-100 disabled:opacity-40"
+                                        >
+                                            <Download className="h-3 w-3" />
+                                            全部下载
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
 
                             {items.length === 0 && !isProcessing && (
                                 <div className="py-16 text-center">
@@ -952,11 +1040,15 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
 
                             {/* Results Grid — skip the first item */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {displayItems.map(item => (
+                                {displayItems.map(item => {
+                                    const selected = selectedResultIds.has(item.id);
+                                    return (
                                     <div
                                         key={item.id}
                                         className={`rounded-2xl border overflow-hidden transition-all ${
-                                            item.status === 'done'
+                                            selected
+                                                ? 'border-purple-300 bg-purple-50/30 shadow-sm ring-2 ring-purple-100'
+                                                : item.status === 'done'
                                                 ? 'border-green-200 bg-green-50/20 shadow-sm'
                                                 : item.status === 'error'
                                                     ? 'border-red-200 bg-red-50/20'
@@ -965,23 +1057,45 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                                     >
                                         {/* Card Header */}
                                         <div className="flex items-center justify-between px-3 py-2 border-b border-inherit">
-                                            <span className="text-xs font-bold text-pastel-text flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleResultSelection(item.id)}
+                                                disabled={isProcessing}
+                                                className="min-w-0 text-xs font-bold text-pastel-text flex items-center gap-1.5 disabled:opacity-50"
+                                                title="选择后可批量重新生成"
+                                            >
+                                                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                                    selected ? 'border-purple-400 bg-purple-500 text-white' : 'border-pastel-border bg-white'
+                                                }`}>
+                                                    {selected && <CheckCircle2 className="h-3 w-3" />}
+                                                </span>
                                                 <Tag className="w-3 h-3 text-purple-400" />
-                                                {item.label}
-                                            </span>
-                                            {item.status === 'processing' && (
-                                                <Loader2 className="w-3.5 h-3.5 text-orange-500 animate-spin" />
-                                            )}
-                                            {item.status === 'done' && (
-                                                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                                            )}
-                                            {item.status === 'error' && (
-                                                <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                                            )}
+                                                <span className="truncate">{item.label}</span>
+                                            </button>
+                                            <div className="flex shrink-0 items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRegenerateItems([item])}
+                                                    disabled={isProcessing}
+                                                    className="rounded-md p-1 text-pastel-muted transition-all hover:bg-white hover:text-purple-600 disabled:opacity-40"
+                                                    title="重新生成当前单品"
+                                                >
+                                                    <RotateCcw className="h-3.5 w-3.5" />
+                                                </button>
+                                                {item.status === 'processing' && (
+                                                    <Loader2 className="w-3.5 h-3.5 text-orange-500 animate-spin" />
+                                                )}
+                                                {item.status === 'done' && (
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                                                )}
+                                                {item.status === 'error' && (
+                                                    <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Card Body */}
-                                        <div className="aspect-square bg-[#F5F5F5] flex items-center justify-center p-2">
+                                        <div className="aspect-square bg-white flex items-center justify-center p-2">
                                             {item.status === 'pending' && (
                                                 <span className="text-[10px] text-pastel-muted">等待中...</span>
                                             )}
@@ -1009,7 +1123,15 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
 
                                         {/* Card Footer */}
                                         {item.status === 'done' && item.imageUrl && (
-                                            <div className="px-3 py-2 border-t border-inherit flex justify-center">
+                                            <div className="px-3 py-2 border-t border-inherit flex justify-center gap-2">
+                                                <button
+                                                    onClick={() => handleRegenerateItems([item])}
+                                                    disabled={isProcessing}
+                                                    className="flex items-center gap-1 px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-[10px] font-bold text-pastel-text hover:bg-pastel-bg transition-all disabled:opacity-40"
+                                                >
+                                                    <RotateCcw className="w-3 h-3" />
+                                                    重新生成
+                                                </button>
                                                 <button
                                                     onClick={() => handleDownload(item.imageUrl!, item.label)}
                                                     className="flex items-center gap-1 px-3 py-1.5 bg-white border border-pastel-border rounded-lg text-[10px] font-bold text-pastel-text hover:bg-pastel-bg transition-all"
@@ -1020,7 +1142,8 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
