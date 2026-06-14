@@ -332,6 +332,55 @@ const normalizeGeneratedImagesToAspectRatio = (images: string[], targetAspectRat
     return Promise.all(images.map((img) => normalizeGeneratedImageToAspectRatio(img, targetAspectRatio, resolution)));
 };
 
+const normalizeImageToSourceAspect = (src: string, source?: UploadedImage | null): Promise<string> => {
+    if (!src.startsWith('data:image') || !source?.width || !source?.height) return Promise.resolve(src);
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const sourceWidth = img.naturalWidth || img.width;
+            const sourceHeight = img.naturalHeight || img.height;
+            if (!sourceWidth || !sourceHeight) {
+                resolve(src);
+                return;
+            }
+
+            const targetRatio = source.width / source.height;
+            const maxOutputSide = Math.max(source.width, source.height, 1024);
+            const outputWidth = targetRatio >= 1 ? maxOutputSide : Math.round(maxOutputSide * targetRatio);
+            const outputHeight = targetRatio >= 1 ? Math.round(maxOutputSide / targetRatio) : maxOutputSide;
+
+            let drawWidth = sourceWidth;
+            let drawHeight = sourceHeight;
+            let drawX = 0;
+            let drawY = 0;
+            const sourceRatio = sourceWidth / sourceHeight;
+
+            if (sourceRatio > targetRatio) {
+                drawWidth = sourceHeight * targetRatio;
+                drawX = (sourceWidth - drawWidth) / 2;
+            } else if (sourceRatio < targetRatio) {
+                drawHeight = sourceWidth / targetRatio;
+                drawY = (sourceHeight - drawHeight) / 2;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = outputWidth;
+            canvas.height = outputHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                resolve(src);
+                return;
+            }
+
+            ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight, 0, 0, outputWidth, outputHeight);
+            resolve(canvas.toDataURL('image/jpeg', 0.92));
+        };
+        img.onerror = () => resolve(src);
+        img.src = src;
+    });
+};
+
 const closestAspectRatioForImage = (image?: UploadedImage | null, fallback: AspectRatio = AspectRatio.PORTRAIT_3_4): AspectRatio => {
     if (!image?.width || !image?.height) return fallback;
     const sourceRatio = image.width / image.height;
@@ -695,10 +744,11 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                 if (answer.includes('yes')) {
                     console.log("[Scene Purify] Person detected in scene reference. Purifying background...");
                     // 2. 调用 editGeneratedImage 去除人物主体，净化背景
-                    const editPrompt = "Remove all people, persons, models, and humans from the image, and naturally fill in and inpaint the background details behind them to create a clean, empty room/space scene. Keep all other furniture, lighting, walls, windows, and architectural elements exactly identical.";
-                    const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: AspectRatio.SQUARE });
+                    const sceneAspectRatio = closestAspectRatioForImage(img, aspectRatio);
+                    const editPrompt = `Remove all people, persons, models, and humans from the image, and naturally fill in and inpaint the background details behind them to create a clean, empty room/space scene. Keep all other furniture, lighting, walls, windows, and architectural elements exactly identical. Preserve the original scene image canvas orientation and aspect ratio exactly (${img.width || 'source'}x${img.height || 'source'}, closest supported ratio ${sceneAspectRatio}); do not return a square crop, do not add letterboxing, and do not change the camera framing.`;
+                    const results = await editGeneratedImage(img.base64!, img.mime!, editPrompt, [], { aspectRatio: sceneAspectRatio });
                     if (results && results.length > 0) {
-                        const cleanBase64Data = results[0];
+                        const cleanBase64Data = await normalizeImageToSourceAspect(results[0], img);
                         const parts = cleanBase64Data.split(',');
                         const cleanBase64 = parts[1];
                         const cleanMime = parts[0].split(':')[1].split(';')[0];
@@ -706,7 +756,9 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                             ...img,
                             preview: cleanBase64Data,
                             base64: cleanBase64,
-                            mime: cleanMime
+                            mime: cleanMime,
+                            width: img.width,
+                            height: img.height
                         };
                     }
                 }
