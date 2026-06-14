@@ -36,6 +36,7 @@ import { MENS_PANTS_POSES } from '../constants/mensPantsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
+import { Y2K_POSES } from '../constants/y2kPosePresets';
 
 type UploadKind = 'model' | 'product' | 'scene' | 'action' | 'accessory';
 type MainReferenceKind = UploadKind | 'overall' | 'color';
@@ -52,7 +53,8 @@ type PoseLibraryKey =
   | 'swimShorts'
   | 'longDress'
   | 'womensFashion'
-  | 'solavibe';
+  | 'solavibe'
+  | 'y2k';
 
 type PosePreset = {
   id: string;
@@ -88,6 +90,7 @@ const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; 
   { key: 'longDress', label: '长裙/连衣裙', desc: '裙装展示', poses: LONG_DRESS_POSES },
   { key: 'sleepwear', label: '睡衣/居家', desc: '居家睡衣', poses: SLEEPWEAR_POSES },
   { key: 'solavibe', label: 'Solavibe 大码度假', desc: '度假大码', poses: SOLAVIBE_POSES },
+  { key: 'y2k', label: 'Y2K Editorial', desc: 'Denim/Trouser high-fashion', poses: Y2K_POSES },
 ];
 
 const PLATFORM_STYLES: Array<{ key: PlatformKey; label: string; desc: string; icon: string; prompt: string }> = [
