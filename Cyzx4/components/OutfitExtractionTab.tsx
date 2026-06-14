@@ -235,6 +235,9 @@ ${targetCatalog}
 
 Rules:
 - Recommend only useful complementary targets, not duplicates of the core product.
+- Ignore readable text, numbers, slogans, logo-like marks, and graphic typography on the product when summarizing style or recommending matching items.
+- Do not treat text like numbers, slogans, or words as a design direction to repeat across the outfit.
+- Prefer elevated designer-inspired, premium boutique, refined street-luxury matching logic over cheap identical graphic matching.
 - If Image 1 is a top, usually recommend bottom, shoes, bag, outerwear or jewelry.
 - If Image 1 is a bottom, usually recommend top, shoes, bag, outerwear or jewelry.
 - If Image 1 is shoes or bag, recommend clothing and accessories that complete the outfit.
@@ -774,20 +777,25 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
 - The output must be a NEW complementary item that can be styled with Image 1.
 - Do NOT copy Image 1, do NOT generate the same product, do NOT make a duplicate, and do NOT replace the target with the original product.
 - Images 2+ are optional style references. Use them only for styling DNA, color mood, market taste, and outfit direction. Do not copy their exact products unless they naturally match the requested target.
+- Ignore all readable text, numbers, slogans, brand-like marks, labels, and graphic typography on the reference product when designing matching items.
+- Do NOT transfer, remix, abbreviate, or imitate any reference text such as large numbers, words, phrases, logos, patches, badges, or printed typography onto the matching item.
 
 [STYLE BRIEF]
 - User style: ${style}
 - Keep the generated item coordinated with the source product in color harmony, material logic, season, market positioning, and ecommerce appeal.
-- The matching item should feel commercially useful, tasteful, and immediately pairable with the source product.
+- The matching item should feel commercially useful, tasteful, premium, and immediately pairable with the source product.
+- Push the styling toward elevated designer-inspired fashion, curated boutique taste, premium materials, subtle details, and high-end ecommerce presentation.
+- Avoid cheap matching-set logic. Do not make every item repeat the same print, slogan, number, or graphic motif.
 
 [OUTPUT]
 - Generate ONLY one ${target.englishName}.
 - Pure white background (#FFFFFF), clean catalog product image, centered with natural margins.
 - No model, no person, no mannequin, no hanger, no extra props, no text, no watermark, no logo overlay.
+- Prefer clean luxury/minimal or refined street-luxury design language over obvious slogan graphics.
 - Preserve realistic construction, material texture, edges, hardware, seams, stitching, and scale for the target category.
 
 [NEGATIVE]
-duplicate of source product, same product as reference, copied source, full outfit, model, person, mannequin, hanger, multiple items, collage, text, watermark, logo overlay, colored background, gray background, beige background, tabletop, floor, wall, props, blurry, distorted shape, broken edges, unrealistic material`;
+duplicate of source product, same product as reference, copied source, copied typography, copied text, copied slogan, copied number, repeated number, repeated word, logo imitation, fake logo, brand text, patch text, graphic text transfer, matching-set print repetition, cheap slogan design, full outfit, model, person, mannequin, hanger, multiple items, collage, text, watermark, logo overlay, colored background, gray background, beige background, tabletop, floor, wall, props, blurry, distorted shape, broken edges, unrealistic material`;
     };
 
     const buildOutfitPreviewPrompt = (targets: MatchTarget[], generatedItems: ExtractedItem[] = []): string => {
@@ -807,6 +815,7 @@ duplicate of source product, same product as reference, copied source, full outf
 - Image 1 is the user's core product and MUST be worn naturally by the model in the final image.
 - Preserve the source product's recognizable color, material, silhouette, construction, and style identity while adapting it realistically to the model's body.
 - Do not redesign, recolor, simplify, or replace the source product.
+- Any readable text, numbers, slogans, or typography from Image 1 must stay only on Image 1's original product. Do not spread that text identity to other outfit pieces.
 ${styleReferenceLine}
 ${matchReferenceImages.length > 0 ? '- Style references guide model styling, outfit mood, color harmony, scene taste, and ecommerce fashion direction only.' : ''}
 ${generatedItems.length > 0 ? `- Images ${generatedItemStart}+ are generated matching item references and have higher priority than style references.` : ''}
@@ -815,6 +824,7 @@ ${generatedItems.length > 0 ? `- Images ${generatedItemStart}+ are generated mat
 ${generatedItemGuide}
 - CRITICAL: The worn outfit MUST be visually consistent with the already generated matching item images. Preserve their color, material, shape, print/pattern, hardware, texture, and style identity.
 - Do NOT invent a different top, jacket, hat, jewelry, watch, shoes, bag, or glasses when a generated matching item image is provided.
+- Do NOT add copied source-product text, numbers, slogans, or logo-like typography to any generated matching item or to the model outfit.
 - If a generated matching item is a watch, place it naturally on the model's wrist and keep it visible.
 - If a generated matching item is jewelry, place it naturally as necklace, ring, bracelet, earrings, or related jewelry depending on the item image.
 
@@ -826,9 +836,11 @@ ${generatedItemGuide}
 - User style: ${style}
 - Build a cohesive, commercially attractive model outfit that helps shoppers understand how to wear and style the source product.
 - The result must look like a finished fashion ecommerce model photo, not a product layout.
+- The styling should feel premium and designer-inspired: curated, elevated, refined, not a low-end identical graphic set.
 
 [OUTPUT]
 - One photorealistic full-body or 3/4-body model wearing the complete outfit.
+- Output must be a vertical 3:4 portrait composition. Do NOT generate a square 1:1 image.
 - Use a European or American fashion ecommerce model by default, with a Western commercial catalog casting direction.
 - The model should have a natural fashion pose, realistic body proportions, natural hands, and clean commercial styling.
 - Show the source product clearly on the model as the hero item. Integrate matching items naturally as worn clothing, shoes, bag, jewelry, hat, or eyewear.
@@ -837,7 +849,7 @@ ${generatedItemGuide}
 - Avoid clutter. The outfit should be visible, plausible, coordinated, and attractive at thumbnail size.
 
 [NEGATIVE]
-flat lay, outfit board, product layout, product grid, items arranged on floor, tabletop, isolated products, model-free composition, different generated items, substituted jacket, substituted top, substituted hat, substituted jewelry, substituted watch, missing watch, missing jewelry, missing generated accessory, collage, split screen, missing source product, changed source product, duplicate products, unrelated style, messy collage, text labels, watermark, logo overlay, extra hands, distorted hands, broken fingers, distorted body, bad anatomy, unrealistic scale, blurry, low quality`;
+flat lay, outfit board, product layout, product grid, items arranged on floor, tabletop, isolated products, model-free composition, copied source typography, copied text, copied slogan, copied number, repeated number, repeated word, logo imitation, fake logo, brand text, patch text, graphic text transfer, cheap matching-set graphics, different generated items, substituted jacket, substituted top, substituted hat, substituted jewelry, substituted watch, missing watch, missing jewelry, missing generated accessory, collage, split screen, missing source product, changed source product, duplicate products, unrelated style, messy collage, text labels, watermark, logo overlay, extra hands, distorted hands, broken fingers, distorted body, bad anatomy, unrealistic scale, blurry, low quality`;
     };
 
     const generateSingleMatchItem = async (target: MatchTarget, signal?: AbortSignal): Promise<string> => {
@@ -872,7 +884,7 @@ flat lay, outfit board, product layout, product grid, items arranged on floor, t
             [...getMatchInputImages(), ...generatedItemInputs],
             buildOutfitPreviewPrompt(targets, generatedItems.filter(item => item.status === 'done' && item.imageUrl)),
             {
-                aspectRatio: selectedRatio,
+                aspectRatio: AspectRatio.PORTRAIT_3_4,
                 resolution: selectedResolution,
                 modelId: selectedModel,
                 signal,
