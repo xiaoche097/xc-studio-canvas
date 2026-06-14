@@ -28,6 +28,7 @@ import { MENS_PANTS_POSES } from '../constants/mensPantsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
+import { Y2K_POSES } from '../constants/y2kPosePresets';
 
 interface UploadedImage {
     file: File;
@@ -77,7 +78,7 @@ interface AutoPoseAnalysis {
     confidence: string;
 }
 
-type ManualPoseLibrary = AutoPoseLibrary | 'sleepwear' | 'clothing';
+type ManualPoseLibrary = AutoPoseLibrary | 'sleepwear' | 'clothing' | 'y2k';
 
 interface ManualPoseOption {
     key: string;
@@ -105,6 +106,7 @@ const MANUAL_POSE_LIBRARY_LABELS: Record<ManualPoseLibrary, string> = {
     ...AUTO_POSE_LIBRARY_LABELS,
     sleepwear: '睡衣/居家动作库',
     clothing: '通用服装动作库',
+    y2k: 'Y2K Editorial 动作库',
 };
 
 const buildManualPoseOptions = (): ManualPoseOption[] => {
@@ -118,6 +120,7 @@ const buildManualPoseOptions = (): ManualPoseOption[] => {
         { library: 'longDress', poses: LONG_DRESS_POSES },
         { library: 'womensFashion', poses: WOMENS_FASHION_POSES },
         { library: 'solavibe', poses: SOLAVIBE_POSES },
+        { library: 'y2k', poses: Y2K_POSES },
         { library: 'sleepwear', poses: SLEEPWEAR_POSES },
         { library: 'clothing', poses: CLOTHING_POSES },
     ];
@@ -453,7 +456,7 @@ const HeroImageTab: React.FC = () => {
     // Photo controls
     const [cameraDevice, setCameraDevice] = useState('智能推荐');
     const [shotType, setShotType] = useState('智能推荐');
-    const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
+    const [selectedPlatform, setSelectedPlatform] = useState<string | null>('shein');
     
     // Image states
     const [productImages, setProductImages] = useState<UploadedImage[]>([]);
