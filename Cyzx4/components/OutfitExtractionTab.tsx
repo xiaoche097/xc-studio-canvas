@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
     Upload, X, Sparkles, Loader2,
     Download, Scissors, Shirt, Tag,
@@ -135,10 +135,10 @@ const OutfitExtractionTab: React.FC = () => {
     );
 
     // Settings
-    const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+    const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
     const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-image-preview');
-    const [extractionMode, setExtractionMode] = useState<ExtractionMode>('precise');
+    const [extractionMode, setExtractionMode] = useState<ExtractionMode>('rebuild');
 
     // Items to extract
     const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
@@ -212,8 +212,20 @@ const OutfitExtractionTab: React.FC = () => {
         }
     };
 
-    const analyzeMatchNeeds = async (productImage: UploadedImage, referenceImages: UploadedImage[] = matchReferenceImages) => {
+    const analyzeMatchNeeds = async (
+        productImage: UploadedImage,
+        referenceImages: UploadedImage[] = matchReferenceImages,
+        options: { resetBeforeAnalyze?: boolean } = {}
+    ) => {
         if (!productImage.base64) return;
+        if (options.resetBeforeAnalyze) {
+            setStylePrompt('');
+            setSelectedMatchTargets(new Set(DEFAULT_MATCH_TARGET_IDS));
+            setMatchItems([]);
+            setOutfitPreview(null);
+            setSelectedResultIds(new Set());
+            setMatchAnalysisNotice(null);
+        }
         const controller = new AbortController();
         analysisAbortRef.current?.abort();
         analysisAbortRef.current = controller;
@@ -258,9 +270,7 @@ Return ONLY valid JSON:
             if (analysis.recommendedTargetIds.length > 0) {
                 setSelectedMatchTargets(new Set(analysis.recommendedTargetIds));
             }
-            if (!stylePrompt.trim() && analysis.styleSummary) {
-                setStylePrompt(analysis.styleSummary);
-            }
+            setStylePrompt(analysis.styleSummary || '');
             setMatchAnalysisNotice(
                 analysis.recommendedTargetIds.length > 0
                     ? `${analysis.styleSummary || 'AI 已完成搭配分析'}：${analysis.reason || `推荐生成 ${analysis.recommendedTargetIds.length} 类搭配单品`}`
@@ -294,7 +304,7 @@ Return ONLY valid JSON:
             setIsProcessing(false);
 
             if (activeWorkflow === 'match') {
-                await analyzeMatchNeeds(uploaded);
+                await analyzeMatchNeeds(uploaded, matchReferenceImages, { resetBeforeAnalyze: true });
                 return;
             }
 
@@ -350,6 +360,25 @@ Return ONLY valid JSON:
         }
     };
 
+    useEffect(() => {
+        const handleWindowPaste = (event: ClipboardEvent) => {
+            if (isProcessing || sourceImage) return;
+            const target = event.target as HTMLElement | null;
+            const isTextInput = target?.closest('input, textarea, [contenteditable="true"]');
+            if (isTextInput) return;
+
+            const item = Array.from(event.clipboardData?.items || []).find(x => x.type.startsWith('image/'));
+            const file = item?.getAsFile();
+            if (!file) return;
+
+            event.preventDefault();
+            void handleUpload(file);
+        };
+
+        window.addEventListener('paste', handleWindowPaste);
+        return () => window.removeEventListener('paste', handleWindowPaste);
+    }, [isProcessing, sourceImage]);
+
     const handleReferenceUpload = async (files?: FileList | null) => {
         if (!files || isProcessing) return;
         const validFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
@@ -364,7 +393,7 @@ Return ONLY valid JSON:
             setOutfitPreview(null);
             setSelectedResultIds(new Set());
             if (sourceImage) {
-                await analyzeMatchNeeds(sourceImage, nextReferences);
+                await analyzeMatchNeeds(sourceImage, nextReferences, { resetBeforeAnalyze: true });
             }
         } catch {
             setError('参考图处理失败，请重试');
@@ -380,7 +409,7 @@ Return ONLY valid JSON:
         setOutfitPreview(null);
         setSelectedResultIds(new Set());
         if (sourceImage) {
-            await analyzeMatchNeeds(sourceImage, nextReferences);
+            await analyzeMatchNeeds(sourceImage, nextReferences, { resetBeforeAnalyze: true });
         }
     };
 
@@ -397,6 +426,12 @@ Return ONLY valid JSON:
         setError(null);
         setAnalysisNotice(null);
         setMatchAnalysisNotice(null);
+        setStylePrompt('');
+        setSelectedMatchTargets(new Set(DEFAULT_MATCH_TARGET_IDS));
+        matchReferenceImages.forEach(image => {
+            if (image.preview.startsWith('blob:')) URL.revokeObjectURL(image.preview);
+        });
+        setMatchReferenceImages([]);
     };
 
     const switchWorkflow = (workflow: ActiveWorkflow) => {
@@ -405,9 +440,10 @@ Return ONLY valid JSON:
         setError(null);
         setSelectedResultIds(new Set());
         if (workflow === 'match') {
+            setSelectedRatio(AspectRatio.PORTRAIT_3_4);
             analysisAbortRef.current?.abort();
             setIsAnalyzing(false);
-            if (sourceImage) void analyzeMatchNeeds(sourceImage);
+            if (sourceImage) void analyzeMatchNeeds(sourceImage, matchReferenceImages, { resetBeforeAnalyze: true });
         } else {
             analysisAbortRef.current?.abort();
             setIsAnalyzingMatchNeeds(false);

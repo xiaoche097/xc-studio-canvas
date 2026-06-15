@@ -529,9 +529,13 @@ const PoseFissionTab: React.FC = () => {
 - If the PRIMARY PRODUCT is sleeveless / strapless / cropped / open-back, the result must keep that exact exposed structure with no extra fabric added underneath.`;
 
       const identityLock = modelCount > 0
-        ? `[STRICT IDENTITY LOCK - CRITICAL]: 
-- The generated model MUST have the EXACT SAME FACE, facial features, and ethnicity as the person shown in the model identity reference images (${modelIdxRange}).
-- Zero identity drift is allowed. Do NOT generate a random or different face. If reference images show a specific person, you must replicate their facial structure perfectly.
+        ? `[TOP PRIORITY IDENTITY / FACE LOCK - HIGHEST WEIGHT]:
+- This is the highest-priority rule in the entire task. It overrides pose, angle, scene, outfit-effect, accessory, and styling instructions whenever they conflict.
+- The generated model MUST be the exact same person as the model identity reference images (${modelIdxRange}).
+- Preserve the face 1:1: facial structure, eyes, eyelids, eyebrows, nose bridge, nose tip, lips, mouth shape, jawline, chin, cheekbones, face width, skin tone, ethnicity, age impression, expression style, hairline, hairstyle, hair color, and visible makeup must stay unchanged.
+- Zero face drift is allowed. Do NOT beautify, average, stylize, age-shift, ethnicity-shift, gender-shift, swap, regenerate, or invent a new face.
+- Pose fission may change body pose and camera framing only; it must never change the person's identity or facial likeness.
+- If the selected pose/crop shows the face, the face must match the reference person exactly. If the crop hides part of the face, preserve every visible facial feature exactly.
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
 - Model Traits (User Input): ${specificFeatures || "None"}`
         : `[MODEL CREATION]: No dedicated model identity references were provided.
@@ -549,6 +553,15 @@ const PoseFissionTab: React.FC = () => {
         ? `[SCENE & BACKGROUND]: ${sceneCount > 0 ? `Match the environment, lighting, and general background vibe from ${sceneIdxRange}. CRITICAL: If there are any people or models visible in the scene reference images (${sceneIdxRange}), you MUST IGNORE THEM. Treat the scene reference as an empty environment. Do NOT copy the identity, pose, or clothing of any person from the scene reference images.` : ''} ${scenePrompt ? `Additional scene requirements: ${scenePrompt}.` : ''}`
         : `[SCENE & BACKGROUND]: PURE WHITE (#FFFFFF), clean studio lighting, minimal shadows.`;
 
+      const userFramingText = [bodyInfo, specificFeatures, detailPrompt, scenePrompt].filter(Boolean).join(' ');
+      const wantsHalfBody = /(?:\u534a\u8eab|\u4e0a\u534a\u8eab|\u534a\u8eab\u7167|\u534a\u8eab\u5c55\u793a|\u534a\u8eab\u56fe|\u8fd1\u666f|\u80f8\u50cf|\u8170\u90e8\u4ee5\u4e0a|\u8170\u4ee5\u4e0a|\u5927\u534a\u8eab|half[-\s]?body|waist[-\s]?up|upper[-\s]?body|torso|bust)/i.test(userFramingText);
+      const wantsFrontView = /(?:\u6b63\u9762|\u6b63\u9762\u5c55\u793a|\u6b63\u9762\u5168\u8eab|\u6b63\u9762\u534a\u8eab|front|front-facing|straight-on)/i.test(userFramingText);
+      const userFramingLock = wantsHalfBody || wantsFrontView
+        ? `[USER FRAMING OVERRIDE - HIGHEST PRIORITY]:
+${wantsHalfBody ? '- The user explicitly requested HALF-BODY / upper-body framing. This overrides product-showcase defaults, action-library defaults, scene reference framing, and AI auto pose suggestions.\n- Generate a half-body commercial fashion image only: crop from head/upper chest/shoulders down to waist, hips, or upper thighs. Do NOT show the full body, full legs, knees-to-feet, shoes, or head-to-toe framing.\n- The camera must stay close enough for a half-body product display. Do NOT zoom out or pull back to show the entire person.' : ''}
+${wantsFrontView ? '- The user explicitly requested a FRONT VIEW / straight-on display. This overrides random action presets, scene references, and product-showcase defaults. Keep the model facing the camera as the main view. Do NOT switch to back view, side view, or strong three-quarter view.' : ''}`
+        : '';
+
       const baseNegativePrompt = [
         "original outfit",
         "keep original clothes",
@@ -565,6 +578,39 @@ const PoseFissionTab: React.FC = () => {
         "unreferenced clothing",
         "copy/paste reference",
         "duplicate reference image",
+        "different person",
+        "different identity",
+        "changed face",
+        "face drift",
+        "new face",
+        "random face",
+        "beautified face",
+        "altered facial features",
+        "changed ethnicity",
+        "changed age",
+        "changed skin tone",
+        "changed hairstyle",
+        "changed hairline",
+        "wrong expression",
+        ...(wantsHalfBody ? [
+          "full body",
+          "full-length",
+          "head-to-toe",
+          "entire body",
+          "feet visible",
+          "shoes visible",
+          "full legs",
+          "knees visible",
+          "zoomed out",
+          "pulled-back camera",
+          "distant shot"
+        ] : []),
+        ...(wantsFrontView ? [
+          "back view",
+          "side view",
+          "strong three-quarter view",
+          "turned away"
+        ] : []),
         "wrong styling result",
         "wrong layering",
         "wrong tuck",
@@ -603,13 +649,19 @@ const PoseFissionTab: React.FC = () => {
               });
               
               const totalImages = angleApiImages.length;
-              explicitReferencePrompt = `\n[EXACT POSE & FRAMING REFERENCE]: Image ${totalImages} is the STRICT layout blueprint.\n- The output MUST exactly match Image ${totalImages}'s body pose, arm angles, leg placement, camera angle, subject scaling, body tilt, and crop boundaries.\n- The output MUST maintain a 1:1 identical visual framing to Image ${totalImages}.\n- DO NOT inherit any clothing style, identity, or background from Image ${totalImages}. Use it ONLY to enforce the exact geometric proportions and pose placement.\n`;
+              explicitReferencePrompt = wantsHalfBody
+                ? `\n[POSE REFERENCE - USER HALF-BODY OVERRIDE ACTIVE]: Image ${totalImages} is only a pose/gesture guide.\n- Use Image ${totalImages} for upper-body pose, shoulder direction, arm/hand gesture, and general body attitude only.\n- DO NOT copy Image ${totalImages}'s full-body crop, full-length subject scale, visible legs, visible feet, shoe framing, or head-to-toe composition.\n- The final output MUST remain half-body / upper-body framing even if Image ${totalImages} is full-body.\n- DO NOT inherit any clothing style, identity, or background from Image ${totalImages}.\n`
+                : `\n[EXACT POSE & FRAMING REFERENCE]: Image ${totalImages} is the STRICT layout blueprint.\n- The output MUST exactly match Image ${totalImages}'s body pose, arm angles, leg placement, camera angle, subject scaling, body tilt, and crop boundaries.\n- The output MUST maintain a 1:1 identical visual framing to Image ${totalImages}.\n- DO NOT inherit any clothing style, identity, or background from Image ${totalImages}. Use it ONLY to enforce the exact geometric proportions and pose placement.\n`;
             } catch (err) {
               console.warn(`Failed to fetch angle reference image for ${angle.id}:`, err);
             }
           }
 
-          const mainPrompt = `${currentPreset.motherPrompt || MAIN_IMAGE_MOTHER_PROMPT}
+          const mainPrompt = `${identityLock}
+
+${userFramingLock}
+
+${currentPreset.motherPrompt || MAIN_IMAGE_MOTHER_PROMPT}
 [SHOT TYPE]: Single fashion catalog main image only. No collage, no grid, no multi-angle sheet.
 [SELECTED ANGLE]: ${angle.id} - ${angle.label}
 [ANGLE BLUEPRINT]: ${angle.prompt}
@@ -619,9 +671,9 @@ const PoseFissionTab: React.FC = () => {
 - Preserve the exact view direction, crop distance, head visibility, body rotation, shoulder line, hand placement, and white-space balance.
 - Keep the model centered on a portrait ${mainAspectRatio} canvas.
 - Maintain the same half-body / close crop level described above. Do NOT zoom wider or tighter.
+- If the user requested half-body framing, this output MUST remain half-body even if a reference image or action cue shows full body.
 - Do not improvise a new pose, camera height, lens feel, or composition.${explicitReferencePrompt}
 
-${identityLock}
 ${outfitEffectLock}
 [STRICT BODY DIMENSIONS LOCK]: 
 - You MUST perfectly replicate the model's exact body build, height, BWH (bust-waist-hip) measurements, and body proportions shown in the reference images.
@@ -632,6 +684,7 @@ ${outfitEffectLock}
 [PRIMARY PRODUCT (NON-NEGOTIABLE)]:
 - The PRIMARY PRODUCT is shown in ${productIdxRange}. It MUST appear on the model exactly.
 - 1:1 match of garment structure, seams, buttons, texture, print/pattern, color, and fit. NO substitutions.
+${wantsHalfBody ? '- USER HALF-BODY OVERRIDE: preserving the requested half-body crop is more important than showing the full product length. If the product is a long dress, skirt, pants, or full-length outfit, crop it naturally at the waist, hips, or upper thighs. Do NOT zoom out to show the hem, knees, calves, feet, shoes, or complete garment length.' : ''}
 
 [OUTFIT RULE]:
 - If the model identity reference already wears the primary product, preserve it exactly.
@@ -651,6 +704,7 @@ ${sceneLock}
 [STRICT NEGATIVE RULES]:
 - NO grid, NO collage, NO multi-panel layout.
 - NO standing full body if the blueprint is half body.
+${wantsHalfBody ? '- ABSOLUTELY NO full-body fashion shot, no full-length product display, no head-to-toe model, no visible feet, no visible shoes, no long-distance camera.' : ''}
 - NO beauty close-up, NO face zoom, NO tilted camera, NO high angle, NO low angle.
 - NO pose invention, NO hand changes, NO crop drift, NO landscape framing.
 - The result must read as one clean e-commerce main image for angle ${angle.id}.
@@ -663,11 +717,25 @@ ${sceneLock}
             "multi-panel layout",
             "wrong camera angle",
             "wrong crop",
-            "full body",
+            ...(wantsHalfBody ? ["full body"] : []),
             "landscape framing",
             "beauty close-up",
             "changed hand pose",
             "pose drift",
+            "different person",
+            "different identity",
+            "changed face",
+            "face drift",
+            "new face",
+            "random face",
+            "beautified face",
+            "altered facial features",
+            "changed ethnicity",
+            "changed age",
+            "changed skin tone",
+            "changed hairstyle",
+            "changed hairline",
+            "wrong expression",
           ].join(", ");
 
           const targetAspect = mainAspectRatio === '2:3' 
@@ -772,7 +840,11 @@ ${sceneLock}
 [PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
 [POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
 
-      const prompt = `${promptPrefix}${poseFramingLock}${identityLock}
+      const prompt = `${identityLock}
+
+${userFramingLock}
+
+${promptPrefix}${poseFramingLock}
 ${outfitEffectLock}
 [STRICT BODY DIMENSIONS LOCK]: 
 - You MUST perfectly replicate the model's exact body build, height, BWH (bust-waist-hip) measurements, and body proportions shown in the reference images.
@@ -802,7 +874,8 @@ ${gridRules}
 - EVERY grid cell MUST show the MODEL wearing the PRIMARY PRODUCT.
 - ABSOLUTELY NO standalone product shots (NO shoes/bags/accessories only).
 - DO NOT ZOOM IN ON FACE. Focus on showing the WHOLE garment and fit.
-- Full-body or 3/4 shots are preferred to showcase the product.
+${wantsHalfBody ? '- USER HALF-BODY LOCK: every grid cell MUST be half-body / upper-body framing. Do NOT use full-body or head-to-toe shots. Crop out feet, shoes, and most lower legs. Show the product within a close commercial half-body crop.' : '- Full-body or 3/4 shots are allowed only when the user did not request half-body framing.'}
+${wantsFrontView ? '- USER FRONT-VIEW LOCK: every grid cell should use straight-on front-facing display unless a selected preset explicitly says otherwise.' : ''}
 ${sceneLock}
 - Each model must fit perfectly within their mathematically divided grid cell, maintaining 100% accurate human body proportions (no stretching/squashing).
 - **CRITICAL**: This rule applies to both 16:9 (horizontal) and 9:16 (vertical) layouts. Consistency is mandatory across all ${totalPoses} cells.
