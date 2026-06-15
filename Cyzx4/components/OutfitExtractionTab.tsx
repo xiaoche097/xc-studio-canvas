@@ -135,10 +135,10 @@ const OutfitExtractionTab: React.FC = () => {
     );
 
     // Settings
-    const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
+    const [selectedRatio, setSelectedRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
     const [selectedResolution, setSelectedResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-image-preview');
-    const [extractionMode, setExtractionMode] = useState<ExtractionMode>('precise');
+    const [extractionMode, setExtractionMode] = useState<ExtractionMode>('rebuild');
 
     // Items to extract
     const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
@@ -437,6 +437,7 @@ Return ONLY valid JSON:
         setError(null);
         setSelectedResultIds(new Set());
         if (workflow === 'match') {
+            setSelectedRatio(AspectRatio.PORTRAIT_3_4);
             analysisAbortRef.current?.abort();
             setIsAnalyzing(false);
             if (sourceImage) void analyzeMatchNeeds(sourceImage, matchReferenceImages, { resetBeforeAnalyze: true });
