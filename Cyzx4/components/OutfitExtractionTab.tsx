@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
     Upload, X, Sparkles, Loader2,
     Download, Scissors, Shirt, Tag,
@@ -356,6 +356,25 @@ Return ONLY valid JSON:
             if (file) handleUpload(file);
         }
     };
+
+    useEffect(() => {
+        const handleWindowPaste = (event: ClipboardEvent) => {
+            if (isProcessing || sourceImage) return;
+            const target = event.target as HTMLElement | null;
+            const isTextInput = target?.closest('input, textarea, [contenteditable="true"]');
+            if (isTextInput) return;
+
+            const item = Array.from(event.clipboardData?.items || []).find(x => x.type.startsWith('image/'));
+            const file = item?.getAsFile();
+            if (!file) return;
+
+            event.preventDefault();
+            void handleUpload(file);
+        };
+
+        window.addEventListener('paste', handleWindowPaste);
+        return () => window.removeEventListener('paste', handleWindowPaste);
+    }, [isProcessing, sourceImage]);
 
     const handleReferenceUpload = async (files?: FileList | null) => {
         if (!files || isProcessing) return;
