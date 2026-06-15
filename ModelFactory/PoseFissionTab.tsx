@@ -529,9 +529,13 @@ const PoseFissionTab: React.FC = () => {
 - If the PRIMARY PRODUCT is sleeveless / strapless / cropped / open-back, the result must keep that exact exposed structure with no extra fabric added underneath.`;
 
       const identityLock = modelCount > 0
-        ? `[STRICT IDENTITY LOCK - CRITICAL]: 
-- The generated model MUST have the EXACT SAME FACE, facial features, and ethnicity as the person shown in the model identity reference images (${modelIdxRange}).
-- Zero identity drift is allowed. Do NOT generate a random or different face. If reference images show a specific person, you must replicate their facial structure perfectly.
+        ? `[TOP PRIORITY IDENTITY / FACE LOCK - HIGHEST WEIGHT]:
+- This is the highest-priority rule in the entire task. It overrides pose, angle, scene, outfit-effect, accessory, and styling instructions whenever they conflict.
+- The generated model MUST be the exact same person as the model identity reference images (${modelIdxRange}).
+- Preserve the face 1:1: facial structure, eyes, eyelids, eyebrows, nose bridge, nose tip, lips, mouth shape, jawline, chin, cheekbones, face width, skin tone, ethnicity, age impression, expression style, hairline, hairstyle, hair color, and visible makeup must stay unchanged.
+- Zero face drift is allowed. Do NOT beautify, average, stylize, age-shift, ethnicity-shift, gender-shift, swap, regenerate, or invent a new face.
+- Pose fission may change body pose and camera framing only; it must never change the person's identity or facial likeness.
+- If the selected pose/crop shows the face, the face must match the reference person exactly. If the crop hides part of the face, preserve every visible facial feature exactly.
 - Model Traits (Auto-Analysis): ${analysis.model_identity}
 - Model Traits (User Input): ${specificFeatures || "None"}`
         : `[MODEL CREATION]: No dedicated model identity references were provided.
@@ -565,6 +569,20 @@ const PoseFissionTab: React.FC = () => {
         "unreferenced clothing",
         "copy/paste reference",
         "duplicate reference image",
+        "different person",
+        "different identity",
+        "changed face",
+        "face drift",
+        "new face",
+        "random face",
+        "beautified face",
+        "altered facial features",
+        "changed ethnicity",
+        "changed age",
+        "changed skin tone",
+        "changed hairstyle",
+        "changed hairline",
+        "wrong expression",
         "wrong styling result",
         "wrong layering",
         "wrong tuck",
@@ -609,7 +627,9 @@ const PoseFissionTab: React.FC = () => {
             }
           }
 
-          const mainPrompt = `${currentPreset.motherPrompt || MAIN_IMAGE_MOTHER_PROMPT}
+          const mainPrompt = `${identityLock}
+
+${currentPreset.motherPrompt || MAIN_IMAGE_MOTHER_PROMPT}
 [SHOT TYPE]: Single fashion catalog main image only. No collage, no grid, no multi-angle sheet.
 [SELECTED ANGLE]: ${angle.id} - ${angle.label}
 [ANGLE BLUEPRINT]: ${angle.prompt}
@@ -621,7 +641,6 @@ const PoseFissionTab: React.FC = () => {
 - Maintain the same half-body / close crop level described above. Do NOT zoom wider or tighter.
 - Do not improvise a new pose, camera height, lens feel, or composition.${explicitReferencePrompt}
 
-${identityLock}
 ${outfitEffectLock}
 [STRICT BODY DIMENSIONS LOCK]: 
 - You MUST perfectly replicate the model's exact body build, height, BWH (bust-waist-hip) measurements, and body proportions shown in the reference images.
@@ -668,6 +687,20 @@ ${sceneLock}
             "beauty close-up",
             "changed hand pose",
             "pose drift",
+            "different person",
+            "different identity",
+            "changed face",
+            "face drift",
+            "new face",
+            "random face",
+            "beautified face",
+            "altered facial features",
+            "changed ethnicity",
+            "changed age",
+            "changed skin tone",
+            "changed hairstyle",
+            "changed hairline",
+            "wrong expression",
           ].join(", ");
 
           const targetAspect = mainAspectRatio === '2:3' 
@@ -772,7 +805,9 @@ ${sceneLock}
 [PRODUCT PRIORITY]: The PRIMARY PRODUCT must match the provided product reference images 1:1 and MUST be visible in every cell.
 [POSES]: Plan 12 dynamic fashion poses based on: ${finalPosesList}`;
 
-      const prompt = `${promptPrefix}${poseFramingLock}${identityLock}
+      const prompt = `${identityLock}
+
+${promptPrefix}${poseFramingLock}
 ${outfitEffectLock}
 [STRICT BODY DIMENSIONS LOCK]: 
 - You MUST perfectly replicate the model's exact body build, height, BWH (bust-waist-hip) measurements, and body proportions shown in the reference images.

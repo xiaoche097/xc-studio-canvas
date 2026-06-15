@@ -1267,9 +1267,10 @@ Rules:
             const modelWardrobeLock = modelReference
                 ? (isFaceOnly
                     ? [
-                        '# MODEL FACE-ONLY LOCK (HIGHEST PRIORITY AFTER PRODUCT):',
+                        '# MODEL FACE-ONLY LOCK (STRICT):',
                         `- The MODEL identity reference images are listed in the exact image routing table for this generation call.`,
-                        '- Preserve only the model face/head identity: face shape, facial proportions, eyes, eyebrows, nose, lips, jaw/chin, expression, and visible skin tone.',
+                        '- Preserve only the model face/head identity with maximum fidelity: face shape, facial proportions, eyes, eyelids, eyebrows, nose bridge, nose tip, lips, mouth shape, jaw/chin, cheekbones, expression, visible skin tone, ethnicity, age impression, hairline, hairstyle, and hair color.',
+                        '- Zero face drift is allowed. Do NOT beautify, average, stylize, age-shift, ethnicity-shift, swap, regenerate, or invent a new face.',
                         activeModelIdentityAnalysis?.promptBlock ? `- AI analyzed face contract: ${activeModelIdentityAnalysis.promptBlock}` : '',
                         activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
                         '- Do NOT use the model reference clothing, jeans/pants, shoes, accessories, body pose, body shape, or outfit styling as constraints.',
@@ -1279,6 +1280,9 @@ Rules:
                     : [
                         '# MODEL IDENTITY LOCK + LOW-PRIORITY WARDROBE CONTEXT:',
                         `- The MODEL identity reference images are listed in the exact image routing table for this generation call. Preserve the same face, facial proportions, hair color/style, skin tone, body proportions, and overall person identity in EVERY output.`,
+                        '- Face/person identity has higher priority than pose, action reference, scene, platform style, accessory styling, and generic beauty preferences. Only the body pose/crop may change; the person must remain the same.',
+                        '- Preserve the face 1:1: eye shape, eyelids, eyebrows, nose, lips, jawline, chin, cheekbones, face width, skin tone, ethnicity, age impression, expression style, hairline, hairstyle, hair color, and visible makeup must not change.',
+                        '- Zero face drift is allowed. Do NOT beautify, average, stylize, age-shift, ethnicity-shift, gender-shift, swap, regenerate, or invent a new face.',
                         '- MODEL REFERENCE BACKGROUND BAN: The model identity reference is NOT a scene reference. Ignore and forbid its background, wall, floor, ocean/sea, sky, street, furniture, architecture, props, shadow pattern, lighting direction, color temperature, camera crop, lens distance, and environment mood.',
                         '- If a separate uploaded scene reference exists, it is the ONLY scene source. If no scene reference exists, use the platform/user scene settings only, never the model identity image environment.',
                         activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
@@ -1588,11 +1592,29 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 const specificInputImages = inputPack.images;
                 const matchedActionReference = hasOutputActionReference ? actionReferences[actionReferenceIndex!] : null;
                 const outputAspectRatio = aspectRatio;
+                const outputNumber = i + 1;
+                const topPriorityModelIdentityLock = modelReference && inputPack.modelIndexStart
+                    ? [
+                        '# TOP PRIORITY MODEL IDENTITY / FACE LOCK - HIGHEST WEIGHT:',
+                        `- This is the highest-priority person rule for output #${outputNumber}. It overrides action pose, camera angle, scene, platform style, accessory styling, and beautification whenever they conflict.`,
+                        `- Use Images ${inputPack.modelIndexStart}-${inputPack.modelIndexEnd} ONLY as the model identity source. The generated person MUST be the exact same person as those model identity reference images.`,
+                        isFaceOnly
+                            ? '- FACE-ONLY MODE: preserve the reference person\'s face/head identity only. Do not copy their clothing, jeans/pants, shoes, accessories, pose, body shape, background, lighting, or camera crop.'
+                            : '- FACE + BODY MODE: preserve the reference person\'s face, hair, skin tone, body proportions, and overall identity. Product assets still override model-reference clothing.',
+                        '- Preserve the face 1:1: facial structure, eyes, eyelids, eyebrows, nose bridge, nose tip, lips, mouth shape, jawline, chin, cheekbones, face width, skin tone, ethnicity, age impression, expression style, hairline, hairstyle, hair color, and visible makeup must stay unchanged.',
+                        activeModelIdentityAnalysis?.identitySignature ? `- Identity signature: ${activeModelIdentityAnalysis.identitySignature}` : '',
+                        activeModelIdentityAnalysis?.faceLock ? `- Face lock: ${activeModelIdentityAnalysis.faceLock}` : '',
+                        activeModelIdentityAnalysis?.hairLock ? `- Hair lock: ${activeModelIdentityAnalysis.hairLock}` : '',
+                        !isFaceOnly && activeModelIdentityAnalysis?.bodyLock ? `- Body lock: ${activeModelIdentityAnalysis.bodyLock}` : '',
+                        '- Zero face drift is allowed. Do NOT beautify, average, stylize, age-shift, ethnicity-shift, gender-shift, swap, regenerate, soften into a generic fashion model, or invent a new face.',
+                        '- If the pose or crop shows the face, every visible facial feature must match the model identity reference. If the crop hides part of the face, preserve every visible feature exactly.',
+                        '- Action references are pose/crop only and must never donate face, skin tone, hair, expression, background, or identity.'
+                    ].filter(Boolean).join('\n')
+                    : '';
                 const actionReferenceInputDescription = inputPack.actionOriginalStart
                     ? `Original action reference ${inputPack.actionOriginalStart === inputPack.actionOriginalEnd ? `is Image ${inputPack.actionOriginalStart}` : `images are Images ${inputPack.actionOriginalStart}-${inputPack.actionOriginalEnd}`}; extracted pose/edge map is Image ${inputPack.actionLineartStart}. The ORIGINAL action reference is the PRIMARY framing/crop/body-geometry master: use it to read exact camera distance, visible body extent, cut-off boundaries, product-display area, close-up/detail crop, shoulder line, hip angle, hand-to-body spacing, arm bend, leg stance, and body weight distribution. Use the edge map only as supporting pose clarification. Do NOT copy the original action reference's clothing, logo, necklace, face identity, skin details, background, or lighting.`
                     : `Extracted pose/edge maps are Images ${inputPack.actionLineartStart}-${inputPack.actionLineartEnd}. The original action photo is intentionally not included because safe mode requires pose-only extraction; use these edge maps as the clean skeleton/gesture blueprint. Since no action photo pixels are provided, do NOT infer or hallucinate any action-reference background, architecture, room, beach, pool, plants, props, color palette, or lighting.`;
                 
-                const outputNumber = i + 1;
                 const perOutputSupplementaryNotes = getSupplementaryNotesPrompt(hasOutputActionReference, outputNumber);
                 const perOutputScenePrompt = getPerOutputScenePrompt(outputNumber, hasOutputActionReference);
                 const sceneRoutingLock = sceneReferences.length > 0 && inputPack.sceneIndexStart
@@ -1787,9 +1809,15 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                 if (perOutputScenePrompt) {
                     finalPrompt += `\n${perOutputScenePrompt}\n`;
                 }
+                if (topPriorityModelIdentityLock) {
+                    finalPrompt = `${topPriorityModelIdentityLock}\n\n${finalPrompt}`;
+                }
                 const negativePrompt = [
                     hasOutputActionReference || activeAutoPoseLibrary !== 'none' || !!selectedManualPose || manualLibraryRandomOptions.length > 0
                         ? 'wrong pose, different pose, approximate pose, generic catalog pose, mismatched body angle, changed camera angle, changed crop, changed framing, changed body scale, ignored close-up crop, zoomed-out portrait when reference is close-up, full face visible when reference cuts off the face, full head visible when reference cuts off the head, waist visible when reference is chest-only, legs visible when reference is torso-only, full body when reference is half body, feet visible when reference crop hides feet, legs extended beyond reference crop, pulled-back camera, extra lower body, mirrored pose, reversed left-right direction, front-facing pose when reference is side view, side view when reference is front-facing, missing hand gesture, missing raised arm, missing pocket hand, missing bag-holding arm position, changed shoulder tilt, changed head direction, changed torso rotation, changed hip angle, straightened bent limb, standing pose when reference is seated, seated pose when reference is standing, walking pose when reference is still, still pose when reference is walking, zoomed out, zoomed in, different face, changed identity, different jeans, different pants, inconsistent outfit, outfit drift, copied action reference shirt, copied action reference logo, copied action reference necklace, collage, split screen, side-by-side images, two images in one, multiple panels, before and after, comparison layout, horizontal strip, wide landscape when aspect ratio is portrait, letterbox, pillarbox, large blank white area, empty lower half, copied action reference background, copied action reference architecture, action reference arches, action reference room, action reference interior, action reference wall, action reference floor, action reference furniture, action reference pool, action reference plants, action reference props, beach background from pose library, pool background from pose library, ocean background from pose library'
+                        : '',
+                    modelReference
+                        ? 'different person, different identity, identity drift, face drift, changed face, different face, new face, random face, generic fashion model face, beautified into a different person, altered facial features, changed eyes, changed eyelids, changed eyebrows, changed nose, changed lips, changed jawline, changed chin, changed cheekbones, changed face shape, changed skin tone, changed ethnicity, changed age, changed expression, changed hairstyle, changed hair color, changed hairline, copied action reference face, copied scene reference person, copied accessory reference person'
                         : '',
                     modelReference
                         ? 'original model pants visible under product, model reference pants, model reference jeans, layered pants under shorts, double waistband, duplicate waistband, duplicate shorts hem, duplicate pants hem, double drawstrings, shorts over pants, pants over shorts, overlapping bottoms, mixed product bottom and model bottom, mismatched lower garment, extra shorts, extra pants'
