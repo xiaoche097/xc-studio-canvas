@@ -212,8 +212,20 @@ const OutfitExtractionTab: React.FC = () => {
         }
     };
 
-    const analyzeMatchNeeds = async (productImage: UploadedImage, referenceImages: UploadedImage[] = matchReferenceImages) => {
+    const analyzeMatchNeeds = async (
+        productImage: UploadedImage,
+        referenceImages: UploadedImage[] = matchReferenceImages,
+        options: { resetBeforeAnalyze?: boolean } = {}
+    ) => {
         if (!productImage.base64) return;
+        if (options.resetBeforeAnalyze) {
+            setStylePrompt('');
+            setSelectedMatchTargets(new Set(DEFAULT_MATCH_TARGET_IDS));
+            setMatchItems([]);
+            setOutfitPreview(null);
+            setSelectedResultIds(new Set());
+            setMatchAnalysisNotice(null);
+        }
         const controller = new AbortController();
         analysisAbortRef.current?.abort();
         analysisAbortRef.current = controller;
@@ -255,9 +267,7 @@ Return ONLY valid JSON:
             if (analysis.recommendedTargetIds.length > 0) {
                 setSelectedMatchTargets(new Set(analysis.recommendedTargetIds));
             }
-            if (!stylePrompt.trim() && analysis.styleSummary) {
-                setStylePrompt(analysis.styleSummary);
-            }
+            setStylePrompt(analysis.styleSummary || '');
             setMatchAnalysisNotice(
                 analysis.recommendedTargetIds.length > 0
                     ? `${analysis.styleSummary || 'AI 已完成搭配分析'}：${analysis.reason || `推荐生成 ${analysis.recommendedTargetIds.length} 类搭配单品`}`
@@ -291,7 +301,7 @@ Return ONLY valid JSON:
             setIsProcessing(false);
 
             if (activeWorkflow === 'match') {
-                await analyzeMatchNeeds(uploaded);
+                await analyzeMatchNeeds(uploaded, matchReferenceImages, { resetBeforeAnalyze: true });
                 return;
             }
 
@@ -361,7 +371,7 @@ Return ONLY valid JSON:
             setOutfitPreview(null);
             setSelectedResultIds(new Set());
             if (sourceImage) {
-                await analyzeMatchNeeds(sourceImage, nextReferences);
+                await analyzeMatchNeeds(sourceImage, nextReferences, { resetBeforeAnalyze: true });
             }
         } catch {
             setError('参考图处理失败，请重试');
@@ -377,7 +387,7 @@ Return ONLY valid JSON:
         setOutfitPreview(null);
         setSelectedResultIds(new Set());
         if (sourceImage) {
-            await analyzeMatchNeeds(sourceImage, nextReferences);
+            await analyzeMatchNeeds(sourceImage, nextReferences, { resetBeforeAnalyze: true });
         }
     };
 
@@ -394,6 +404,12 @@ Return ONLY valid JSON:
         setError(null);
         setAnalysisNotice(null);
         setMatchAnalysisNotice(null);
+        setStylePrompt('');
+        setSelectedMatchTargets(new Set(DEFAULT_MATCH_TARGET_IDS));
+        matchReferenceImages.forEach(image => {
+            if (image.preview.startsWith('blob:')) URL.revokeObjectURL(image.preview);
+        });
+        setMatchReferenceImages([]);
     };
 
     const switchWorkflow = (workflow: ActiveWorkflow) => {
@@ -404,7 +420,7 @@ Return ONLY valid JSON:
         if (workflow === 'match') {
             analysisAbortRef.current?.abort();
             setIsAnalyzing(false);
-            if (sourceImage) void analyzeMatchNeeds(sourceImage);
+            if (sourceImage) void analyzeMatchNeeds(sourceImage, matchReferenceImages, { resetBeforeAnalyze: true });
         } else {
             analysisAbortRef.current?.abort();
             setIsAnalyzingMatchNeeds(false);
