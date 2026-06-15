@@ -12,6 +12,7 @@ import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
 import OutfitExtractionTab from './components/OutfitExtractionTab';
 import ModelPoseFissionTab from './components/ModelPoseFissionTab';
+import ModelTransferTab from './components/ModelTransferTab';
 import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Scissors, UserCircle2 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -98,6 +99,12 @@ const App: React.FC = () => {
             label="主图生成"
           />
           <NavButton
+            active={activeTab === AppMode.MODEL_TRANSFER}
+            onClick={() => setActiveTab(AppMode.MODEL_TRANSFER)}
+            icon={<UserCircle2 className="w-5 h-5" />}
+            label="模特迁移"
+          />
+          <NavButton
             active={activeTab === AppMode.MODEL_POSE_FISSION}
             onClick={() => setActiveTab(AppMode.MODEL_POSE_FISSION)}
             icon={<UserCircle2 className="w-5 h-5" />}
@@ -133,6 +140,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
             {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
             {activeTab === AppMode.IMAGE_CLEAN && "主图生成 (Hero Image)"}
+            {activeTab === AppMode.MODEL_TRANSFER && "模特迁移 (Model Transfer)"}
             {activeTab === AppMode.MODEL_POSE_FISSION && "模特姿势裂变 (Model Pose Fission)"}
             {activeTab === AppMode.OUTFIT_EXTRACTION && "搭配提取 (Outfit Extraction)"}
             {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
@@ -181,6 +189,10 @@ const App: React.FC = () => {
             {/* Persist ImageCleanTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.IMAGE_CLEAN ? 'block' : 'none', height: '100%' }}>
               <ImageCleanTab />
+            </div>
+
+            <div style={{ display: activeTab === AppMode.MODEL_TRANSFER ? 'block' : 'none', height: '100%' }}>
+              <ModelTransferTab />
             </div>
 
             <div style={{ display: activeTab === AppMode.MODEL_POSE_FISSION ? 'block' : 'none', height: '100%' }}>

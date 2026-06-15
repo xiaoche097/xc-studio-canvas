@@ -1049,6 +1049,24 @@ export const generateImageToImage = async (
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'model-transfer') {
+          gptPrompt = `[ROLE: Senior Fashion Model Transfer Director]
+[TASK: In-place replace the person in Image 1 with the exact model from Images 3-4, using Image 2 only as pose geometry]
+[IMAGE MAPPING]
+1. Image 1 is the TARGET SCENE original and base canvas. Preserve its background, wall color, wall texture, floor, crop, camera perspective, subject scale, lighting direction, cast shadows, contact shadows, color temperature, contrast, and photographic mood. Replace only the visible person region. Do NOT repaint or recolor the background.
+2. Image 2 is a black-and-white pose lineart/silhouette extracted from the target scene. Use it ONLY for pose geometry, body outline, head angle, shoulder slope, torso lean, arm/hand/leg placement, crop, camera distance, and subject placement. It has no valid face, identity, clothing, color, or texture.
+3. Images 3 and 4 are duplicated MY MODEL anchors. Preserve this exact person, face, hair, skin tone, body proportions, complete outfit, garment details, shoes, accessories, and styling.
+
+[ABSOLUTE LOCKS]
+- Do NOT copy Image 2's person identity, face, body shape, clothing, shoes, accessories, or styling.
+- Do NOT change Images 3 and 4's outfit color, fabric, pattern, silhouette, seams, trims, bag, jewelry, or shoes.
+- The final image must contain one person only: Images 3 and 4's model realistically integrated into Image 1's original background.
+- Match Image 2's pose landmarks and Image 1's lighting on the face and clothing, but keep Images 3 and 4's identity unchanged.
+- Avoid source catalog pose retention, background repainting, wall color changes, flat lighting, wrong shadow direction, missing contact shadows, red skin cast, oversaturated reds, plastic skin, waxy skin, collage, pasted cutout, and mismatched shadows.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
         } else if (workflowHint === 'hero-pose-lock') {
           gptPrompt = `[ROLE: Senior E-commerce Fashion Director & Product-Fidelity Retoucher]
 [TASK: Generate a new hero image from ordered reference images]
@@ -1360,6 +1378,37 @@ ${forcedPrompt}`;
             ? `
         **ROLE**: Senior fashion retoucher and AI processing expert.
         **TASK**: Re-stage the person and outfit from Image 3 into the EXACT geometric posture mapped by Image 1.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+            : workflowHint === 'model-transfer'
+              ? `
+        **ROLE**: Senior Fashion Model Transfer Director.
+        **MISSION**: Perform an in-place replacement of the person in Image 1 with the exact model from Images 3 and 4, using Image 2 only as pose geometry, while preserving Image 1's original background and lighting.
+
+        **INPUT CONTRACT**:
+        - Image 1 = TARGET SCENE original and base canvas. It is the source of truth for background/location, wall color, wall texture, floor, crop, camera perspective, subject scale, light direction, cast-shadow geometry, contact shadows, facial highlight/shadow layout, color temperature, contrast, and photographic mood. Keep these unchanged.
+        - Image 2 = black-and-white pose lineart/silhouette extracted from the target scene. It is ONLY a geometry map for body outline, head angle, shoulder slope, torso lean, hand/arm/leg placement, body crop, camera distance, and subject placement. It contains no usable identity, face, hair, skin, clothing, color, or texture.
+        - Images 3 and 4 = duplicated MY MODEL anchors. They are the source of truth for the exact person identity, face, facial structure, hair, skin tone, body proportions, complete outfit, garment details, shoes, accessories, and styling.
+
+        **ABSOLUTE IDENTITY AND OUTFIT LOCK**:
+        - Preserve Images 3 and 4's same person, face shape, eyes, nose, lips, eyebrows, expression character, hairstyle, hair color, skin tone, neck, shoulders, body proportions, age impression, outfit, garment color, fabric, pattern, seams, neckline, hem, shoes, bag, jewelry, and visible accessories.
+        - Do NOT copy Image 2's person identity, face, body shape, clothing, shoes, accessories, or styling.
+
+        **BACKGROUND AND LIGHTING LOCK**:
+        - Keep Image 1's wall color, plaster texture, floor, shadow pattern, background crop, camera angle, and scene composition unchanged.
+        - Do NOT repaint Image 1's background, change the wall color, smooth the wall texture, move the cast shadows, remove the palm/leaf shadow pattern, or make a new similar-looking scene.
+
+        **POSE, SCENE AND LIGHTING TRANSFER**:
+        - Replace only Image 1's person region with Images 3 and 4's model and outfit, fitted into Image 2's pose geometry.
+        - Copy visible pose landmarks from Image 2: head tilt, chin angle, shoulder slope, torso lean, hip placement, arm bend, hand placement, leg stance, body crop, subject scale, and left/right placement.
+        - Copy visible lighting landmarks from Image 1: face shadow side, neck shadow, arm shadow, garment highlight direction, wall cast shadows, palm/leaf shadow pattern, contact shadow, contrast level, and warm/cool balance.
+        - Adapt Images 3 and 4's outfit naturally to the new pose while preserving garment identity and all visible details.
+        - The output must look like a real fashion photograph, not a pasted cutout.
+
+        **FAILURE BLOCKLIST**:
+        - No second person, collage, split screen, face drift, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, background repainting, wall color changed, wall texture changed, lighting not copied, outfit change, copied target clothing, red skin cast, oversaturated reds, plastic skin, waxy skin, CGI, mismatched shadows, wrong shadow direction, missing wall shadows, missing contact shadow, pasted cutout, or floating subject.
+
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

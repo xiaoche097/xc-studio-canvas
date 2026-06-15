@@ -196,5 +196,6 @@ export type WorkflowHint =
   | 'lighting-replication'
   | 'reference-refinement'
   | 'structural-repair-v2'
+  | 'model-transfer'
   | 'model-modification'
   | 'model-retouching';
