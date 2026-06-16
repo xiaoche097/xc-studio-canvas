@@ -8,6 +8,7 @@ export enum AppMode {
   IMAGE_CLEAN = 'IMAGE_CLEAN', // Image Cleanup Tool (Replaces Video)
   MODEL_TRANSFER = 'MODEL_TRANSFER', // Model Transfer
   MODEL_POSE_FISSION = 'MODEL_POSE_FISSION', // Model Pose Fission
+  MODEL_ORIGINAL_PASTE_BACK = 'MODEL_ORIGINAL_PASTE_BACK', // Model Original Paste Back
   PRODUCT_REPAIR = 'PRODUCT_REPAIR', // 产品修复 (Product Repair) [deprecated]
   OUTFIT_EXTRACTION = 'OUTFIT_EXTRACTION', // 搭配提取 (Outfit Extraction)
   RATIO_QUERY = 'RATIO_QUERY', // Aspect Ratio Query (New)

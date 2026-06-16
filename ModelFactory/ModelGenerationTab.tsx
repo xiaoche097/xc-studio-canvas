@@ -10,6 +10,7 @@ import {
 import { generateImageToImage, compressImage } from '../Cyzx4/services/geminiService';
 import { getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
+import { convertImageDataUrlFormat } from '../Cyzx4/utils/imageFormat';
 import { useImagePaste } from '../Cyzx4/hooks/useImagePaste';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../Cyzx4/services/promptUtils';
 import { extractEdges } from '../Cyzx4/utils/imageProcessor';
@@ -215,38 +216,50 @@ const ModelGenerationTab: React.FC = () => {
 
         try {
             // 映射动作姿态参考图（支持安全线稿模式以过滤动作图中的人物身份和背景颜色干扰）
-            let b64 = ref.base64!;
-            let mime = ref.mime!;
-            if (isSafeMode) {
-                try {
-                    const dataUrl = await extractEdges(`data:${mime};base64,${b64}`);
-                    const parts = dataUrl.split(',');
-                    if (parts.length > 1) {
-                        mime = parts[0].split(':')[1].split(';')[0];
-                        b64 = parts[1];
-                    }
-                } catch (e) {
-                    console.error("Failed to extract edges for pose reference", e);
+            const poseItem = { base64: ref.base64!, mimeType: ref.mime! };
+            let poseLineartItem: { base64: string; mimeType: string } | null = null;
+            try {
+                const dataUrl = await extractEdges(`data:${ref.mime};base64,${ref.base64}`);
+                const parts = dataUrl.split(',');
+                if (parts.length > 1) {
+                    poseLineartItem = {
+                        mimeType: parts[0].split(':')[1].split(';')[0] || 'image/jpeg',
+                        base64: parts[1],
+                    };
                 }
+            } catch (e) {
+                console.error("Failed to extract edges for pose reference", e);
             }
-            const poseItem = { base64: b64, mimeType: mime };
+            if (!poseLineartItem) {
+                poseLineartItem = poseItem;
+            }
             const modelItems = primaryModelImages.map(m => ({ base64: m.base64!, mimeType: m.mime! }));
+            const poseBlueprintItems = poseLineartItem ? [poseItem, poseLineartItem] : [poseItem];
+            const modelStartImageNumber = poseBlueprintItems.length + 1;
+            const modelEndImageNumber = poseBlueprintItems.length + modelItems.length;
+            const modelReferenceRange = modelItems.length > 1
+                ? `Images ${modelStartImageNumber}-${modelEndImageNumber}`
+                : `Image ${modelStartImageNumber}`;
+            const poseBlueprintRange = poseLineartItem ? 'Images 1 & 2' : 'Image 1';
+            const lineartManifest = poseLineartItem
+                ? `Image 1 is the original action reference. Image 2 is its lineart/silhouette companion. ${modelReferenceRange} are the target model, face, hair, clothing/product, and background references.`
+                : `Image 1 is the original action reference. ${modelReferenceRange} are the target model, face, hair, clothing/product, and background references.`;
             
             // 复制姿态参考图以适配 [Pose, Pose, Model1, Model2, ...] 的布局
             let inputImages;
             if (strictFaceLock) {
                 // 当高精准人像锁开启时，我们通过“动作图双重复拍”确保对齐底层服务映射，并对“模特原画进行3倍超高注意力权重赋值”
-                inputImages = [poseItem, poseItem, ...modelItems, ...modelItems, ...modelItems];
+                inputImages = [...poseBlueprintItems, ...modelItems, ...modelItems, ...modelItems];
             } else if (primaryModelImages.length <= 2) {
-                inputImages = [poseItem, ...modelItems];
+                inputImages = [...poseBlueprintItems, ...modelItems];
             } else {
-                inputImages = [poseItem, poseItem, ...modelItems];
+                inputImages = [...poseBlueprintItems, ...modelItems];
             }
 
             const constraintsStr = [
-                keepBackground ? "Lock and retain the original background from Image 3 (Primary Model Image)." : "Place model in a matching background.",
-                allowProps ? "If the pose requires prop interaction (e.g. chair, umbrella), intelligently add the interacting prop into the original background of Image 3." : "Do not add any additional props.",
-                lockCropScale ? "Align and match exact camera angle, zoom scale, portrait crop ratio, limb structure, subject size and position inside frame precisely as shown in Image 1 & 2 (Pose reference)." : ""
+                keepBackground ? `Lock and retain the original background from Image ${modelStartImageNumber} (Primary Model Image).` : "Place model in a matching background.",
+                allowProps ? `If the pose requires prop interaction (e.g. chair, umbrella), intelligently add the interacting prop into the original background of Image ${modelStartImageNumber}.` : "Do not add any additional props.",
+                lockCropScale ? `Align and match exact camera angle, zoom scale, portrait crop ratio, limb structure, subject size and position inside frame precisely as shown in ${poseBlueprintRange} (Pose Blueprint).` : ""
             ].filter(Boolean).join(" ");
 
             const identityConstraints = strictFaceLock 
@@ -264,6 +277,9 @@ const ModelGenerationTab: React.FC = () => {
             const prompt = `
             # [CRITICAL: E-COMMERCE PRODUCT PRESERVATION]
             This is e-commerce product photo generation. The clothing/product on Image 3 is the PRODUCT being sold. It MUST be preserved 100% pixel-perfect. ANY change to the garment = FAILED generation.
+
+            # IMAGE MANIFEST:
+            ${lineartManifest}
 
             # SYSTEM CONSTRAINTS (CRITICAL & ENFORCED):
             # BATCH CONSISTENCY: ALL results must show the SAME person face, SAME product, SAME background from Image 3.
@@ -288,22 +304,23 @@ const ModelGenerationTab: React.FC = () => {
                 aspectRatio,
                 resolution,
                 modelId: selectedModel,
-                workflowHint: 'pose-transfer',
+                workflowHint: 'pose-replication-lock',
                 hasModelRef: true,
                 signal,
                 negativePrompt
             });
+            const formattedResult = await convertImageDataUrlFormat(results[0], 'png');
 
             clearInterval(interval);
             setTasks(prev => prev.map((t, i) => i === taskIdx ? {
                 ...t,
                 status: 'completed',
                 progress: 100,
-                resultImage: results[0]
+                resultImage: formattedResult
             } : t));
             await saveGeneratedProject({
                 type: 'MODEL',
-                generated: [results[0]],
+                generated: [formattedResult],
                 original: [
                     `data:${ref.mime};base64,${ref.base64}`,
                     ...primaryModelImages.map(img => `data:${img.mime};base64,${img.base64}`)
@@ -341,16 +358,17 @@ const ModelGenerationTab: React.FC = () => {
                         aspectRatio,
                         resolution,
                         modelId: selectedModel,
-                        workflowHint: 'pose-transfer',
+                        workflowHint: 'pose-replication-lock',
                         hasModelRef: true,
                         signal
                     });
+                    const formattedSafeResult = await convertImageDataUrlFormat(safeResults[0], 'png');
                     clearInterval(interval); // Already cleared but safe
                     setTasks(prev => prev.map((t, i) => i === taskIdx ? {
                         ...t,
                         status: 'completed',
                         progress: 100,
-                        resultImage: safeResults[0]
+                        resultImage: formattedSafeResult
                     } : t));
                     return;
                 } catch (retryErr) {

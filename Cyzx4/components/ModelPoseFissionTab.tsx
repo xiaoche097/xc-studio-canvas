@@ -21,8 +21,8 @@ import {
 import { generateImageToImage } from '../services/geminiService';
 import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
-import { getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
-import { applyColorCorrection, ColorCorrectionMode } from '../utils/imageProcessor';
+import { convertImageDataUrlFormat, OutputImageFormat } from '../utils/imageFormat';
+import { applyColorCorrection, ColorCorrectionMode, extractEdges } from '../utils/imageProcessor';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
@@ -148,6 +148,11 @@ const MODEL_OPTIONS = [
 const getLibrary = (key: PoseLibraryKey) => POSE_LIBRARIES.find((item) => item.key === key) || POSE_LIBRARIES[0];
 const toApiImage = (image: UploadedImage) => ({ base64: image.base64, mimeType: image.mime });
 const getDataUrl = (image: UploadedImage) => `data:${image.mime};base64,${image.base64}`;
+const dataUrlToApiImage = (dataUrl: string) => {
+  const [header, base64 = ''] = dataUrl.split(',');
+  const mimeType = header.match(/^data:(.*?);base64$/)?.[1] || 'image/png';
+  return { base64, mimeType };
+};
 const getResultAspectClass = (ratio: AspectRatio) => {
   if (ratio === AspectRatio.SQUARE) return 'aspect-square';
   if (ratio === AspectRatio.PORTRAIT_2_3) return 'aspect-[2/3]';
@@ -181,6 +186,7 @@ const buildPrompt = (options: {
   scenePrompt: string;
   productCategory: string;
   extraNotes: string;
+  poseReferenceManifest?: string;
 }) => {
   const {
     outputNumber,
@@ -194,6 +200,7 @@ const buildPrompt = (options: {
     scenePrompt,
     productCategory,
     extraNotes,
+    poseReferenceManifest,
   } = options;
 
   return `
@@ -206,7 +213,8 @@ Create ONE photorealistic ecommerce fashion image for model pose fission output 
 - Optional product/garment images after Image 1 may reinforce garment structure, silhouette, color, fabric, seams, trim, print, pattern, and fit.
 ${hasAccessoryReference ? '- Optional accessory/styling reference images define bags, jewelry, hats, shoes, handheld props, and styling add-ons to integrate naturally with Image 1. Use them as matching references only; keep the main outfit and model identity from Image 1.' : ''}
 ${hasScene ? '- Scene reference images define the background/location identity, lighting mood, materials, and environment cues.' : '- No scene reference is uploaded. Build a clean commercial scene from the text instructions only.'}
-${hasActionReference ? '- The final uploaded action reference for this output is POSE ONLY: copy its pose, crop, camera distance, body angle, gesture, limb placement, and framing. Do NOT copy its clothing, face, background, lighting, props, or color palette.' : ''}
+${hasActionReference ? `- The uploaded action reference for this output is POSE BLUEPRINT ONLY: copy its pose, crop, camera distance, body angle, gesture, limb placement, subject scale, visible body extent, and framing. Do NOT copy its clothing, face, background, lighting, props, or color palette.
+${poseReferenceManifest || ''}` : ''}
 
 # IDENTITY, PRODUCT AND SCENE CONSISTENCY LOCK
 - The generated image must look like a same-shoot pose variation of Image 1.
@@ -437,7 +445,7 @@ const ModelPoseFissionTab: React.FC = () => {
     };
   };
 
-  const buildInputsForOutput = (index: number) => {
+  const buildInputsForOutput = async (index: number) => {
     const inputs = [
       ...overallImages.map(toApiImage),
       ...modelImages.map(toApiImage),
@@ -445,13 +453,28 @@ const ModelPoseFissionTab: React.FC = () => {
       ...accessoryImages.map(toApiImage),
       ...sceneImages.map(toApiImage),
     ];
-    if (actionImages.length > 0 && index < actionImages.length) inputs.push(toApiImage(actionImages[index]));
-    return inputs;
+    let poseReferenceManifest = '';
+    if (actionImages.length > 0 && index < actionImages.length) {
+      const actionImage = actionImages[index];
+      const actionImageNumber = inputs.length + 1;
+      inputs.push(toApiImage(actionImage));
+      try {
+        const lineart = await extractEdges(getDataUrl(actionImage));
+        const lineartImageNumber = inputs.length + 1;
+        inputs.push(dataUrlToApiImage(lineart));
+        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Use both ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.`;
+      } catch (error) {
+        console.warn('Failed to extract action reference lineart. Using original pose image only.', error);
+        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Use it ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.`;
+      }
+    }
+    return { inputs, poseReferenceManifest };
   };
 
   const generateOne = async (index: number, signal?: AbortSignal, plannedPose = getPoseForOutput(index)): Promise<ResultItem> => {
     const pose = plannedPose;
     const hasActionReference = actionImages.length > 0 && index < actionImages.length;
+    const { inputs, poseReferenceManifest } = await buildInputsForOutput(index);
     const prompt = buildPrompt({
       outputNumber: index + 1,
       poseSourceMode: hasActionReference ? 'reference' : poseSourceMode,
@@ -464,12 +487,13 @@ const ModelPoseFissionTab: React.FC = () => {
       scenePrompt,
       productCategory,
       extraNotes,
+      poseReferenceManifest,
     });
-    const [imageUrl] = await generateImageToImage(buildInputsForOutput(index), prompt, {
+    const [imageUrl] = await generateImageToImage(inputs, prompt, {
       aspectRatio,
       resolution,
       modelId: selectedModel,
-      workflowHint: hasActionReference ? 'hero-pose-lock' : 'pose-fission',
+      workflowHint: hasActionReference ? 'pose-replication-lock' : 'pose-fission',
       hasModelRef: true,
       signal,
     });
@@ -479,7 +503,8 @@ const ModelPoseFissionTab: React.FC = () => {
       reference: colorReferenceImages[0] ? getDataUrl(colorReferenceImages[0]) : undefined,
       blend: colorCorrectionBlend,
     });
-    return { id: `${Date.now()}-${index}`, imageUrl: correctedImageUrl, status: 'done', prompt, poseLabel: pose.label };
+    const formattedImageUrl = await convertImageDataUrlFormat(correctedImageUrl, outputFormat);
+    return { id: `${Date.now()}-${index}`, imageUrl: formattedImageUrl, status: 'done', prompt, poseLabel: pose.label };
   };
 
   const handleRegenerateOne = async (index: number) => {
@@ -634,10 +659,11 @@ const ModelPoseFissionTab: React.FC = () => {
     )));
   };
 
-  const handleDownload = (img: string, idx: number) => {
+  const handleDownload = async (img: string, idx: number) => {
+    const formattedImage = await convertImageDataUrlFormat(img, outputFormat);
     const link = document.createElement('a');
-    link.href = img;
-    link.download = `model-pose-fission-${Date.now()}-${idx + 1}.${getImageDownloadExtension(img, outputFormat)}`;
+    link.href = formattedImage;
+    link.download = `model-pose-fission-${Date.now()}-${idx + 1}.${outputFormat}`;
     link.click();
   };
 

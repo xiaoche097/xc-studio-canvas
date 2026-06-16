@@ -1067,6 +1067,64 @@ ${forcedPrompt}`;
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'model-original-paste-back') {
+          gptPrompt = `[ROLE: Senior Fashion Face and Skin Detail Restoration Compositor]
+[TASK: Regenerate only a local crop so it can be pasted back into the original full-body image]
+[INPUT ROUTING]
+1. Image 1 is the TARGET CROP from the final full-body image. It is the exact crop boundary, pose, camera angle, clothing edge, local background, light direction, shadow layout, and composition blueprint.
+2. If Image 2 is a black-and-white lineart/silhouette, it is the STRUCTURE COMPANION extracted from Image 1. Use it only for exact alignment: face position, body outline, shoulder line, garment edge, local background edge, crop geometry, and negative space.
+3. The remaining images are HIGH-QUALITY MODEL REFERENCES. They provide only the model identity, face structure, eyes, nose, lips, eyebrows, hair character, skin tone, natural skin texture, and fine detail quality.
+
+[ABSOLUTE CROP LOCK]
+- Output one image that matches Image 1's crop aspect ratio, subject scale, head/shoulder/torso placement, pose, clothing boundary, background edge, camera perspective, and lighting direction.
+- Do NOT zoom, recrop, rotate, mirror, change body pose, change head angle, change shoulder slope, move garment edges, move railings/walls/water/floor/background, or redesign the local background.
+- The generated image must be suitable for direct pixel paste-back into the original crop position with only feathered blending.
+
+[BACKGROUND, CLOTHING, AND COLOR LOCK]
+- Preserve Image 1's local background, clothing, props, railing, floor, wall, water, shadows, highlights, color temperature, exposure, contrast, and white balance.
+- Do not copy color grading, lighting mood, background, clothing, or scene elements from the model references.
+- Improve only human detail quality. The repaired crop should look like Image 1 became sharper in the selected human area, not like a newly staged photo.
+
+[DETAIL RESTORATION]
+- Restore the face, skin, hairline, hair strands, facial texture, eyes, lips, nose, eyebrows, neck skin, and visible hands/skin from the model references while adapting them to Image 1's exact lighting and angle.
+- Preserve natural skin pores and realistic fashion-retouch quality. Avoid waxy, plastic, over-smoothed, red-cast, or doll-like skin.
+
+[DO NOT COPY FROM MODEL REFERENCES]
+- Do NOT copy the reference image's clothing, pose, crop, background, props, accessories, color palette, or lighting setup unless they already exist in Image 1.
+
+[OUTPUT]
+- Generate the repaired crop only, not the full-body image.
+- Output MUST have aspect ratio ${aspectRatio}.
+
+${gptRatioHint}
+${forcedPrompt}`;
+        } else if (workflowHint === 'pose-replication-lock') {
+          gptPrompt = `[ROLE: Senior Pose Replication Blueprint Director]
+[TASK: Rebuild the target model/product into the exact action-reference pose and framing]
+[REFERENCE BLUEPRINT PROTOCOL]
+You are not making a loose pose variation. Treat the action reference as a visual blueprint, similar to a layout/style replication task, but for human body geometry.
+
+[INPUT ROUTING]
+1. The user prompt defines the exact image manifest. Follow it over any default assumptions.
+2. The action reference original and its lineart/silhouette companion are POSE BLUEPRINTS ONLY.
+3. Target model/product/overall references are the ONLY sources for identity, face, hair, body build, garment/product details, scene, lighting, and commercial look.
+
+[STRICT BLUEPRINT CLONE]
+- Copy the action reference's body pose, limb angles, hand gesture, head/neck direction, torso rotation, hip/knee/foot placement, camera height, lens distance, subject scale, crop boundary, visible body extent, and negative space.
+- Match half-body/full-body framing exactly. If the blueprint is cropped, keep the same crop. Do not zoom out to reveal missing legs/feet.
+- Do not mirror left/right direction unless the user explicitly asks.
+- Do not replace the blueprint with a generic front-facing catalog pose.
+
+[DO NOT COPY FROM ACTION REFERENCE]
+- Do NOT copy its face, identity, hairstyle, clothing, accessories, props, background, lighting, color palette, texture, watermark, or text.
+- If there is tension between product fidelity and pose geometry, keep the pose geometry and naturally adapt the target garment/product onto that body posture.
+
+[OUTPUT]
+- Generate one clean ecommerce fashion image with the target identity/product preserved and the action pose/framing replicated 1:1.
+- Output MUST have aspect ratio ${aspectRatio}.
+
+${gptRatioHint}
+${forcedPrompt}`;
         } else if (workflowHint === 'hero-pose-lock') {
           gptPrompt = `[ROLE: Senior E-commerce Fashion Director & Product-Fidelity Retoucher]
 [TASK: Generate a new hero image from ordered reference images]
@@ -1408,6 +1466,62 @@ ${forcedPrompt}`;
 
         **FAILURE BLOCKLIST**:
         - No second person, collage, split screen, face drift, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, background repainting, wall color changed, wall texture changed, lighting not copied, outfit change, copied target clothing, red skin cast, oversaturated reds, plastic skin, waxy skin, CGI, mismatched shadows, wrong shadow direction, missing wall shadows, missing contact shadow, pasted cutout, or floating subject.
+
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+            : workflowHint === 'model-original-paste-back'
+              ? `
+        **ROLE**: Senior Fashion Face and Skin Detail Restoration Compositor.
+        **MISSION**: Generate ONE repaired local crop that can be pasted back into the original full-body image at the exact same coordinates.
+
+        **INPUT CONTRACT**:
+        - Image 1 = TARGET CROP from the final full-body image. It is the source of truth for crop boundary, pose, head angle, shoulder line, torso placement, garment edges, local background, light direction, shadows, camera perspective, subject scale, and composition.
+        - If Image 2 is a black-and-white lineart/silhouette, it is the STRUCTURE COMPANION extracted from Image 1. It is source of truth for exact alignment, body outline, face position, shoulder line, clothing boundary, local background edge continuity, crop geometry, and negative space.
+        - The remaining images = HIGH-QUALITY MODEL REFERENCES. They are source of truth only for model identity, facial structure, eyes, nose, lips, eyebrows, hair character, skin tone, skin texture, and fine human detail quality.
+
+        **ABSOLUTE CROP AND STRUCTURE LOCK**:
+        - Keep Image 1's aspect ratio, crop boundary, subject placement, head/shoulder/torso geometry, clothing edge positions, background edge continuity, camera angle, lens distance, local lighting, and local shadows.
+        - Do NOT zoom, pull back, rotate, mirror, recrop, move the face, move shoulders, change pose, change head direction, change clothing silhouette, move railings/walls/water/floor/background, or redesign background.
+        - The output must be a local crop only. It must be ready for direct paste-back into Image 1's original crop position with feathered blending.
+
+        **BACKGROUND, CLOTHING, AND COLOR LOCK**:
+        - Preserve Image 1's local background, clothing, props, railings, floor, wall, water, shadows, highlights, color temperature, exposure, contrast, and white balance.
+        - Do NOT copy color grading, lighting mood, background, clothing, accessories, props, or scene elements from the model references.
+        - Improve only human detail quality. The repaired crop should look like Image 1 became sharper in the selected human area, not like a newly staged photo.
+
+        **IDENTITY AND DETAIL RESTORATION**:
+        - Restore the model's face, eyes, lips, nose, eyebrows, hairline, hair strands, skin tone, pores, neck skin, visible hands/skin, and natural fashion-retouch detail from Images 2+.
+        - Adapt the restored identity to Image 1's exact lighting, shadow side, exposure, color temperature, camera angle, and expression context.
+        - Preserve realistic skin texture. Avoid waxy skin, plastic skin, doll face, red cast, oversaturated reds, over-smoothing, or CGI.
+
+        **DO NOT COPY FROM REFERENCES**:
+        - Do NOT copy Images 2+'s pose, crop, clothing, background, props, accessories, lighting setup, color palette, or camera framing unless already present in Image 1.
+
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+            : workflowHint === 'pose-replication-lock'
+              ? `
+        **ROLE**: Senior Pose Replication Blueprint Director.
+        **MISSION**: Generate ONE professional ecommerce fashion image by cloning the uploaded action reference's pose, crop, camera geometry, and subject placement as a strict visual blueprint, while preserving the target model/product identity from the other references.
+
+        **COGNITIVE PIPELINE (MANDATORY)**:
+        1. **Blueprint Analysis**: Deeply analyze the action reference original named in the user prompt. Map its body skeleton, limb angles, gesture, head direction, torso rotation, crop boundary, subject scale, camera height, lens distance, and negative space.
+        2. **Lineart/Silhouette Alignment**: Use the companion lineart/silhouette named in the user prompt as a structure map for body outline, limb geometry, visible body extent, and framing.
+        3. **Content Rebuild**: Re-stage the target model/product/overall reference into that exact blueprint. Keep the target identity, hair, skin tone, body proportions, garment/product details, scene DNA, lighting mood, and commercial styling.
+        4. **Final Lock Check**: Reject generic catalog poses, crop drift, zoom drift, mirrored directions, missing hand gestures, and invented body placement.
+
+        **STRICT IMAGE ROUTING**:
+        - The action reference original and lineart/silhouette companion are POSE BLUEPRINTS ONLY.
+        - Target model/product/overall images are the ONLY valid sources for face, identity, hair, clothing, product, background, lighting, color palette, and styling.
+        - Do NOT copy the action reference's person identity, face, hair, clothing, accessories, props, background, lighting, color palette, texture, watermark, or text.
+
+        **STRICT BLUEPRINT LOCK**:
+        - Copy body pose, arms, hands, fingers where visible, head/neck direction, shoulder slope, torso lean, hip placement, leg stance, foot direction, camera angle, subject scale, crop boundary, and visible body extent from the action blueprint.
+        - Keep half-body/full-body framing exactly. If the blueprint crops at waist, thigh, knee, ankle, or any other boundary, keep that boundary.
+        - Do not zoom in/out, mirror left/right direction, straighten bent joints, remove raised arms, remove pocket hands, remove seated/walking/leaning stance, or convert side/back/three-quarter view into front view.
+        - If product fidelity conflicts with the pose, keep the pose and drape/adapt the target product naturally.
 
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
@@ -1789,6 +1903,7 @@ ${forcedPrompt}`;
           // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
           config: {
             safetySettings: GLOBAL_SAFETY_SETTINGS,
+            ...(['pose-replication-lock', 'model-original-paste-back'].includes(workflowHint || '') ? { temperature: 0.15 } : {}),
             imageConfig: {
               aspectRatio: aspectRatio,
               aspect_ratio: aspectRatio,

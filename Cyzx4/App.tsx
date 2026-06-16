@@ -13,6 +13,7 @@ import ProductSwapTab from './components/ProductSwapTab';
 import OutfitExtractionTab from './components/OutfitExtractionTab';
 import ModelPoseFissionTab from './components/ModelPoseFissionTab';
 import ModelTransferTab from './components/ModelTransferTab';
+import ModelOriginalPasteBackTab from './components/ModelOriginalPasteBackTab';
 import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Scissors, UserCircle2 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -111,6 +112,12 @@ const App: React.FC = () => {
             label="模特姿势裂变"
           />
           <NavButton
+            active={activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK}
+            onClick={() => setActiveTab(AppMode.MODEL_ORIGINAL_PASTE_BACK)}
+            icon={<UserCircle2 className="w-5 h-5" />}
+            label="模特原图贴回"
+          />
+          <NavButton
             active={activeTab === AppMode.OUTFIT_EXTRACTION}
             onClick={() => setActiveTab(AppMode.OUTFIT_EXTRACTION)}
             icon={<Scissors className="w-5 h-5" />}
@@ -144,6 +151,7 @@ const App: React.FC = () => {
             {activeTab === AppMode.MODEL_POSE_FISSION && "模特姿势裂变 (Model Pose Fission)"}
             {activeTab === AppMode.OUTFIT_EXTRACTION && "搭配提取 (Outfit Extraction)"}
             {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
+            {activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK && "模特原图贴回 (Model Original Paste Back)"}
           </h1>
         </header>
 
@@ -197,6 +205,10 @@ const App: React.FC = () => {
 
             <div style={{ display: activeTab === AppMode.MODEL_POSE_FISSION ? 'block' : 'none', height: '100%' }}>
               <ModelPoseFissionTab />
+            </div>
+
+            <div style={{ display: activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK ? 'block' : 'none', height: '100%' }}>
+              <ModelOriginalPasteBackTab />
             </div>
 
             {/* Persist OutfitExtractionTab state by hiding instead of unmounting */}
