@@ -17,9 +17,11 @@ import {
     Layers,
     Palette,
     FileOutput,
-    Cpu
+    Cpu,
+    Sun
 } from 'lucide-react';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { applyColorCorrectionBatch, ColorCorrectionMode } from '../utils/imageProcessor';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -52,7 +54,7 @@ interface UploadedImage {
 
 const PRODUCT_IMAGE_LIMIT = 10;
 const PRODUCT_GROUP_LIMIT = 10;
-const PRODUCT_GROUP_IMAGE_LIMIT = 3;
+const PRODUCT_GROUP_IMAGE_LIMIT = 10;
 
 const COT_STEPS = [
     { id: 1, label: "全案设计解析", desc: "正在分析参考图的布局、色彩与风格基因...", icon: "分析" },
@@ -99,6 +101,8 @@ const StyleReplicateTab: React.FC = () => {
     const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
     const [generateCount, setGenerateCount] = useState(1);
     const [turboMode, setTurboMode] = useState(false);
+    const [colorCorrectionMode, setColorCorrectionMode] = useState<ColorCorrectionMode>('off');
+    const [colorCorrectionBlend, setColorCorrectionBlend] = useState(0.85);
 
     // CoT Visualization State
     const [currentStep, setCurrentStep] = useState(0);
@@ -111,6 +115,7 @@ const StyleReplicateTab: React.FC = () => {
 
     // Result states
     const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+    const [regeneratingIndices, setRegeneratingIndices] = useState<number[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const {
         cancelMessage,
@@ -388,6 +393,7 @@ const StyleReplicateTab: React.FC = () => {
         setIsLoading(true);
         setError(null);
         setGeneratedImages([]);
+        setRegeneratingIndices([]);
 
         // Start CoT Simulation
         setCurrentStep(0);
@@ -408,13 +414,19 @@ const StyleReplicateTab: React.FC = () => {
             const stylesToProcess = styleReferences;
             
             if (tabMode === 'batch') {
-                setBatchStatus(`正在处理 ${productGroupsToProcess.length} 个产品组 × ${stylesToProcess.length} 张参考设计图...`);
+                setBatchStatus(`正在处理 ${productGroupsToProcess.length} 个产品组，每组匹配 1 张参考设计图...`);
             }
 
             const generationJobs = tabMode === 'batch'
-                ? productGroupsToProcess.flatMap((group, groupIndex) => (
-                    stylesToProcess.map((styleRef, styleIndex) => ({ styleRef, styleIndex, productGroup: group, productGroupIndex: groupIndex }))
-                ))
+                ? productGroupsToProcess.map((group, groupIndex) => {
+                    const styleIndex = stylesToProcess[groupIndex] ? groupIndex : 0;
+                    return {
+                        styleRef: stylesToProcess[styleIndex],
+                        styleIndex,
+                        productGroup: group,
+                        productGroupIndex: groupIndex,
+                    };
+                })
                 : stylesToProcess.map((styleRef, styleIndex) => ({ styleRef, styleIndex, productGroup: productGroupsToProcess[0], productGroupIndex: 0 }));
 
             // Create promises for parallel execution
@@ -424,7 +436,7 @@ const StyleReplicateTab: React.FC = () => {
                 try {
                     console.log(`[Parallel] Starting Job ${index + 1}/${generationJobs.length} (Product ${productGroupIndex + 1}, Style ${styleIndex + 1})...`);
                     
-                    // In batch mode, generate one image per product group x style reference pair.
+                    // In batch mode, generate one image per product group.
                     // In single mode, we use the user-selected generateCount.
                     const countPerStyle = tabMode === 'batch' ? 1 : generateCount;
                     const groupedPrompt = [
@@ -463,9 +475,18 @@ const StyleReplicateTab: React.FC = () => {
                 throw new Error("批量生成全部失败，请检查输入内容和网络连接后重试。");
             }
 
-            // Convert base64 to data URLs for display
+            // Convert base64 to data URLs and optionally unify color tone.
             const generatedDataUrls = allResults.map(b64 => `data:image/png;base64,${b64}`);
-            setGeneratedImages(generatedDataUrls);
+            const colorReference = styleReferences[0]?.base64 && styleReferences[0]?.mime
+                ? `data:${styleReferences[0].mime};base64,${styleReferences[0].base64}`
+                : undefined;
+            const finalDataUrls = await applyColorCorrectionBatch(generatedDataUrls, {
+                mode: colorCorrectionMode,
+                reference: colorReference,
+                blend: colorCorrectionBlend,
+            });
+            assertCurrentGenerationTask(taskId, signal);
+            setGeneratedImages(finalDataUrls);
 
             // Save to Project History
             try {
@@ -480,10 +501,10 @@ const StyleReplicateTab: React.FC = () => {
                     id: projectId,
                     type: 'MARKETING',
                     createdAt: Date.now(),
-                    thumbnail: generatedDataUrls[0], // Use first generated image as thumbnail (Data URL)
+                    thumbnail: finalDataUrls[0], // Use first generated image as thumbnail (Data URL)
                     assets: {
                         original: originalAssets,
-                        generated: generatedDataUrls
+                        generated: finalDataUrls
                     },
                     metadata: {
                         prompt: customPrompt,
@@ -493,6 +514,8 @@ const StyleReplicateTab: React.FC = () => {
                         resolution,
                         aspectRatio,
                         model: selectedModel,
+                        colorCorrectionMode,
+                        colorCorrectionBlend,
                         subType: 'style_replication'
                     }
                 };
@@ -537,6 +560,71 @@ const StyleReplicateTab: React.FC = () => {
         document.body.removeChild(link);
     };
 
+    const handleRegenerateOne = async (index: number) => {
+        if (regeneratingIndices.includes(index)) return;
+
+        const productGroupsToProcess = tabMode === 'batch'
+            ? productGroups.filter(group => group.length > 0)
+            : (productImages.length > 0 ? [productImages] : []);
+
+        const productGroup = tabMode === 'batch'
+            ? productGroupsToProcess[index]
+            : productGroupsToProcess[0];
+        const styleIndex = tabMode === 'batch' && styleReferences[index] ? index : 0;
+        const styleRef = styleReferences[styleIndex];
+
+        if (!styleRef?.base64 || !productGroup?.length) {
+            setError('缺少该图片对应的参考设计图或产品素材图');
+            return;
+        }
+
+        setRegeneratingIndices(prev => [...prev, index]);
+        setError(null);
+
+        try {
+            const groupedPrompt = [
+                customPrompt || '',
+                tabMode === 'batch'
+                    ? `Product group ${index + 1}: use ONLY the ${productGroup.length} product image(s) provided in this group as the target product. Treat these images as different views/details of the SAME product. Do not mix with other product groups.`
+                    : ''
+            ].filter(Boolean).join('\n');
+
+            const results = await generateStyleReplication(
+                { base64: styleRef.base64, mime: styleRef.mime || 'image/png' },
+                productGroup.map(img => ({ base64: img.base64!, mime: img.mime || 'image/png' })),
+                groupedPrompt || undefined,
+                {
+                    aspectRatio,
+                    resolution,
+                    count: 1,
+                    model: selectedModel,
+                    retouch: isRetouchEnabled,
+                }
+            );
+
+            if (!results[0]) throw new Error('单张重新生成失败，请稍后重试。');
+
+            const regeneratedDataUrl = `data:image/png;base64,${results[0]}`;
+            const colorReference = styleReferences[0]?.base64 && styleReferences[0]?.mime
+                ? `data:${styleReferences[0].mime};base64,${styleReferences[0].base64}`
+                : undefined;
+            const [finalImage] = await applyColorCorrectionBatch([regeneratedDataUrl], {
+                mode: colorCorrectionMode,
+                reference: colorReference,
+                blend: colorCorrectionBlend,
+            });
+
+            setGeneratedImages(prev => prev.map((image, imageIndex) => (
+                imageIndex === index ? finalImage : image
+            )));
+        } catch (err) {
+            console.error(`Single regenerate failed for image ${index + 1}:`, err);
+            setError(getErrorMessage(err));
+        } finally {
+            setRegeneratingIndices(prev => prev.filter(item => item !== index));
+        }
+    };
+
     // Sequential download all handler with 300ms delay to prevent browser blocking
     const handleDownloadAll = async () => {
         for (let i = 0; i < generatedImages.length; i++) {
@@ -557,12 +645,13 @@ const StyleReplicateTab: React.FC = () => {
         setStyleReferences([]);
         setProductImages([]);
         setGeneratedImages([]);
+        setRegeneratingIndices([]);
         setError(null);
         setCustomPrompt('');
     };
 
     const filledProductGroups = productGroups.filter(group => group.length > 0);
-    const batchOutputCount = tabMode === 'batch' ? filledProductGroups.length * styleReferences.length : generateCount;
+    const batchOutputCount = tabMode === 'batch' ? filledProductGroups.length : generateCount;
     const canGenerate = styleReferences.length > 0 && (tabMode === 'batch' ? filledProductGroups.length > 0 : productImages.length > 0) && !isLoading;
 
     return (
@@ -617,7 +706,7 @@ const StyleReplicateTab: React.FC = () => {
                         <div className="bg-white rounded-xl border border-pastel-border p-5 shadow-sm">
                             <div className="flex items-center gap-2 mb-3">
                                 <Palette className="w-5 h-5 text-pastel-highlight" />
-                                <h3 className="font-semibold text-pastel-text">参考设计图 {tabMode === 'batch' && <span className="text-xs font-normal text-pastel-muted">(最多 12 张，会匹配每个产品组)</span>}</h3>
+                                <h3 className="font-semibold text-pastel-text">参考设计图 {tabMode === 'batch' && <span className="text-xs font-normal text-pastel-muted">(最多 12 张，按产品顺序匹配)</span>}</h3>
                             </div>
                             <p className="text-xs text-pastel-muted mb-3">上传希望复刻的设计风格图；一张或多张都可以</p>
 
@@ -691,7 +780,7 @@ const StyleReplicateTab: React.FC = () => {
                             </div>
                             <p className="text-xs text-pastel-muted mb-3">
                                 {tabMode === 'batch'
-                                    ? '批量模式下请按产品分组上传，每个产品最多 3 张素材；每个产品都会复刻每张参考设计图。'
+                                    ? `批量模式下请按产品分组上传，每个产品最多 ${PRODUCT_GROUP_IMAGE_LIMIT} 张素材；每个产品匹配 1 张参考设计图。`
                                     : '上传您希望出现在图片中的产品素材'}
                             </p>
 
@@ -760,7 +849,7 @@ const StyleReplicateTab: React.FC = () => {
                                                 ) : (
                                                     <div className="text-center py-4">
                                                         <Upload className="w-6 h-6 mx-auto mb-1 text-pastel-muted group-hover:text-pastel-highlight transition-colors" />
-                                                        <p className="text-xs text-pastel-highlight">上传该产品素材，最多 3 张</p>
+                                                        <p className="text-xs text-pastel-highlight">上传该产品素材，最多 {PRODUCT_GROUP_IMAGE_LIMIT} 张</p>
                                                         <p className="text-[10px] text-pastel-muted mt-1">同一产品的正面、背面、细节图放在同一组</p>
                                                     </div>
                                                 )}
@@ -959,7 +1048,7 @@ const StyleReplicateTab: React.FC = () => {
                                     </label>
                                     {tabMode === 'batch' ? (
                                         <div className="w-full bg-gray-50 border border-pastel-border rounded-lg px-3 py-2 text-sm text-pastel-muted flex items-center justify-between">
-                                            <span>{filledProductGroups.length} 个产品 × {styleReferences.length} 张参考 = {batchOutputCount} 张</span>
+                                            <span>{filledProductGroups.length} 个产品 = {batchOutputCount} 张</span>
                                             <span className="text-[10px] bg-pastel-highlight/10 text-pastel-highlight px-1.5 py-0.5 rounded">自动匹配</span>
                                         </div>
                                     ) : (
@@ -1017,6 +1106,53 @@ const StyleReplicateTab: React.FC = () => {
                                 </div>
                             </div>
 
+                            <div className="border-t border-pastel-border/50 pt-5">
+                                <div className="mb-3 flex items-center gap-2">
+                                    <Sun className="w-4 h-4 text-pastel-highlight" />
+                                    <h3 className="text-sm font-bold text-pastel-text">色彩校准 Color Match</h3>
+                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">生成后自动统一色调</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                        { id: 'off' as ColorCorrectionMode, label: '关闭', desc: '原图输出' },
+                                        { id: 'match' as ColorCorrectionMode, label: '参考图匹配', desc: '最推荐' },
+                                        { id: 'autoWhiteBalance' as ColorCorrectionMode, label: '自动白平衡', desc: 'Gray World' },
+                                        { id: 'redSuppress' as ColorCorrectionMode, label: '压红补青', desc: '偏红修正' },
+                                    ].map((item) => (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            onClick={() => setColorCorrectionMode(item.id)}
+                                            className={`min-h-[3.25rem] rounded-xl border px-2 py-2 text-center transition-all ${
+                                                colorCorrectionMode === item.id
+                                                    ? 'border-blue-300 bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+                                                    : 'border-pastel-border bg-pastel-bg/30 text-pastel-muted hover:border-blue-200'
+                                            }`}
+                                        >
+                                            <span className="block text-[11px] font-black">{item.label}</span>
+                                            <span className="mt-0.5 block text-[9px] opacity-70">{item.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                {colorCorrectionMode !== 'off' && (
+                                    <div className="mt-3">
+                                        <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-pastel-muted">
+                                            <span>混合度</span>
+                                            <span>{Math.round(colorCorrectionBlend * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0.3"
+                                            max="1"
+                                            step="0.05"
+                                            value={colorCorrectionBlend}
+                                            onChange={(event) => setColorCorrectionBlend(Number(event.target.value))}
+                                            className="w-full accent-blue-500"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Error Message */}
                             {error && (
                                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-sm text-red-600">
@@ -1071,6 +1207,14 @@ const StyleReplicateTab: React.FC = () => {
                             </div>
                             {generatedImages.length > 0 && (
                                 <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={handleGenerate}
+                                        className="text-xs text-pastel-highlight hover:text-orange-600 flex items-center gap-1 font-medium transition-colors"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        重新生成
+                                    </button>
                                     {generatedImages.length > 1 && (
                                         <button
                                             onClick={handleDownloadAll}
@@ -1158,32 +1302,46 @@ const StyleReplicateTab: React.FC = () => {
                                 </div>
                             ) : generatedImages.length > 0 ? (
                                 <div className={`p-4 h-full overflow-y-auto ${generatedImages.length === 1 ? 'flex items-center justify-center' : 'grid grid-cols-2 gap-3 items-start content-start'}`}>
-                                    {generatedImages.map((img, idx) => (
-                                        <div
-                                            key={idx}
-                                            className={`relative group rounded-lg overflow-hidden border border-pastel-border bg-white shadow-sm ${generatedImages.length === 1 ? 'max-w-md w-full' : 'w-full'}`}
-                                        >
-                                            <img
-                                                src={img}
-                                                alt={`Generated ${idx + 1}`}
-                                                className="w-full h-auto object-contain block"
-                                            />
-                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                                <button
-                                                    onClick={() => setSelectedPreview(img)}
-                                                    className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
-                                                >
-                                                    <ZoomIn className="w-5 h-5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDownload(img, idx)}
-                                                    className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
-                                                >
-                                                    <Download className="w-5 h-5" />
-                                                </button>
+                                    {generatedImages.map((img, idx) => {
+                                        const isRegenerating = regeneratingIndices.includes(idx);
+                                        return (
+                                            <div
+                                                key={idx}
+                                                className={`relative group rounded-lg overflow-hidden border border-pastel-border bg-white shadow-sm ${generatedImages.length === 1 ? 'max-w-md w-full' : 'w-full'}`}
+                                            >
+                                                <img
+                                                    src={img}
+                                                    alt={`Generated ${idx + 1}`}
+                                                    className="w-full h-auto object-contain block"
+                                                />
+                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                                    <button
+                                                        onClick={() => setSelectedPreview(img)}
+                                                        disabled={isRegenerating}
+                                                        className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink disabled:cursor-not-allowed disabled:opacity-80 transition-colors"
+                                                    >
+                                                        <ZoomIn className="w-5 h-5" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRegenerateOne(idx)}
+                                                        disabled={isRegenerating}
+                                                        className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink disabled:cursor-wait disabled:opacity-80 transition-colors"
+                                                        title="重新生成这张"
+                                                    >
+                                                        <RefreshCw className={`w-5 h-5 ${isRegenerating ? 'animate-spin text-pastel-highlight' : ''}`} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDownload(img, idx)}
+                                                        disabled={isRegenerating}
+                                                        className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink disabled:cursor-not-allowed disabled:opacity-80 transition-colors"
+                                                    >
+                                                        <Download className="w-5 h-5" />
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center text-pastel-muted p-8">
