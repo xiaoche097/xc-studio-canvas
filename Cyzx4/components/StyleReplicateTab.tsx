@@ -1314,30 +1314,38 @@ const StyleReplicateTab: React.FC = () => {
                                                     alt={`Generated ${idx + 1}`}
                                                     className="w-full h-auto object-contain block"
                                                 />
-                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                                    <button
-                                                        onClick={() => setSelectedPreview(img)}
-                                                        disabled={isRegenerating}
-                                                        className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink disabled:cursor-not-allowed disabled:opacity-80 transition-colors"
-                                                    >
-                                                        <ZoomIn className="w-5 h-5" />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRegenerateOne(idx)}
-                                                        disabled={isRegenerating}
-                                                        className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink disabled:cursor-wait disabled:opacity-80 transition-colors"
-                                                        title="重新生成这张"
-                                                    >
-                                                        <RefreshCw className={`w-5 h-5 ${isRegenerating ? 'animate-spin text-pastel-highlight' : ''}`} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDownload(img, idx)}
-                                                        disabled={isRegenerating}
-                                                        className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink disabled:cursor-not-allowed disabled:opacity-80 transition-colors"
-                                                    >
-                                                        <Download className="w-5 h-5" />
-                                                    </button>
+                                                <div className={`absolute inset-0 bg-black/50 transition-opacity flex items-center justify-center gap-2 ${
+                                                    isRegenerating ? 'opacity-100 cursor-wait' : 'opacity-0 group-hover:opacity-100'
+                                                }`}>
+                                                    {isRegenerating ? (
+                                                        <div className="flex flex-col items-center gap-2 rounded-2xl bg-white/95 px-4 py-3 text-pastel-text shadow-lg">
+                                                            <RefreshCw className="w-6 h-6 animate-spin text-pastel-highlight" />
+                                                            <span className="text-xs font-bold">重新生成中</span>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                onClick={() => setSelectedPreview(img)}
+                                                                className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
+                                                            >
+                                                                <ZoomIn className="w-5 h-5" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRegenerateOne(idx)}
+                                                                className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
+                                                                title="重新生成这张"
+                                                            >
+                                                                <RefreshCw className="w-5 h-5" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDownload(img, idx)}
+                                                                className="p-2 bg-white rounded-full text-pastel-text hover:bg-pastel-pink transition-colors"
+                                                            >
+                                                                <Download className="w-5 h-5" />
+                                                            </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         );
