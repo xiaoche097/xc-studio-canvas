@@ -37,6 +37,7 @@ import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
 import { Y2K_POSES } from '../constants/y2kPosePresets';
+import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
 
 type UploadKind = 'model' | 'product' | 'scene' | 'action' | 'accessory';
 type MainReferenceKind = UploadKind | 'overall' | 'color';
@@ -54,6 +55,7 @@ type PoseLibraryKey =
   | 'longDress'
   | 'womensFashion'
   | 'solavibe'
+  | 'suriMira'
   | 'y2k';
 
 type PosePreset = {
@@ -88,6 +90,7 @@ const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; 
   { key: 'mensPants', label: '男士长裤', desc: '长裤下装', poses: MENS_PANTS_POSES },
   { key: 'swimShorts', label: '泳裤/沙滩裤', desc: '度假运动', poses: SWIM_SHORTS_POSES },
   { key: 'longDress', label: '长裙/连衣裙', desc: '裙装展示', poses: LONG_DRESS_POSES },
+  { key: 'suriMira', label: 'Suri Mira 宫廷法式复古连衣裙', desc: '宫廷/法式复古', poses: SURI_MIRA_POSES },
   { key: 'sleepwear', label: '睡衣/居家', desc: '居家睡衣', poses: SLEEPWEAR_POSES },
   { key: 'solavibe', label: 'Solavibe 大码度假', desc: '度假大码', poses: SOLAVIBE_POSES },
   { key: 'y2k', label: 'Y2K Editorial', desc: 'Denim/Trouser high-fashion', poses: Y2K_POSES },
