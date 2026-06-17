@@ -72,9 +72,92 @@ const PRESETS: Record<CropPreset, { label: string; desc: string; box: CropBox }>
   },
 };
 
-const MIN_CROP_SIZE = 0.08;
+const CROP_ASPECT_RATIO = 3 / 4;
+const MIN_CROP_WIDTH = 0.12;
+const MIN_CROP_HEIGHT = MIN_CROP_WIDTH / CROP_ASPECT_RATIO;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const getNormalizedCropAspectRatio = (frameAspectRatio: number) => CROP_ASPECT_RATIO / frameAspectRatio;
+
+const fitCropBoxToAspectRatio = (
+  box: CropBox,
+  frameAspectRatio = 1,
+  aspectRatio = CROP_ASPECT_RATIO
+): CropBox => {
+  const normalizedAspectRatio = aspectRatio / frameAspectRatio;
+  const centerX = box.x + box.w / 2;
+  const centerY = box.y + box.h / 2;
+  const maxW = Math.min(1, centerX * 2, (1 - centerX) * 2);
+  const maxH = Math.min(1, centerY * 2, (1 - centerY) * 2);
+  let w = box.w;
+  let h = w / normalizedAspectRatio;
+
+  if (h > box.h) {
+    h = box.h;
+    w = h * normalizedAspectRatio;
+  }
+  if (w > maxW) {
+    w = maxW;
+    h = w / normalizedAspectRatio;
+  }
+  if (h > maxH) {
+    h = maxH;
+    w = h * normalizedAspectRatio;
+  }
+
+  w = Math.max(Math.min(w, maxW), Math.min(MIN_CROP_WIDTH, maxW));
+  h = w / normalizedAspectRatio;
+  if (h > maxH) {
+    h = Math.max(Math.min(maxH, 1), Math.min(MIN_CROP_HEIGHT, maxH));
+    w = h * normalizedAspectRatio;
+  }
+
+  return {
+    x: clamp(centerX - w / 2, 0, 1 - w),
+    y: clamp(centerY - h / 2, 0, 1 - h),
+    w,
+    h,
+  };
+};
+
+const getPresetCropBox = (preset: CropPreset, frameAspectRatio = 1) => (
+  fitCropBoxToAspectRatio(PRESETS[preset].box, frameAspectRatio)
+);
+
+const resizeCropBoxFromCorner = (
+  start: CropBox,
+  mode: Exclude<DragMode, 'move'>,
+  dx: number,
+  dy: number,
+  frameAspectRatio: number
+): CropBox => {
+  const normalizedAspectRatio = getNormalizedCropAspectRatio(frameAspectRatio);
+  const left = start.x;
+  const top = start.y;
+  const right = start.x + start.w;
+  const bottom = start.y + start.h;
+  const anchorX = mode.includes('w') ? right : left;
+  const anchorY = mode.includes('n') ? bottom : top;
+  const pointerX = clamp(mode.includes('w') ? left + dx : right + dx, 0, 1);
+  const pointerY = clamp(mode.includes('n') ? top + dy : bottom + dy, 0, 1);
+  const desiredW = Math.abs(pointerX - anchorX);
+  const desiredH = Math.abs(pointerY - anchorY);
+  const widthFromPointerY = desiredH * normalizedAspectRatio;
+  let nextW = Math.max(desiredW, widthFromPointerY, MIN_CROP_WIDTH);
+
+  const maxWByX = mode.includes('w') ? anchorX : 1 - anchorX;
+  const maxHByY = mode.includes('n') ? anchorY : 1 - anchorY;
+  nextW = Math.min(nextW, maxWByX, maxHByY * normalizedAspectRatio);
+  const nextH = nextW / normalizedAspectRatio;
+
+  return {
+    x: mode.includes('w') ? anchorX - nextW : anchorX,
+    y: mode.includes('n') ? anchorY - nextH : anchorY,
+    w: nextW,
+    h: nextH,
+  };
+};
 
 const getDataUrl = (image: UploadedImage) => `data:${image.mime};base64,${image.base64}`;
 
@@ -271,6 +354,25 @@ const processImageFile = async (file: File): Promise<UploadedImage> => {
   };
 };
 
+const processTargetImageFile = async (file: File): Promise<UploadedImage> => {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Image file could not be read.'));
+    reader.readAsDataURL(file);
+  });
+  const parsed = parseDataUrl(dataUrl);
+  const img = await loadCanvasImage(dataUrl);
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    preview: dataUrl,
+    base64: parsed.base64,
+    mime: parsed.mimeType,
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+  };
+};
+
 const buildPasteBackPrompt = (notes: string, cropPreset: CropPreset, hasLineart: boolean) => `
 Create one repaired local crop for model original paste-back.
 
@@ -297,9 +399,9 @@ const ModelOriginalPasteBackTab: React.FC = () => {
   const [targetImage, setTargetImage] = useState<UploadedImage | null>(null);
   const [referenceImages, setReferenceImages] = useState<UploadedImage[]>([]);
   const [cropPreset, setCropPreset] = useState<CropPreset>('headShoulders');
-  const [cropBox, setCropBox] = useState<CropBox>(PRESETS.headShoulders.box);
+  const [cropBox, setCropBox] = useState<CropBox>(() => getPresetCropBox('headShoulders'));
   const [feather, setFeather] = useState(18);
-  const [pasteScale, setPasteScale] = useState(0.92);
+  const [pasteScale, setPasteScale] = useState(1);
   const [pasteOffsetX, setPasteOffsetX] = useState(0);
   const [pasteOffsetY, setPasteOffsetY] = useState(0);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
@@ -341,6 +443,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
 
   const targetDataUrl = useMemo(() => targetImage ? getDataUrl(targetImage) : null, [targetImage]);
   const canGenerate = !!targetImage && referenceImages.length > 0 && !isLoading;
+  const targetFrameAspectRatio = targetImage ? targetImage.width / targetImage.height : 1;
 
   useEffect(() => {
     cropBoxRef.current = cropBox;
@@ -348,19 +451,19 @@ const ModelOriginalPasteBackTab: React.FC = () => {
 
   const setPreset = (preset: CropPreset) => {
     setCropPreset(preset);
-    setCropBox(PRESETS[preset].box);
+    setCropBox(getPresetCropBox(preset, targetFrameAspectRatio));
   };
 
   const handleTargetUpload = useCallback(async (files: File[] | FileList) => {
     const file = Array.from(files).find(item => item.type.startsWith('image/'));
     if (!file) return;
     try {
-      const image = await processImageFile(file);
+      const image = await processTargetImageFile(file);
       setTargetImage(image);
       setResultImage(null);
       setGeneratedCrop(null);
       setPreviewImage(null);
-      setCropBox(PRESETS[cropPreset].box);
+      setCropBox(getPresetCropBox(cropPreset, image.width / image.height));
       setError(null);
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
@@ -499,27 +602,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
       next.x = clamp(start.x + dx, 0, 1 - start.w);
       next.y = clamp(start.y + dy, 0, 1 - start.h);
     } else {
-      const left = start.x;
-      const top = start.y;
-      const right = start.x + start.w;
-      const bottom = start.y + start.h;
-
-      let nextLeft = left;
-      let nextTop = top;
-      let nextRight = right;
-      let nextBottom = bottom;
-
-      if (drag.mode.includes('w')) nextLeft = clamp(left + dx, 0, right - MIN_CROP_SIZE);
-      if (drag.mode.includes('e')) nextRight = clamp(right + dx, left + MIN_CROP_SIZE, 1);
-      if (drag.mode.includes('n')) nextTop = clamp(top + dy, 0, bottom - MIN_CROP_SIZE);
-      if (drag.mode.includes('s')) nextBottom = clamp(bottom + dy, top + MIN_CROP_SIZE, 1);
-
-      next = {
-        x: nextLeft,
-        y: nextTop,
-        w: nextRight - nextLeft,
-        h: nextBottom - nextTop,
-      };
+      next = resizeCropBoxFromCorner(start, drag.mode, dx, dy, rect.width / rect.height);
     }
 
     scheduleCropBoxUpdate(next);
@@ -713,7 +796,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
   const handleReset = () => {
     setTargetImage(null);
     setReferenceImages([]);
-    setCropBox(PRESETS.headShoulders.box);
+    setCropBox(getPresetCropBox('headShoulders', targetFrameAspectRatio));
     setCropPreset('headShoulders');
     setResultImage(null);
     setGeneratedCrop(null);
@@ -722,7 +805,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     setError(null);
     setNotes('');
     setComparePosition(50);
-    setPasteScale(0.92);
+    setPasteScale(1);
     setPasteOffsetX(0);
     setPasteOffsetY(0);
   };
@@ -907,7 +990,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setPasteScale(0.92);
+                      setPasteScale(1);
                       setPasteOffsetX(0);
                       setPasteOffsetY(0);
                     }}
