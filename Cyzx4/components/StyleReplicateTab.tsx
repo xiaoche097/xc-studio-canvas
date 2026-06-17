@@ -190,34 +190,47 @@ const StyleReplicateTab: React.FC = () => {
         if (styleReferences.length === 0) {
             const processed = await processFiles(tabMode === 'single' ? [files[0]] : files.slice(0, 12));
             setStyleReferences(processed);
+            setError(null);
+            return;
         }
-        // 否则如果产品图为空，则加入产品图
-        else if (productImages.length === 0) {
-            const processed = await processFiles(files.slice(0, PRODUCT_IMAGE_LIMIT));
-            if (tabMode === 'batch') {
-                setProductGroups([processed.slice(0, PRODUCT_GROUP_IMAGE_LIMIT)]);
-                setActiveProductGroupIndex(0);
-            } else {
-                setProductImages(processed);
-            }
-        }
-        // 否则默认加入风格参考，追加或替换取决于模式
-        else {
-            const maxAllowed = tabMode === 'single' ? 1 : 12;
-            const currentCount = tabMode === 'single' ? 0 : styleReferences.length;
-            const remaining = maxAllowed - currentCount;
-            if (remaining <= 0 && tabMode === 'batch') return;
 
-            const filesToProcess = tabMode === 'single' ? [files[0]] : files.slice(0, remaining);
-            const processed = await processFiles(filesToProcess);
+        // 已有参考图时，粘贴图片默认追加到产品素材，不覆盖已有图片。
+        if (tabMode === 'batch') {
+            const targetIndex = Math.min(activeProductGroupIndex, productGroups.length - 1);
+            const currentGroup = productGroups[targetIndex] || [];
+            const remaining = PRODUCT_GROUP_IMAGE_LIMIT - currentGroup.length;
+            if (remaining <= 0) return;
 
-            if (tabMode === 'single') {
-                setStyleReferences(processed);
-            } else {
-                setStyleReferences(prev => [...prev, ...processed]);
-            }
+            const processed = await processFiles(files.slice(0, remaining));
+            if (processed.length === 0) return;
+            setProductGroups(prev => prev.map((group, idx) => (
+                idx === targetIndex ? [...group, ...processed].slice(0, PRODUCT_GROUP_IMAGE_LIMIT) : group
+            )));
+            setError(null);
+            return;
         }
+
+        const remaining = PRODUCT_IMAGE_LIMIT - productImages.length;
+        if (remaining <= 0) return;
+
+        const processed = await processFiles(files.slice(0, remaining));
+        if (processed.length === 0) return;
+        setProductImages(prev => [...prev, ...processed].slice(0, PRODUCT_IMAGE_LIMIT));
+        setError(null);
     });
+
+    const clearProductUploads = () => {
+        if (tabMode === 'batch') {
+            setProductGroups([[]]);
+            setActiveProductGroupIndex(0);
+        } else {
+            setProductImages([]);
+        }
+    };
+
+    const hasProductUploads = tabMode === 'batch'
+        ? productGroups.some(group => group.length > 0)
+        : productImages.length > 0;
 
     // Remove style reference
     const removeStyleReference = (index: number) => {
@@ -644,6 +657,8 @@ const StyleReplicateTab: React.FC = () => {
     const handleReset = () => {
         setStyleReferences([]);
         setProductImages([]);
+        setProductGroups([[]]);
+        setActiveProductGroupIndex(0);
         setGeneratedImages([]);
         setRegeneratingIndices([]);
         setError(null);
@@ -778,11 +793,22 @@ const StyleReplicateTab: React.FC = () => {
                                     </span>
                                 )}
                             </div>
-                            <p className="text-xs text-pastel-muted mb-3">
-                                {tabMode === 'batch'
-                                    ? `批量模式下请按产品分组上传，每个产品最多 ${PRODUCT_GROUP_IMAGE_LIMIT} 张素材；每个产品匹配 1 张参考设计图。`
-                                    : '上传您希望出现在图片中的产品素材'}
-                            </p>
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                                <p className="text-xs text-pastel-muted">
+                                    {tabMode === 'batch'
+                                        ? `批量模式下请按产品分组上传，每个产品最多 ${PRODUCT_GROUP_IMAGE_LIMIT} 张素材；每个产品匹配 1 张参考设计图。`
+                                        : '上传您希望出现在图片中的产品素材'}
+                                </p>
+                                {hasProductUploads && (
+                                    <button
+                                        type="button"
+                                        onClick={clearProductUploads}
+                                        className="shrink-0 rounded-full border border-red-100 bg-red-50 px-3 py-1 text-xs font-bold text-red-500 transition-colors hover:bg-red-100"
+                                    >
+                                        全部清除
+                                    </button>
+                                )}
+                            </div>
 
                             {tabMode === 'batch' ? (
                                 <div className="space-y-3">
