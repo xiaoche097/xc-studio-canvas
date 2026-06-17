@@ -214,6 +214,7 @@ const ModelGenerationTab: React.FC = () => {
             } : t));
         }, 1100);
 
+        let inputImages: any[] = [];
         try {
             // 映射动作姿态参考图（支持安全线稿模式以过滤动作图中的人物身份和背景颜色干扰）
             const poseItem = { base64: ref.base64!, mimeType: ref.mime! };
@@ -246,7 +247,6 @@ const ModelGenerationTab: React.FC = () => {
                 : `Image 1 is the original action reference. ${modelReferenceRange} are the target model, face, hair, clothing/product, and background references.`;
             
             // 复制姿态参考图以适配 [Pose, Pose, Model1, Model2, ...] 的布局
-            let inputImages;
             if (strictFaceLock) {
                 // 当高精准人像锁开启时，我们通过“动作图双重复拍”确保对齐底层服务映射，并对“模特原画进行3倍超高注意力权重赋值”
                 inputImages = [...poseBlueprintItems, ...modelItems, ...modelItems, ...modelItems];

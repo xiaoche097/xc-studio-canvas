@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Brain,
@@ -257,10 +257,39 @@ const UploadCard: React.FC<{
 }> = ({ title, desc, icon, images, max, multiple = true, onUpload, onRemove }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isActive, setIsActive] = useState(false);
 
   const handleFiles = (files?: FileList | null) => {
     if (files) onUpload(Array.from(files));
   };
+
+  useEffect(() => {
+    const handleGlobalPaste = (event: ClipboardEvent) => {
+      if (!isActive) return;
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf('image') !== -1) {
+          const file = item.getAsFile();
+          if (file) {
+            files.push(file);
+          }
+        }
+      }
+      if (files.length > 0) {
+        event.preventDefault();
+        onUpload(files);
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => {
+      window.removeEventListener('paste', handleGlobalPaste);
+    };
+  }, [isActive, onUpload]);
 
   return (
     <div className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
@@ -289,8 +318,13 @@ const UploadCard: React.FC<{
           setIsDragging(false);
           handleFiles(event.dataTransfer.files);
         }}
-        className={`min-h-[6.5rem] cursor-pointer rounded-xl border-2 border-dashed p-3 transition-all ${
-          isDragging ? 'border-pastel-highlight bg-orange-50/60' : 'border-pastel-border bg-pastel-bg/30 hover:border-orange-200'
+        onMouseEnter={() => setIsActive(true)}
+        onMouseLeave={() => setIsActive(false)}
+        onFocus={() => setIsActive(true)}
+        onBlur={() => setIsActive(false)}
+        tabIndex={0}
+        className={`min-h-[6.5rem] cursor-pointer rounded-xl border-2 border-dashed p-3 transition-all outline-none ${
+          isDragging || isActive ? 'border-pastel-highlight bg-orange-50/60 ring-2 ring-orange-100 shadow-sm' : 'border-pastel-border bg-pastel-bg/30 hover:border-orange-200'
         }`}
       >
         <input
@@ -330,8 +364,12 @@ const UploadCard: React.FC<{
         ) : (
           <div className="flex min-h-[4.75rem] flex-col items-center justify-center text-center">
             <Upload className="mb-1 h-7 w-7 text-pastel-muted" />
-            <p className="text-xs font-bold text-pastel-text">点击或拖拽上传</p>
-            <p className="mt-0.5 text-[10px] text-pastel-muted">支持 JPG / PNG / WebP</p>
+            <p className="text-xs font-bold text-pastel-text">
+              {isActive ? '粘贴 (Ctrl+V) 或拖拽上传' : '点击、拖拽或粘贴上传'}
+            </p>
+            <p className="mt-0.5 text-[10px] text-pastel-muted">
+              {isActive ? '已激活，可直接 Ctrl+V 粘贴图片' : '支持 JPG / PNG / WebP，支持粘贴'}
+            </p>
           </div>
         )}
       </div>

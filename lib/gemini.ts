@@ -164,6 +164,11 @@ class GeminiClient {
 
     throw new Error("Candidate returned but no base64 image data found in parts. Check console for full response structure.");
   }
+
+  updateApiKey(key: string, baseUrl?: string) {
+    // This method is deprecated because the client now dynamically reads settings via getApiConfig().
+    // Retained for backward compatibility.
+  }
 }
 
 export const gemini = new GeminiClient();
