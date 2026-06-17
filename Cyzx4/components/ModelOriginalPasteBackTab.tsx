@@ -247,6 +247,12 @@ const getFocusMaskRect = (preset: CropPreset) => {
   return { x: 0.18, y: 0.02, w: 0.64, h: 0.64, radius: 0.2 };
 };
 
+const getRepairCropFitScale = (preset: CropPreset) => {
+  if (preset === 'face') return 0.9;
+  if (preset === 'headShoulders') return 0.76;
+  return 0.82;
+};
+
 const drawRoundedRect = (
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -268,6 +274,32 @@ const drawRoundedRect = (
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
   ctx.fill();
+};
+
+const fitRepairCropToSourceScale = async (
+  sourceCropDataUrl: string,
+  repairCropDataUrl: string,
+  preset: CropPreset
+) => {
+  const source = await loadCanvasImage(sourceCropDataUrl);
+  const repair = await loadCanvasImage(repairCropDataUrl);
+  const width = source.naturalWidth;
+  const height = source.naturalHeight;
+  const scale = getRepairCropFitScale(preset);
+  const repairW = width * scale;
+  const repairH = height * scale;
+  const repairX = (width - repairW) / 2;
+  const repairY = (height - repairH) / 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas is not available for crop scale fitting.');
+
+  ctx.drawImage(source, 0, 0, width, height);
+  drawImageCover(ctx, repair, repairX, repairY, repairW, repairH);
+  return canvas.toDataURL('image/png', 0.96);
 };
 
 const pasteCropBack = async (
@@ -389,10 +421,16 @@ Current repair area preset: ${PRESETS[cropPreset].label}.
 
 Output only the repaired crop. Do not output the full-body image. The generated crop must be paste-back ready and must align with ${hasLineart ? 'Image 1 and Image 2' : 'Image 1'} without position drift.
 
+ABSOLUTE SCALE LOCK:
+- Keep the same subject scale as Image 1. Do not zoom in, do not enlarge the head, face, shoulders, hands, bag, torso, or clothing.
+- Keep every visible boundary from Image 1: if Image 1 shows torso/chest/hand/bag, the output crop must show the same body extent in the same positions.
+- Treat Image 1 as the camera crop master. The high-quality model references only provide texture/detail, never framing, crop distance, head size, or body scale.
+- If detail restoration conflicts with scale, preserve Image 1 scale and layout first.
+
 User notes:
 ${notes || 'No extra notes.'}
 
-Negative: different person, face drift, changed expression character, changed head angle, changed shoulder line, changed pose, changed crop, shifted subject, moved background, changed clothing, changed garment edge, changed background, copied reference background, copied reference clothing, copied reference pose, color shift, warmer color, cooler color, changed sea color, changed wall color, red skin cast, waxy skin, plastic skin, over-smoothed skin, blurry face, low detail skin, CGI, doll face, text, watermark.
+Negative: zoomed-in crop, close-up portrait, enlarged face, enlarged head, enlarged shoulders, enlarged torso, larger subject scale, cropped-out torso, cropped-out hand, cropped-out bag, different person, face drift, changed expression character, changed head angle, changed shoulder line, changed pose, changed crop, shifted subject, moved background, changed clothing, changed garment edge, changed background, copied reference background, copied reference clothing, copied reference pose, color shift, warmer color, cooler color, changed sea color, changed wall color, red skin cast, waxy skin, plastic skin, over-smoothed skin, blurry face, low detail skin, CGI, doll face, text, watermark.
 `.trim();
 
 const ModelOriginalPasteBackTab: React.FC = () => {
@@ -725,7 +763,8 @@ const ModelOriginalPasteBackTab: React.FC = () => {
         console.warn('Paste-back crop color correction failed. Using raw crop.', colorError);
         return rawCrop;
       });
-      const pngCrop = await convertImageDataUrlFormat(colorLockedCrop, 'png');
+      const colorLockedPng = await convertImageDataUrlFormat(colorLockedCrop, 'png');
+      const pngCrop = await fitRepairCropToSourceScale(crop.dataUrl, colorLockedPng, cropPreset);
       setGeneratedCrop(pngCrop);
       setProgressText('正在把高清局部柔边贴回原图...');
       const pasted = await pasteCropBack(targetDataUrl, pngCrop, cropBox, feather, cropPreset, {
