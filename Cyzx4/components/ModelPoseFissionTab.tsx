@@ -36,6 +36,7 @@ import { MENS_PANTS_POSES } from '../constants/mensPantsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
+import { KARISMINA_POSES } from '../constants/karisminaPosePresets';
 import { Y2K_POSES } from '../constants/y2kPosePresets';
 import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
 
@@ -55,6 +56,7 @@ type PoseLibraryKey =
   | 'longDress'
   | 'womensFashion'
   | 'solavibe'
+  | 'karismina'
   | 'suriMira'
   | 'y2k';
 
@@ -102,6 +104,7 @@ const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; 
   { key: 'mensPants', label: '男士长裤', desc: '长裤下装', poses: MENS_PANTS_POSES },
   { key: 'swimShorts', label: '泳裤/沙滩裤', desc: '度假运动', poses: SWIM_SHORTS_POSES },
   { key: 'longDress', label: '长裙/连衣裙', desc: '裙装展示', poses: LONG_DRESS_POSES },
+  { key: 'karismina', label: 'KARISMINA 高点击连衣裙', desc: '花园/度假/优雅', poses: KARISMINA_POSES },
   { key: 'suriMira', label: 'Suri Mira 宫廷法式复古连衣裙', desc: '宫廷/法式复古', poses: SURI_MIRA_POSES },
   { key: 'sleepwear', label: '睡衣/居家', desc: '居家睡衣', poses: SLEEPWEAR_POSES },
   { key: 'solavibe', label: 'Solavibe 大码度假', desc: '度假大码', poses: SOLAVIBE_POSES },
@@ -220,10 +223,46 @@ const getResultAspectClass = (ratio: AspectRatio) => {
 const shuffle = <T,>(items: T[]) => {
   const next = [...items];
   for (let i = next.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(getStrongRandom() * (i + 1));
     [next[i], next[j]] = [next[j], next[i]];
   }
   return next;
+};
+
+const getStrongRandom = () => {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    return values[0] / 0xffffffff;
+  }
+  return Math.random();
+};
+
+const pickDiversePose = (
+  libraryKey: PoseLibraryKey,
+  poses: PosePreset[],
+  batchCache: Map<PoseLibraryKey, PosePreset[]>,
+  recentRef: React.MutableRefObject<Record<string, string[]>>,
+) => {
+  if (poses.length === 0) return undefined;
+  const recent = recentRef.current[libraryKey] || [];
+  const recentSet = new Set(recent);
+  const batchPicked = batchCache.get(libraryKey) || [];
+  if (batchPicked.length >= poses.length) batchCache.set(libraryKey, []);
+  const currentBatch = batchCache.get(libraryKey) || [];
+  const currentBatchIds = new Set(currentBatch.map((pose) => pose.id));
+
+  let pool = poses.filter((pose) => !recentSet.has(pose.id) && !currentBatchIds.has(pose.id));
+  if (pool.length === 0) pool = poses.filter((pose) => !currentBatchIds.has(pose.id));
+  if (pool.length === 0) pool = poses;
+
+  const [picked] = shuffle(pool);
+  if (!picked) return undefined;
+
+  batchCache.set(libraryKey, [...currentBatch, picked]);
+  const maxRecent = Math.max(8, Math.min(36, Math.floor(poses.length * 0.45)));
+  recentRef.current[libraryKey] = [picked.id, ...recent.filter((id) => id !== picked.id)].slice(0, maxRecent);
+  return picked;
 };
 
 const POSE_FISSION_DIVERSITY_DIRECTIVE =
@@ -483,6 +522,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const regenerateControllersRef = useRef<Map<number, AbortController>>(new Map());
+  const recentPoseIdsRef = useRef<Record<string, string[]>>({});
   const {
     cancelMessage,
     startGenerationTask,
@@ -603,7 +643,7 @@ Rules:
     setResults([]);
   };
 
-  const getPoseForOutput = (index: number) => {
+  const getPoseForOutput = (index: number, batchCache: Map<PoseLibraryKey, PosePreset[]> = new Map()) => {
     if (actionImages.length > 0 && index < actionImages.length) {
       const actionImage = actionImages[index];
       let promptText = 'Match the uploaded action reference image exactly for pose, gesture, camera distance, crop boundary, subject scale, body angle, and visible body extent.';
@@ -622,7 +662,7 @@ Rules:
         prompt: manualPose?.prompt || 'professional ecommerce fashion pose',
       };
     }
-    const pose = shuffle(activeLibrary.poses)[index % Math.max(activeLibrary.poses.length, 1)] || activeLibrary.poses[0];
+    const pose = pickDiversePose(activeLibrary.key, activeLibrary.poses, batchCache, recentPoseIdsRef) || activeLibrary.poses[0];
     return {
       label: `${activeLibrary.label} / 随机动作 ${pose?.id || index + 1}`,
       prompt: pose?.prompt || 'varied professional ecommerce fashion pose',
@@ -762,7 +802,8 @@ Rules:
     setRegeneratingIndex(regenerateIndex ?? null);
     const total = regenerateIndex !== undefined ? 1 : effectiveGenerateCount;
     const indices = regenerateIndex !== undefined ? [regenerateIndex] : Array.from({ length: total }, (_, index) => index);
-    const plannedPoses = new Map(indices.map((index) => [index, getPoseForOutput(index)]));
+    const poseBatchCache = new Map<PoseLibraryKey, PosePreset[]>();
+    const plannedPoses = new Map(indices.map((index) => [index, getPoseForOutput(index, poseBatchCache)]));
     if (regenerateIndex === undefined) {
       setResults(Array.from({ length: total }, (_, index) => ({
         id: `pending-${index}`,

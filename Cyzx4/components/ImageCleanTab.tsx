@@ -28,6 +28,7 @@ import { MENS_PANTS_POSES } from '../constants/mensPantsPosePresets';
 import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
+import { KARISMINA_POSES } from '../constants/karisminaPosePresets';
 import { Y2K_POSES } from '../constants/y2kPosePresets';
 import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
 
@@ -69,7 +70,7 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion' | 'solavibe' | 'suriMira';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion' | 'solavibe' | 'karismina' | 'suriMira';
 
 interface AutoPoseAnalysis {
     productType: string;
@@ -101,6 +102,7 @@ const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     longDress: '长裙/连衣裙动作库',
     womensFashion: '通用时尚女装动作库',
     solavibe: 'Solavibe 度假大码动作库',
+    karismina: 'KARISMINA 高点击连衣裙动作库',
     suriMira: 'Suri Mira 宫廷法式复古连衣裙动作库',
 };
 
@@ -120,6 +122,7 @@ const buildManualPoseOptions = (): ManualPoseOption[] => {
         { library: 'mensPants', poses: MENS_PANTS_POSES },
         { library: 'swimShorts', poses: SWIM_SHORTS_POSES },
         { library: 'longDress', poses: LONG_DRESS_POSES },
+        { library: 'karismina', poses: KARISMINA_POSES },
         { library: 'suriMira', poses: SURI_MIRA_POSES },
         { library: 'womensFashion', poses: WOMENS_FASHION_POSES },
         { library: 'solavibe', poses: SOLAVIBE_POSES },
@@ -141,6 +144,57 @@ const buildManualPoseOptions = (): ManualPoseOption[] => {
 };
 
 const MANUAL_POSE_OPTIONS = buildManualPoseOptions();
+
+type PoseLike = { id: string; name: string; prompt: string };
+
+const getStrongRandom = () => {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const values = new Uint32Array(1);
+        crypto.getRandomValues(values);
+        return values[0] / 0xffffffff;
+    }
+    return Math.random();
+};
+
+const shufflePoseList = <T,>(items: T[]) => {
+    const next = [...items];
+    for (let i = next.length - 1; i > 0; i--) {
+        const r = Math.floor(getStrongRandom() * (i + 1));
+        [next[i], next[r]] = [next[r], next[i]];
+    }
+    return next;
+};
+
+const pickDiversePose = <T extends PoseLike>(
+    libraryKey: string,
+    poses: T[],
+    batchCache: Map<string, T[]>,
+    recentRef: React.MutableRefObject<Record<string, string[]>>,
+) => {
+    if (poses.length === 0) return undefined;
+    const recent = recentRef.current[libraryKey] || [];
+    const recentSet = new Set(recent);
+    const batchPicked = batchCache.get(libraryKey) || [];
+
+    if (batchPicked.length >= poses.length) {
+        batchCache.set(libraryKey, []);
+    }
+
+    let pool = poses.filter((pose) => !recentSet.has(pose.id) && !(batchCache.get(libraryKey) || []).some((item) => item.id === pose.id));
+    if (pool.length === 0) {
+        pool = poses.filter((pose) => !(batchCache.get(libraryKey) || []).some((item) => item.id === pose.id));
+    }
+    if (pool.length === 0) pool = poses;
+
+    const [picked] = shufflePoseList(pool);
+    if (!picked) return undefined;
+
+    const nextBatch = [...(batchCache.get(libraryKey) || []), picked];
+    batchCache.set(libraryKey, nextBatch);
+    const maxRecent = Math.max(8, Math.min(36, Math.floor(poses.length * 0.45)));
+    recentRef.current[libraryKey] = [picked.id, ...recent.filter((id) => id !== picked.id)].slice(0, maxRecent);
+    return picked;
+};
 
 const getImageDimensions = (src: string): Promise<{ width: number; height: number }> => {
     return new Promise((resolve) => {
@@ -471,6 +525,7 @@ const HeroImageTab: React.FC = () => {
     const [manualPoseLibraryFilter, setManualPoseLibraryFilter] = useState<ManualPoseLibrary | 'auto' | 'all'>('auto');
     const [manualPoseSearch, setManualPoseSearch] = useState('');
     const [selectedManualPoseKey, setSelectedManualPoseKey] = useState<string | null>(null);
+    const recentPoseIdsRef = useRef<Record<string, string[]>>({});
     const [sceneReferences, setSceneReferences] = useState<UploadedImage[]>([]);
     const [accessoryReferences, setAccessoryReferences] = useState<UploadedImage[]>([]);
     const [modelReference, setModelReference] = useState<UploadedImage | null>(null);
@@ -567,6 +622,7 @@ const HeroImageTab: React.FC = () => {
         const normalizeLibrary = (value: string): AutoPoseLibrary => {
             const normalized = value.trim().toLowerCase();
             if (normalized.includes('suri') || normalized.includes('mira') || normalized.includes('palace') || normalized.includes('royal') || normalized.includes('french vintage') || normalized.includes('puff sleeve') || normalized.includes('square neck')) return 'suriMira';
+            if (normalized.includes('karismina') || normalized.includes('garden party') || normalized.includes('romantic vacation') || normalized.includes('romantic dress') || normalized.includes('elegant vacation') || normalized.includes('feminine dress')) return 'karismina';
             if (normalized.includes('solavibe') || normalized.includes('plus size') || normalized.includes('plussize') || normalized.includes('boho') || normalized.includes('vacation') || normalized.includes('resort dress') || normalized.includes('resort wear') || normalized.includes('resort set') || normalized.includes('relaxed comfort')) return 'solavibe';
             if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('ankle') || normalized.includes('floor') || normalized.includes('gown')) return 'longDress';
             if (normalized.includes('womensfashion') || normalized.includes('women') || normalized.includes('female') || normalized.includes('womenswear') || normalized.includes('fashion')) return 'womensFashion';
@@ -587,10 +643,11 @@ const HeroImageTab: React.FC = () => {
             }));
             parts.push({
                 text: `Classify these uploaded product images for an ecommerce apparel pose library.
-Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|solavibe|suriMira|none","confidence":"high|medium|low","reason":"short reason"}.
+Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|solavibe|karismina|suriMira|none","confidence":"high|medium|low","reason":"short reason"}.
 
 Choose:
 - suriMira: Suri Mira palace-inspired french vintage dress products, royal/french romantic dresses, puff-sleeve dresses, square-neck dresses, off-shoulder french vintage dresses, floral vintage full-skirt dresses, sweet elegant SHEIN dress styling.
+- karismina: KARISMINA high-click feminine dress products, romantic vacation dresses, garden-party dresses, floral dresses, elegant resort dresses, refined feminine SHEIN dress styling.
 - solavibe: plus-size women's vacation/resort/boho/relaxed comfort apparel, including loose shirts, vacation dresses, relaxed two-piece sets, wide-leg pants, resort dresses, plus-size collections, warm approachable SHEIN Solavibe-style products.
 - longDress: women's long dress, maxi dress, ankle-length dress, floor-length dress, long skirt dress, evening dress, long slip dress, long sundress, gown-like dress.
 - womensFashion: generic women's fashion apparel that is not covered by the targeted libraries above, such as women's blouse, short dress, mini/midi dress, skirt, pants, jeans, blazer, coat, jacket, cardigan, vest, top, bodysuit, matching set, suit set, or uncertain womenswear.
@@ -604,6 +661,7 @@ Choose:
 
 Priority rules:
 - If the product or user note suggests Suri Mira, palace, royal, french vintage, puff sleeve, square neck, off-shoulder, floral vintage full-skirt dress, or sweet elegant romantic dress, choose suriMira before longDress or womensFashion.
+- If the product or user note suggests KARISMINA, garden party, romantic vacation dress, floral dress, elegant resort dress, or refined feminine dress styling, choose karismina before longDress or womensFashion.
 - If the product or user note suggests Solavibe, plus size, vacation, boho, resort, relaxed comfort, loose resort shirt, vacation dress, relaxed two-piece set, wide-leg vacation pants, or approachable plus-size womenswear, choose solavibe before longDress or womensFashion.
 - If the product is women's apparel but not clearly longDress, choose womensFashion.
 - If the garment is a short dress, mini dress, midi dress, skirt, blouse, blazer, jacket, coat, pants, jeans, cardigan, vest, top, or set, choose womensFashion.
@@ -1460,6 +1518,12 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 '宫廷', '法式', '法式复古', '复古连衣裙', '泡泡袖', '方领', '一字肩', '花卉复古', '大摆裙', '甜美优雅'
             ];
             const isSuriMira = suriMiraKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const karisminaKeywords = [
+                'karismina', 'garden party', 'romantic vacation', 'romantic dress', 'elegant vacation',
+                'elegant resort dress', 'feminine dress', 'floral dress', 'holiday dress', 'soft romantic',
+                '高点击', '花园派对', '浪漫度假', '浪漫连衣裙', '优雅度假', '优雅连衣裙', '花卉连衣裙', '女性化连衣裙'
+            ];
+            const isKarismina = karisminaKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const solavibeKeywords = [
                 'solavibe', 'plus size', 'plussize', 'curve', 'curvy', 'vacation', 'boho', 'bohemian',
                 'relaxed', 'comfort', 'loose shirt', 'oversized shirt', 'vacation dress', 'resort dress',
@@ -1479,7 +1543,9 @@ The final image must look like a real professional fashion lookbook shoot at tha
 
             const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
                 ? autoPoseLibrary
-                : isSuriMira
+                : isKarismina
+                    ? 'karismina'
+                    : isSuriMira
                     ? 'suriMira'
                     : isSolavibe
                     ? 'solavibe'
@@ -1502,6 +1568,9 @@ The final image must look like a real professional fashion lookbook shoot at tha
                                                     : 'none';
 
             const shouldUseClothingPoseLibrary = !isSleepwear;
+            const poseBatchCache = new Map<string, PoseLike[]>();
+            const getBatchPose = <T extends PoseLike>(libraryKey: ManualPoseLibrary, poses: T[]) =>
+                pickDiversePose(libraryKey, poses, poseBatchCache as Map<string, T[]>, recentPoseIdsRef);
 
             // Define 10 highly varied, high-end professional commercial studio camera angles and modeling poses
             const DIVERSE_POSES = [
@@ -1517,91 +1586,11 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 "medium shot from high-angle perspective, showing the model walking forward with relaxed shoulders, looking forward"
             ];
 
-            // 彻底洗牌打乱睡衣姿态预设列表，确保批量生成的每张图都随机且不重复
-            let shuffledSleepwearPoses = [...SLEEPWEAR_POSES];
-            if (isSleepwear) {
-                for (let k = shuffledSleepwearPoses.length - 1; k > 0; k--) {
-                    const r = Math.floor(Math.random() * (k + 1));
-                    [shuffledSleepwearPoses[k], shuffledSleepwearPoses[r]] = [shuffledSleepwearPoses[r], shuffledSleepwearPoses[k]];
-                }
-            }
-
-            // 彻底洗牌打乱普通服装姿态预设列表，确保批量生成的每张图都随机且不重复
-            let shuffledClothingPoses = [...CLOTHING_POSES];
-            if (shouldUseClothingPoseLibrary) {
-                for (let k = shuffledClothingPoses.length - 1; k > 0; k--) {
-                    const r = Math.floor(Math.random() * (k + 1));
-                    [shuffledClothingPoses[k], shuffledClothingPoses[r]] = [shuffledClothingPoses[r], shuffledClothingPoses[k]];
-                }
-            }
-
-            let shuffledMensShirtPoses = [...MENS_SHIRT_POSES];
-            for (let k = shuffledMensShirtPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledMensShirtPoses[k], shuffledMensShirtPoses[r]] = [shuffledMensShirtPoses[r], shuffledMensShirtPoses[k]];
-            }
-
-            let shuffledMensKnitPoses = [...MENS_KNIT_POSES];
-            for (let k = shuffledMensKnitPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledMensKnitPoses[k], shuffledMensKnitPoses[r]] = [shuffledMensKnitPoses[r], shuffledMensKnitPoses[k]];
-            }
-
-            let shuffledMensTeePoses = [...MENS_TEE_POSES];
-            for (let k = shuffledMensTeePoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledMensTeePoses[k], shuffledMensTeePoses[r]] = [shuffledMensTeePoses[r], shuffledMensTeePoses[k]];
-            }
-
-            let shuffledSwimShortsPoses = [...SWIM_SHORTS_POSES];
-            for (let k = shuffledSwimShortsPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledSwimShortsPoses[k], shuffledSwimShortsPoses[r]] = [shuffledSwimShortsPoses[r], shuffledSwimShortsPoses[k]];
-            }
-
-            let shuffledMensShortsPoses = [...MENS_SHORTS_POSES];
-            for (let k = shuffledMensShortsPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledMensShortsPoses[k], shuffledMensShortsPoses[r]] = [shuffledMensShortsPoses[r], shuffledMensShortsPoses[k]];
-            }
-
-            let shuffledMensPantsPoses = [...MENS_PANTS_POSES];
-            for (let k = shuffledMensPantsPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledMensPantsPoses[k], shuffledMensPantsPoses[r]] = [shuffledMensPantsPoses[r], shuffledMensPantsPoses[k]];
-            }
-
-            let shuffledLongDressPoses = [...LONG_DRESS_POSES];
-            for (let k = shuffledLongDressPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledLongDressPoses[k], shuffledLongDressPoses[r]] = [shuffledLongDressPoses[r], shuffledLongDressPoses[k]];
-            }
-
-            let shuffledSuriMiraPoses = [...SURI_MIRA_POSES];
-            for (let k = shuffledSuriMiraPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledSuriMiraPoses[k], shuffledSuriMiraPoses[r]] = [shuffledSuriMiraPoses[r], shuffledSuriMiraPoses[k]];
-            }
-
-            let shuffledWomensFashionPoses = [...WOMENS_FASHION_POSES];
-            for (let k = shuffledWomensFashionPoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledWomensFashionPoses[k], shuffledWomensFashionPoses[r]] = [shuffledWomensFashionPoses[r], shuffledWomensFashionPoses[k]];
-            }
-
-            let shuffledSolavibePoses = [...SOLAVIBE_POSES];
-            for (let k = shuffledSolavibePoses.length - 1; k > 0; k--) {
-                const r = Math.floor(Math.random() * (k + 1));
-                [shuffledSolavibePoses[k], shuffledSolavibePoses[r]] = [shuffledSolavibePoses[r], shuffledSolavibePoses[k]];
-            }
-
             const manualLibraryRandomOptions = !isPoseAutoDetectEnabled
                 && !selectedManualPose
                 && manualPoseLibraryFilter !== 'all'
                 && manualPoseLibraryFilter !== 'auto'
-                ? MANUAL_POSE_OPTIONS
-                    .filter((pose) => pose.library === manualPoseLibraryFilter)
-                    .sort(() => Math.random() - 0.5)
+                ? shufflePoseList(MANUAL_POSE_OPTIONS.filter((pose) => pose.library === manualPoseLibraryFilter))
                 : [];
 
             const generationIndices = isSingleRegenerate ? [regenerateIndex!] : Array.from({ length: countToGenerate }, (_, i) => i);
@@ -1684,8 +1673,8 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                     if (perOutputSupplementaryNotes) {
                         finalPrompt += `\n${perOutputSupplementaryNotes}\n`;
                     }
-                    const manualLibraryRandomPose = manualLibraryRandomOptions.length > 0
-                        ? manualLibraryRandomOptions[i % manualLibraryRandomOptions.length]
+                    const manualLibraryRandomPose = manualLibraryRandomOptions.length > 0 && manualPoseLibraryFilter !== 'all' && manualPoseLibraryFilter !== 'auto'
+                        ? getBatchPose(manualPoseLibraryFilter, manualLibraryRandomOptions)
                         : null;
                     if (selectedManualPose || manualLibraryRandomPose) {
                         const posePreset = selectedManualPose || manualLibraryRandomPose!;
@@ -1704,8 +1693,18 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                         finalPrompt += `
 # MANUAL ACTION LIBRARY DIRECTIVE: Use this chosen manual-library action exactly: ${poseSpec}. Do not fall back to generic catalog standing, do not choose from another library, and do not ignore the selected hand/leg/torso/crop details.
 `;
+                    } else if (activeAutoPoseLibrary === 'karismina') {
+                        const posePreset = getBatchPose('karismina', KARISMINA_POSES) || KARISMINA_POSES[0];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED KARISMINA POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# KARISMINA BRAND MOOD LOCK (CRITICAL - MANDATORY): This is a KARISMINA high-click feminine dress brand image: romantic, elegant, refined, garden-party/vacation ready, graceful, and commercial. It is not generic womenswear, not a stiff mannequin catalog pose, and not a harsh high-fashion runway image.
+# KARISMINA SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas while making the dress/product readable: neckline, waistline, sleeve or strap shape, skirt/hem, floral or solid fabric, drape, print, texture, and elegant silhouette must remain clear.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this KARISMINA image with the EXACT pose and camera intent described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, hand placement, skirt lifting/twirling/walking motion, head direction, garment drape, body angle, and crop must follow this preset as closely as possible.
+# DRESS FIT RULE: Render realistic fabric weight, refined feminine waist shaping, natural skirt motion, believable folds, elegant vacation/garden-party styling, and graceful commercial model balance. Do not replace the product with a different dress category or flatten it into a generic catalog stance.
+`;
+                        finalPrompt += `\n# KARISMINA ACTION LIBRARY DIRECTIVE: Use this selected KARISMINA action exactly: ${poseSpec}. This instruction has higher priority than generic womenswear or long-dress pose sets. The product must remain the same product from Image 1 while naturally adapting to the selected romantic feminine movement.\n`;
                     } else if (activeAutoPoseLibrary === 'solavibe') {
-                        const posePreset = shuffledSolavibePoses[i % shuffledSolavibePoses.length];
+                        const posePreset = getBatchPose('solavibe', SOLAVIBE_POSES) || SOLAVIBE_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED SOLAVIBE POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # SOLAVIBE BRAND MOOD LOCK (CRITICAL - MANDATORY): This is a plus-size vacation/resort/boho/relaxed comfort commercial hero image, not a Paris fashion week or high-fashion editorial image. Keep the model approachable, relaxed, friendly, confident, and comfortable.
@@ -1716,7 +1715,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# SOLAVIBE ACTION LIBRARY DIRECTIVE: Use this selected Solavibe action exactly: ${poseSpec}. This instruction has higher priority than generic womenswear or long-dress pose sets. The product must remain the same product from Image 1 while naturally adapting to a relaxed plus-size vacation resort lookbook mood.\n`;
                     } else if (activeAutoPoseLibrary === 'suriMira') {
-                        const posePreset = shuffledSuriMiraPoses[i % shuffledSuriMiraPoses.length];
+                        const posePreset = getBatchPose('suriMira', SURI_MIRA_POSES) || SURI_MIRA_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED SURI MIRA POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # SURI MIRA BRAND MOOD LOCK (CRITICAL - MANDATORY): This is a SHEIN palace-inspired french vintage dress brand image: romantic, elegant, sweet, refined, feminine, and commercial. It is not generic womenswear, not a stiff mannequin catalog pose, and not a modern streetwear editorial.
@@ -1726,7 +1725,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# SURI MIRA ACTION LIBRARY DIRECTIVE: Use this selected Suri Mira action exactly: ${poseSpec}. This instruction has higher priority than generic womenswear or long-dress pose sets. The dress product must remain the same product from Image 1 while naturally adapting to the selected palace/french vintage movement.\n`;
                     } else if (activeAutoPoseLibrary === 'longDress') {
-                        const posePreset = shuffledLongDressPoses[i % shuffledLongDressPoses.length];
+                        const posePreset = getBatchPose('longDress', LONG_DRESS_POSES) || LONG_DRESS_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED LONG DRESS POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # LONG DRESS SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas, but compose a premium full-length fashion hero image. The entire long dress/maxi dress must be visible from neckline/shoulders through waist, skirt body, hem, and footwear/contact ground when relevant. Do not crop off the dress hem. The dress is the central product focus.
@@ -1735,7 +1734,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# LONG DRESS ACTION LIBRARY DIRECTIVE: Use this selected long dress action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The long dress product must remain the same product from Image 1 while naturally adapting to the selected quiet-luxury editorial movement.\n`;
                     } else if (activeAutoPoseLibrary === 'womensFashion') {
-                        const posePreset = shuffledWomensFashionPoses[i % shuffledWomensFashionPoses.length];
+                        const posePreset = getBatchPose('womensFashion', WOMENS_FASHION_POSES) || WOMENS_FASHION_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED WOMENS FASHION POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # GENERIC WOMENSWEAR SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas and create a polished women's fashion lookbook hero image. The product garment must be clearly readable: neckline/collar, sleeve or strap shape, waist/hem, front/side silhouette, fit, fabric drape, texture, trims, and styling details. Crop must support the selected pose while preserving product visibility.
@@ -1744,7 +1743,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# WOMENS FASHION ACTION LIBRARY DIRECTIVE: Use this selected generic womenswear action exactly: ${poseSpec}. This instruction is for women's apparel that is not covered by a more specific library. It has higher priority than the old generic apparel pose set, while product identity from Image 1 remains absolute.\n`;
                     } else if (activeAutoPoseLibrary === 'swimShorts') {
-                        const posePreset = shuffledSwimShortsPoses[i % shuffledSwimShortsPoses.length];
+                        const posePreset = getBatchPose('swimShorts', SWIM_SHORTS_POSES) || SWIM_SHORTS_POSES[0];
                         const poseSpec = sanitizeSwimShortsPosePrompt(posePreset.prompt);
                         selectedPoseHeader = `# SELECTED SWIM SHORTS POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # SWIM SHORTS SUBJECT FRAMING (CRITICAL - MANDATORY): This is NOT a fixed numeric aspect-ratio requirement. Keep the selected output canvas ratio, but compose the male model like the user's swim-shorts reference: visible from upper chest/pectorals down to feet/slides, no face and no head. Keep torso, arms, swim shorts, legs, socks and footwear in frame. The swim shorts must be the central product focus, with waistband, drawstring, pockets, side seams, hem, liner, and fabric texture clearly visible.
@@ -1754,7 +1753,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# SWIM SHORTS ACTION LIBRARY DIRECTIVE: Use this selected swim shorts action exactly: ${poseSpec}. Do not force a numeric 4:5 ratio; keep the selected canvas ratio while framing the subject from upper chest/pectorals to feet/slides, matching the provided swim-shorts display effect. The shorts product must remain the same product from Image 1 while naturally adapting to the selected beach/pool/detail demonstration pose.\n`;
                     } else if (activeAutoPoseLibrary === 'mensShorts') {
-                        const posePreset = shuffledMensShortsPoses[i % shuffledMensShortsPoses.length];
+                        const posePreset = getBatchPose('mensShorts', MENS_SHORTS_POSES) || MENS_SHORTS_POSES[0];
                         const poseSpec = posePreset.prompt;
                         const bottomCropRule = userExplicitlyRequestedFullBody
                             ? 'The user explicitly requested full-body, so full-body framing is allowed while keeping the shorts as the product focus.'
@@ -1767,7 +1766,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# MENS SHORTS ACTION LIBRARY DIRECTIVE: Use this selected regular shorts action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The shorts product must remain the same product from Image 1 while naturally adapting to the selected SHEIN menswear pose.\n`;
                     } else if (activeAutoPoseLibrary === 'mensPants') {
-                        const posePreset = shuffledMensPantsPoses[i % shuffledMensPantsPoses.length];
+                        const posePreset = getBatchPose('mensPants', MENS_PANTS_POSES) || MENS_PANTS_POSES[0];
                         const poseSpec = posePreset.prompt;
                         const bottomCropRule = userExplicitlyRequestedFullBody
                             ? 'The user explicitly requested full-body, so full-body framing is allowed while keeping the pants as the product focus.'
@@ -1780,7 +1779,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# MENS PANTS ACTION LIBRARY DIRECTIVE: Use this selected pants action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The pants product must remain the same product from Image 1 while naturally adapting to the selected SHEIN menswear pose and lower-body product framing.\n`;
                     } else if (activeAutoPoseLibrary === 'mensTee') {
-                        const posePreset = shuffledMensTeePoses[i % shuffledMensTeePoses.length];
+                        const posePreset = getBatchPose('mensTee', MENS_TEE_POSES) || MENS_TEE_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED MENS OVERSIZED TEE POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's oversized T-shirt hero image with the EXACT California summer lifestyle pose and camera framing described here: ${poseSpec}. Preserve product fidelity from Image 1, but pose, body posture, hand placement, oversized tee drape, hem interaction, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
@@ -1788,7 +1787,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# MENS TEE ACTION LIBRARY DIRECTIVE: Use this selected oversized tee action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The T-shirt product must remain the same product from Image 1 while naturally adapting to the selected California summer lifestyle movement.\n`;
                     } else if (activeAutoPoseLibrary === 'mensKnit') {
-                        const posePreset = shuffledMensKnitPoses[i % shuffledMensKnitPoses.length];
+                        const posePreset = getBatchPose('mensKnit', MENS_KNIT_POSES) || MENS_KNIT_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED MENS KNIT POLO POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's knitwear hero image with the EXACT old-money resort pose and camera framing described here: ${poseSpec}. Preserve product fidelity from Image 1, but pose, body posture, hand placement, knit polo drape, collar/hem interaction, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
@@ -1796,7 +1795,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 `;
                         finalPrompt += `\n# MENS KNIT ACTION LIBRARY DIRECTIVE: Use this selected men's knit polo action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The knitwear product must remain the same product from Image 1 while naturally adapting to the selected body movement and luxury resort lifestyle context.\n`;
                     } else if (activeAutoPoseLibrary === 'mensShirt') {
-                        const posePreset = shuffledMensShirtPoses[i % shuffledMensShirtPoses.length];
+                        const posePreset = getBatchPose('mensShirt', MENS_SHIRT_POSES) || MENS_SHIRT_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED MENS SHIRT POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this men's shirt hero image with the EXACT resort menswear pose and camera framing described here: ${poseSpec}. Preserve product fidelity from Image 1, but pose, body posture, hand placement, shirt drape, collar/hem interaction, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
@@ -1806,7 +1805,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                         finalPrompt += `\n# MENS SHIRT ACTION LIBRARY DIRECTIVE: Use this selected men's resort shirt action exactly: ${poseSpec}. This instruction has higher priority than generic apparel poses. The shirt must remain the same product from Image 1 while naturally adapting to the selected body movement and lifestyle context.\n`;
                     } else if (isSleepwear) {
                         // 从洗牌后的列表中抽取动作，尽量做到彻底打乱且不重复
-                        const posePreset = shuffledSleepwearPoses[i % shuffledSleepwearPoses.length];
+                        const posePreset = getBatchPose('sleepwear', SLEEPWEAR_POSES) || SLEEPWEAR_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED RANDOM POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this image with the EXACT lifestyle pajama pose and camera framing described here: ${poseSpec}. This selected preset is mandatory for this output and must override generic catalog standing angles.
@@ -1817,7 +1816,7 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                         finalPrompt += `\n# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate the model in the EXACT lifestyle pajama pose and body posture described here: ${poseSpec}. Completely ignore, bypass, and discard standard, rigid, artificial standing model poses. Focus heavily and render the relaxed limb angles, cozy physical twists, soft pajama creases, leg bends, and comfy sleepy lifestyle poses with 100% fidelity. The final image pose must strictly mirror this directive.\n`;
                     } else if (shouldUseClothingPoseLibrary) {
                         // 从洗牌后的列表中抽取普通服装主图姿态，尽量做到彻底打乱且不重复
-                        const posePreset = shuffledClothingPoses[i % shuffledClothingPoses.length];
+                        const posePreset = getBatchPose('clothing', CLOTHING_POSES) || CLOTHING_POSES[0];
                         const poseSpec = posePreset.prompt;
                         selectedPoseHeader = `# SELECTED RANDOM CLOTHING POSE PRESET: ${posePreset.name} / ${posePreset.id}
 # POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this image with the EXACT commercial fashion display pose and camera framing described here: ${poseSpec}. This selected preset is mandatory for this output and must override generic repeated catalog angles. Preserve product fidelity from Image 1, but pose, body posture, hand placement, body angle, standing/sitting/walking state, and crop must follow this preset as closely as possible.
