@@ -270,6 +270,102 @@ const drawRoundedRect = (
   ctx.fill();
 };
 
+const getImageColorStats = (data: Uint8ClampedArray) => {
+  const mean = [0, 0, 0];
+  const chromaMean = [0, 0, 0];
+  const count = data.length / 4;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const luma = r * 0.299 + g * 0.587 + b * 0.114;
+    mean[0] += r;
+    mean[1] += g;
+    mean[2] += b;
+    chromaMean[0] += Math.abs(r - luma);
+    chromaMean[1] += Math.abs(g - luma);
+    chromaMean[2] += Math.abs(b - luma);
+  }
+
+  mean[0] /= count;
+  mean[1] /= count;
+  mean[2] /= count;
+  chromaMean[0] /= count;
+  chromaMean[1] /= count;
+  chromaMean[2] /= count;
+
+  const std = [0, 0, 0];
+  for (let i = 0; i < data.length; i += 4) {
+    std[0] += (data[i] - mean[0]) ** 2;
+    std[1] += (data[i + 1] - mean[1]) ** 2;
+    std[2] += (data[i + 2] - mean[2]) ** 2;
+  }
+
+  std[0] = Math.sqrt(std[0] / count) || 1;
+  std[1] = Math.sqrt(std[1] / count) || 1;
+  std[2] = Math.sqrt(std[2] / count) || 1;
+  return { mean, std, chroma: (chromaMean[0] + chromaMean[1] + chromaMean[2]) / 3 };
+};
+
+const syncRepairCropColorToSource = async (
+  repairCropDataUrl: string,
+  sourceCropDataUrl: string,
+  blend = 0.92
+) => {
+  const repair = await loadCanvasImage(repairCropDataUrl);
+  const source = await loadCanvasImage(sourceCropDataUrl);
+  const width = repair.naturalWidth;
+  const height = repair.naturalHeight;
+
+  const repairCanvas = document.createElement('canvas');
+  repairCanvas.width = width;
+  repairCanvas.height = height;
+  const repairCtx = repairCanvas.getContext('2d');
+  if (!repairCtx) throw new Error('Canvas is not available for repair color sync.');
+  repairCtx.drawImage(repair, 0, 0, width, height);
+  const imageData = repairCtx.getImageData(0, 0, width, height);
+
+  const sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = width;
+  sourceCanvas.height = height;
+  const sourceCtx = sourceCanvas.getContext('2d');
+  if (!sourceCtx) throw new Error('Canvas is not available for source color sync.');
+  drawImageCover(sourceCtx, source, 0, 0, width, height);
+  const sourceData = sourceCtx.getImageData(0, 0, width, height).data;
+
+  const repairStats = getImageColorStats(imageData.data);
+  const sourceStats = getImageColorStats(sourceData);
+  const chromaBoost = clamp(sourceStats.chroma / Math.max(1, repairStats.chroma), 1, 1.24);
+  const data = imageData.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const originalR = data[i];
+    const originalG = data[i + 1];
+    const originalB = data[i + 2];
+    const mapped = [0, 0, 0];
+
+    for (let c = 0; c < 3; c += 1) {
+      mapped[c] = ((data[i + c] - repairStats.mean[c]) / repairStats.std[c]) * sourceStats.std[c] + sourceStats.mean[c];
+    }
+
+    let r = originalR * (1 - blend) + mapped[0] * blend;
+    let g = originalG * (1 - blend) + mapped[1] * blend;
+    let b = originalB * (1 - blend) + mapped[2] * blend;
+    const luma = r * 0.299 + g * 0.587 + b * 0.114;
+    r = luma + (r - luma) * chromaBoost;
+    g = luma + (g - luma) * chromaBoost;
+    b = luma + (b - luma) * chromaBoost;
+
+    data[i] = Math.round(clamp(r, 0, 255));
+    data[i + 1] = Math.round(clamp(g, 0, 255));
+    data[i + 2] = Math.round(clamp(b, 0, 255));
+  }
+
+  repairCtx.putImageData(imageData, 0, 0);
+  return repairCanvas.toDataURL('image/png', 0.96);
+};
+
 const composeRepairCropWithSource = async (
   sourceCropDataUrl: string,
   repairCropDataUrl: string,
@@ -467,6 +563,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
   const [referenceImages, setReferenceImages] = useState<UploadedImage[]>([]);
   const [cropPreset, setCropPreset] = useState<CropPreset>('headShoulders');
   const [cropBox, setCropBox] = useState<CropBox>(() => getPresetCropBox('headShoulders'));
+  const [committedCropBox, setCommittedCropBox] = useState<CropBox>(() => getPresetCropBox('headShoulders'));
   const [feather, setFeather] = useState(18);
   const [pasteScale, setPasteScale] = useState(1);
   const [pasteOffsetX, setPasteOffsetX] = useState(0);
@@ -518,7 +615,9 @@ const ModelOriginalPasteBackTab: React.FC = () => {
 
   const setPreset = (preset: CropPreset) => {
     setCropPreset(preset);
-    setCropBox(getPresetCropBox(preset, targetFrameAspectRatio));
+    const nextCropBox = getPresetCropBox(preset, targetFrameAspectRatio);
+    setCropBox(nextCropBox);
+    setCommittedCropBox(nextCropBox);
   };
 
   const handleTargetUpload = useCallback(async (files: File[] | FileList) => {
@@ -530,7 +629,9 @@ const ModelOriginalPasteBackTab: React.FC = () => {
       setResultImage(null);
       setGeneratedCrop(null);
       setPreviewImage(null);
-      setCropBox(getPresetCropBox(cropPreset, image.width / image.height));
+      const nextCropBox = getPresetCropBox(cropPreset, image.width / image.height);
+      setCropBox(nextCropBox);
+      setCommittedCropBox(nextCropBox);
       setError(null);
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
@@ -617,7 +718,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     }
     if (isEditingCrop) return;
 
-    cropImageDataUrl(targetDataUrl, cropBox)
+    cropImageDataUrl(targetDataUrl, committedCropBox)
       .then(crop => {
         if (!cancelled) setCropPreview(crop.dataUrl);
       })
@@ -628,7 +729,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [targetDataUrl, cropBox, isEditingCrop]);
+  }, [targetDataUrl, committedCropBox, isEditingCrop]);
 
   const scheduleCropBoxUpdate = (next: CropBox) => {
     pendingCropBoxRef.current = next;
@@ -650,6 +751,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     if (pendingCropBoxRef.current) {
       cropBoxRef.current = pendingCropBoxRef.current;
       setCropBox(pendingCropBoxRef.current);
+      setCommittedCropBox(pendingCropBoxRef.current);
       pendingCropBoxRef.current = null;
     }
   };
@@ -679,6 +781,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     const handleMove = (event: PointerEvent) => updateCropFromPointer(event);
     const handleUp = () => {
       flushCropBoxUpdate();
+      setCommittedCropBox(cropBoxRef.current);
       dragRef.current = null;
       setIsEditingCrop(false);
     };
@@ -697,7 +800,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     let cancelled = false;
     if (!targetDataUrl || !generatedCrop || isLoading) return;
 
-    pasteCropBack(targetDataUrl, generatedCrop, cropBox, feather, cropPreset, {
+    pasteCropBack(targetDataUrl, generatedCrop, committedCropBox, feather, cropPreset, {
       scale: pasteScale,
       offsetX: pasteOffsetX,
       offsetY: pasteOffsetY,
@@ -713,7 +816,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [targetDataUrl, generatedCrop, cropBox, feather, cropPreset, pasteScale, pasteOffsetX, pasteOffsetY, isLoading]);
+  }, [targetDataUrl, generatedCrop, committedCropBox, feather, cropPreset, pasteScale, pasteOffsetX, pasteOffsetY, isLoading]);
 
   const startCropDrag = (event: React.PointerEvent, mode: DragMode) => {
     event.preventDefault();
@@ -741,8 +844,9 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     setProgressText('正在裁切需要贴回的局部区域...');
 
     try {
+      const activeCropBox = committedCropBox;
       assertCurrentGenerationTask(taskId, signal);
-      const crop = await cropImageDataUrl(targetDataUrl, cropBox);
+      const crop = await cropImageDataUrl(targetDataUrl, activeCropBox);
       setCropPreview(crop.dataUrl);
       setProgressText('正在用高清模特原图重绘局部细节...');
 
@@ -792,22 +896,26 @@ const ModelOriginalPasteBackTab: React.FC = () => {
         console.warn('Paste-back crop color correction failed. Using raw crop.', colorError);
         return rawCrop;
       });
-      const saturationLockedCrop = await applyColorCorrection(colorLockedCrop, {
+      const sourceColorLockedCrop = await syncRepairCropColorToSource(colorLockedCrop, crop.dataUrl).catch((colorError) => {
+        console.warn('Paste-back source color sync failed. Using color-matched crop.', colorError);
+        return colorLockedCrop;
+      });
+      const saturationLockedCrop = await applyColorCorrection(sourceColorLockedCrop, {
         mode: 'redSuppress',
         blend: 1,
         redAdjust: 0,
         cyanBoost: 0,
-        saturation: 1.08,
+        saturation: 1.04,
         contrast: 1.01,
       }).catch((colorError) => {
-        console.warn('Paste-back crop saturation correction failed. Using color-matched crop.', colorError);
-        return colorLockedCrop;
+        console.warn('Paste-back crop saturation correction failed. Using source color synced crop.', colorError);
+        return sourceColorLockedCrop;
       });
       const colorLockedPng = await convertImageDataUrlFormat(saturationLockedCrop, 'png');
       const pngCrop = await composeRepairCropWithSource(crop.dataUrl, colorLockedPng, cropPreset, feather);
       setGeneratedCrop(pngCrop);
       setProgressText('正在把高清局部柔边贴回原图...');
-      const pasted = await pasteCropBack(targetDataUrl, pngCrop, cropBox, feather, cropPreset, {
+      const pasted = await pasteCropBack(targetDataUrl, pngCrop, activeCropBox, feather, cropPreset, {
         scale: pasteScale,
         offsetX: pasteOffsetX,
         offsetY: pasteOffsetY,
@@ -826,7 +934,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
         params: {
           subType: 'model_original_paste_back',
           cropPreset,
-          cropBox,
+          cropBox: activeCropBox,
           feather,
           pasteScale,
           pasteOffsetX,
@@ -873,9 +981,11 @@ const ModelOriginalPasteBackTab: React.FC = () => {
   };
 
   const handleReset = () => {
+    const nextCropBox = getPresetCropBox('headShoulders', targetFrameAspectRatio);
     setTargetImage(null);
     setReferenceImages([]);
-    setCropBox(getPresetCropBox('headShoulders', targetFrameAspectRatio));
+    setCropBox(nextCropBox);
+    setCommittedCropBox(nextCropBox);
     setCropPreset('headShoulders');
     setResultImage(null);
     setGeneratedCrop(null);

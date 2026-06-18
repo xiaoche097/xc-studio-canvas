@@ -8,13 +8,12 @@ import SceneGenerationTab from './components/SceneGenerationTab';
 import ImageCleanTab from './components/ImageCleanTab';
 import FusionTab from './components/FusionTab';
 import InpaintingTab from './components/InpaintingTab';
-import SeatCoverTab from './components/SeatCoverTab';
 import ProductSwapTab from './components/ProductSwapTab';
 import OutfitExtractionTab from './components/OutfitExtractionTab';
 import ModelPoseFissionTab from './components/ModelPoseFissionTab';
 import ModelTransferTab from './components/ModelTransferTab';
 import ModelOriginalPasteBackTab from './components/ModelOriginalPasteBackTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, CarFront, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Scissors, UserCircle2 } from 'lucide-react';
+import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Scissors, UserCircle2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppMode>(AppMode.FUSION);
@@ -46,12 +45,6 @@ const App: React.FC = () => {
             onClick={() => setActiveTab(AppMode.FUSION)}
             icon={<Layers className="w-5 h-5" />}
             label="图像生成"
-          />
-          <NavButton
-            active={activeTab === AppMode.SEAT_COVER}
-            onClick={() => setActiveTab(AppMode.SEAT_COVER)}
-            icon={<CarFront className="w-5 h-5" />}
-            label="座套试装"
           />
           <NavButton
             active={activeTab === AppMode.PRODUCT_SWAP}
@@ -139,7 +132,6 @@ const App: React.FC = () => {
         <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
           <h1 className="text-xl font-medium text-pastel-text">
             {activeTab === AppMode.PLANNING && "视觉策划 (Visual Planning)"}
-            {activeTab === AppMode.SEAT_COVER && "座套试装 (Seat Cover Fit)"}
             {activeTab === AppMode.PRODUCT_SWAP && "产品替换 (Product Swap)"}
             {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
             {activeTab === AppMode.INPAINTING && "局部替换 (Inpainting)"}
@@ -158,11 +150,6 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-auto p-0 relative">
           <div className="h-full w-full">
             {activeTab === AppMode.PLANNING && <PlanningAgentTab onImageGenerated={handleImageGenerated} />}
-
-            {/* Persist SeatCoverTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.SEAT_COVER ? 'block' : 'none', height: '100%' }}>
-              <SeatCoverTab />
-            </div>
 
             {/* Persist ProductSwapTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.PRODUCT_SWAP ? 'block' : 'none', height: '100%' }}>
