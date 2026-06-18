@@ -1,143 +1,517 @@
 export interface SolavibePose {
   id: string;
   name: string;
-  category: 'standing' | 'plusSize' | 'vacationDress' | 'twoPieceSet' | 'lookbook';
   prompt: string;
 }
 
 const SOLAVIBE_FRAME =
-  'Solavibe plus-size vacation resort lookbook framing, relaxed boho comfort mood, friendly approachable model energy, soft natural posture, breathable loose garment drape, waistline and silhouette clearly readable, warm resort lifestyle scene such as european town street, white wall architecture, wood balcony, poolside, cafe, palm walkway, resort corridor, beach boardwalk, or warm stone wall, commercial ecommerce hero image, no stiff high-fashion editorial pose';
+  "Solavibe high-click plus-size vacation and boho comfort pose library, confident relaxed curvy-friendly feminine posture, resort dress / relaxed set / wide-leg pants / vacation shirt styling, product silhouette readable, waistline, sleeves, hem, fabric drape and comfortable fit clearly displayed, warm SHEIN-style ecommerce hero-image framing, no stiff mannequin pose";
 
-const standing = [
-  ['001', '双手插口袋', 'both hands in pockets, relaxed comfortable standing posture'],
-  ['002', '单手插口袋', 'one hand in pocket, easy vacation stance'],
-  ['003', '单手扶腰', 'one hand resting on waist, gentle body curve'],
-  ['004', '双手扶腰', 'both hands on waist, confident but relaxed stance'],
-  ['005', '单腿重心', 'weight shifted onto one leg, natural comfortable balance'],
-  ['006', '双腿自然打开', 'feet naturally apart, stable relaxed standing posture'],
-  ['007', '微侧身站立', 'slight side-body standing angle, garment shape readable'],
-  ['008', '三分之二角度站立', 'two-thirds body angle, soft resort lookbook posture'],
-  ['009', '正面站立', 'front-facing standing pose, calm friendly expression'],
-  ['010', '回头站立', 'standing while looking back gently over shoulder'],
-  ['011', '低头站立', 'standing while looking downward softly, relaxed mood'],
-  ['012', '看远方', 'standing and looking into the distance, vacation calm'],
-  ['013', '双手自然下垂', 'both arms hanging naturally beside body'],
-  ['014', '双手抱胸', 'arms crossed softly, comfortable approachable styling'],
-  ['015', '单手扶手臂', 'one hand holding opposite arm gently'],
-  ['016', '单手扶脖子', 'one hand softly touching neck, relaxed shoulder line'],
-  ['017', '单手扶锁骨', 'one hand resting near collarbone, soft feminine detail'],
-  ['018', '单手摸头发', 'one hand touching hair naturally'],
-  ['019', '双手整理头发', 'both hands loosely adjusting hair, casual resort moment'],
-  ['020', '风吹头发', 'hair moving softly in breeze, relaxed vacation feeling'],
+const SOLAVIBE_POSE_ITEMS = [
+  {
+    "id": "001",
+    "name": "Solavibe 001",
+    "prompt": "front-facing standing pose, one hand on waist, the other arm relaxed naturally, confident plus-size vacation dress pose"
+  },
+  {
+    "id": "002",
+    "name": "Solavibe 002",
+    "prompt": "slight three-quarter standing pose, one hand on waist, emphasizing waistline and relaxed feminine silhouette"
+  },
+  {
+    "id": "003",
+    "name": "Solavibe 003",
+    "prompt": "three-quarter body angle, weight shifted onto one leg, relaxed boho summer dress posture"
+  },
+  {
+    "id": "004",
+    "name": "Solavibe 004",
+    "prompt": "front-facing standing pose, both arms relaxed naturally, clean product-focused pose"
+  },
+  {
+    "id": "005",
+    "name": "Solavibe 005",
+    "prompt": "front-facing standing pose, feet slightly apart, comfortable confident stance"
+  },
+  {
+    "id": "006",
+    "name": "Solavibe 006",
+    "prompt": "front-facing standing pose, one foot slightly forward, flattering body line"
+  },
+  {
+    "id": "007",
+    "name": "Solavibe 007",
+    "prompt": "slight angled standing pose, one foot slightly behind, relaxed curve-enhancing pose"
+  },
+  {
+    "id": "008",
+    "name": "Solavibe 008",
+    "prompt": "both hands on waist, confident plus-size summer styling"
+  },
+  {
+    "id": "009",
+    "name": "Solavibe 009",
+    "prompt": "one hand on waist, the other hand lightly touching skirt, soft vacation dress display"
+  },
+  {
+    "id": "010",
+    "name": "Solavibe 010",
+    "prompt": "one hand placed near waist-hip line, flattering relaxed silhouette"
+  },
+  {
+    "id": "011",
+    "name": "Solavibe 011",
+    "prompt": "one hand inside dress pocket, relaxed practical summer dress pose"
+  },
+  {
+    "id": "012",
+    "name": "Solavibe 012",
+    "prompt": "both hands inside pockets, comfortable casual dress display"
+  },
+  {
+    "id": "013",
+    "name": "Solavibe 013",
+    "prompt": "hands in pockets, slight three-quarter angle, relaxed confident mood"
+  },
+  {
+    "id": "014",
+    "name": "Solavibe 014",
+    "prompt": "hands in pockets, looking downward softly, calm summer lifestyle pose"
+  },
+  {
+    "id": "015",
+    "name": "Solavibe 015",
+    "prompt": "hands in pockets, looking into distance, relaxed vacation mood"
+  },
+  {
+    "id": "016",
+    "name": "Solavibe 016",
+    "prompt": "hands in pockets, looking back over shoulder, casual high-click dress pose"
+  },
+  {
+    "id": "017",
+    "name": "Solavibe 017",
+    "prompt": "both hands lightly holding both sides of skirt, showing skirt volume"
+  },
+  {
+    "id": "018",
+    "name": "Solavibe 018",
+    "prompt": "one hand lightly lifting skirt hem, soft feminine vacation dress movement"
+  },
+  {
+    "id": "019",
+    "name": "Solavibe 019",
+    "prompt": "one hand lifting skirt, the other hand on waist, flattering hero pose"
+  },
+  {
+    "id": "020",
+    "name": "Solavibe 020",
+    "prompt": "both hands gently spreading skirt outward, full skirt display"
+  },
+  {
+    "id": "021",
+    "name": "Solavibe 021",
+    "prompt": "both hands gently smoothing skirt fabric, soft product-detail gesture"
+  },
+  {
+    "id": "022",
+    "name": "Solavibe 022",
+    "prompt": "one hand softly pressing skirt edge, controlled elegant pose"
+  },
+  {
+    "id": "023",
+    "name": "Solavibe 023",
+    "prompt": "one hand gathering skirt fabric lightly, emphasizing drape and texture"
+  },
+  {
+    "id": "024",
+    "name": "Solavibe 024",
+    "prompt": "looking down softly at skirt, gentle boho feminine mood"
+  },
+  {
+    "id": "025",
+    "name": "Solavibe 025",
+    "prompt": "looking back softly while holding skirt, romantic summer dress pose"
+  },
+  {
+    "id": "026",
+    "name": "Solavibe 026",
+    "prompt": "gentle skirt-swinging motion, soft summer movement"
+  },
+  {
+    "id": "027",
+    "name": "Solavibe 027",
+    "prompt": "gentle in-place skirt sway, relaxed plus-size vacation styling"
+  },
+  {
+    "id": "028",
+    "name": "Solavibe 028",
+    "prompt": "light twirl in place, skirt lifting softly, happy summer mood"
+  },
+  {
+    "id": "029",
+    "name": "Solavibe 029",
+    "prompt": "half-turn pose, skirt spreading naturally, soft movement capture"
+  },
+  {
+    "id": "030",
+    "name": "Solavibe 030",
+    "prompt": "turning pose while looking back softly, relaxed vacation dress campaign"
+  },
+  {
+    "id": "031",
+    "name": "Solavibe 031",
+    "prompt": "after-turn paused pose, skirt still moving softly"
+  },
+  {
+    "id": "032",
+    "name": "Solavibe 032",
+    "prompt": "walking pose with skirt moving naturally, breezy summer dress display"
+  },
+  {
+    "id": "033",
+    "name": "Solavibe 033",
+    "prompt": "slow walking toward camera, relaxed confident vacation movement"
+  },
+  {
+    "id": "034",
+    "name": "Solavibe 034",
+    "prompt": "walking pose with one hand on waist, showing dress shape"
+  },
+  {
+    "id": "035",
+    "name": "Solavibe 035",
+    "prompt": "walking pose with one hand lifting skirt slightly, practical summer movement"
+  },
+  {
+    "id": "036",
+    "name": "Solavibe 036",
+    "prompt": "walking pose, both arms relaxed naturally, casual everyday styling"
+  },
+  {
+    "id": "037",
+    "name": "Solavibe 037",
+    "prompt": "walking pose while looking back softly, high-click lifestyle pose"
+  },
+  {
+    "id": "038",
+    "name": "Solavibe 038",
+    "prompt": "walking pose with lowered gaze and soft smile, warm approachable mood"
+  },
+  {
+    "id": "039",
+    "name": "Solavibe 039",
+    "prompt": "walking pose looking gently to the side, natural vacation energy"
+  },
+  {
+    "id": "040",
+    "name": "Solavibe 040",
+    "prompt": "small graceful walking steps, comfortable summer dress movement"
+  },
+  {
+    "id": "041",
+    "name": "Solavibe 041",
+    "prompt": "diagonal walking pose, body slightly angled, flattering silhouette"
+  },
+  {
+    "id": "042",
+    "name": "Solavibe 042",
+    "prompt": "walking pose with handbag in one hand, relaxed holiday styling"
+  },
+  {
+    "id": "043",
+    "name": "Solavibe 043",
+    "prompt": "walking pose with one hand lightly touching skirt, product-focused movement"
+  },
+  {
+    "id": "044",
+    "name": "Solavibe 044",
+    "prompt": "walking pose with one hand brushing hair, soft feminine lifestyle pose"
+  },
+  {
+    "id": "045",
+    "name": "Solavibe 045",
+    "prompt": "walking pose with one hand touching hat brim, beach vacation feeling"
+  },
+  {
+    "id": "046",
+    "name": "Solavibe 046",
+    "prompt": "walking pose holding straw hat naturally, boho summer vacation mood"
+  },
+  {
+    "id": "047",
+    "name": "Solavibe 047",
+    "prompt": "front-facing pose, one hand touching collarbone, highlighting neckline"
+  },
+  {
+    "id": "048",
+    "name": "Solavibe 048",
+    "prompt": "slight angled pose, one hand touching neckline softly, clean upper-body detail"
+  },
+  {
+    "id": "049",
+    "name": "Solavibe 049",
+    "prompt": "one hand lightly touching shoulder strap, showing strap and neckline design"
+  },
+  {
+    "id": "050",
+    "name": "Solavibe 050",
+    "prompt": "one hand touching side of face softly, gentle approachable expression"
+  },
+  {
+    "id": "051",
+    "name": "Solavibe 051",
+    "prompt": "one hand near ear, soft feminine portrait pose"
+  },
+  {
+    "id": "052",
+    "name": "Solavibe 052",
+    "prompt": "one hand brushing hair naturally, relaxed summer mood"
+  },
+  {
+    "id": "053",
+    "name": "Solavibe 053",
+    "prompt": "both hands softly adjusting hair, casual feminine lifestyle pose"
+  },
+  {
+    "id": "054",
+    "name": "Solavibe 054",
+    "prompt": "standing pose with slight head tilt, sweet relaxed expression"
+  },
+  {
+    "id": "055",
+    "name": "Solavibe 055",
+    "prompt": "standing pose with lowered gaze, soft comfortable mood"
+  },
+  {
+    "id": "056",
+    "name": "Solavibe 056",
+    "prompt": "standing pose looking into distance, calm vacation atmosphere"
+  },
+  {
+    "id": "057",
+    "name": "Solavibe 057",
+    "prompt": "eyes closed softly, relaxed warm sunlight pose"
+  },
+  {
+    "id": "058",
+    "name": "Solavibe 058",
+    "prompt": "looking back over shoulder, showing backline and relaxed body curve"
+  },
+  {
+    "id": "059",
+    "name": "Solavibe 059",
+    "prompt": "back view pose with head turned sideways, showing back design"
+  },
+  {
+    "id": "060",
+    "name": "Solavibe 060",
+    "prompt": "back view pose, both arms relaxed, clean dress back display"
+  },
+  {
+    "id": "061",
+    "name": "Solavibe 061",
+    "prompt": "back view pose, one hand on waist, emphasizing waist and back shape"
+  },
+  {
+    "id": "062",
+    "name": "Solavibe 062",
+    "prompt": "side-profile standing pose, showing dress silhouette and length"
+  },
+  {
+    "id": "063",
+    "name": "Solavibe 063",
+    "prompt": "left side standing pose, head facing forward, clean side view"
+  },
+  {
+    "id": "064",
+    "name": "Solavibe 064",
+    "prompt": "right side standing pose, one hand on waist, flattering profile display"
+  },
+  {
+    "id": "065",
+    "name": "Solavibe 065",
+    "prompt": "half-body front pose, one hand touching collarbone, neckline focus"
+  },
+  {
+    "id": "066",
+    "name": "Solavibe 066",
+    "prompt": "half-body angled pose, one hand touching side of face, soft portrait feeling"
+  },
+  {
+    "id": "067",
+    "name": "Solavibe 067",
+    "prompt": "half-body pose, one hand touching neckline, showing upper garment detail"
+  },
+  {
+    "id": "068",
+    "name": "Solavibe 068",
+    "prompt": "half-body pose, one hand brushing hair away, clean neckline display"
+  },
+  {
+    "id": "069",
+    "name": "Solavibe 069",
+    "prompt": "half-body pose, both hands lightly near upper waistline, fitted dress display"
+  },
+  {
+    "id": "070",
+    "name": "Solavibe 070",
+    "prompt": "half-body pose with softly crossed arms, confident relaxed mood"
+  },
+  {
+    "id": "071",
+    "name": "Solavibe 071",
+    "prompt": "half-body pose, one hand holding opposite arm, soft refined gesture"
+  },
+  {
+    "id": "072",
+    "name": "Solavibe 072",
+    "prompt": "for square-neck dress, both arms relaxed to emphasize neckline and shoulders"
+  },
+  {
+    "id": "073",
+    "name": "Solavibe 073",
+    "prompt": "for square-neck dress, one hand touching collarbone, soft elegant pose"
+  },
+  {
+    "id": "074",
+    "name": "Solavibe 074",
+    "prompt": "for spaghetti strap dress, one hand touching strap softly, summer dress focus"
+  },
+  {
+    "id": "075",
+    "name": "Solavibe 075",
+    "prompt": "for halter dress, one hand softly near neck, showing halter neckline"
+  },
+  {
+    "id": "076",
+    "name": "Solavibe 076",
+    "prompt": "for backless dress, back view pose looking over shoulder, showing back design"
+  },
+  {
+    "id": "077",
+    "name": "Solavibe 077",
+    "prompt": "for tie-back dress, half-back angled pose, showing back tie detail"
+  },
+  {
+    "id": "078",
+    "name": "Solavibe 078",
+    "prompt": "for V-neck dress, one hand touching neckline naturally, elegant upper-body display"
+  },
+  {
+    "id": "079",
+    "name": "Solavibe 079",
+    "prompt": "for strapless dress, both arms relaxed to emphasize shoulder and neckline"
+  },
+  {
+    "id": "080",
+    "name": "Solavibe 080",
+    "prompt": "for strapless dress, one hand on waist, confident summer party pose"
+  },
+  {
+    "id": "081",
+    "name": "Solavibe 081",
+    "prompt": "for ruffle dress, one hand lightly touching ruffle edge, soft product detail"
+  },
+  {
+    "id": "082",
+    "name": "Solavibe 082",
+    "prompt": "for floral A-line dress, one hand lifting skirt hem, romantic vacation pose"
+  },
+  {
+    "id": "083",
+    "name": "Solavibe 083",
+    "prompt": "for floral A-line dress, both hands spreading skirt outward, high-click dress display"
+  },
+  {
+    "id": "084",
+    "name": "Solavibe 084",
+    "prompt": "for floral maxi dress, slight three-quarter standing pose, relaxed boho mood"
+  },
+  {
+    "id": "085",
+    "name": "Solavibe 085",
+    "prompt": "for floral maxi dress, walking pose while looking back softly"
+  },
+  {
+    "id": "086",
+    "name": "Solavibe 086",
+    "prompt": "for polka dot dress, light turning pose, playful vintage summer feeling"
+  },
+  {
+    "id": "087",
+    "name": "Solavibe 087",
+    "prompt": "for plaid dress, one hand on waist, sweet casual summer styling"
+  },
+  {
+    "id": "088",
+    "name": "Solavibe 088",
+    "prompt": "for puff-sleeve dress, arms relaxed to show sleeve volume clearly"
+  },
+  {
+    "id": "089",
+    "name": "Solavibe 089",
+    "prompt": "for puff-sleeve dress, one hand on waist, emphasizing puff sleeves and waist"
+  },
+  {
+    "id": "090",
+    "name": "Solavibe 090",
+    "prompt": "for side-slit dress, one foot slightly forward, showing slit naturally"
+  },
+  {
+    "id": "091",
+    "name": "Solavibe 091",
+    "prompt": "for side-slit dress, slight side angle, showing leg opening and dress line"
+  },
+  {
+    "id": "092",
+    "name": "Solavibe 092",
+    "prompt": "for drawstring waist dress, both hands near waistline, highlighting waist detail"
+  },
+  {
+    "id": "093",
+    "name": "Solavibe 093",
+    "prompt": "for pocket dress, both hands in pockets, relaxed practical product display"
+  },
+  {
+    "id": "094",
+    "name": "Solavibe 094",
+    "prompt": "for pocket dress, one hand in pocket, soft confident posture"
+  },
+  {
+    "id": "095",
+    "name": "Solavibe 095",
+    "prompt": "for co-ord set, both hands in pockets, relaxed plus-size outfit styling"
+  },
+  {
+    "id": "096",
+    "name": "Solavibe 096",
+    "prompt": "for co-ord set, one hand on waist, showing full outfit shape"
+  },
+  {
+    "id": "097",
+    "name": "Solavibe 097",
+    "prompt": "for wide-leg pants set, one hand in pocket, relaxed vacation outfit pose"
+  },
+  {
+    "id": "098",
+    "name": "Solavibe 098",
+    "prompt": "for wide-leg pants set, walking pose, pants moving naturally"
+  },
+  {
+    "id": "099",
+    "name": "Solavibe 099",
+    "prompt": "beach vacation hero pose: slight three-quarter angle, one hand on waist, the other holding straw hat, weight on one leg, skirt naturally spread"
+  },
+  {
+    "id": "100",
+    "name": "Solavibe 100",
+    "prompt": "Solavibe signature hero pose: three-quarter body angle, one hand on waist, the other hand lightly lifting skirt, natural soft smile, comfortable confident vacation mood"
+  }
 ] as const;
 
-const plusSize = [
-  ['021', '身体45度角', 'body turned at a 45-degree angle, flattering plus-size silhouette'],
-  ['022', '一侧肩膀向前', 'one shoulder angled slightly forward, soft body line'],
-  ['023', '一侧臀部后移', 'one hip shifted subtly back, comfortable curve display'],
-  ['024', '单脚前探', 'one foot placed slightly forward, elongated relaxed stance'],
-  ['025', '单脚后撤', 'one foot stepped slightly back, natural body balance'],
-  ['026', '双腿交叉', 'legs crossed naturally while standing, gentle plus-size elegance'],
-  ['027', '单手扶腰展示曲线', 'one hand on waist emphasizing natural curve and fit'],
-  ['028', '插袋展示腰线', 'hand in pocket showing waistline and relaxed fit'],
-  ['029', '手放大腿外侧', 'hand resting on outer thigh, calm flattering posture'],
-  ['030', '手放腰胯连接处', 'hand placed near waist-to-hip line, silhouette readable'],
-  ['031', '双手插袋展示廓形', 'both hands in pockets showing loose garment outline'],
-  ['032', '轻微转身展示侧面', 'slight turn to show side profile and drape'],
-  ['033', '背身回头', 'back-facing pose with gentle over-shoulder look'],
-  ['034', '行走回头', 'walking away while looking back softly'],
-  ['035', '抱包展示身形', 'holding bag against body, silhouette still visible'],
-  ['036', '单肩背包', 'bag worn on one shoulder, relaxed resort styling'],
-  ['037', '托特包下垂', 'tote bag hanging naturally beside body'],
-  ['038', '单手扶包带', 'one hand holding bag strap naturally'],
-  ['039', '双手扶包带', 'both hands holding bag straps, friendly travel mood'],
-  ['040', '包放身体前方', 'bag held in front of body, comfortable lookbook pose'],
-] as const;
-
-const vacationDress = [
-  ['041', '单手提裙摆', 'one hand lightly lifting dress hem, vacation dress drape visible'],
-  ['042', '双手提裙摆', 'both hands lightly lifting dress hem, relaxed playful movement'],
-  ['043', '单手压裙摆', 'one hand holding dress hem down softly in breeze'],
-  ['044', '风吹裙摆', 'dress hem moving naturally in warm breeze'],
-  ['045', '转身裙摆飞扬', 'gentle turn with dress hem flowing outward'],
-  ['046', '行走裙摆摆动', 'walking slowly with dress skirt swaying naturally'],
-  ['047', '回头看裙摆', 'looking back toward flowing dress hem'],
-  ['048', '单手扶帽檐', 'one hand touching straw hat brim, resort dress styling'],
-  ['049', '拿草帽', 'holding straw hat casually beside body'],
-  ['050', '草帽自然下垂', 'straw hat hanging naturally from one hand'],
-  ['051', '单手拿咖啡', 'one hand holding coffee cup, vacation town stroll'],
-  ['052', '单手拿饮料', 'one hand holding cold drink, resort relaxation'],
-  ['053', '单手拿太阳镜', 'one hand holding sunglasses near chest or waist'],
-  ['054', '调整太阳镜', 'adjusting sunglasses naturally, relaxed vacation mood'],
-  ['055', '沙滩慢步', 'slow walk along beach, soft dress movement'],
-  ['056', '度假酒店漫步', 'strolling through resort hotel walkway'],
-  ['057', '阳台看远方', 'standing on balcony looking into distance'],
-  ['058', '靠栏杆站立', 'standing lightly against railing, calm resort mood'],
-  ['059', '单手扶栏杆', 'one hand resting on railing, relaxed dress silhouette'],
-  ['060', '双手扶栏杆', 'both hands resting on railing, soft vacation posture'],
-] as const;
-
-const twoPieceSet = [
-  ['061', '双手插裤袋', 'both hands in pants pockets, two-piece set silhouette visible'],
-  ['062', '单手插裤袋', 'one hand in pants pocket, relaxed matching set pose'],
-  ['063', '展示阔腿裤', 'standing to show wide-leg pants volume and drape'],
-  ['064', '展示裤长', 'pose emphasizing pants length, hem, and leg line'],
-  ['065', '展示腰头', 'hands near waistband showing waist construction'],
-  ['066', '调整裤腰', 'adjusting pants waistband naturally'],
-  ['067', '调整上衣下摆', 'adjusting top hem to show set proportions'],
-  ['068', '单手抓衣摆', 'one hand lightly holding top hem'],
-  ['069', '双手抓衣摆', 'both hands lightly holding top hem, relaxed fit display'],
-  ['070', '展示套装轮廓', 'pose showing full matching set outline and comfort fit'],
-  ['071', '慢步行走', 'slow walking movement, soft fabric motion'],
-  ['072', '插袋行走', 'walking with hands in pockets, effortless vacation mood'],
-  ['073', '回头行走', 'walking while looking back gently'],
-  ['074', '街头漫步', 'strolling through warm resort street'],
-  ['075', '看橱窗', 'standing near shop window, looking sideways softly'],
-  ['076', '等待动作', 'relaxed waiting pose, casual travel moment'],
-  ['077', '单手拿手机', 'one hand holding phone naturally'],
-  ['078', '查看手机', 'looking down at phone while standing or walking slowly'],
-  ['079', '单手拿包', 'one hand holding bag beside body'],
-  ['080', '双手抱包', 'holding bag with both hands, friendly comfortable styling'],
-] as const;
-
-const lookbook = [
-  ['081', '靠墙站姿', 'leaning lightly against wall, relaxed resort lookbook pose'],
-  ['082', '单肩靠墙', 'one shoulder leaning against wall, soft body angle'],
-  ['083', '单手扶墙', 'one hand touching wall naturally'],
-  ['084', '靠门框', 'leaning against doorway, warm vacation home feeling'],
-  ['085', '靠立柱', 'leaning lightly near column, calm architectural framing'],
-  ['086', '靠栏杆', 'leaning softly on railing, resort corridor mood'],
-  ['087', '建筑前站立', 'standing in front of white resort architecture'],
-  ['088', '欧式街道站立', 'standing on european town street, relaxed travel lookbook'],
-  ['089', '走廊站立', 'standing in resort corridor, soft warm light'],
-  ['090', '窗边站立', 'standing near window, natural sunlight'],
-  ['091', '阳光下站立', 'standing in warm sunlight, comfortable vacation mood'],
-  ['092', '阴影下站立', 'standing in soft architectural shade'],
-  ['093', '逆光站立', 'standing in gentle backlight, relaxed silhouette'],
-  ['094', '单腿重心Hero Pose', 'hero pose with weight on one leg, friendly resort confidence'],
-  ['095', '插袋Hero Pose', 'hero pose with hands in pockets, relaxed Solavibe attitude'],
-  ['096', '扶腰Hero Pose', 'hero pose with one hand on waist, soft curve display'],
-  ['097', '行走Hero Pose', 'hero walking pose, approachable vacation energy'],
-  ['098', '转身Hero Pose', 'hero turning pose, soft fabric motion'],
-  ['099', 'Vacation Hero Pose', 'signature vacation hero pose with resort scene and comfortable styling'],
-  ['100', 'Solavibe Signature Pose', 'Solavibe signature relaxed plus-size vacation pose, soft smile, natural stance, boho resort comfort'],
-] as const;
-
-const makePoses = (
-  category: SolavibePose['category'],
-  items: readonly (readonly [string, string, string])[]
-): SolavibePose[] =>
-  items.map(([id, name, prompt]) => ({
-    id,
-    name,
-    category,
-    prompt: `${prompt}, ${SOLAVIBE_FRAME}`,
-  }));
-
-export const SOLAVIBE_POSES: SolavibePose[] = [
-  ...makePoses('standing', standing),
-  ...makePoses('plusSize', plusSize),
-  ...makePoses('vacationDress', vacationDress),
-  ...makePoses('twoPieceSet', twoPieceSet),
-  ...makePoses('lookbook', lookbook),
-];
+export const SOLAVIBE_POSES: SolavibePose[] = SOLAVIBE_POSE_ITEMS.map((item) => ({
+  id: item.id,
+  name: item.name,
+  prompt: `${item.prompt}, ${SOLAVIBE_FRAME}`,
+}));
