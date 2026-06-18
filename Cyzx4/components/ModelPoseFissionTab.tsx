@@ -19,7 +19,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { generateImageToImage } from '../services/geminiService';
-import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
+import { compressImage, getErrorMessage, isAbortError, generateContentWithAnalysisFallback, getAiClient } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { convertImageDataUrlFormat, OutputImageFormat } from '../utils/imageFormat';
 import { applyColorCorrection, ColorCorrectionMode, extractEdges } from '../utils/imageProcessor';
@@ -64,11 +64,23 @@ type PosePreset = {
   prompt: string;
 };
 
+interface ActionReferenceAnalysis {
+  shotType: string;
+  shootingAngle: string;
+  poseDescription: string;
+  cropRange: string;
+  promptBlock: string;
+}
+
 type UploadedImage = {
   id: string;
   preview: string;
   base64: string;
   mime: string;
+  width?: number;
+  height?: number;
+  poseAnalysis?: ActionReferenceAnalysis;
+  isAnalyzing?: boolean;
 };
 
 type ResultItem = {
@@ -389,8 +401,23 @@ const UploadCard: React.FC<{
         {images.length > 0 ? (
           <div className="grid grid-cols-4 gap-2">
             {images.map((image) => (
-              <div key={image.id} className="group relative overflow-hidden rounded-lg border border-pastel-border bg-white">
+              <div 
+                key={image.id} 
+                title={image.poseAnalysis ? `景别: ${image.poseAnalysis.shotType}\n视角: ${image.poseAnalysis.shootingAngle}\n姿势: ${image.poseAnalysis.poseDescription}\n裁剪: ${image.poseAnalysis.cropRange}` : undefined}
+                className="group relative overflow-hidden rounded-lg border border-pastel-border bg-white"
+              >
                 <img src={image.preview} alt={title} className="h-20 w-full object-cover" />
+                {image.isAnalyzing && (
+                  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center p-1">
+                    <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+                    <span className="text-[8px] font-bold text-purple-700 mt-0.5 scale-90">分析中...</span>
+                  </div>
+                )}
+                {image.poseAnalysis && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-purple-900/75 text-white text-[8px] px-1 py-0.5 font-bold truncate text-center scale-90 origin-bottom" title={`${image.poseAnalysis.shotType} | ${image.poseAnalysis.shootingAngle}`}>
+                    {image.poseAnalysis.shotType} | {image.poseAnalysis.shootingAngle}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={(event) => {
@@ -472,11 +499,55 @@ const ModelPoseFissionTab: React.FC = () => {
   const effectiveGenerateCount = actionImages.length > 0 ? actionImages.length : generateCount;
   const isRegeneratingAny = regeneratingIndices.length > 0;
 
+  const analyzeActionReferenceImage = async (
+    image: UploadedImage
+  ): Promise<ActionReferenceAnalysis | null> => {
+    if (!image.base64 || !image.mime) return null;
+
+    try {
+      const ai = getAiClient();
+      const response = await generateContentWithAnalysisFallback(ai, {
+        model: 'gemini-3.5-flash',
+        contents: {
+          parts: [
+            { inlineData: { mimeType: image.mime, data: image.base64 } },
+            {
+              text: `Analyze this image as an action/pose reference for a fashion ecommerce image-generation workflow.
+
+Your goal is to extract the camera framing (shot type), shooting angle, body crop range, and pose description so that the image generator can replicate them exactly.
+
+Return ONLY a valid JSON object with these exact keys:
+{
+  "shotType": "Specify the exact shot type in English (e.g., 'close-up shot', 'medium shot / waist-up', 'three-quarter shot / knee-up', 'full body shot / head-to-toe')",
+  "shootingAngle": "Specify the camera angle/direction relative to the model (e.g., 'eye-level front view', 'low-angle three-quarter view', 'high-angle side profile view', 'eye-level back view')",
+  "poseDescription": "A concise English description of the model's pose, gesture, hand placements, and body rotation (e.g., 'standing with right hand on hip, left arm hanging naturally, body slightly rotated to the left')",
+  "cropRange": "Describe exactly where the frame cuts off the model's body (e.g., 'cropped from chin to mid-thigh, head is partially cut off', 'cropped at the waist, showing only torso', 'full body from head to toes, shoes fully visible')",
+  "promptBlock": "A compiled, highly descriptive English prompt fragment specifying framing, camera distance, camera angle, and pose in detail. Use clear and imperative language."
+}
+
+Rules:
+- Focus ONLY on framing, crop, camera angle, and pose.
+- Ignore and do NOT describe clothing, face identity, gender, age, skin tone, hair, background, lighting, or color palette.`
+            }
+          ]
+        }
+      });
+
+      const raw = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      const parsed = JSON.parse(raw) as ActionReferenceAnalysis;
+      return parsed;
+    } catch (err) {
+      console.error('Action reference analysis failed:', err);
+      return null;
+    }
+  };
+
   const addImages = async (
     files: File[],
     setter: React.Dispatch<React.SetStateAction<UploadedImage[]>>,
     max: number,
-    replace = false
+    replace = false,
+    kind?: UploadKind
   ) => {
     const validFiles = files.filter((file) => file.type.startsWith('image/'));
     const compressed = await Promise.all(
@@ -487,11 +558,31 @@ const ModelPoseFissionTab: React.FC = () => {
           preview: URL.createObjectURL(file),
           base64: data.base64,
           mime: data.mime,
+          isAnalyzing: kind === 'action',
         };
       })
     );
     setter((prev) => [...(replace ? [] : prev), ...compressed].slice(0, max));
     setError('');
+
+    if (kind === 'action') {
+      for (const img of compressed) {
+        analyzeActionReferenceImage(img).then((analysis) => {
+          setter((prev) =>
+            prev.map((item) => {
+              if (item.id === img.id) {
+                return {
+                  ...item,
+                  isAnalyzing: false,
+                  poseAnalysis: analysis || undefined,
+                };
+              }
+              return item;
+            })
+          );
+        });
+      }
+    }
   };
 
   const removeImage = (kind: MainReferenceKind, id: string) => {
@@ -514,9 +605,15 @@ const ModelPoseFissionTab: React.FC = () => {
 
   const getPoseForOutput = (index: number) => {
     if (actionImages.length > 0 && index < actionImages.length) {
+      const actionImage = actionImages[index];
+      let promptText = 'Match the uploaded action reference image exactly for pose, gesture, camera distance, crop boundary, subject scale, body angle, and visible body extent.';
+      if (actionImage.poseAnalysis) {
+        const pa = actionImage.poseAnalysis;
+        promptText = `Match the uploaded action reference image exactly. [AI ANALYSIS]: Camera crop is ${pa.shotType} (${pa.cropRange}), camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Prompt constraint: ${pa.promptBlock}`;
+      }
       return {
-        label: `动作参考图 #${index + 1}`,
-        prompt: 'Match the uploaded action reference image exactly for pose, gesture, camera distance, crop boundary, subject scale, body angle, and visible body extent.',
+        label: `动作参考图 #${index + 1}${actionImage.poseAnalysis ? ` (${actionImage.poseAnalysis.shotType})` : ''}`,
+        prompt: promptText,
       };
     }
     if (poseSourceMode === 'manual') {
@@ -545,14 +642,28 @@ const ModelPoseFissionTab: React.FC = () => {
       const actionImage = actionImages[index];
       const actionImageNumber = inputs.length + 1;
       inputs.push(toApiImage(actionImage));
+
+      let analysisManifest = '';
+      if (actionImage.poseAnalysis) {
+        const pa = actionImage.poseAnalysis;
+        analysisManifest = `
+[AI POSE REFERENCE ANALYSIS FOR IMAGE ${actionImageNumber}]:
+- CAMERA SHOT TYPE / FRAMING: ${pa.shotType} (Crop boundaries: ${pa.cropRange})
+- CAMERA ANGLE & DIRECTION: ${pa.shootingAngle}
+- BODY POSE & ANATOMY DETAIL: ${pa.poseDescription}
+- STRUCTURAL PROMPT BLOCK: ${pa.promptBlock}
+- EXPLICIT ACTION ALIGNMENT DIRECTIVE:
+  Generate output #${index + 1} using EXACTLY the framing specified above. If the analysis shows a "${pa.shotType}" (such as a medium shot, close-up, or waist-up), you MUST NOT generate a full-body view or far shot. Align the camera distance and framing tightly to the detected crop: ${pa.cropRange}. Replicate the camera angle "${pa.shootingAngle}" and follow the detailed pose geometry described in "${pa.poseDescription}".`;
+      }
+
       try {
         const lineart = await extractEdges(getDataUrl(actionImage));
         const lineartImageNumber = inputs.length + 1;
         inputs.push(dataUrlToApiImage(lineart));
-        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Use both ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.`;
+        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Use both ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.${analysisManifest}`;
       } catch (error) {
         console.warn('Failed to extract action reference lineart. Using original pose image only.', error);
-        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Use it ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.`;
+        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Use it ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.${analysisManifest}`;
       }
     }
     return { inputs, poseReferenceManifest };
@@ -841,7 +952,7 @@ const ModelPoseFissionTab: React.FC = () => {
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <UploadCard title="场景参考图" desc="可选。用于锁定背景、地点、光线和氛围" icon={<Sparkles className="h-4 w-4" />} images={sceneImages} max={3} onUpload={(files) => addImages(files, setSceneImages, 3)} onRemove={(id) => removeImage('scene', id)} />
-              <UploadCard title="动作参考图" desc="可选。上传后优先按每张参考图裂变" icon={<Wand2 className="h-4 w-4" />} images={actionImages} max={10} onUpload={(files) => { setPoseSourceMode('reference'); addImages(files, setActionImages, 10); }} onRemove={(id) => removeImage('action', id)} />
+              <UploadCard title="动作参考图" desc="可选。上传后优先按每张参考图裂变" icon={<Wand2 className="h-4 w-4" />} images={actionImages} max={10} onUpload={(files) => { setPoseSourceMode('reference'); addImages(files, setActionImages, 10, false, 'action'); }} onRemove={(id) => removeImage('action', id)} />
             </div>
 
             <UploadCard
