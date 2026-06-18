@@ -942,6 +942,10 @@ export const generateImageToImage = async (
   throwIfAborted(signal);
   const retryLimit = 3;
   let lastError: any = null;
+  const MODEL_FALLBACKS: Record<string, string> = {
+    'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image',
+    'gemini-3-pro-image-preview': 'gemini-3-pro-image'
+  };
   
   // Get initial config to know how many keys we have
   const initialConfig = getApiConfig();
@@ -1241,47 +1245,70 @@ ${forcedPrompt}`;
           gptPrompt = `${gptRatioHint}\n${forcedPrompt}`;
         }
 
-        const payload = {
-          model: resolveRuntimeModelId(targetModel),
-          prompt: gptPrompt,
-          size: gptSize,
-          quality: "auto",
-          response_format: "b64_json",
-          // Exact match with your doc: array[string]
-          // AND adding the prefix for input images as required by most reverse proxies
-          image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
+        const sendGptRequest = async (modelName: string) => {
+          const payload = {
+            model: resolveRuntimeModelId(modelName),
+            prompt: gptPrompt,
+            size: gptSize,
+            quality: "auto",
+            response_format: "b64_json",
+            // Exact match with your doc: array[string]
+            // AND adding the prefix for input images as required by most reverse proxies
+            image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
+          };
+
+          const fetchResponse = await executeWithTimeout(
+            fetch(endpoint, {
+              method: 'POST',
+              signal,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.apiKey}`
+              },
+              body: JSON.stringify(payload)
+            }),
+            { timeoutMs: 120000 } // Extended timeout for high-res generation
+          );
+
+          if (!fetchResponse.ok) {
+            const errText = await fetchResponse.text();
+            throw new Error(`GPT Image 2 API Error: ${fetchResponse.status} ${errText}`);
+          }
+
+          const data = await fetchResponse.json();
+          const results = (data.data || []).map((item: any) => {
+            if (!item.b64_json) return item.url;
+            // Fix double prefix on output: only add if not already present
+            const b64 = item.b64_json;
+            return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+          });
+          
+          if (results.length > 0) return results;
+          throw new Error("API returned success but no images were found in the data array.");
         };
 
         const endpoint = `${config.baseUrl}/v1/images/generations`; 
         
-          const fetchResponse = await executeWithTimeout(
-          fetch(endpoint, {
-            method: 'POST',
-            signal,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${config.apiKey}`
-            },
-            body: JSON.stringify(payload)
-          }),
-          { timeoutMs: 120000 } // Extended timeout for high-res generation
-        );
-
-        if (!fetchResponse.ok) {
-          const errText = await fetchResponse.text();
-          throw new Error(`GPT Image 2 API Error: ${fetchResponse.status} ${errText}`);
+        try {
+          return await sendGptRequest(targetModel);
+        } catch (gptError: any) {
+          const errorMsg = (gptError?.message || gptError?.toString() || '').toLowerCase();
+          const fallbackModel = MODEL_FALLBACKS[targetModel];
+          if (fallbackModel && (
+            errorMsg.includes('model_not_found') || 
+            errorMsg.includes('model not found') || 
+            errorMsg.includes('404') || 
+            errorMsg.includes('not supported') ||
+            errorMsg.includes('invalid model') ||
+            errorMsg.includes('path not found')
+          )) {
+            console.warn(`[GPT Image 2 Fallback] Model ${targetModel} failed. Retrying with fallback ${fallbackModel}...`);
+            targetModel = fallbackModel;
+            return await sendGptRequest(targetModel);
+          } else {
+            throw gptError;
+          }
         }
-
-        const data = await fetchResponse.json();
-        const results = (data.data || []).map((item: any) => {
-          if (!item.b64_json) return item.url;
-          // Fix double prefix on output: only add if not already present
-          const b64 = item.b64_json;
-          return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
-        });
-        
-        if (results.length > 0) return results;
-        throw new Error("API returned success but no images were found in the data array.");
       }
 
       const parts: any[] = [];
@@ -1895,37 +1922,61 @@ ${forcedPrompt}`;
         Prompt Snippet: ${forcedPrompt.substring(0, 100)}...
       `);
 
-      const response = await executeWithTimeout(
-        ai.models.generateContent({
-          model: resolveRuntimeModelId(targetModel),
-          contents: { parts: parts },
-          // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
-          // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
-          config: {
-            safetySettings: GLOBAL_SAFETY_SETTINGS,
-            ...(['pose-replication-lock', 'model-original-paste-back'].includes(workflowHint || '') ? { temperature: 0.15 } : {}),
-            imageConfig: {
-              aspectRatio: aspectRatio,
-              aspect_ratio: aspectRatio,
-              // Standard Gemini expects "1K", "2K", "4K"
-              imageSize: resolution, 
-              size: explicitDimensions, // DALL-E 3 standard
-              image_size: explicitDimensions, // Proxy fallback
-              resolution: resolution, // Extra fallback
-              quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard", // GPT/DALL-E style
-              sampleCount: sampleCount,
+      const sendGeminiRequest = async (modelName: string) => {
+        return await executeWithTimeout(
+          ai.models.generateContent({
+            model: resolveRuntimeModelId(modelName),
+            contents: { parts: parts },
+            // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
+            // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
+            config: {
+              safetySettings: GLOBAL_SAFETY_SETTINGS,
+              ...(['pose-replication-lock', 'model-original-paste-back'].includes(workflowHint || '') ? { temperature: 0.15 } : {}),
+              imageConfig: {
+                aspectRatio: aspectRatio,
+                aspect_ratio: aspectRatio,
+                // Standard Gemini expects "1K", "2K", "4K"
+                imageSize: resolution, 
+                size: explicitDimensions, // DALL-E 3 standard
+                image_size: explicitDimensions, // Proxy fallback
+                resolution: resolution, // Extra fallback
+                quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard", // GPT/DALL-E style
+                sampleCount: sampleCount,
+              } as any,
             } as any,
-          } as any,
-          // Fallback for proxies that map Gemini 'generationConfig' to target model parameters
-          generationConfig: {
-            ...(config.isYunwu || config.isPlato ? {} : { aspectRatio: aspectRatio, aspect_ratio: aspectRatio }),
-            image_size: explicitDimensions,
-            resolution: resolution,
-            quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard",
-          } as any
-        } as any),
-        { timeoutMs: generationTimeout, signal }
-      );
+            // Fallback for proxies that map Gemini 'generationConfig' to target model parameters
+            generationConfig: {
+              ...(config.isYunwu || config.isPlato ? {} : { aspectRatio: aspectRatio, aspect_ratio: aspectRatio }),
+              image_size: explicitDimensions,
+              resolution: resolution,
+              quality: (resolution === '4K' || resolution === '2K') ? "hd" : "standard",
+            } as any
+          } as any),
+          { timeoutMs: generationTimeout, signal }
+        );
+      };
+
+      let response;
+      try {
+        response = await sendGeminiRequest(targetModel);
+      } catch (geminiError: any) {
+        const errorMsg = (geminiError?.message || geminiError?.toString() || '').toLowerCase();
+        const fallbackModel = MODEL_FALLBACKS[targetModel];
+        if (fallbackModel && (
+          errorMsg.includes('model_not_found') || 
+          errorMsg.includes('model not found') || 
+          errorMsg.includes('404') || 
+          errorMsg.includes('not supported') ||
+          errorMsg.includes('invalid model') ||
+          errorMsg.includes('path not found')
+        )) {
+          console.warn(`[Gemini Fallback] Model ${targetModel} failed. Retrying with fallback ${fallbackModel}...`);
+          targetModel = fallbackModel;
+          response = await sendGeminiRequest(targetModel);
+        } else {
+          throw geminiError;
+        }
+      }
 
       const generatedImages: string[] = [];
       const candidate = response.candidates?.[0];

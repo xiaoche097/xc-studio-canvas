@@ -480,6 +480,7 @@ const ProductRepairTab: React.FC = () => {
             return;
         }
 
+        const { taskId, signal } = startGenerationTask();
         setIsLoading(true);
         setError(null);
         setGeneratedImages([]);
