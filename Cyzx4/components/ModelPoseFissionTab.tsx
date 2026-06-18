@@ -37,6 +37,7 @@ import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
 import { Y2K_POSES } from '../constants/y2kPosePresets';
+import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
 
 type UploadKind = 'model' | 'product' | 'scene' | 'action' | 'accessory';
 type MainReferenceKind = UploadKind | 'overall' | 'color';
@@ -54,6 +55,7 @@ type PoseLibraryKey =
   | 'longDress'
   | 'womensFashion'
   | 'solavibe'
+  | 'suriMira'
   | 'y2k';
 
 type PosePreset = {
@@ -88,6 +90,7 @@ const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; 
   { key: 'mensPants', label: '男士长裤', desc: '长裤下装', poses: MENS_PANTS_POSES },
   { key: 'swimShorts', label: '泳裤/沙滩裤', desc: '度假运动', poses: SWIM_SHORTS_POSES },
   { key: 'longDress', label: '长裙/连衣裙', desc: '裙装展示', poses: LONG_DRESS_POSES },
+  { key: 'suriMira', label: 'Suri Mira 宫廷法式复古连衣裙', desc: '宫廷/法式复古', poses: SURI_MIRA_POSES },
   { key: 'sleepwear', label: '睡衣/居家', desc: '居家睡衣', poses: SLEEPWEAR_POSES },
   { key: 'solavibe', label: 'Solavibe 大码度假', desc: '度假大码', poses: SOLAVIBE_POSES },
   { key: 'y2k', label: 'Y2K Editorial', desc: 'Denim/Trouser high-fashion', poses: Y2K_POSES },
@@ -139,6 +142,46 @@ const ASPECT_OPTIONS = [
   { id: AspectRatio.LANDSCAPE_16_9, label: '16:9', desc: '横幅' },
 ];
 
+type ShotTypeKey = 'auto' | 'wide' | 'medium' | 'closeup' | 'macro';
+
+const SHOT_TYPE_OPTIONS: Array<{ key: ShotTypeKey; label: string; desc: string; prompt: string; negative: string }> = [
+  {
+    key: 'auto',
+    label: '智能推荐',
+    desc: '按动作/产品判断',
+    prompt: 'Use the most suitable ecommerce framing for the selected pose and product.',
+    negative: '',
+  },
+  {
+    key: 'wide',
+    label: '远景环境',
+    desc: '人物与场景',
+    prompt: 'Wide environmental fashion framing: show the full model and meaningful scene context. Keep head-to-toe body visible when the pose allows it, with background/location readable.',
+    negative: 'tight crop, close-up crop, cropped feet, cropped head, detail-only framing',
+  },
+  {
+    key: 'medium',
+    label: '中景半身',
+    desc: '腰/胯以上',
+    prompt: 'Medium half-body fashion framing: crop around upper body to waist or hips. Show face, upper torso, sleeves/neckline, and garment fit clearly. Do not show full head-to-toe body unless unavoidable.',
+    negative: 'full body, head-to-toe, tiny subject, distant shot, extreme close-up, macro detail only',
+  },
+  {
+    key: 'closeup',
+    label: '近景特写',
+    desc: '胸口/面料',
+    prompt: 'Close-up product-detail fashion framing: camera is close to the model. Frame from face/chin/neck to chest or upper torso, prioritizing neckline, shoulders, sleeves, chest fabric texture, buttons, lace, bow, print, and surface detail. Keep the product large in frame. Do NOT zoom out to a normal half-body or full-body portrait. Do NOT show waist, hips, legs, feet, or full dress length unless the user explicitly asks for them.',
+    negative: 'full body, head-to-toe, full dress length, waist visible, hips visible, legs visible, feet visible, distant portrait, zoomed-out portrait, small product in frame',
+  },
+  {
+    key: 'macro',
+    label: '微距细节',
+    desc: '局部材质',
+    prompt: 'Macro/detail crop: focus tightly on a specific garment detail such as fabric texture, neckline, sleeve, lace, bow, button, seam, print, embroidery, or trim. The model can be partially cropped. Product material detail must dominate the image. Do not render a standard model portrait.',
+    negative: 'full body, half body, complete face portrait, full outfit, distant shot, tiny detail, generic catalog pose',
+  },
+];
+
 const MODEL_OPTIONS = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '3.1 Flash', icon: <Zap className="h-4 w-4 text-orange-500" /> },
   { id: 'nanobananapro', label: 'Banana Pro', desc: '3.0 Pro', icon: <Zap className="h-4 w-4 text-orange-500" /> },
@@ -185,6 +228,7 @@ const buildPrompt = (options: {
   platformStyle: string;
   scenePrompt: string;
   productCategory: string;
+  shotType: ShotTypeKey;
   extraNotes: string;
   poseReferenceManifest?: string;
 }) => {
@@ -199,9 +243,11 @@ const buildPrompt = (options: {
     platformStyle,
     scenePrompt,
     productCategory,
+    shotType,
     extraNotes,
     poseReferenceManifest,
   } = options;
+  const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
 
   return `
 Create ONE photorealistic ecommerce fashion image for model pose fission output #${outputNumber}.
@@ -233,6 +279,8 @@ Pose instruction: ${poseText}
 - Platform visual DNA: ${platformStyle}
 - Product category: ${productCategory || 'fashion apparel'}.
 - Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
+- Shot type preset: ${shotPreset.label}. ${shotPreset.prompt}
+- SHOT TYPE LOCK: Treat the selected shot type as a hard framing rule, not a soft style note. If user text says close-up/detail, obey this structured preset over generic pose-library full-body tendencies. ${hasActionReference ? 'If an uploaded action reference has a different crop, the uploaded action reference crop wins for that output.' : ''}
 - Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
 - If accessory/styling references are uploaded, add them only when they look natural for the pose and platform. Keep scale, placement, and material believable; do not let accessories cover important garment details.
 - If the scene or pose conflicts with product fidelity, preserve product identity and adapt the garment naturally to the pose.
@@ -241,7 +289,7 @@ Pose instruction: ${poseText}
 ${extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-wrong person, identity drift, changed face, changed hair, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, copied action-reference clothing, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details.
+wrong person, identity drift, changed face, changed hair, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, copied action-reference clothing, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
 `.trim();
 };
 
@@ -389,6 +437,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
   const [outputFormat, setOutputFormat] = useState<OutputImageFormat>('png');
+  const [shotType, setShotType] = useState<ShotTypeKey>('auto');
   const [colorCorrectionMode, setColorCorrectionMode] = useState<ColorCorrectionMode>('off');
   const [colorReferenceImages, setColorReferenceImages] = useState<UploadedImage[]>([]);
   const [colorCorrectionBlend, setColorCorrectionBlend] = useState(0.85);
@@ -524,6 +573,7 @@ const ModelPoseFissionTab: React.FC = () => {
       platformStyle: activePlatform.prompt,
       scenePrompt,
       productCategory,
+      shotType,
       extraNotes,
       poseReferenceManifest,
     });
@@ -661,6 +711,7 @@ const ModelPoseFissionTab: React.FC = () => {
             model: selectedModel,
             platform: activePlatform.label,
             outputFormat,
+            shotType: SHOT_TYPE_OPTIONS.find((item) => item.key === shotType)?.label || shotType,
             poseSourceMode: effectivePoseMode,
             poseLibrary: activeLibrary.label,
             productCategory,
@@ -901,6 +952,31 @@ const ModelPoseFissionTab: React.FC = () => {
               <div className="mt-3">
                 <label className="mb-1 block text-[10px] font-bold text-pastel-muted">补充说明</label>
                 <textarea value={scenePrompt} onChange={(event) => setScenePrompt(event.target.value)} placeholder="例如：背面展示，全身" className="min-h-[4.75rem] w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-orange-100" />
+              </div>
+
+              <div className="mt-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Scan className="h-3.5 w-3.5 text-pastel-highlight" />
+                  <label className="block text-xs font-bold text-pastel-text">画面景别</label>
+                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">影响构图远近</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {SHOT_TYPE_OPTIONS.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setShotType(item.key)}
+                      className={`min-h-[3.25rem] rounded-xl border px-2 py-2 text-center transition-all ${
+                        shotType === item.key
+                          ? 'border-blue-300 bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+                          : 'border-pastel-border bg-pastel-bg/30 text-pastel-muted hover:border-blue-200'
+                      }`}
+                    >
+                      <span className="block text-[11px] font-black">{item.label}</span>
+                      <span className="mt-0.5 block text-[9px] opacity-70">{item.desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">

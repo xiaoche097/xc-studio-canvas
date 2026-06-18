@@ -29,6 +29,7 @@ import { LONG_DRESS_POSES } from '../constants/longDressPosePresets';
 import { WOMENS_FASHION_POSES } from '../constants/womensFashionPosePresets';
 import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
 import { Y2K_POSES } from '../constants/y2kPosePresets';
+import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
 
 interface UploadedImage {
     file: File;
@@ -68,7 +69,7 @@ interface HeroFormState {
     personaTemplate: string;
 }
 
-type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion' | 'solavibe';
+type AutoPoseLibrary = 'none' | 'mensShirt' | 'mensKnit' | 'mensTee' | 'mensShorts' | 'mensPants' | 'swimShorts' | 'longDress' | 'womensFashion' | 'solavibe' | 'suriMira';
 
 interface AutoPoseAnalysis {
     productType: string;
@@ -100,6 +101,7 @@ const AUTO_POSE_LIBRARY_LABELS: Record<AutoPoseLibrary, string> = {
     longDress: '长裙/连衣裙动作库',
     womensFashion: '通用时尚女装动作库',
     solavibe: 'Solavibe 度假大码动作库',
+    suriMira: 'Suri Mira 宫廷法式复古连衣裙动作库',
 };
 
 const MANUAL_POSE_LIBRARY_LABELS: Record<ManualPoseLibrary, string> = {
@@ -118,6 +120,7 @@ const buildManualPoseOptions = (): ManualPoseOption[] => {
         { library: 'mensPants', poses: MENS_PANTS_POSES },
         { library: 'swimShorts', poses: SWIM_SHORTS_POSES },
         { library: 'longDress', poses: LONG_DRESS_POSES },
+        { library: 'suriMira', poses: SURI_MIRA_POSES },
         { library: 'womensFashion', poses: WOMENS_FASHION_POSES },
         { library: 'solavibe', poses: SOLAVIBE_POSES },
         { library: 'y2k', poses: Y2K_POSES },
@@ -563,6 +566,7 @@ const HeroImageTab: React.FC = () => {
 
         const normalizeLibrary = (value: string): AutoPoseLibrary => {
             const normalized = value.trim().toLowerCase();
+            if (normalized.includes('suri') || normalized.includes('mira') || normalized.includes('palace') || normalized.includes('royal') || normalized.includes('french vintage') || normalized.includes('puff sleeve') || normalized.includes('square neck')) return 'suriMira';
             if (normalized.includes('solavibe') || normalized.includes('plus size') || normalized.includes('plussize') || normalized.includes('boho') || normalized.includes('vacation') || normalized.includes('resort dress') || normalized.includes('resort wear') || normalized.includes('resort set') || normalized.includes('relaxed comfort')) return 'solavibe';
             if (normalized.includes('longdress') || normalized.includes('long dress') || normalized.includes('maxi') || normalized.includes('ankle') || normalized.includes('floor') || normalized.includes('gown')) return 'longDress';
             if (normalized.includes('womensfashion') || normalized.includes('women') || normalized.includes('female') || normalized.includes('womenswear') || normalized.includes('fashion')) return 'womensFashion';
@@ -583,9 +587,10 @@ const HeroImageTab: React.FC = () => {
             }));
             parts.push({
                 text: `Classify these uploaded product images for an ecommerce apparel pose library.
-Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|solavibe|none","confidence":"high|medium|low","reason":"short reason"}.
+Return ONLY valid JSON: {"productType":"short precise product category","library":"mensShirt|mensKnit|mensTee|mensShorts|mensPants|swimShorts|longDress|womensFashion|solavibe|suriMira|none","confidence":"high|medium|low","reason":"short reason"}.
 
 Choose:
+- suriMira: Suri Mira palace-inspired french vintage dress products, royal/french romantic dresses, puff-sleeve dresses, square-neck dresses, off-shoulder french vintage dresses, floral vintage full-skirt dresses, sweet elegant SHEIN dress styling.
 - solavibe: plus-size women's vacation/resort/boho/relaxed comfort apparel, including loose shirts, vacation dresses, relaxed two-piece sets, wide-leg pants, resort dresses, plus-size collections, warm approachable SHEIN Solavibe-style products.
 - longDress: women's long dress, maxi dress, ankle-length dress, floor-length dress, long skirt dress, evening dress, long slip dress, long sundress, gown-like dress.
 - womensFashion: generic women's fashion apparel that is not covered by the targeted libraries above, such as women's blouse, short dress, mini/midi dress, skirt, pants, jeans, blazer, coat, jacket, cardigan, vest, top, bodysuit, matching set, suit set, or uncertain womenswear.
@@ -598,6 +603,7 @@ Choose:
 - none: not one of the above or uncertain.
 
 Priority rules:
+- If the product or user note suggests Suri Mira, palace, royal, french vintage, puff sleeve, square neck, off-shoulder, floral vintage full-skirt dress, or sweet elegant romantic dress, choose suriMira before longDress or womensFashion.
 - If the product or user note suggests Solavibe, plus size, vacation, boho, resort, relaxed comfort, loose resort shirt, vacation dress, relaxed two-piece set, wide-leg vacation pants, or approachable plus-size womenswear, choose solavibe before longDress or womensFashion.
 - If the product is women's apparel but not clearly longDress, choose womensFashion.
 - If the garment is a short dress, mini dress, midi dress, skirt, blouse, blazer, jacket, coat, pants, jeans, cardigan, vest, top, or set, choose womensFashion.
@@ -1448,6 +1454,12 @@ The final image must look like a real professional fashion lookbook shoot at tha
                 '长裙', '长款连衣裙', '及踝裙', '拖地裙', '礼服裙', '吊带长裙', '度假长裙'
             ];
             const isLongDress = longDressKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
+            const suriMiraKeywords = [
+                'suri mira', 'surimira', 'palace', 'royal', 'french vintage', 'french retro', 'puff sleeve',
+                'square neck', 'off shoulder', 'off-shoulder', 'floral vintage', 'full-skirt dress',
+                '宫廷', '法式', '法式复古', '复古连衣裙', '泡泡袖', '方领', '一字肩', '花卉复古', '大摆裙', '甜美优雅'
+            ];
+            const isSuriMira = suriMiraKeywords.some(keyword => productNameLower.includes(keyword) || productCategoryLower.includes(keyword));
             const solavibeKeywords = [
                 'solavibe', 'plus size', 'plussize', 'curve', 'curvy', 'vacation', 'boho', 'bohemian',
                 'relaxed', 'comfort', 'loose shirt', 'oversized shirt', 'vacation dress', 'resort dress',
@@ -1467,7 +1479,9 @@ The final image must look like a real professional fashion lookbook shoot at tha
 
             const activeAutoPoseLibrary: AutoPoseLibrary = autoPoseLibrary !== 'none'
                 ? autoPoseLibrary
-                : isSolavibe
+                : isSuriMira
+                    ? 'suriMira'
+                    : isSolavibe
                     ? 'solavibe'
                     : isLongDress
                         ? 'longDress'
@@ -1561,6 +1575,12 @@ The final image must look like a real professional fashion lookbook shoot at tha
             for (let k = shuffledLongDressPoses.length - 1; k > 0; k--) {
                 const r = Math.floor(Math.random() * (k + 1));
                 [shuffledLongDressPoses[k], shuffledLongDressPoses[r]] = [shuffledLongDressPoses[r], shuffledLongDressPoses[k]];
+            }
+
+            let shuffledSuriMiraPoses = [...SURI_MIRA_POSES];
+            for (let k = shuffledSuriMiraPoses.length - 1; k > 0; k--) {
+                const r = Math.floor(Math.random() * (k + 1));
+                [shuffledSuriMiraPoses[k], shuffledSuriMiraPoses[r]] = [shuffledSuriMiraPoses[r], shuffledSuriMiraPoses[k]];
             }
 
             let shuffledWomensFashionPoses = [...WOMENS_FASHION_POSES];
@@ -1695,6 +1715,16 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
 # SOLAVIBE SCENE TASTE: If no scene reference overrides it, prefer warm vacation/resort settings such as european small-town streets, seaside resort hotel, white wall architecture, wood balcony, poolside, cafe, palm walkway, resort corridor, beach boardwalk, or warm stone wall architecture.
 `;
                         finalPrompt += `\n# SOLAVIBE ACTION LIBRARY DIRECTIVE: Use this selected Solavibe action exactly: ${poseSpec}. This instruction has higher priority than generic womenswear or long-dress pose sets. The product must remain the same product from Image 1 while naturally adapting to a relaxed plus-size vacation resort lookbook mood.\n`;
+                    } else if (activeAutoPoseLibrary === 'suriMira') {
+                        const posePreset = shuffledSuriMiraPoses[i % shuffledSuriMiraPoses.length];
+                        const poseSpec = posePreset.prompt;
+                        selectedPoseHeader = `# SELECTED SURI MIRA POSE PRESET: ${posePreset.name} / ${posePreset.id}
+# SURI MIRA BRAND MOOD LOCK (CRITICAL - MANDATORY): This is a SHEIN palace-inspired french vintage dress brand image: romantic, elegant, sweet, refined, feminine, and commercial. It is not generic womenswear, not a stiff mannequin catalog pose, and not a modern streetwear editorial.
+# SURI MIRA SUBJECT FRAMING (CRITICAL - MANDATORY): Keep the selected ${outputAspectRatio} canvas while making the full dress readable: neckline, square/off-shoulder or puff-sleeve structure, waistline, skirt volume, hem, floral vintage fabric, lace, bow, and sleeve details must remain clear.
+# POSE AND ANGLE DIRECTIVE (CRITICAL - MANDATORY): You MUST generate this Suri Mira dress image with the EXACT pose and camera intent described here: ${poseSpec}. Preserve product fidelity from Image 1, but body posture, hand placement, skirt lifting/twirling/walking motion, head direction, garment drape, body angle, and crop must follow this preset as closely as possible.
+# DRESS FIT RULE: Render realistic dress fabric weight, palace/french vintage romantic styling, elegant waist shaping, natural skirt motion, believable folds, and graceful commercial model balance. Do not replace the product with a different dress category or over-modernize the styling.
+`;
+                        finalPrompt += `\n# SURI MIRA ACTION LIBRARY DIRECTIVE: Use this selected Suri Mira action exactly: ${poseSpec}. This instruction has higher priority than generic womenswear or long-dress pose sets. The dress product must remain the same product from Image 1 while naturally adapting to the selected palace/french vintage movement.\n`;
                     } else if (activeAutoPoseLibrary === 'longDress') {
                         const posePreset = shuffledLongDressPoses[i % shuffledLongDressPoses.length];
                         const poseSpec = posePreset.prompt;
