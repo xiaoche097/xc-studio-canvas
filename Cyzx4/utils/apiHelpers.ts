@@ -108,6 +108,8 @@ const isFlashLiteAnalysisModel = (modelId: string): boolean => (
     modelId === YUNWU_GEMINI_FLASH_LITE_MODEL
 );
 
+
+
 export const shouldFallbackAnalysisModel = (error: any): boolean => {
     const message = (error?.message || error?.toString?.() || '').toLowerCase();
     const status = error?.status || error?.code;
@@ -138,7 +140,11 @@ export const shouldFallbackAnalysisModel = (error: any): boolean => {
         message.includes('overloaded') ||
         message.includes('rate') ||
         message.includes('empty response') ||
-        message.includes('no response')
+        message.includes('no response') ||
+        message.includes('无可用渠道') ||
+        message.includes('distributor') ||
+        message.includes('channel') ||
+        message.includes('unavailable')
     );
 };
 
@@ -168,37 +174,48 @@ export async function generateContentWithAnalysisFallback<TClient extends {
                 timeoutMessage: `Analysis request timed out (${options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS}ms).`
             }
         );
-        if (!response?.text && isYunwuOnly(runtimeConfig) && isFlashLiteAnalysisModel(primaryModel)) {
+        if (!response?.text && isYunwuOnly(runtimeConfig) && (primaryModel === 'gemini-3.5-flash' || primaryModel === 'gemini-3.1-flash-lite')) {
             throw new Error('Empty response from primary analysis model.');
         }
         return response;
     } catch (error) {
         if (
             !isYunwuOnly(runtimeConfig) ||
-            !isFlashLiteAnalysisModel(primaryModel) ||
             !shouldFallbackAnalysisModel(error)
         ) {
             throw error;
         }
 
+        // Only fallback between gemini-3.5-flash and gemini-3.1-flash-lite (requested as gemini-3.1-flash-lite-preview)
+        let fallbackModel = '';
+        if (primaryModel === 'gemini-3.5-flash') {
+            fallbackModel = 'gemini-3.1-flash-lite-preview';
+        } else if (primaryModel === 'gemini-3.1-flash-lite') {
+            fallbackModel = 'gemini-3.5-flash';
+        } else {
+            throw error;
+        }
+
+        const resolvedFallbackModel = resolveRuntimeModelId(fallbackModel, runtimeConfig);
+
         console.warn(
-            `[AnalysisFallback] ${primaryModel} failed, retrying with ${YUNWU_ANALYSIS_FALLBACK_MODEL}`,
+            `[AnalysisFallback] ${primaryModel} failed, retrying with ${resolvedFallbackModel}`,
             error
         );
 
         const fallbackResponse = await executeWithTimeout(
             ai.models.generateContent({
                 ...request,
-                model: YUNWU_ANALYSIS_FALLBACK_MODEL
+                model: resolvedFallbackModel
             }),
             {
                 timeoutMs: options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS,
-                timeoutMessage: `Fallback analysis request timed out (${options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS}ms).`
+                timeoutMessage: `Fallback analysis request timed out (${options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS}ms) using model ${resolvedFallbackModel}.`
             }
         );
 
         if (!fallbackResponse?.text) {
-            throw new Error(`Empty response from fallback analysis model ${YUNWU_ANALYSIS_FALLBACK_MODEL}.`);
+            throw new Error(`Empty response from fallback analysis model ${resolvedFallbackModel}.`);
         }
 
         return fallbackResponse;

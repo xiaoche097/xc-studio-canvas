@@ -66,29 +66,55 @@ const sendTestRequest = async (
   model: string,
   prompt: string
 ): Promise<{ text: string }> => {
-  const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const modelsToTry = [
+    model,
+    model === 'gemini-3.5-flash' ? 'gemini-3.1-flash-lite' : 'gemini-3.5-flash',
+    'gemini-3.1-flash-lite-preview'
+  ];
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 1, maxOutputTokens: 10 }
-    })
-  });
+  let lastError = null;
+  for (const currentModel of modelsToTry) {
+    try {
+      const url = `${baseUrl}/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 1, maxOutputTokens: 10 }
+        })
+      });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `HTTP Error ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData.error?.message || `HTTP Error ${response.status}`;
+        const lowerMessage = message.toLowerCase();
+
+        // If it is an authentication/API key issue, throw it immediately to avoid unnecessary retries.
+        if (
+          lowerMessage.includes('api key') ||
+          lowerMessage.includes('unauthorized') ||
+          lowerMessage.includes('key not valid') ||
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          throw new Error(message);
+        }
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return { text };
+    } catch (e: any) {
+      lastError = e;
+    }
   }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return { text };
+  throw lastError || new Error('Connection failed');
 };
 
 export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOpen, onClose, initialTab = 'model' }) => {
