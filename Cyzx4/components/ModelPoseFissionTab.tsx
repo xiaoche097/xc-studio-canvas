@@ -268,6 +268,15 @@ const pickDiversePose = (
 const POSE_FISSION_DIVERSITY_DIRECTIVE =
   'MANDATORY visible pose diversity: make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Avoid tiny catalog variations. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
 
+const ACTION_REFERENCE_BACKGROUND_LOCK =
+  'STRICT ACTION REFERENCE ISOLATION: use uploaded action reference images only as a body-pose/camera-framing blueprint. Completely ignore and discard the action reference background, wall/floor/location, lighting, shadows, color grading, clothing, props, face, hair, expression, and model identity. Never transfer any background element or environment cue from the action reference into the output.';
+
+const NATURAL_EXPRESSION_LOCK =
+  'Natural commercial model expression: keep the exact same person and facial structure from Image 1, with relaxed eyes, natural mouth tension, and subtle realistic expression variation such as calm confidence, gentle neutral, soft candid smile, or slightly thoughtful look. Avoid stiff forced smiles, frozen faces, exaggerated grins, doll-like expressions, or any expression that changes the model identity.';
+
+const MANUAL_SHOT_OVERRIDE_LOCK =
+  'MANUAL SHOT TYPE OVERRIDE: when the user selected a non-auto shot type, the selected framing overrides the camera distance, crop, and visible body extent from Image 1, pose references, pose-library prompts, and action-reference analysis. Preserve identity/product/scene, but rebuild the camera crop to match the selected shot type exactly.';
+
 const buildPrompt = (options: {
   outputNumber: number;
   poseSourceMode: PoseSourceMode;
@@ -299,6 +308,7 @@ const buildPrompt = (options: {
     poseReferenceManifest,
   } = options;
   const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
+  const isManualShotType = shotType !== 'auto';
 
   return `
 Create ONE photorealistic ecommerce fashion image for model pose fission output #${outputNumber}.
@@ -310,15 +320,22 @@ Create ONE photorealistic ecommerce fashion image for model pose fission output 
 - Optional product/garment images after Image 1 may reinforce garment structure, silhouette, color, fabric, seams, trim, print, pattern, and fit.
 ${hasAccessoryReference ? '- Optional accessory/styling reference images define bags, jewelry, hats, shoes, handheld props, and styling add-ons to integrate naturally with Image 1. Use them as matching references only; keep the main outfit and model identity from Image 1.' : ''}
 ${hasScene ? '- Scene reference images define the background/location identity, lighting mood, materials, and environment cues.' : '- No scene reference is uploaded. Build a clean commercial scene from the text instructions only.'}
-${hasActionReference ? `- The uploaded action reference for this output is POSE BLUEPRINT ONLY: copy its pose, crop, camera distance, body angle, gesture, limb placement, subject scale, visible body extent, and framing. Do NOT copy its clothing, face, background, lighting, props, or color palette.
+${hasActionReference ? `- The uploaded action reference for this output is POSE BLUEPRINT ONLY: copy its pose, crop, camera distance, body angle, gesture, limb placement, subject scale, visible body extent, and framing. Do NOT copy its clothing, face, background, lighting, props, expression, model identity, scene style, wall/floor texture, or color palette.
+- ${ACTION_REFERENCE_BACKGROUND_LOCK}
 ${poseReferenceManifest || ''}` : ''}
 
 # IDENTITY, PRODUCT AND SCENE CONSISTENCY LOCK
 - The generated image must look like a same-shoot pose variation of Image 1.
 - The generated person must look like the exact same model from Image 1 in every output.
-- Do not change face shape, hair, skin tone, body size, age impression, or model identity.
+- Do not change face shape, facial proportions, eyes, nose, mouth, jawline, hair, skin tone, body size, age impression, ethnicity impression, beauty marks, or model identity.
 - Preserve the worn product and scene from Image 1 as the primary reference. Do not randomly change location, background style, lighting mood, product color, product structure, styling, or outfit coordination.
+- The output background must come from Image 1, uploaded scene references, or the written scene instruction only. Action reference images must never override or replace the existing background.
 - If optional scene references are uploaded, use them only to reinforce or vary the scene direction requested by the user, while keeping the same-shoot plausibility from Image 1.
+
+# FACE, EXPRESSION AND LENS FEEL
+- ${NATURAL_EXPRESSION_LOCK}
+- Keep expression diversity subtle and commercial across outputs; each result may have a slightly different natural mood, but the face must remain recognizably the same person.
+- For close-up, portrait, headshot, or half-body framing, use realistic shallow depth of field with a softly blurred background while keeping the face, garment, and product details sharp.
 
 # POSE DIRECTIVE
 Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseLabel}.
@@ -331,7 +348,10 @@ Pose instruction: ${poseText}
 - Product category: ${productCategory || 'fashion apparel'}.
 - Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
 - Shot type preset: ${shotPreset.label}. ${shotPreset.prompt}
-- SHOT TYPE LOCK: Treat the selected shot type as a hard framing rule, not a soft style note. If user text says close-up/detail, obey this structured preset over generic pose-library full-body tendencies. ${hasActionReference ? 'If an uploaded action reference has a different crop, the uploaded action reference crop wins for that output.' : ''}
+- SHOT TYPE LOCK: Treat the selected shot type as a hard framing rule, not a soft style note. If user text says close-up/detail, obey this structured preset over generic pose-library full-body tendencies. ${isManualShotType ? MANUAL_SHOT_OVERRIDE_LOCK : hasActionReference ? 'In auto mode, an uploaded action reference may guide the crop and camera distance for that output.' : ''}
+${shotType === 'closeup' ? '- CLOSE-UP HARD RULE: the final image must NOT be full-body, head-to-toe, knee-up, or full-dress. Crop tightly from face/chin/neck to chest or upper torso, or tighter on the requested garment area. The waist, hips, legs, feet, and full skirt/dress length must be outside the frame unless explicitly requested by the user.' : ''}
+${shotType === 'macro' ? '- MACRO HARD RULE: the final image must be a tight garment-detail crop. Do not show the full person, full outfit, complete face portrait, full dress length, legs, or feet.' : ''}
+${shotType === 'medium' ? '- MEDIUM SHOT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
 - Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
 - If accessory/styling references are uploaded, add them only when they look natural for the pose and platform. Keep scale, placement, and material believable; do not let accessories cover important garment details.
 - If the scene or pose conflicts with product fidelity, preserve product identity and adapt the garment naturally to the pose.
@@ -340,7 +360,7 @@ Pose instruction: ${poseText}
 ${extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-wrong person, identity drift, changed face, changed hair, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, copied action-reference clothing, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
+wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
 `.trim();
 };
 
@@ -646,10 +666,15 @@ Rules:
   const getPoseForOutput = (index: number, batchCache: Map<PoseLibraryKey, PosePreset[]> = new Map()) => {
     if (actionImages.length > 0 && index < actionImages.length) {
       const actionImage = actionImages[index];
-      let promptText = 'Match the uploaded action reference image exactly for pose, gesture, camera distance, crop boundary, subject scale, body angle, and visible body extent.';
+      const useActionFraming = shotType === 'auto';
+      let promptText = useActionFraming
+        ? 'Match the uploaded action reference image only for pose, gesture, camera distance, crop boundary, subject scale, body angle, and visible body extent. Ignore its background, lighting, clothing, props, face, hair, and expression completely.'
+        : 'Use the uploaded action reference image only for pose geometry, gesture, body angle, and limb placement. Do NOT follow its camera distance, crop boundary, subject scale, or visible body extent because the user-selected shot type overrides all reference framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely.';
       if (actionImage.poseAnalysis) {
         const pa = actionImage.poseAnalysis;
-        promptText = `Match the uploaded action reference image exactly. [AI ANALYSIS]: Camera crop is ${pa.shotType} (${pa.cropRange}), camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Prompt constraint: ${pa.promptBlock}`;
+        promptText = useActionFraming
+          ? `Match the uploaded action reference image only for pose geometry and camera framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely. [AI ANALYSIS]: Camera crop is ${pa.shotType} (${pa.cropRange}), camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Prompt constraint: ${pa.promptBlock}`
+          : `Use the uploaded action reference image only for pose geometry, gesture, body angle, and limb placement. Do NOT follow its detected crop or camera distance because the user-selected shot type overrides all reference framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely. [AI ANALYSIS FOR POSE ONLY]: camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Pose constraint only: ${pa.promptBlock}`;
       }
       return {
         label: `动作参考图 #${index + 1}${actionImage.poseAnalysis ? ` (${actionImage.poseAnalysis.shotType})` : ''}`,
@@ -686,24 +711,33 @@ Rules:
       let analysisManifest = '';
       if (actionImage.poseAnalysis) {
         const pa = actionImage.poseAnalysis;
-        analysisManifest = `
+        analysisManifest = shotType === 'auto'
+          ? `
 [AI POSE REFERENCE ANALYSIS FOR IMAGE ${actionImageNumber}]:
 - CAMERA SHOT TYPE / FRAMING: ${pa.shotType} (Crop boundaries: ${pa.cropRange})
 - CAMERA ANGLE & DIRECTION: ${pa.shootingAngle}
 - BODY POSE & ANATOMY DETAIL: ${pa.poseDescription}
 - STRUCTURAL PROMPT BLOCK: ${pa.promptBlock}
 - EXPLICIT ACTION ALIGNMENT DIRECTIVE:
-  Generate output #${index + 1} using EXACTLY the framing specified above. If the analysis shows a "${pa.shotType}" (such as a medium shot, close-up, or waist-up), you MUST NOT generate a full-body view or far shot. Align the camera distance and framing tightly to the detected crop: ${pa.cropRange}. Replicate the camera angle "${pa.shootingAngle}" and follow the detailed pose geometry described in "${pa.poseDescription}".`;
+  Generate output #${index + 1} using EXACTLY the framing specified above. If the analysis shows a "${pa.shotType}" (such as a medium shot, close-up, or waist-up), you MUST NOT generate a full-body view or far shot. Align the camera distance and framing tightly to the detected crop: ${pa.cropRange}. Replicate the camera angle "${pa.shootingAngle}" and follow the detailed pose geometry described in "${pa.poseDescription}".`
+          : `
+[AI POSE REFERENCE ANALYSIS FOR IMAGE ${actionImageNumber} - POSE ONLY]:
+- IGNORE CAMERA SHOT TYPE / FRAMING: detected crop was ${pa.shotType} (${pa.cropRange}), but the user-selected shot type overrides this.
+- CAMERA ANGLE & DIRECTION CAN INFORM BODY ORIENTATION ONLY: ${pa.shootingAngle}
+- BODY POSE & ANATOMY DETAIL: ${pa.poseDescription}
+- STRUCTURAL PROMPT BLOCK FOR POSE ONLY: ${pa.promptBlock}
+- EXPLICIT MANUAL SHOT OVERRIDE DIRECTIVE:
+  Generate output #${index + 1} with the selected shot type, not with the action reference crop. Do NOT use the action reference camera distance, subject scale, visible body extent, or crop boundary.`;
       }
 
       try {
         const lineart = await extractEdges(getDataUrl(actionImage));
         const lineartImageNumber = inputs.length + 1;
         inputs.push(dataUrlToApiImage(lineart));
-        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Use both ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.${analysisManifest}`;
+        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Use both ONLY for pose geometry, gesture, body angle, and limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use their crop boundary, camera distance, subject scale, visible body extent, or framing'}.${analysisManifest}`;
       } catch (error) {
         console.warn('Failed to extract action reference lineart. Using original pose image only.', error);
-        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Use it ONLY for pose geometry, crop boundary, camera distance, subject scale, visible body extent, gesture, and framing.${analysisManifest}`;
+        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Use it ONLY for pose geometry, gesture, body angle, and limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use its crop boundary, camera distance, subject scale, visible body extent, or framing'}.${analysisManifest}`;
       }
     }
     return { inputs, poseReferenceManifest };
