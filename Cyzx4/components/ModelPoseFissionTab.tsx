@@ -72,6 +72,8 @@ interface ActionReferenceAnalysis {
   poseDescription: string;
   cropRange: string;
   promptBlock: string;
+  bodyCoverage?: 'full_body' | 'upper_body' | 'lower_body' | 'close_up' | 'other';
+  reasoning?: string;
 }
 
 type UploadedImage = {
@@ -291,6 +293,7 @@ const buildPrompt = (options: {
   shotType: ShotTypeKey;
   extraNotes: string;
   poseReferenceManifest?: string;
+  actionBodyCoverage?: string;
 }) => {
   const {
     outputNumber,
@@ -306,9 +309,15 @@ const buildPrompt = (options: {
     shotType,
     extraNotes,
     poseReferenceManifest,
+    actionBodyCoverage,
   } = options;
   const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
   const isManualShotType = shotType !== 'auto';
+
+  const effectiveBodyCoverage = shotType === 'auto' ? actionBodyCoverage : undefined;
+  const isLowerBodyAction = hasActionReference && effectiveBodyCoverage === 'lower_body';
+  const isUpperBodyAction = hasActionReference && effectiveBodyCoverage === 'upper_body';
+  const isCloseUpAction = hasActionReference && effectiveBodyCoverage === 'close_up';
 
   return `
 Create ONE photorealistic ecommerce fashion image for model pose fission output #${outputNumber}.
@@ -326,8 +335,16 @@ ${poseReferenceManifest || ''}` : ''}
 
 # IDENTITY, PRODUCT AND SCENE CONSISTENCY LOCK
 - The generated image must look like a same-shoot pose variation of Image 1.
-- The generated person must look like the exact same model from Image 1 in every output.
-- Do not change face shape, facial proportions, eyes, nose, mouth, jawline, hair, skin tone, body size, age impression, ethnicity impression, beauty marks, or model identity.
+${isLowerBodyAction 
+  ? `- CAMERA CROP OVERRIDE: The pose reference specifies a lower body only shot. Therefore, you MUST crop out the model's head, face, neck, shoulders, chest, arms, and upper torso. Generate ONLY the lower body (waist-down / hip-down / legs and skirt/pants). DO NOT show any part of the model's head, face, neck, shoulders, collarbone, chest, breasts, or upper garments (no shirts, no sleeveless tops, no halter tops).
+- Focus body consistency on the legs, lower torso, skin tone, and garment details (like the skirt/pants) from Image 1. Crop out and ignore any upper garments, halter tops, necklines, or head/hair features from Image 1.`
+  : isUpperBodyAction
+  ? `- CAMERA CROP OVERRIDE: The pose reference specifies an upper body only shot. Therefore, you MUST crop out the model's lower body, legs, and feet. Generate ONLY the upper body (waist-up / hip-up / chest-up). DO NOT show legs, feet, or shoes.
+- Focus consistency on the face, hair, skin tone, and upper garment fit from Image 1.`
+  : isCloseUpAction
+  ? `- CAMERA CROP OVERRIDE: The pose reference specifies a close-up shot. Therefore, you MUST crop tightly on the model's face/chest/shoulders or specific garment detail, as shown in the reference. Do not generate a medium or full-body shot.`
+  : `- The generated person must look like the exact same model from Image 1 in every output.
+- Do not change face shape, facial proportions, eyes, nose, mouth, jawline, hair, skin tone, body size, age impression, ethnicity impression, beauty marks, or model identity.`}
 - Preserve the worn product and scene from Image 1 as the primary reference. Do not randomly change location, background style, lighting mood, product color, product structure, styling, or outfit coordination.
 - The output background must come from Image 1, uploaded scene references, or the written scene instruction only. Action reference images must never override or replace the existing background.
 - If optional scene references are uploaded, use them only to reinforce or vary the scene direction requested by the user, while keeping the same-shoot plausibility from Image 1.
@@ -349,9 +366,9 @@ Pose instruction: ${poseText}
 - Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
 - Shot type preset: ${shotPreset.label}. ${shotPreset.prompt}
 - SHOT TYPE LOCK: Treat the selected shot type as a hard framing rule, not a soft style note. If user text says close-up/detail, obey this structured preset over generic pose-library full-body tendencies. ${isManualShotType ? MANUAL_SHOT_OVERRIDE_LOCK : hasActionReference ? 'In auto mode, an uploaded action reference may guide the crop and camera distance for that output.' : ''}
-${shotType === 'closeup' ? '- CLOSE-UP HARD RULE: the final image must NOT be full-body, head-to-toe, knee-up, or full-dress. Crop tightly from face/chin/neck to chest or upper torso, or tighter on the requested garment area. The waist, hips, legs, feet, and full skirt/dress length must be outside the frame unless explicitly requested by the user.' : ''}
+${shotType === 'closeup' || isCloseUpAction ? '- CLOSE-UP HARD RULE: the final image must NOT be full-body, head-to-toe, knee-up, or full-dress. Crop tightly from face/chin/neck to chest or upper torso, or tighter on the requested garment area. The waist, hips, legs, feet, and full skirt/dress length must be outside the frame unless explicitly requested by the user.' : ''}
 ${shotType === 'macro' ? '- MACRO HARD RULE: the final image must be a tight garment-detail crop. Do not show the full person, full outfit, complete face portrait, full dress length, legs, or feet.' : ''}
-${shotType === 'medium' ? '- MEDIUM SHOT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
+${shotType === 'medium' || isUpperBodyAction ? '- MEDIUM SHOT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
 - Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
 - If accessory/styling references are uploaded, add them only when they look natural for the pose and platform. Keep scale, placement, and material believable; do not let accessories cover important garment details.
 - If the scene or pose conflicts with product fidelity, preserve product identity and adapt the garment naturally to the pose.
@@ -360,7 +377,11 @@ ${shotType === 'medium' ? '- MEDIUM SHOT HARD RULE: the final image must be wais
 ${extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
+${isLowerBodyAction 
+  ? 'head, face, eyes, mouth, hair, shoulders, neck, collarbone, upper chest, breasts, cleavage, upper garment, halter top, sleeves, t-shirt, shirt, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details'
+  : isUpperBodyAction
+  ? 'legs, knees, feet, shoes, pants, skirt, lower body, full body, head-to-toe, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'
+  : 'wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'}${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
 `.trim();
 };
 
@@ -462,7 +483,7 @@ const UploadCard: React.FC<{
             {images.map((image) => (
               <div 
                 key={image.id} 
-                title={image.poseAnalysis ? `景别: ${image.poseAnalysis.shotType}\n视角: ${image.poseAnalysis.shootingAngle}\n姿势: ${image.poseAnalysis.poseDescription}\n裁剪: ${image.poseAnalysis.cropRange}` : undefined}
+                title={image.poseAnalysis ? `景别: ${image.poseAnalysis.shotType}\n视角: ${image.poseAnalysis.shootingAngle}\n姿势: ${image.poseAnalysis.poseDescription}\n裁剪: ${image.poseAnalysis.cropRange}\n范围: ${image.poseAnalysis.bodyCoverage === 'lower_body' ? '仅下半身' : image.poseAnalysis.bodyCoverage === 'upper_body' ? '仅上半身' : image.poseAnalysis.bodyCoverage === 'full_body' ? '全身' : image.poseAnalysis.bodyCoverage === 'close_up' ? '特写' : '其他'}${image.poseAnalysis.reasoning ? `\n分析理由: ${image.poseAnalysis.reasoning}` : ''}` : undefined}
                 className="group relative overflow-hidden rounded-lg border border-pastel-border bg-white"
               >
                 <img src={image.preview} alt={title} className="h-20 w-full object-cover" />
@@ -578,10 +599,12 @@ Your goal is to extract the camera framing (shot type), shooting angle, body cro
 
 Return ONLY a valid JSON object with these exact keys:
 {
-  "shotType": "Specify the exact shot type in English (e.g., 'close-up shot', 'medium shot / waist-up', 'three-quarter shot / knee-up', 'full body shot / head-to-toe')",
+  "reasoning": "A step-by-step reasoning string. Audit these questions: 1. Is the model's head/face/hair visible in the image? 2. Is the model's neck, shoulders, collarbone, chest, or arms visible? 3. Which part of the body is visible in the frame? (e.g., 'Only the waist down is visible, displaying the skirt; head, shoulders, chest, and arms are completely cropped out').",
+  "bodyCoverage": "Based on the reasoning above, choose EXACTLY one of: 'full_body' (head to toe visible), 'upper_body' (upper body from waist/hips up is visible, including head/face), 'lower_body' (only the waist, hips, legs, or feet are visible; the head, face, neck, shoulders, chest, and arms are completely cropped out), 'close_up' (tight crop on face, neck, or chest detail), or 'other'. If the image shows only a skirt/pants/legs and has no head/face/chest, it MUST be 'lower_body'.",
+  "shotType": "Specify the exact shot type in English. If it is only the lower body, you MUST specify 'lower body shot / waist-down crop'. Otherwise, choose from: 'close-up shot', 'medium shot / waist-up', 'three-quarter shot / knee-up', 'full body shot / head-to-toe'.",
   "shootingAngle": "Specify the camera angle/direction relative to the model (e.g., 'eye-level front view', 'low-angle three-quarter view', 'high-angle side profile view', 'eye-level back view')",
   "poseDescription": "A concise English description of the model's pose, gesture, hand placements, and body rotation (e.g., 'standing with right hand on hip, left arm hanging naturally, body slightly rotated to the left')",
-  "cropRange": "Describe exactly where the frame cuts off the model's body (e.g., 'cropped from chin to mid-thigh, head is partially cut off', 'cropped at the waist, showing only torso', 'full body from head to toes, shoes fully visible')",
+  "cropRange": "Describe exactly where the frame cuts off the model's body (e.g., 'cropped from waist down, showing only legs and skirt; head and upper torso are completely cut off', 'cropped at the chest, showing only upper torso', 'full body from head to toes, shoes fully visible')",
   "promptBlock": "A compiled, highly descriptive English prompt fragment specifying framing, camera distance, camera angle, and pose in detail. Use clear and imperative language."
 }
 
@@ -711,10 +734,11 @@ Rules:
       let analysisManifest = '';
       if (actionImage.poseAnalysis) {
         const pa = actionImage.poseAnalysis;
+        const bodyCoveragePrompt = pa.bodyCoverage ? `\n- BODY COVERAGE: ${pa.bodyCoverage}` : '';
         analysisManifest = shotType === 'auto'
           ? `
 [AI POSE REFERENCE ANALYSIS FOR IMAGE ${actionImageNumber}]:
-- CAMERA SHOT TYPE / FRAMING: ${pa.shotType} (Crop boundaries: ${pa.cropRange})
+- CAMERA SHOT TYPE / FRAMING: ${pa.shotType} (Crop boundaries: ${pa.cropRange})${bodyCoveragePrompt}
 - CAMERA ANGLE & DIRECTION: ${pa.shootingAngle}
 - BODY POSE & ANATOMY DETAIL: ${pa.poseDescription}
 - STRUCTURAL PROMPT BLOCK: ${pa.promptBlock}
@@ -761,6 +785,7 @@ Rules:
       shotType,
       extraNotes,
       poseReferenceManifest,
+      actionBodyCoverage: actionImages[index]?.poseAnalysis?.bodyCoverage,
     });
     const [imageUrl] = await generateImageToImage(inputs, prompt, {
       aspectRatio,
