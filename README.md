@@ -1,203 +1,282 @@
-# 🎯 XcAI AI Studio
+# XcAI Studio
 
-> **Venture Lightly** —— 为 XC 品牌打造的一站式电商视觉与数据分析智能工作台。
+> 面向跨境电商与内容团队的一站式 AI 视觉生产工作台，覆盖商品图、模特图、场景图、视频策划、素材管理与多模型 API 调度。
 
-# XcAI AI Studio
+XcAI Studio 将电商视觉生产中最耗时的环节产品化：从商品素材上传、模特身份锁定、场景与动作参考、批量主图生成，到局部替换、高清放大、风格复刻、短视频脚本与历史资产沉淀，都可以在同一个 Web 工作台中完成。
 
-面向跨境电商视觉生产的一站式 AI 工作台，覆盖商品图生成、场景图生成、产品换图、局部替换、高清放大、风格复刻、视频脚本与 AI Agent 工作流。
+项目当前以 React + TypeScript + Vite 构建，核心目标是让运营、设计、摄影后期和品牌团队用更少的沟通成本完成高质量视觉探索，并在商业投放前保留足够的人工审核空间。
 
-项目核心目标是把电商视觉生产里最费时间的环节工具化：从产品素材上传、模特与场景参考、动作姿态控制，到批量主图生成和历史资产沉淀，都可以在一个前端工作台里完成。
+## Highlights
 
-## 功能亮点
+- **多工作台入口**：统一承载 Agent 首页、创意中心、视频站、AI 视频、玩偶工厂、模特工厂与云雾 API Studio。
+- **电商主图生产**：支持平台风格、画幅比例、产品参考、模特参考、场景参考、动作参考和配饰参考。
+- **模特姿势裂变**：在保持模特长相、服装结构和原场景风格的前提下，参考动作图生成新的姿势与构图。
+- **动作参考智能分析**：自动分析动作图的身体范围、支撑物、坐姿/靠墙/倚靠关系和场景兼容性，减少手动按钮和参数。
+- **商业动作库**：内置按品类组织的姿势预设，包含 Suri Mira 宫廷法式复古连衣裙等细分风格动作库。
+- **生成结果裁切**：支持按当前画幅比例锁定裁剪，用户可对生成图做二次构图微调。
+- **多 API 通道**：支持 Gemini 原生 API 及多个 Gemini 兼容中转服务，在前端设置面板中统一管理。
+- **本地资产沉淀**：通过浏览器本地存储保存配置、历史项目和生成资产，方便回看与复用。
+
+## Product Modules
+
+| 模块 | 能力 | 适用场景 |
+| --- | --- | --- |
+| Agent 首页 | 多模型对话、图片上传、工作台入口、历史项目 | 日常 AI 助手与任务分发 |
+| 创意中心 | 主图生成、产品替换、局部替换、高清放大、风格复刻、场景图生成 | 电商视觉生产 |
+| 模特姿势裂变 | 模特身份锁定、动作参考迁移、场景兼容调整、比例裁切 | 服装模特图批量扩展 |
+| 模特原图贴回 | 将生成效果回贴到原图语境中 | 保持素材一致性的精修流程 |
+| 视频站 / AI 视频 | 视频脚本、分镜策划、素材规划 | TikTok、Amazon、独立站视频内容 |
+| 玩偶工厂 | 玩偶类商品图调整与主图生产 | 玩具、毛绒、钥匙扣类商品 |
+| 模特工厂 | 模特生成与模特素材管理 | 品牌模特资产建设 |
+| 云雾 API Studio | API Key、Base URL、模型与中转配置 | 多服务商模型路由管理 |
+
+## Creative Center
+
+创意中心是当前最核心的电商视觉工作台，围绕“上传参考图 -> 生成商业视觉 -> 精修与复用”的流程设计。
 
 ### 主图生成
 
-主图生成是当前重点升级模块，适合服装、配饰、家居等电商商品图生产。
+- 支持 `1:1`、`2:3`、`3:4`、`9:16`、`16:9` 等常用电商画幅。
+- 支持 Amazon、SHEIN、Temu、天猫淘宝、独立站等平台视觉风格。
+- 支持商品图、模特图、场景参考图、动作参考图、配饰参考图组合输入。
+- 服装类商品优先保持版型、领口、袖口、腰线、纹理、图案、面料和颜色一致。
+- 可通过补充说明约束正面、背面、侧面、半身、全身、坐姿、走路、靠墙等生成方向。
 
-- 支持 1:1、2:3、3:4、9:16、16:9 多种画幅。
-- 支持 Amazon、SHEIN、Temu、天猫淘宝、独立站等平台风格预设。
-- 产品图自动去噪净化：可移除衣架、挂钩、画框、杂乱背景等干扰元素。
-- 产品一致性锁定：优先保留产品结构、面料、纹理、图案、领口、袖口、裤装等细节。
-- 场景参考图：支持复制背景、构图与光影。
-- 动作参考图：用户上传几张动作图，就按顺序约束前几张生成结果；未匹配动作图的结果继续使用随机/自动动作。
-- 补充说明优先级提升：可指定正面、背面、侧面、四分之三、坐姿、走路、半身、全身等角度和景别。
-- 模特身份固定：支持锁定脸部、发型、肤色、体型比例，并避免模特原裤子与产品套装下装重叠。
-- 配饰参考图：支持包包、首饰、帽子、道具等附加参考；未上传时默认不额外添加。
-- 单图重新生成支持并发：多张结果可同时点击重新生成，不需要排队等待。
+### 模特姿势裂变
 
-### 自动动作库
+该功能用于“保持原模特与原场景风格，替换成动作参考图中的姿势”。
 
-针对男装服饰增加了内置动作库。用户不需要手动选择，系统会在上传产品图后自动分析商品类型，并匹配合适的动作库。
+优先级规则：
 
-- 男式衬衫动作库：度假衬衫、亚麻衬衫、花衬衫、纽扣衬衫等。
-- 毛织 / 针织 Polo 动作库：old money、游艇、地中海度假、咖啡厅等风格动作。
-- T 恤 / oversized tee 动作库：加州街头、海边、滑板、城市旅行等动作。
+1. **模特整体参考图权重最高**：脸型、发型、肤色、体型、服装、光线和主场景基调必须优先保持。
+2. **动作参考图只控制姿势与构图**：动作图用于提取身体角度、四肢关系、镜头范围、站姿/坐姿/倚靠方式，不直接复制参考图人物身份。
+3. **场景允许轻量适配**：当动作需要墙面、椅子、沙发、桌沿、扶手等支撑关系时，允许在原场景风格内增加或调整对应支撑物，但不应大幅更换场景。
+4. **拒绝原图直出**：生成结果不能只是返回原模特图，必须体现动作参考图的关键姿势变化。
+5. **裁图后置处理**：生成完成后可按当前画幅比例锁定裁切，便于输出平台所需构图。
 
-自动逻辑优先级：
+### 动作库
 
-1. 用户上传的动作参考图优先。
-2. 上传产品图后的 AI 分类结果其次。
-3. 商品名称 / 品类关键词兜底。
-4. 无匹配时使用通用服装动作库。
+动作库按商品品类和风格组织，适合在用户未上传动作图时自动补齐商业姿势。当前重点覆盖：
 
-### 场景图生成
+- 通用服装动作库
+- 男士衬衫、Polo、T 恤、短裤、长裤
+- 泳裤、沙滩裤、运动类下装
+- 长裙、连衣裙、裙装展示
+- Suri Mira 宫廷法式复古连衣裙动作库
+- 大码女装、Y2K Editorial 等风格方向
 
-- 根据产品图和场景参考图生成营销场景图。
-- 支持只参考场景构图与光影，弱化原图主体干扰。
-- 支持安全脱敏模式，将参考图转为线稿以降低敏感拦截。
-- 可用于副图、A+ 页面、社媒营销图和品牌视觉图。
+## Architecture
 
-### 图像生成工具
-
-工作台内置多个常用电商图像生产工具：
-
-- 图像生成
-- 座套试装
-- 产品替换
-- 视觉策划
-- 局部替换
-- 高清放大
-- 风格复刻
-- 主图生成
-- 产品修复
-- 比例查询
-
-### 视频与营销能力
-
-- AI 视频脚本生成
-- 电商短视频分镜与素材规划
-- TikTok / Amazon 等渠道的营销内容辅助
-- 结合提示词引擎进行文案和视觉方向扩展
-
-### Agent 与项目历史
-
-- 支持自定义 Agent 名称、角色和能力描述。
-- 支持对话、图像和生成结果的本地历史记录。
-- 使用 IndexedDB 在浏览器本地保存资产，便于回溯与复用。
-
-## API 与中转配置
-
-项目支持原生 Gemini API 和多个 Gemini 兼容中转站。配置保存在浏览器 `localStorage`，可在应用内设置面板中维护。
-
-当前支持：
-
-- Google Gemini 原生 API
-- 云雾 API 中转
-- 柏拉图 API 中转
-- No.1图 API 中转
-
-No.1图 默认节点：
-
-```text
-DCDN主站
+```mermaid
+flowchart TD
+    A[Browser UI] --> B[React Workspaces]
+    B --> C[Creative Center]
+    B --> D[Agent Chat]
+    B --> E[Video / Doll / Model Workspaces]
+    C --> F[Image Generation Services]
+    C --> G[Pose & Scene Analysis]
+    F --> H[Gemini Native API]
+    F --> I[Gemini-compatible Proxies]
+    B --> J[LocalStorage / IndexedDB]
+    J --> K[Settings, History, Assets]
 ```
 
-运行时优先级：
+## Tech Stack
 
-1. No.1图
-2. 柏拉图
-3. 云雾
-4. 原生 Gemini
+| Layer | Technology |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite 6 |
+| Styling | Tailwind-style utility classes, custom design tokens |
+| Motion & UI | Framer Motion, Lucide React |
+| AI SDK | `@google/genai`, `@google/generative-ai`, Vercel AI SDK |
+| Storage | LocalStorage, IndexedDB, `idb` |
+| State | React state, Zustand |
+| Markdown | React Markdown, Remark GFM |
+| Deployment | Static build, Vercel rewrite, Docker + Nginx |
 
-只要对应中转已启用且填写了 API Key，就会按优先级自动选择。
+## Repository Structure
 
-## 技术栈
+```text
+.
+├── App.tsx                    # Root application shell and workspace router
+├── components/                # Home, chat, settings, history, shared UI
+├── Cyzx4/                     # Creative Center application
+│   ├── components/            # Main image, scene, pose, repair, transfer tabs
+│   ├── constants/             # Pose presets and visual preset data
+│   ├── services/              # Gemini prompts, image generation and analysis
+│   ├── hooks/                 # Creative Center hooks
+│   ├── types/                 # Creative Center domain types
+│   └── utils/                 # API routing, compression and image helpers
+├── AIVideo/                   # AI video workspace
+├── DollFactory/               # Doll product workspace
+├── ModelFactory/              # Model factory workspace
+├── XcAISTUDIO-main/           # Video station workspace
+├── services/                  # Cross-workspace services
+├── public/                    # Static assets
+├── docs/                      # Supporting documentation
+├── Dockerfile                 # Production static build image
+├── docker-compose.yml         # Local Docker deployment
+├── vercel.json                # SPA rewrite for Vercel
+└── vite.config.ts             # Vite build and chunk configuration
+```
 
-- React 19
-- TypeScript
-- Vite 6
-- Tailwind CSS 风格体系
-- Framer Motion
-- Lucide React
-- Google GenAI SDK
-- IndexedDB / idb
-- Zustand
-- React Markdown
+## Getting Started
 
-## 快速开始
+### Prerequisites
 
-### 1. 安装依赖
+- Node.js 20 or later
+- npm 10 or later
+- A Gemini API Key or a compatible relay service key
+
+### Install
 
 ```bash
 npm install
 ```
 
-### 2. 配置环境变量
+### Configure Environment
 
-可以在根目录创建 `.env.local`：
+Create `.env.local` in the project root when you want to provide a default native Gemini key:
 
 ```env
+GEMINI_API_KEY=your_gemini_api_key
 VITE_GEMINI_API_KEY=your_gemini_api_key
 ```
 
-也可以不写环境变量，直接在应用的设置面板里填写 API Key 和中转 Base URL。
+The application also supports runtime configuration from the settings panel. API keys and relay URLs entered there are stored in the browser.
 
-### 3. 本地开发
+Common local storage keys used by the settings panel:
+
+| Key | Purpose |
+| --- | --- |
+| `user_gemini_api_key` | Native Gemini API key |
+| `user_gemini_base_url` | Native Gemini base URL |
+| `yunwu_api_key` | Yunwu relay key |
+| `yunwu_base_url` | Yunwu relay base URL |
+| `plato_api_key` | Plato relay key |
+| `plato_base_url` | Plato relay base URL |
+| `jijing_api_key` | No.1 image relay key |
+| `jijing_base_url` | No.1 image relay base URL |
+| `agentName` | Custom agent name |
+| `agentRole` | Custom agent role |
+| `agentCapabilities` | Custom agent capability prompt |
+
+### Run Locally
 
 ```bash
 npm run dev
 ```
 
-默认由 Vite 启动本地服务，终端会显示访问地址。
+Vite starts the development server on port `3000` by default.
 
-### 4. 生产构建
+### Build
 
 ```bash
 npm run build
 ```
 
-### 5. 本地预览构建结果
+### Preview Production Build
 
 ```bash
 npm run preview
 ```
 
-## 部署
+## Deployment
 
-项目是前端应用，可部署到 Vercel、Netlify、GitHub Pages 或任意静态资源服务器。
+### Vercel
 
-GitHub Pages 脚本：
+The project includes `vercel.json` with a single-page-app rewrite:
 
-```bash
-npm run deploy
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ]
+}
 ```
 
-Docker 方式：
+Recommended settings:
+
+| Setting | Value |
+| --- | --- |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+| Install Command | `npm install` |
+
+### Docker
+
+Build and run with Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-## 目录说明
+The container serves the static app through Nginx on:
 
 ```text
-components/        全局页面与通用组件
-Cyzx4/             电商视觉工作台核心模块
-Cyzx4/components/  主图、场景、修复、替换等功能页
-Cyzx4/constants/   动作库与预设数据
-Cyzx4/services/    图像生成、提示词、场景分析等服务
-Cyzx4/utils/       API 路由、图像处理等工具
-services/          项目历史等跨模块服务
-public/            静态资源
-docs/              文档与提示词引擎说明
+http://localhost:8080
 ```
 
-## 使用建议
+### Static Hosting
 
-- 商品图尽量上传清晰、无遮挡、背景简单的图片。
-- 如果产品是套装，应同时上传上衣、下装、细节图，系统会优先保持整套产品一致性。
-- 如果需要固定模特长相，上传模特参考图；如果只想锁脸，不想继承穿搭，勾选“仅脸型”。
-- 如果需要指定姿态，上传动作参考图；动作图会按输出顺序逐张匹配。
-- 如果需要特定角度，在“补充说明”里明确写出，例如“第一张正面全身，第二张背面，第三张侧面走路”。
-- 如果不想生成包包、帽子、首饰等配饰，不上传配饰参考图即可。
+Because this is a Vite SPA, the generated `dist/` directory can be deployed to any static host. Configure all routes to fall back to `index.html`.
 
-## 注意事项
+## Development Workflow
 
-- API Key 存储在浏览器本地，请不要在公共电脑上保存敏感密钥。
-- 不同中转站的模型命名、限流和图像能力可能不同，建议先在设置面板中测试连接。
-- AI 生成结果仍可能存在细节偏差，商业使用前建议人工复核产品结构、Logo、图案和文字。
+Recommended loop:
+
+```bash
+npm run dev
+npm run build
+```
+
+There is currently no dedicated test script in `package.json`. For production changes, validate at minimum:
+
+- Main app loads and workspace navigation works.
+- Settings panel can save and reload API configuration.
+- Creative Center accepts uploads and renders previews.
+- Main image generation and pose fission flows can construct prompts without runtime errors.
+- `npm run build` completes successfully.
+
+## Quality Principles
+
+This project is built around commercial visual production, so changes should protect these rules:
+
+- **Identity consistency first**: for model workflows, face, hair, body proportion and skin tone should remain stable.
+- **Product fidelity first**: garment shape, fabric, texture, pattern and color should not drift casually.
+- **Scene continuity**: generated images may adapt support objects when required by a pose, but should not replace the original scene style without user intent.
+- **Reference separation**: model reference, product reference, scene reference and action reference each have a distinct responsibility.
+- **User control after AI**: generation should be followed by practical controls such as regenerate, preview, download and crop.
+
+## Security & Privacy
+
+- API keys are stored in the browser when entered through the settings panel.
+- Do not enter production keys on shared or untrusted machines.
+- Generated images may contain commercial product details; review outputs before public use.
+- AI outputs can still produce visual errors, brand inconsistencies or malformed text. Human review is required before paid advertising or marketplace listing.
+
+## Troubleshooting
+
+| Problem | Check |
+| --- | --- |
+| App starts but generation fails | Confirm API key, base URL and provider enablement in settings |
+| Image generation returns unchanged source image | Confirm action/product/model references are correctly separated and retry with a clearer action reference |
+| Pose needs a wall/chair but result floats | Use an action image with visible contact points or add scene notes asking for same-style support |
+| Build fails on missing env | Ensure `.env.local` exists when native API is required |
+| Large bundle warning | Current app contains several workspaces; Vite warnings do not necessarily block deployment |
+
+## Roadmap
+
+- Add structured QA scoring for generated model identity, product fidelity and pose compliance.
+- Add optional visual comparison reports for action reference matching.
+- Add reusable brand kits for lighting, color temperature and platform-specific output rules.
+- Add team-level cloud storage for assets and generation history.
+- Add automated smoke tests for core workspaces.
+
+## License
+
+This repository does not currently declare an open-source license. Treat it as proprietary unless a license file is added.
 
 ---
 
-2026 XcAI AI Studio
-
+Built for fast, controlled and commercially usable AI visual production.

@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Brain,
   CheckCircle2,
+  Crop,
   Download,
   Image as ImageIcon,
   Loader2,
@@ -98,6 +99,16 @@ type ResultItem = {
   prompt: string;
   poseLabel: string;
   error?: string;
+};
+
+type CropEditorState = {
+  index: number;
+  imageUrl: string;
+};
+
+type CropImageMeta = {
+  width: number;
+  height: number;
 };
 
 const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; poses: PosePreset[] }> = [
@@ -224,6 +235,50 @@ const getResultAspectClass = (ratio: AspectRatio) => {
   if (ratio === AspectRatio.PORTRAIT_9_16) return 'aspect-[9/16]';
   if (ratio === AspectRatio.LANDSCAPE_16_9) return 'aspect-video';
   return 'aspect-[3/4]';
+};
+
+const getAspectRatioValue = (ratio: AspectRatio) => {
+  const [width, height] = ratio.split(':').map(Number);
+  if (!width || !height) return 3 / 4;
+  return width / height;
+};
+
+const loadHtmlImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error('Image could not be loaded.'));
+  image.src = src;
+});
+
+const getCropRect = (
+  meta: CropImageMeta,
+  targetRatio: number,
+  zoom: number,
+  positionX: number,
+  positionY: number,
+) => {
+  const sourceRatio = meta.width / meta.height;
+  let cropWidth = meta.width;
+  let cropHeight = meta.height;
+
+  if (sourceRatio > targetRatio) {
+    cropHeight = meta.height;
+    cropWidth = cropHeight * targetRatio;
+  } else {
+    cropWidth = meta.width;
+    cropHeight = cropWidth / targetRatio;
+  }
+
+  const safeZoom = Math.max(1, Math.min(3, zoom));
+  cropWidth /= safeZoom;
+  cropHeight /= safeZoom;
+
+  const maxX = Math.max(0, meta.width - cropWidth);
+  const maxY = Math.max(0, meta.height - cropHeight);
+  const sx = maxX * (positionX / 100);
+  const sy = maxY * (positionY / 100);
+
+  return { sx, sy, sw: cropWidth, sh: cropHeight };
 };
 
 const shuffle = <T,>(items: T[]) => {
@@ -595,6 +650,10 @@ const ModelPoseFissionTab: React.FC = () => {
   const [error, setError] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const [cropEditor, setCropEditor] = useState<CropEditorState | null>(null);
+  const [cropMeta, setCropMeta] = useState<CropImageMeta | null>(null);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropPosition, setCropPosition] = useState({ x: 50, y: 50 });
   const regenerateControllersRef = useRef<Map<number, AbortController>>(new Map());
   const recentPoseIdsRef = useRef<Record<string, string[]>>({});
   const actionAnalysisPromisesRef = useRef<Map<string, Promise<ActionReferenceAnalysis | null>>>(new Map());
@@ -614,6 +673,35 @@ const ModelPoseFissionTab: React.FC = () => {
   const effectivePoseMode: PoseSourceMode = actionImages.length > 0 ? 'reference' : poseSourceMode;
   const effectiveGenerateCount = actionImages.length > 0 ? actionImages.length : generateCount;
   const isRegeneratingAny = regeneratingIndices.length > 0;
+
+  useEffect(() => {
+    if (!cropEditor) {
+      setCropMeta(null);
+      return;
+    }
+
+    let isMounted = true;
+    setCropMeta(null);
+    setCropZoom(1);
+    setCropPosition({ x: 50, y: 50 });
+    loadHtmlImage(cropEditor.imageUrl)
+      .then((image) => {
+        if (!isMounted) return;
+        setCropMeta({
+          width: image.naturalWidth || image.width,
+          height: image.naturalHeight || image.height,
+        });
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setError('裁剪图片读取失败，请重新生成或下载原图。');
+        setCropEditor(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [cropEditor]);
 
   const analyzeActionReferenceImage = async (
     image: UploadedImage
@@ -1087,6 +1175,59 @@ Rules:
     });
   };
 
+  const openCropEditor = (index: number, imageUrl: string) => {
+    setCropEditor({ index, imageUrl });
+  };
+
+  const handleApplyCrop = async () => {
+    if (!cropEditor || !cropMeta) return;
+    try {
+      const image = await loadHtmlImage(cropEditor.imageUrl);
+      const cropRect = getCropRect(cropMeta, getAspectRatioValue(aspectRatio), cropZoom, cropPosition.x, cropPosition.y);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(cropRect.sw));
+      canvas.height = Math.max(1, Math.round(cropRect.sh));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas is not available.');
+      if (outputFormat === 'jpg') {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.drawImage(
+        image,
+        cropRect.sx,
+        cropRect.sy,
+        cropRect.sw,
+        cropRect.sh,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      const croppedUrl = canvas.toDataURL(outputFormat === 'jpg' ? 'image/jpeg' : 'image/png', 0.95);
+      setResults((prev) => prev.map((item, idx) => (
+        idx === cropEditor.index
+          ? { ...item, imageUrl: croppedUrl }
+          : item
+      )));
+      setCropEditor(null);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
+
+  const cropAspectValue = getAspectRatioValue(aspectRatio);
+  const cropRect = cropMeta ? getCropRect(cropMeta, cropAspectValue, cropZoom, cropPosition.x, cropPosition.y) : null;
+  const cropBackgroundStyle: React.CSSProperties | undefined = cropEditor && cropMeta && cropRect
+    ? {
+        aspectRatio: `${cropAspectValue}`,
+        backgroundImage: `url(${cropEditor.imageUrl})`,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: `${(cropMeta.width / cropRect.sw) * 100}% ${(cropMeta.height / cropRect.sh) * 100}%`,
+        backgroundPosition: `${cropMeta.width === cropRect.sw ? 50 : (cropRect.sx / Math.max(1, cropMeta.width - cropRect.sw)) * 100}% ${cropMeta.height === cropRect.sh ? 50 : (cropRect.sy / Math.max(1, cropMeta.height - cropRect.sh)) * 100}%`,
+      }
+    : undefined;
+
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white pb-24 custom-scrollbar">
       <div className="px-4 py-6 text-center">
@@ -1455,10 +1596,11 @@ Rules:
                           <div className="truncate text-[10px] font-bold text-pastel-text">{item.poseLabel}</div>
                         </div>
                         {item.imageUrl && item.status !== 'generating' && (
-                          <div className="absolute inset-0 flex items-center justify-center gap-3 bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
-                            <button type="button" onClick={() => setSelectedPreview(item.imageUrl)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Maximize className="h-5 w-5" /></button>
-                            <button type="button" onClick={() => handleGenerate(idx)} disabled={isGenerating || regeneratingIndices.includes(idx)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40 disabled:opacity-50"><RefreshCw className={`h-5 w-5 ${regeneratingIndices.includes(idx) ? 'animate-spin' : ''}`} /></button>
-                            <button type="button" onClick={() => handleDownload(item.imageUrl!, idx)} className="rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Download className="h-5 w-5" /></button>
+                          <div className="absolute inset-0 flex flex-wrap items-center justify-center gap-3 bg-black/50 p-4 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
+                            <button type="button" title="预览" onClick={() => setSelectedPreview(item.imageUrl)} className="min-h-11 min-w-11 rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Maximize className="h-5 w-5" /></button>
+                            <button type="button" title="按画幅裁剪" onClick={() => openCropEditor(idx, item.imageUrl!)} className="min-h-11 min-w-11 rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Crop className="h-5 w-5" /></button>
+                            <button type="button" title="重新生成" onClick={() => handleGenerate(idx)} disabled={isGenerating || regeneratingIndices.includes(idx)} className="min-h-11 min-w-11 rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40 disabled:opacity-50"><RefreshCw className={`h-5 w-5 ${regeneratingIndices.includes(idx) ? 'animate-spin' : ''}`} /></button>
+                            <button type="button" title="下载" onClick={() => handleDownload(item.imageUrl!, idx)} className="min-h-11 min-w-11 rounded-full bg-white/20 p-3 text-white transition-transform hover:scale-110 hover:bg-white/40"><Download className="h-5 w-5" /></button>
                           </div>
                         )}
                       </div>
@@ -1481,6 +1623,83 @@ Rules:
           </div>
         </div>
       </div>
+
+      {cropEditor && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 p-3 sm:p-5">
+          <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-pastel-border px-4 py-3">
+              <div>
+                <h3 className="text-sm font-black text-pastel-text">按当前画幅裁剪</h3>
+                <p className="mt-0.5 text-xs text-pastel-muted">当前比例：{aspectRatio}，裁剪后会替换这张结果图</p>
+              </div>
+              <button type="button" onClick={() => setCropEditor(null)} className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-pastel-muted hover:bg-pastel-bg">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="flex min-h-[18rem] items-center justify-center rounded-xl bg-neutral-950 p-3">
+                {cropBackgroundStyle ? (
+                  <div
+                    className="relative w-full max-w-[min(100%,36rem)] overflow-hidden rounded-lg bg-white shadow-xl ring-2 ring-white"
+                    style={cropBackgroundStyle}
+                  >
+                    <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-black/10" />
+                    <div className="pointer-events-none absolute inset-x-0 top-1/3 border-t border-white/45" />
+                    <div className="pointer-events-none absolute inset-x-0 top-2/3 border-t border-white/45" />
+                    <div className="pointer-events-none absolute inset-y-0 left-1/3 border-l border-white/45" />
+                    <div className="pointer-events-none absolute inset-y-0 left-2/3 border-l border-white/45" />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-white">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <span className="text-xs font-bold">正在读取图片...</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4 rounded-xl border border-pastel-border bg-pastel-bg/40 p-4">
+                <div>
+                  <label className="mb-2 flex items-center justify-between text-xs font-bold text-pastel-text">
+                    缩放
+                    <span className="text-pastel-muted">{cropZoom.toFixed(2)}x</span>
+                  </label>
+                  <input type="range" min="1" max="3" step="0.01" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} className="w-full accent-orange-500" />
+                </div>
+
+                <div>
+                  <label className="mb-2 flex items-center justify-between text-xs font-bold text-pastel-text">
+                    左右位置
+                    <span className="text-pastel-muted">{Math.round(cropPosition.x)}%</span>
+                  </label>
+                  <input type="range" min="0" max="100" value={cropPosition.x} onChange={(event) => setCropPosition((prev) => ({ ...prev, x: Number(event.target.value) }))} className="w-full accent-orange-500" />
+                </div>
+
+                <div>
+                  <label className="mb-2 flex items-center justify-between text-xs font-bold text-pastel-text">
+                    上下位置
+                    <span className="text-pastel-muted">{Math.round(cropPosition.y)}%</span>
+                  </label>
+                  <input type="range" min="0" max="100" value={cropPosition.y} onChange={(event) => setCropPosition((prev) => ({ ...prev, y: Number(event.target.value) }))} className="w-full accent-orange-500" />
+                </div>
+
+                <div className="rounded-lg bg-white p-3 text-xs leading-relaxed text-pastel-muted">
+                  裁剪框比例会锁定为当前画幅。需要其它比例时，先在左侧切换画幅比例，再打开裁剪。
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                  <button type="button" onClick={() => setCropEditor(null)} className="min-h-11 flex-1 rounded-xl border border-pastel-border bg-white px-4 py-2 text-sm font-bold text-pastel-text hover:bg-pastel-bg">
+                    取消
+                  </button>
+                  <button type="button" onClick={handleApplyCrop} disabled={!cropMeta} className="min-h-11 flex-1 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-md hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50">
+                    应用裁剪
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedPreview && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/90 p-4" onClick={() => setSelectedPreview(null)}>
