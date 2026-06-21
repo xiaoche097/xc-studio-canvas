@@ -1,6 +1,6 @@
 <div align="center">
   <br />
-  <img src="./public/xiaoche-logo.svg" alt="小彻工作台 Logo" width="168" />
+  <img src="./public/xiaoche-logo.png" alt="小彻工作台 Logo" width="220" />
   <h1>小彻工作台</h1>
   <p><strong>XcAI Studio · AI 电商视觉生产中枢</strong></p>
   <p>
