@@ -73,6 +73,10 @@ interface ActionReferenceAnalysis {
   cropRange: string;
   promptBlock: string;
   bodyCoverage?: 'full_body' | 'upper_body' | 'lower_body' | 'close_up' | 'other';
+  supportRequirement?: 'none' | 'wall' | 'chair' | 'sofa' | 'floor' | 'railing' | 'unknown';
+  poseTransferMode?: 'exact' | 'scene_compatible';
+  sceneCompatibilityNote?: string;
+  forbiddenSceneElements?: string[];
   reasoning?: string;
 }
 
@@ -268,10 +272,16 @@ const pickDiversePose = (
 };
 
 const POSE_FISSION_DIVERSITY_DIRECTIVE =
-  'MANDATORY visible pose diversity: make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Avoid tiny catalog variations. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
+  'MANDATORY visible pose replacement: do NOT preserve Image 1\'s original standing pose, limb placement, body angle, crop, or subject placement. Make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Returning Image 1 unchanged or with only tiny hand/expression changes is a failed result. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
 
 const ACTION_REFERENCE_BACKGROUND_LOCK =
-  'STRICT ACTION REFERENCE ISOLATION: use uploaded action reference images only as a body-pose/camera-framing blueprint. Completely ignore and discard the action reference background, wall/floor/location, lighting, shadows, color grading, clothing, props, face, hair, expression, and model identity. Never transfer any background element or environment cue from the action reference into the output.';
+  'STRICT ACTION REFERENCE ISOLATION: use uploaded action reference images only as a body-pose/camera-framing blueprint. Completely ignore and discard the action reference background, wall/floor/location, lighting, shadows, color grading, clothing, props, face, hair, expression, and model identity. Never copy background elements from the action reference; any physically necessary support must be built from Image 1 scene DNA, not from the action-reference scene.';
+
+const OVERALL_REFERENCE_SUPREMACY_LOCK =
+  'OVERALL REFERENCE SUPREMACY: Image 1 is the absolute source of truth for the model identity and scene DNA, but NOT for the pose when an action reference is uploaded. Preserve the same face, facial geometry, eyes, nose, mouth, jawline, hairline, hairstyle, skin tone, age impression, body proportions, outfit/product, lighting direction, shadows, camera mood, color palette, and recognizable room/set style. Replace Image 1\'s original pose with the uploaded action reference pose/framing. Action references may change body pose/framing only and may require small physically necessary scene support adaptations, but must never change the person or switch to the action-reference scene.';
+
+const ACTION_POSE_PRIORITY_LOCK =
+  'ACTION POSE PRIORITY: when an uploaded action reference is assigned to this output, it outranks Image 1 for pose, limb geometry, body angle, crop boundary, subject scale, and visible body extent. Image 1 outranks the action reference only for identity, product, clothing details, and scene. Do not return Image 1 as-is. Do not keep Image 1\'s original arm placement, leg stance, torso direction, or camera crop if they conflict with the action reference.';
 
 const NATURAL_EXPRESSION_LOCK =
   'Natural commercial model expression: keep the exact same person and facial structure from Image 1, with relaxed eyes, natural mouth tension, and subtle realistic expression variation such as calm confidence, gentle neutral, soft candid smile, or slightly thoughtful look. Avoid stiff forced smiles, frozen faces, exaggerated grins, doll-like expressions, or any expression that changes the model identity.';
@@ -294,6 +304,7 @@ const buildPrompt = (options: {
   extraNotes: string;
   poseReferenceManifest?: string;
   actionBodyCoverage?: string;
+  actionAnalysis?: ActionReferenceAnalysis | null;
 }) => {
   const {
     outputNumber,
@@ -310,6 +321,7 @@ const buildPrompt = (options: {
     extraNotes,
     poseReferenceManifest,
     actionBodyCoverage,
+    actionAnalysis,
   } = options;
   const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
   const isManualShotType = shotType !== 'auto';
@@ -318,23 +330,40 @@ const buildPrompt = (options: {
   const isLowerBodyAction = hasActionReference && effectiveBodyCoverage === 'lower_body';
   const isUpperBodyAction = hasActionReference && effectiveBodyCoverage === 'upper_body';
   const isCloseUpAction = hasActionReference && effectiveBodyCoverage === 'close_up';
+  const requiresSceneCompatiblePose = hasActionReference && actionAnalysis?.poseTransferMode === 'scene_compatible';
+  const supportRequirement = actionAnalysis?.supportRequirement;
+  const forbiddenSceneElements = actionAnalysis?.forbiddenSceneElements?.length
+    ? actionAnalysis.forbiddenSceneElements.join(', ')
+    : 'walls, chairs, sofas, furniture, props, floors, windows, doors, railings, architecture, plants, lamps, background textures, or lighting from the action reference';
+  const sceneCompatibleDirective = requiresSceneCompatiblePose
+    ? `- AI SCENE-COMPATIBLE POSE TRANSFER: The action reference appears to depend on an external support object (${supportRequirement || 'unknown support'}). First inspect Image 1's original scene. If Image 1 already contains the same support class, use that existing Image 1 object/surface for the contact pose. For a wall-leaning reference, if Image 1 has a wall, wall panel, corner, door panel, curtain-side wall, or vertical background surface, the model should visibly lean against or touch that existing Image 1 wall/surface. If the existing support needs a small adjustment to make physical contact believable, extend/reposition/add a same-style support surface within Image 1's scene DNA, with matching material, lighting, perspective, and contact shadows. Do NOT remove the lean just because the action reference has a different wall. Do NOT import the action-reference wall/table/column/console/chair/sofa/railing/pedestal. If Image 1 truly lacks a compatible support, create only a minimal same-style support surface necessary for physics, or translate the action into a similar unsupported fashion pose while preserving body orientation, weight shift, limb angles, hand placement idea, leg relationship, crop, and camera framing.
+- FORBIDDEN ACTION-SCENE ELEMENTS: ${forbiddenSceneElements}. These are contamination from the action reference, not output instructions.
+${actionAnalysis?.sceneCompatibilityNote ? `- AI COMPATIBILITY NOTE: ${actionAnalysis.sceneCompatibilityNote}` : ''}`
+    : '';
 
   return `
 Create ONE photorealistic ecommerce fashion image for model pose fission output #${outputNumber}.
 
 # IMAGE ROUTING
 - Image 1 is the OVERALL MODEL REFERENCE and the highest-weight source: it already contains the correct model, worn product, styling, scene, lighting mood, camera feeling, and commercial visual direction.
-- Preserve Image 1's person identity, face, hair, skin tone, body proportions, worn product, styling logic, scene identity, lighting mood, color palette, and overall commercial look unless the action directive requires a new pose.
+- ${OVERALL_REFERENCE_SUPREMACY_LOCK}
+- Preserve Image 1's person identity, face, hair, skin tone, body proportions, worn product, styling logic, lighting mood, color palette, and overall commercial look. Preserve the original scene DNA and recognizable room/set style, while allowing small physically necessary support-surface adjustments for the requested action. The action directive has zero authority over model identity, facial features, hair, skin tone, body build, or outfit/product identity.
 - Optional model identity images after Image 1 may reinforce face/body consistency only.
 - Optional product/garment images after Image 1 may reinforce garment structure, silhouette, color, fabric, seams, trim, print, pattern, and fit.
 ${hasAccessoryReference ? '- Optional accessory/styling reference images define bags, jewelry, hats, shoes, handheld props, and styling add-ons to integrate naturally with Image 1. Use them as matching references only; keep the main outfit and model identity from Image 1.' : ''}
 ${hasScene ? '- Scene reference images define the background/location identity, lighting mood, materials, and environment cues.' : '- No scene reference is uploaded. Build a clean commercial scene from the text instructions only.'}
 ${hasActionReference ? `- The uploaded action reference for this output is POSE BLUEPRINT ONLY: copy its pose, crop, camera distance, body angle, gesture, limb placement, subject scale, visible body extent, and framing. Do NOT copy its clothing, face, background, lighting, props, expression, model identity, scene style, wall/floor texture, or color palette.
+- ${ACTION_POSE_PRIORITY_LOCK}
 - ${ACTION_REFERENCE_BACKGROUND_LOCK}
+${sceneCompatibleDirective}
 ${poseReferenceManifest || ''}` : ''}
 
 # IDENTITY, PRODUCT AND SCENE CONSISTENCY LOCK
 - The generated image must look like a same-shoot pose variation of Image 1.
+- ABSOLUTE FACE LOCK: whenever the face/head is visible, it must be the same person from Image 1, not a prettier/new/random/action-reference face. Keep facial structure, feature spacing, jawline, nose, lips, eyes, eyebrows, hairline, hairstyle, skin tone, and age impression consistent.
+- SCENE DNA LOCK: keep Image 1's background/location family, lighting direction, shadow logic, color temperature, lens mood, materials, and commercial atmosphere. Do not replace the room/set because of platform style, action reference, pose library, or AI analysis.
+- PHYSICAL SUPPORT ADAPTATION: if the action needs support, the result must include believable contact, occlusion, and contact shadows. Prefer existing Image 1 surfaces/objects; if needed, add or reposition only minimal same-style support surfaces that look like they belong to Image 1. Do not copy action-reference furniture or architecture.
+- EXISTING-SCENE SUPPORT RULE: if the action pose needs support and Image 1 already has a compatible support surface/object, use the existing Image 1 surface/object. Example: for a wall-leaning action reference, lean against the original wall/panel/background surface from Image 1; do not turn it into a floating unsupported pose.
 ${isLowerBodyAction 
   ? `- CAMERA CROP OVERRIDE: The pose reference specifies a lower body only shot. Therefore, you MUST crop out the model's head, face, neck, shoulders, chest, arms, and upper torso. Generate ONLY the lower body (waist-down / hip-down / legs and skirt/pants). DO NOT show any part of the model's head, face, neck, shoulders, collarbone, chest, breasts, or upper garments (no shirts, no sleeveless tops, no halter tops).
 - Focus body consistency on the legs, lower torso, skin tone, and garment details (like the skirt/pants) from Image 1. Crop out and ignore any upper garments, halter tops, necklines, or head/hair features from Image 1.`
@@ -345,18 +374,22 @@ ${isLowerBodyAction
   ? `- CAMERA CROP OVERRIDE: The pose reference specifies a close-up shot. Therefore, you MUST crop tightly on the model's face/chest/shoulders or specific garment detail, as shown in the reference. Do not generate a medium or full-body shot.`
   : `- The generated person must look like the exact same model from Image 1 in every output.
 - Do not change face shape, facial proportions, eyes, nose, mouth, jawline, hair, skin tone, body size, age impression, ethnicity impression, beauty marks, or model identity.`}
-- Preserve the worn product and scene from Image 1 as the primary reference. Do not randomly change location, background style, lighting mood, product color, product structure, styling, or outfit coordination.
-- The output background must come from Image 1, uploaded scene references, or the written scene instruction only. Action reference images must never override or replace the existing background.
+- Preserve the worn product and scene DNA from Image 1 as the primary reference. Do not randomly change location family, background style, lighting mood, product color, product structure, styling, or outfit coordination.
+- The output background must be derived from Image 1, uploaded scene references, or the written scene instruction only. Action reference images must never override or replace the existing background, but their physical action may require same-style support adaptation.
+- Generate the new pose inside a scene that reads as the same Image 1 room/set. Minor same-style changes are allowed only to make the action physically plausible.
 - If optional scene references are uploaded, use them only to reinforce or vary the scene direction requested by the user, while keeping the same-shoot plausibility from Image 1.
 
 # FACE, EXPRESSION AND LENS FEEL
 - ${NATURAL_EXPRESSION_LOCK}
+- Facial expression may vary only subtly; the expression change must not alter the face identity or make the person look like the action-reference model.
 - Keep expression diversity subtle and commercial across outputs; each result may have a slightly different natural mood, but the face must remain recognizably the same person.
 - For close-up, portrait, headshot, or half-body framing, use realistic shallow depth of field with a softly blurred background while keeping the face, garment, and product details sharp.
 
 # POSE DIRECTIVE
 Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseLabel}.
 Pose instruction: ${poseText}
+${hasActionReference ? `- ACTION REFERENCE MUST BE VISIBLY USED: the final body pose, silhouette, body orientation, hand/arm positions, leg/foot positions, camera crop, and person-to-frame scale must visibly match the assigned action reference, not Image 1's original pose.
+- ORIGINAL-POSE REJECTION RULE: if the generated output still looks like Image 1's original pose, original crop, or original subject placement, treat it as incorrect and regenerate internally toward the action reference.` : ''}
 - ${POSE_FISSION_DIVERSITY_DIRECTIVE}
 - The pose change must be obvious at thumbnail size. Preserve garment readability by adapting the clothing naturally onto the new body geometry, not by shrinking the pose change.
 
@@ -378,10 +411,10 @@ ${extraNotes || 'No extra notes.'}
 
 # NEGATIVE
 ${isLowerBodyAction 
-  ? 'head, face, eyes, mouth, hair, shoulders, neck, collarbone, upper chest, breasts, cleavage, upper garment, halter top, sleeves, t-shirt, shirt, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details'
+  ? 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, head, face, eyes, mouth, hair, shoulders, neck, collarbone, upper chest, breasts, cleavage, upper garment, halter top, sleeves, t-shirt, shirt, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details'
   : isUpperBodyAction
-  ? 'legs, knees, feet, shoes, pants, skirt, lower body, full body, head-to-toe, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'
-  : 'wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'}${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
+  ? 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, legs, knees, feet, shoes, pants, skirt, lower body, full body, head-to-toe, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'
+  : 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, same arm placement as Image 1, same leg stance as Image 1, same torso direction as Image 1, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'}${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
 `.trim();
 };
 
@@ -564,6 +597,8 @@ const ModelPoseFissionTab: React.FC = () => {
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const regenerateControllersRef = useRef<Map<number, AbortController>>(new Map());
   const recentPoseIdsRef = useRef<Record<string, string[]>>({});
+  const actionAnalysisPromisesRef = useRef<Map<string, Promise<ActionReferenceAnalysis | null>>>(new Map());
+  const actionAnalysesRef = useRef<Map<string, ActionReferenceAnalysis | null>>(new Map());
   const {
     cancelMessage,
     startGenerationTask,
@@ -595,12 +630,16 @@ const ModelPoseFissionTab: React.FC = () => {
             {
               text: `Analyze this image as an action/pose reference for a fashion ecommerce image-generation workflow.
 
-Your goal is to extract the camera framing (shot type), shooting angle, body crop range, and pose description so that the image generator can replicate them exactly.
+Your goal is to extract the camera framing (shot type), shooting angle, body crop range, pose description, and whether the pose depends on scene support objects. The image generator must preserve the target model's original scene DNA. Any wall/chair/sofa/furniture in this action reference is NOT allowed to transfer directly, but the generator may create a small same-style support surface in the target scene if needed for believable physical contact.
 
 Return ONLY a valid JSON object with these exact keys:
 {
   "reasoning": "A step-by-step reasoning string. Audit these questions: 1. Is the model's head/face/hair visible in the image? 2. Is the model's neck, shoulders, collarbone, chest, or arms visible? 3. Which part of the body is visible in the frame? (e.g., 'Only the waist down is visible, displaying the skirt; head, shoulders, chest, and arms are completely cropped out').",
   "bodyCoverage": "Based on the reasoning above, choose EXACTLY one of: 'full_body' (head to toe visible), 'upper_body' (upper body from waist/hips up is visible, including head/face), 'lower_body' (only the waist, hips, legs, or feet are visible; the head, face, neck, shoulders, chest, and arms are completely cropped out), 'close_up' (tight crop on face, neck, or chest detail), or 'other'. If the image shows only a skirt/pants/legs and has no head/face/chest, it MUST be 'lower_body'.",
+  "supportRequirement": "Choose EXACTLY one of: 'none', 'wall', 'chair', 'sofa', 'floor', 'railing', or 'unknown'. Use 'wall' if the pose is leaning on or visibly supported by a wall. Use 'chair' or 'sofa' if the pose is seated on or supported by that object. Use 'none' only if the pose can be reproduced without adding any object from the action reference.",
+  "poseTransferMode": "Choose EXACTLY one of: 'exact' or 'scene_compatible'. Use 'scene_compatible' when the reference pose depends on a wall, chair, sofa, floor pose, railing, furniture, or any support object that should not be copied into the target model scene. Use 'exact' when the pose can be replicated without importing the action-reference environment.",
+  "sceneCompatibilityNote": "If poseTransferMode is 'scene_compatible', describe how to translate the pose while keeping the target model's original scene DNA. Prefer mapping support contact onto the same type of object/surface if it exists in the target scene. If support is needed but not clearly available, allow a minimal same-style support surface so the body does not float. Examples: 'keep the side lean and hand placement; if the target scene has a wall or vertical panel, lean against that existing wall, otherwise create a subtle matching wall/panel surface with contact shadow'; 'keep seated leg crossing and torso angle, but if no seat exists in the target scene, add only a minimal same-style seat edge if it fits the room, otherwise convert into a standing fashion pose with similar crossed-leg silhouette'. If exact, return an empty string.",
+  "forbiddenSceneElements": "Array of short English nouns naming action-reference environment elements that must NOT transfer, such as ['wall', 'sofa', 'chair', 'window', 'floor texture', 'lamp']. Return [] if no forbidden environment elements are visible.",
   "shotType": "Specify the exact shot type in English. If it is only the lower body, you MUST specify 'lower body shot / waist-down crop'. Otherwise, choose from: 'close-up shot', 'medium shot / waist-up', 'three-quarter shot / knee-up', 'full body shot / head-to-toe'.",
   "shootingAngle": "Specify the camera angle/direction relative to the model (e.g., 'eye-level front view', 'low-angle three-quarter view', 'high-angle side profile view', 'eye-level back view')",
   "poseDescription": "A concise English description of the model's pose, gesture, hand placements, and body rotation (e.g., 'standing with right hand on hip, left arm hanging naturally, body slightly rotated to the left')",
@@ -609,8 +648,9 @@ Return ONLY a valid JSON object with these exact keys:
 }
 
 Rules:
-- Focus ONLY on framing, crop, camera angle, and pose.
-- Ignore and do NOT describe clothing, face identity, gender, age, skin tone, hair, background, lighting, or color palette.`
+- Focus ONLY on framing, crop, camera angle, pose, and support-object dependency.
+- Ignore and do NOT describe clothing, face identity, gender, age, skin tone, hair, lighting, or color palette.
+- Do identify environment/support objects only for the supportRequirement and forbiddenSceneElements fields.`
             }
           ]
         }
@@ -618,11 +658,47 @@ Rules:
 
       const raw = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
       const parsed = JSON.parse(raw) as ActionReferenceAnalysis;
+      if (!Array.isArray(parsed.forbiddenSceneElements)) {
+        parsed.forbiddenSceneElements = [];
+      }
       return parsed;
     } catch (err) {
       console.error('Action reference analysis failed:', err);
       return null;
     }
+  };
+
+  const ensureActionReferenceAnalysis = async (image: UploadedImage): Promise<ActionReferenceAnalysis | null> => {
+    if (image.poseAnalysis) return image.poseAnalysis;
+    if (actionAnalysesRef.current.has(image.id)) {
+      return actionAnalysesRef.current.get(image.id) || null;
+    }
+
+    const existingPromise = actionAnalysisPromisesRef.current.get(image.id);
+    if (existingPromise) {
+      const existingAnalysis = await existingPromise;
+      actionAnalysesRef.current.set(image.id, existingAnalysis);
+      return existingAnalysis;
+    }
+
+    const promise = analyzeActionReferenceImage(image);
+    actionAnalysisPromisesRef.current.set(image.id, promise);
+    const analysis = await promise;
+    actionAnalysesRef.current.set(image.id, analysis);
+    actionAnalysisPromisesRef.current.delete(image.id);
+    setActionImages((prev) =>
+      prev.map((item) =>
+        item.id === image.id
+          ? { ...item, isAnalyzing: false, poseAnalysis: analysis || undefined }
+          : item
+      )
+    );
+    return analysis;
+  };
+
+  const getCachedActionAnalysis = (image?: UploadedImage) => {
+    if (!image) return null;
+    return image.poseAnalysis || actionAnalysesRef.current.get(image.id) || null;
   };
 
   const addImages = async (
@@ -650,7 +726,11 @@ Rules:
 
     if (kind === 'action') {
       for (const img of compressed) {
-        analyzeActionReferenceImage(img).then((analysis) => {
+        const promise = analyzeActionReferenceImage(img);
+        actionAnalysisPromisesRef.current.set(img.id, promise);
+        promise.then((analysis) => {
+          actionAnalysesRef.current.set(img.id, analysis);
+          actionAnalysisPromisesRef.current.delete(img.id);
           setter((prev) =>
             prev.map((item) => {
               if (item.id === img.id) {
@@ -683,21 +763,29 @@ Rules:
     if (kind === 'action') removeFrom(setActionImages);
     if (kind === 'accessory') removeFrom(setAccessoryImages);
     if (kind === 'color') removeFrom(setColorReferenceImages);
+    if (kind === 'action') {
+      actionAnalysisPromisesRef.current.delete(id);
+      actionAnalysesRef.current.delete(id);
+    }
     setResults([]);
   };
 
   const getPoseForOutput = (index: number, batchCache: Map<PoseLibraryKey, PosePreset[]> = new Map()) => {
     if (actionImages.length > 0 && index < actionImages.length) {
       const actionImage = actionImages[index];
+      const poseAnalysis = getCachedActionAnalysis(actionImage);
       const useActionFraming = shotType === 'auto';
       let promptText = useActionFraming
         ? 'Match the uploaded action reference image only for pose, gesture, camera distance, crop boundary, subject scale, body angle, and visible body extent. Ignore its background, lighting, clothing, props, face, hair, and expression completely.'
         : 'Use the uploaded action reference image only for pose geometry, gesture, body angle, and limb placement. Do NOT follow its camera distance, crop boundary, subject scale, or visible body extent because the user-selected shot type overrides all reference framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely.';
-      if (actionImage.poseAnalysis) {
-        const pa = actionImage.poseAnalysis;
+      if (poseAnalysis) {
+        const pa = poseAnalysis;
+        const sceneModeNote = pa.poseTransferMode === 'scene_compatible'
+          ? ` Scene-compatible transfer required because the pose depends on ${pa.supportRequirement || 'external support'}; keep the target scene unchanged and do not add action-reference support objects. ${pa.sceneCompatibilityNote || ''}`
+          : '';
         promptText = useActionFraming
-          ? `Match the uploaded action reference image only for pose geometry and camera framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely. [AI ANALYSIS]: Camera crop is ${pa.shotType} (${pa.cropRange}), camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Prompt constraint: ${pa.promptBlock}`
-          : `Use the uploaded action reference image only for pose geometry, gesture, body angle, and limb placement. Do NOT follow its detected crop or camera distance because the user-selected shot type overrides all reference framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely. [AI ANALYSIS FOR POSE ONLY]: camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Pose constraint only: ${pa.promptBlock}`;
+          ? `Match the uploaded action reference image only for pose geometry and camera framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely.${sceneModeNote} [AI ANALYSIS]: Camera crop is ${pa.shotType} (${pa.cropRange}), camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Prompt constraint: ${pa.promptBlock}`
+          : `Use the uploaded action reference image only for pose geometry, gesture, body angle, and limb placement. Do NOT follow its detected crop or camera distance because the user-selected shot type overrides all reference framing. Ignore its background, lighting, clothing, props, face, hair, and expression completely.${sceneModeNote} [AI ANALYSIS FOR POSE ONLY]: camera angle is ${pa.shootingAngle}, pose is ${pa.poseDescription}. Pose constraint only: ${pa.promptBlock}`;
       }
       return {
         label: `动作参考图 #${index + 1}${actionImage.poseAnalysis ? ` (${actionImage.poseAnalysis.shotType})` : ''}`,
@@ -728,17 +816,25 @@ Rules:
     let poseReferenceManifest = '';
     if (actionImages.length > 0 && index < actionImages.length) {
       const actionImage = actionImages[index];
+      const poseAnalysis = getCachedActionAnalysis(actionImage);
       const actionImageNumber = inputs.length + 1;
       inputs.push(toApiImage(actionImage));
 
       let analysisManifest = '';
-      if (actionImage.poseAnalysis) {
-        const pa = actionImage.poseAnalysis;
+      if (poseAnalysis) {
+        const pa = poseAnalysis;
         const bodyCoveragePrompt = pa.bodyCoverage ? `\n- BODY COVERAGE: ${pa.bodyCoverage}` : '';
+        const supportPrompt = pa.supportRequirement ? `\n- SUPPORT DEPENDENCY: ${pa.supportRequirement}` : '';
+        const sceneCompatibilityPrompt = pa.poseTransferMode === 'scene_compatible'
+          ? `\n- SCENE-COMPATIBLE TRANSFER MODE: The reference pose depends on ${pa.supportRequirement || 'external support'}, but the output must keep Image 1's scene DNA. If Image 1 already has a compatible support surface/object, use that existing Image 1 support for the pose contact. For wall support, lean/touch the original Image 1 wall/panel/vertical surface when visible. If physical contact would otherwise float, add or shift only a minimal same-style support surface with matching perspective, lighting, and contact shadows. Do not add support objects from the action reference. ${pa.sceneCompatibilityNote || ''}`
+          : '';
+        const forbiddenPrompt = pa.forbiddenSceneElements?.length
+          ? `\n- FORBIDDEN ACTION-REFERENCE SCENE ELEMENTS: ${pa.forbiddenSceneElements.join(', ')}`
+          : '';
         analysisManifest = shotType === 'auto'
           ? `
 [AI POSE REFERENCE ANALYSIS FOR IMAGE ${actionImageNumber}]:
-- CAMERA SHOT TYPE / FRAMING: ${pa.shotType} (Crop boundaries: ${pa.cropRange})${bodyCoveragePrompt}
+- CAMERA SHOT TYPE / FRAMING: ${pa.shotType} (Crop boundaries: ${pa.cropRange})${bodyCoveragePrompt}${supportPrompt}${sceneCompatibilityPrompt}${forbiddenPrompt}
 - CAMERA ANGLE & DIRECTION: ${pa.shootingAngle}
 - BODY POSE & ANATOMY DETAIL: ${pa.poseDescription}
 - STRUCTURAL PROMPT BLOCK: ${pa.promptBlock}
@@ -746,7 +842,7 @@ Rules:
   Generate output #${index + 1} using EXACTLY the framing specified above. If the analysis shows a "${pa.shotType}" (such as a medium shot, close-up, or waist-up), you MUST NOT generate a full-body view or far shot. Align the camera distance and framing tightly to the detected crop: ${pa.cropRange}. Replicate the camera angle "${pa.shootingAngle}" and follow the detailed pose geometry described in "${pa.poseDescription}".`
           : `
 [AI POSE REFERENCE ANALYSIS FOR IMAGE ${actionImageNumber} - POSE ONLY]:
-- IGNORE CAMERA SHOT TYPE / FRAMING: detected crop was ${pa.shotType} (${pa.cropRange}), but the user-selected shot type overrides this.
+- IGNORE CAMERA SHOT TYPE / FRAMING: detected crop was ${pa.shotType} (${pa.cropRange}), but the user-selected shot type overrides this.${supportPrompt}${sceneCompatibilityPrompt}${forbiddenPrompt}
 - CAMERA ANGLE & DIRECTION CAN INFORM BODY ORIENTATION ONLY: ${pa.shootingAngle}
 - BODY POSE & ANATOMY DETAIL: ${pa.poseDescription}
 - STRUCTURAL PROMPT BLOCK FOR POSE ONLY: ${pa.promptBlock}
@@ -755,21 +851,38 @@ Rules:
       }
 
       try {
+        const hasSupportContaminationRisk = poseAnalysis?.poseTransferMode === 'scene_compatible' || (!!poseAnalysis?.supportRequirement && poseAnalysis.supportRequirement !== 'none');
         const lineart = await extractEdges(getDataUrl(actionImage));
         const lineartImageNumber = inputs.length + 1;
         inputs.push(dataUrlToApiImage(lineart));
-        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Use both ONLY for pose geometry, gesture, body angle, and limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use their crop boundary, camera distance, subject scale, visible body extent, or framing'}.${analysisManifest}`;
+        if (hasSupportContaminationRisk) {
+          poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Because this action reference may contain support props or new scene elements, do NOT repeat or strengthen action-reference pixels. Use these action blueprint images ONLY for human pose geometry, gesture, body angle, limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use their crop boundary, camera distance, subject scale, visible body extent, or framing'}. Do NOT copy action-reference support objects, furniture, wall, chair, sofa, console, column, pedestal, railing, floor texture, lighting, or scene. If support is physically needed, create or reposition only a minimal same-style support surface within Image 1's scene DNA, with believable contact and shadows.${analysisManifest}`;
+        } else {
+          const actionReinforcementImageNumber = inputs.length + 1;
+          inputs.push(toApiImage(actionImage));
+          const lineartReinforcementImageNumber = inputs.length + 1;
+          inputs.push(dataUrlToApiImage(lineart));
+          poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Image ${lineartImageNumber} is its lineart/silhouette companion. Images ${actionReinforcementImageNumber}-${lineartReinforcementImageNumber} repeat the same action blueprint as high-priority pose anchors so the generator must not fall back to Image 1's original pose. Use these action blueprint images ONLY for pose geometry, gesture, body angle, limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use their crop boundary, camera distance, subject scale, visible body extent, or framing'}. Do NOT use repeated action images for identity, clothing, background, support objects, lighting, props, wall, chair, sofa, floor texture, or scene.${analysisManifest}`;
+        }
       } catch (error) {
         console.warn('Failed to extract action reference lineart. Using original pose image only.', error);
-        poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Use it ONLY for pose geometry, gesture, body angle, and limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use its crop boundary, camera distance, subject scale, visible body extent, or framing'}.${analysisManifest}`;
+        const hasSupportContaminationRisk = poseAnalysis?.poseTransferMode === 'scene_compatible' || (!!poseAnalysis?.supportRequirement && poseAnalysis.supportRequirement !== 'none');
+        if (hasSupportContaminationRisk) {
+          poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Image ${actionImageNumber} is the original action/pose reference. Because this action reference may contain support props or new scene elements, use it ONLY for human pose geometry, gesture, body angle, and limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use its crop boundary, camera distance, subject scale, visible body extent, or framing'}. Do NOT copy action-reference support objects, furniture, wall, chair, sofa, console, column, pedestal, railing, floor texture, lighting, or scene. If support is physically needed, create or reposition only a minimal same-style support surface within Image 1's scene DNA, with believable contact and shadows.${analysisManifest}`;
+        } else {
+          const actionReinforcementImageNumber = inputs.length + 1;
+          inputs.push(toApiImage(actionImage));
+          poseReferenceManifest = `[ACTION BLUEPRINT MANIFEST]: Images ${actionImageNumber} and ${actionReinforcementImageNumber} are repeated copies of the original action/pose reference as high-priority pose anchors so the generator must not fall back to Image 1's original pose. Use them ONLY for pose geometry, gesture, body angle, and limb placement${shotType === 'auto' ? ', plus crop boundary, camera distance, subject scale, visible body extent, and framing' : '; do NOT use their crop boundary, camera distance, subject scale, visible body extent, or framing'}. Do NOT use repeated action images for identity, clothing, background, support objects, lighting, props, wall, chair, sofa, floor texture, or scene.${analysisManifest}`;
+        }
       }
     }
     return { inputs, poseReferenceManifest };
   };
 
   const generateOne = async (index: number, signal?: AbortSignal, plannedPose = getPoseForOutput(index)): Promise<ResultItem> => {
-    const pose = plannedPose;
     const hasActionReference = actionImages.length > 0 && index < actionImages.length;
+    const actionAnalysis = hasActionReference ? await ensureActionReferenceAnalysis(actionImages[index]) : null;
+    const pose = hasActionReference ? getPoseForOutput(index) : plannedPose;
     const { inputs, poseReferenceManifest } = await buildInputsForOutput(index);
     const prompt = buildPrompt({
       outputNumber: index + 1,
@@ -785,7 +898,8 @@ Rules:
       shotType,
       extraNotes,
       poseReferenceManifest,
-      actionBodyCoverage: actionImages[index]?.poseAnalysis?.bodyCoverage,
+      actionBodyCoverage: actionAnalysis?.bodyCoverage || getCachedActionAnalysis(actionImages[index])?.bodyCoverage,
+      actionAnalysis: actionAnalysis || getCachedActionAnalysis(actionImages[index]),
     });
     const [imageUrl] = await generateImageToImage(inputs, prompt, {
       aspectRatio,

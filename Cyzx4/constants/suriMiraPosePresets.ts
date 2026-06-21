@@ -1007,11 +1007,163 @@ const SURI_MIRA_POSE_ITEMS = [
         "id":  "200",
         "name":  "Suri Mira Signature Hero Pose：三分之二角度、单手扶腰、另一只手轻提裙摆、单腿重心、头微偏、裙摆自然展开、整体优雅甜美",
         "prompt":  "Suri Mira signature hero pose: three-quarter body angle, one hand on waist, the other lightly lifting skirt, weight on one leg, head slightly tilted, skirt naturally spread, overall elegant and sweet"
+    },
+    {
+        "id":  "201",
+        "name":  "爆款窗边靠墙：单肩轻靠原场景墙面，单手抚发，另一手自然贴裙",
+        "prompt":  "high-click french vintage wall-leaning pose: one shoulder lightly leaning against the existing wall or wall panel, one hand softly brushing hair near temple, the other hand resting along the skirt, elegant relaxed confidence, real wall contact and soft contact shadow, same-style palace room support surface"
+    },
+    {
+        "id":  "202",
+        "name":  "爆款扶墙侧身：手掌轻扶墙板，身体三分之二侧转，裙摆垂顺",
+        "prompt":  "three-quarter side pose beside an existing french wall panel, one palm lightly touching the wall for support, torso subtly angled, weight on one leg, skirt falling cleanly without heavy shadow, graceful palace editorial ecommerce pose"
+    },
+    {
+        "id":  "203",
+        "name":  "爆款墙边回眸：背部微靠墙，头回看镜头，单手整理领口",
+        "prompt":  "romantic wall-side looking-back pose, upper back lightly supported by the existing wall, head turned back toward camera, one hand adjusting neckline or collarbone area, the other hand relaxed near waist, refined confident expression, no stiff mannequin mood"
+    },
+    {
+        "id":  "204",
+        "name":  "爆款门框倚靠：手肘轻搭同风格墙面/门框，身体自然倾斜",
+        "prompt":  "soft doorway or wall-panel leaning pose using a same-style support surface from the scene, one elbow lightly resting on the vertical edge, body leaning naturally with believable support, legs softly crossed, dress waistline and skirt silhouette readable"
+    },
+    {
+        "id":  "205",
+        "name":  "爆款窗光站姿：侧身迎光，单手扶腰，另一手轻触窗边/墙面",
+        "prompt":  "french window-light standing pose, body angled toward soft window light, one hand on waist, the other hand lightly touching existing wall or window-side surface, face relaxed and confident, product fully lit, avoid garment falling into deep shadow"
+    },
+    {
+        "id":  "206",
+        "name":  "爆款裙摆主图：双手轻展开裙摆，肩颈打开，表情自信",
+        "prompt":  "high-click hero dress pose, both hands gently spreading skirt outward just enough to show skirt volume, open shoulders, elongated neck, confident soft expression, full dress silhouette readable, waistline and fabric texture clear"
+    },
+    {
+        "id":  "207",
+        "name":  "爆款法式轻提裙：一手提前侧裙摆，一手扶腰，单腿前探",
+        "prompt":  "french vintage dress hero pose, one hand lifting the front side of the skirt to reveal drape and hem, the other hand on waist, one foot stepping forward, natural elegant movement, product details bright and readable"
+    },
+    {
+        "id":  "208",
+        "name":  "爆款回头摆裙：半转身回眸，裙摆轻微外甩",
+        "prompt":  "half-turn looking-back pose with subtle skirt swish, head turned softly toward camera, one hand lightly holding skirt, the other arm relaxed, graceful motion capture, romantic palace dress styling"
+    },
+    {
+        "id":  "209",
+        "name":  "爆款庭院坐姿：侧坐长椅/同风格座面，手放扶手，裙摆铺开",
+        "prompt":  "palace garden seated hero pose on a same-style bench or seat if the scene supports it, legs placed gracefully to one side, one hand resting on armrest or seat edge, the other smoothing skirt, skirt spread elegantly, upright relaxed posture"
+    },
+    {
+        "id":  "210",
+        "name":  "爆款优雅坐姿：双腿侧放，身体微侧，手轻搭膝上",
+        "prompt":  "elegant seated pose with legs placed to one side, torso slightly angled, both hands resting softly on knees or skirt, neckline and waistline visible, calm confident expression, no stiff expression"
+    },
+    {
+        "id":  "211",
+        "name":  "爆款桌边坐姿：单手轻搭同风格小桌边，另一手整理裙摆",
+        "prompt":  "french vintage seated table-side pose using only a same-style small table or edge if it belongs to the scene DNA, one hand lightly resting on the edge, the other hand arranging skirt, relaxed noble garden mood, realistic contact and shadows"
+    },
+    {
+        "id":  "212",
+        "name":  "爆款椅边倚坐：身体半倚座边，肩颈舒展，裙摆自然落下",
+        "prompt":  "elegant half-sitting pose on the edge of a same-style chair or bench, torso upright and relaxed, shoulders open, skirt falling naturally, one hand on seat edge for believable support, refined french court mood"
+    },
+    {
+        "id":  "213",
+        "name":  "爆款窗边半身：手扶锁骨，另一手轻压腰线，柔光照亮肤色",
+        "prompt":  "half-body french window-light pose, one hand touching collarbone, the other hand lightly defining waistline, soft flattering light on skin, relaxed confident gaze, neckline and upper dress details clear"
+    },
+    {
+        "id":  "214",
+        "name":  "爆款肩颈特写：侧脸微抬，手指轻触肩带/领口",
+        "prompt":  "close upper-body pose for neckline detail, face angled slightly upward, fingers lightly touching strap or neckline, elegant shoulder-neck line, soft expression, fabric and neckline details sharp"
+    },
+    {
+        "id":  "215",
+        "name":  "爆款侧身收腰：身体45度，手掌贴腰线，另一手自然垂落",
+        "prompt":  "45-degree side-angle waist-emphasis pose, one palm placed along waistline to show fitted cut, the other arm relaxed, weight shifted onto back leg, skirt silhouette readable, poised confident mood"
+    },
+    {
+        "id":  "216",
+        "name":  "爆款手拿小包：双手轻握小包在身前，肩膀放松",
+        "prompt":  "elegant handbag-front pose, both hands softly holding a small bag in front of waist, shoulders relaxed, legs softly crossed, dress bodice and waist still visible, refined sweet french vintage styling"
+    },
+    {
+        "id":  "217",
+        "name":  "爆款单手拎包：一手自然拎包，一手拨发，身体微侧",
+        "prompt":  "one-hand handbag pose, one hand carrying bag naturally at side, the other hand brushing hair, slight three-quarter body angle, soft confident smile, product silhouette unobstructed"
+    },
+    {
+        "id":  "218",
+        "name":  "爆款法式扶帽/扶发：一手轻扶发顶，另一手提裙摆",
+        "prompt":  "romantic french styling pose, one hand lightly touching hair near crown as if adjusting hair or hat, the other hand lifting skirt hem, relaxed eyes, elegant court dress mood, no forced stiff smile"
+    },
+    {
+        "id":  "219",
+        "name":  "爆款花园漫步：斜向慢走，手提裙摆，回头微笑",
+        "prompt":  "diagonal slow walking pose in palace garden or same-style room, one hand lightly lifting skirt, head looking back with soft confident smile, skirt moving naturally, clear waistline and hem"
+    },
+    {
+        "id":  "220",
+        "name":  "爆款台阶/地面层次：一脚前探，裙摆形成层次，手扶墙面",
+        "prompt":  "elegant step-forward pose with one foot forward, skirt creating layered drape, one hand touching existing wall or same-style support surface for balance, realistic support, product not hidden in shadow"
+    },
+    {
+        "id":  "221",
+        "name":  "爆款红唇自信：正面轻侧头，一手扶腰，一手自然碰裙",
+        "prompt":  "confident french vintage hero pose, front-facing with slight head tilt, one hand on waist, the other hand lightly touching skirt, relaxed red-lip editorial mood, elegant but approachable expression"
+    },
+    {
+        "id":  "222",
+        "name":  "爆款柔光靠窗：肩部靠近窗帘/墙面，手臂自然弯曲",
+        "prompt":  "soft light curtain-side leaning pose, shoulder close to existing curtain-side wall or vertical surface, arms naturally bent, body relaxed with real support, romantic soft highlights, avoid muddy skin tone"
+    },
+    {
+        "id":  "223",
+        "name":  "爆款展示袖型：双臂微抬形成弧线，突出泡袖/袖口",
+        "prompt":  "sleeve-display pose, both arms slightly lifted in a soft curved line to show puff sleeves or sleeve cuffs, shoulders relaxed, waistline visible, elegant non-stiff posture"
+    },
+    {
+        "id":  "224",
+        "name":  "爆款领口展示：一手扶领口，一手贴腰，身体微侧",
+        "prompt":  "neckline-display pose, one hand lightly touching neckline, the other hand near waist, slight body angle, collarbone and bodice details clear, refined romantic expression"
+    },
+    {
+        "id":  "225",
+        "name":  "爆款修长站姿：交叉腿站立，手轻扶墙，头微偏",
+        "prompt":  "elongated crossed-leg standing pose, one hand lightly touching existing wall or same-style vertical support, head tilted softly, long dress line emphasized, believable contact shadow"
+    },
+    {
+        "id":  "226",
+        "name":  "爆款半靠半站：臀部轻靠同风格台面/墙边，裙摆垂顺",
+        "prompt":  "half-leaning half-standing pose using a same-style wall edge or low support if physically needed, hips lightly supported, skirt falling smoothly, one hand on waist, elegant palace vintage mood"
+    },
+    {
+        "id":  "227",
+        "name":  "爆款侧坐回眸：侧坐，头回看，手整理裙摆",
+        "prompt":  "side-seated looking-back pose, head turned toward camera, one hand arranging skirt, the other hand resting on seat edge, elegant posture, skirt spread readable, confident soft expression"
+    },
+    {
+        "id":  "228",
+        "name":  "爆款低头整理：低头看裙摆，双手轻抚面料，温柔不僵硬",
+        "prompt":  "gentle dress-adjusting pose, gaze lowered toward skirt, both hands softly smoothing fabric, relaxed shoulders, tender natural emotion, fabric texture and print clearly displayed"
+    },
+    {
+        "id":  "229",
+        "name":  "爆款高贵扶椅：单手轻扶同风格椅背，身体微转",
+        "prompt":  "noble chair-back support pose using only a same-style chair if it fits the scene DNA, one hand lightly resting on chair back, body slightly turned, dress front readable, no copied action-reference furniture"
+    },
+    {
+        "id":  "230",
+        "name":  "爆款宫廷花园主图：坐姿靠扶手，裙摆铺开，眼神自信",
+        "prompt":  "royal french garden hero seated pose, body upright with one arm resting on same-style armrest or bench support, skirt spread elegantly across seat and lower frame, confident calm gaze, premium palace romantic ecommerce image"
     }
 ] as const;
 
-export const SURI_MIRA_POSES: SuriMiraPose[] = SURI_MIRA_POSE_ITEMS.map((item) => ({
+export const SURI_MIRA_POSES: SuriMiraPose[] = SURI_MIRA_POSE_ITEMS
+  .filter((item) => Number(item.id) >= 201)
+  .map((item) => ({
   id: item.id,
-  name: `Suri Mira ${item.id}`,
+  name: item.name,
   prompt: `${item.prompt}, ${SURI_MIRA_FRAME}`,
 }));

@@ -1112,19 +1112,24 @@ You are not making a loose pose variation. Treat the action reference as a visua
 1. The user prompt defines the exact image manifest. Follow it over any default assumptions.
 2. The action reference original and its lineart/silhouette companion are POSE BLUEPRINTS ONLY.
 3. Target model/product/overall references are the ONLY sources for identity, face, hair, body build, garment/product details, scene, lighting, and commercial look.
+4. If Image 1 is identified as the overall model reference in the user prompt, Image 1 has absolute priority for model identity and scene DNA, but NOT for pose when an action reference is provided. Preserve its same face, facial structure, hair, skin tone, age impression, body proportions, worn product, lighting direction, shadows, color palette, camera mood, and recognizable room/set style. The action reference has zero authority over identity or scene style, but it has priority over Image 1 for body pose, limb placement, body angle, camera crop, subject scale, and visible body extent.
 
 [STRICT BLUEPRINT CLONE]
 - Copy the action reference's body pose, limb angles, hand gesture, head/neck direction, torso rotation, hip/knee/foot placement, camera height, lens distance, subject scale, crop boundary, visible body extent, and negative space.
 - Match half-body/full-body framing exactly. If the blueprint is cropped, keep the same crop. Do not zoom out to reveal missing legs/feet.
 - Do not mirror left/right direction unless the user explicitly asks.
 - Do not replace the blueprint with a generic front-facing catalog pose.
+- Do not return Image 1 unchanged. Do not preserve Image 1's original standing pose, arm placement, leg stance, torso direction, subject placement, or crop when they conflict with the action reference.
 
 [DO NOT COPY FROM ACTION REFERENCE]
 - Do NOT copy its face, identity, hairstyle, clothing, accessories, props, background, lighting, color palette, texture, watermark, or text.
+- Do NOT beautify, replace, or reinterpret the target face using the action reference face. Do NOT import action-reference walls, chairs, sofas, floors, rooms, props, or lighting.
+- If the action pose uses a support object, first inspect the target scene. If Image 1 already contains a compatible support surface/object, use that existing Image 1 support for the pose contact. For wall-leaning poses, if Image 1 has a wall, wall panel, door panel, corner, curtain-side wall, or vertical background surface, the model should visibly lean against or touch that original Image 1 surface. If physical contact would otherwise float, create or reposition only a minimal same-style support surface within Image 1's scene DNA, with matching perspective, material, lighting, occlusion, and contact shadows. Do not copy the action-reference support prop or scene.
 - If there is tension between product fidelity and pose geometry, keep the pose geometry and naturally adapt the target garment/product onto that body posture.
 
 [OUTPUT]
-- Generate one clean ecommerce fashion image with the target identity/product preserved and the action pose/framing replicated 1:1.
+- Generate one clean ecommerce fashion image with the Image 1 target identity, product, and scene preserved while the action pose/framing is replicated or scene-compatibly adapted according to the user prompt.
+- A result that keeps Image 1's original pose or only makes tiny hand/expression changes is invalid.
 - Output MUST have aspect ratio ${aspectRatio}.
 
 ${gptRatioHint}
@@ -1537,17 +1542,22 @@ ${forcedPrompt}`;
         1. **Blueprint Analysis**: Deeply analyze the action reference original named in the user prompt. Map its body skeleton, limb angles, gesture, head direction, torso rotation, crop boundary, subject scale, camera height, lens distance, and negative space.
         2. **Lineart/Silhouette Alignment**: Use the companion lineart/silhouette named in the user prompt as a structure map for body outline, limb geometry, visible body extent, and framing.
         3. **Content Rebuild**: Re-stage the target model/product/overall reference into that exact blueprint. Keep the target identity, hair, skin tone, body proportions, garment/product details, scene DNA, lighting mood, and commercial styling.
-        4. **Final Lock Check**: Reject generic catalog poses, crop drift, zoom drift, mirrored directions, missing hand gestures, and invented body placement.
+        4. **Final Lock Check**: Reject unchanged Image 1 outputs, Image 1 original-pose preservation, generic catalog poses, crop drift, zoom drift, mirrored directions, missing hand gestures, and invented body placement.
 
         **STRICT IMAGE ROUTING**:
         - The action reference original and lineart/silhouette companion are POSE BLUEPRINTS ONLY.
         - Target model/product/overall images are the ONLY valid sources for face, identity, hair, clothing, product, background, lighting, color palette, and styling.
+        - If the user prompt identifies Image 1 as the overall model reference, Image 1 is the highest-priority source for model identity and scene DNA, but NOT for pose. Preserve its face, facial geometry, hairline, hairstyle, skin tone, age impression, body proportions, worn product, lighting direction, shadows, color temperature, lens mood, materials, and recognizable commercial room/set style.
         - Do NOT copy the action reference's person identity, face, hair, clothing, accessories, props, background, lighting, color palette, texture, watermark, or text.
+        - Do NOT let the action reference change the target model's face, hair, ethnicity/age impression, body build, product identity, or scene. It controls pose/framing only.
+        - Do NOT copy action-reference support props or environment objects. If the action pose leans on or touches a wall, table, console, column, chair, sofa, railing, or pedestal, first map that contact to an existing compatible object/surface in Image 1. For wall-leaning references, use the original Image 1 wall/panel/vertical background surface when visible. If the body would float without support, add or reposition only a minimal same-style support surface that belongs to Image 1's scene DNA, with realistic contact, occlusion, perspective, and shadows.
+        - Do NOT let Image 1's original pose override the action reference. The original Image 1 pose is replaceable content.
 
         **STRICT BLUEPRINT LOCK**:
         - Copy body pose, arms, hands, fingers where visible, head/neck direction, shoulder slope, torso lean, hip placement, leg stance, foot direction, camera angle, subject scale, crop boundary, and visible body extent from the action blueprint.
         - Keep half-body/full-body framing exactly. If the blueprint crops at waist, thigh, knee, ankle, or any other boundary, keep that boundary.
         - Do not zoom in/out, mirror left/right direction, straighten bent joints, remove raised arms, remove pocket hands, remove seated/walking/leaning stance, or convert side/back/three-quarter view into front view.
+        - Do not return the target overall reference as-is. Do not keep the original arm placement, original leg stance, original torso direction, original crop, or original subject placement from Image 1 if the action blueprint differs.
         - If product fidelity conflicts with the pose, keep the pose and drape/adapt the target product naturally.
 
         **USER PROMPT**: ${forcedPrompt}
@@ -1931,7 +1941,11 @@ ${forcedPrompt}`;
             // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
             config: {
               safetySettings: GLOBAL_SAFETY_SETTINGS,
-              ...(['pose-replication-lock', 'model-original-paste-back'].includes(workflowHint || '') ? { temperature: 0.15 } : {}),
+              ...(workflowHint === 'pose-replication-lock'
+                ? { temperature: 0.25 }
+                : workflowHint === 'model-original-paste-back'
+                  ? { temperature: 0.15 }
+                  : {}),
               imageConfig: {
                 aspectRatio: aspectRatio,
                 aspect_ratio: aspectRatio,
