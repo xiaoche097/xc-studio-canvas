@@ -1,43 +1,54 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="70" y1="55" x2="455" y2="468" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FF2F86"/>
-      <stop offset="0.52" stop-color="#FF6A3D"/>
-      <stop offset="1" stop-color="#FFC64A"/>
+    <linearGradient id="appBg" x1="130" y1="78" x2="384" y2="424" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF2F92"/>
+      <stop offset="0.56" stop-color="#FF7043"/>
+      <stop offset="1" stop-color="#FFD34D"/>
     </linearGradient>
-    <linearGradient id="card" x1="126" y1="125" x2="395" y2="387" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFF6EA"/>
-      <stop offset="1" stop-color="#FFE0D4"/>
+    <linearGradient id="panel" x1="160" y1="155" x2="356" y2="348" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7EC"/>
+      <stop offset="1" stop-color="#FFE0D1"/>
     </linearGradient>
-    <filter id="shadow" x="52" y="56" width="408" height="416" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+    <linearGradient id="pinkCard" x1="180" y1="225" x2="330" y2="303" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB799"/>
+      <stop offset="1" stop-color="#FF73B6"/>
+    </linearGradient>
+    <filter id="softShadow" x="103" y="85" width="322" height="352" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
       <feFlood flood-opacity="0" result="BackgroundImageFix"/>
       <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
       <feOffset dy="18"/>
-      <feGaussianBlur stdDeviation="22"/>
+      <feGaussianBlur stdDeviation="18"/>
       <feComposite in2="hardAlpha" operator="out"/>
-      <feColorMatrix type="matrix" values="0 0 0 0 0.62 0 0 0 0 0.16 0 0 0 0 0.11 0 0 0 0.22 0"/>
-      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_2"/>
-      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_2" result="shape"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.5 0 0 0 0 0.13 0 0 0 0 0.1 0 0 0 0.2 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
     </filter>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <path d="M88 122C88 100.461 105.461 83 127 83H385C406.539 83 424 100.461 424 122V390C424 411.539 406.539 429 385 429H127C105.461 429 88 411.539 88 390V122Z" fill="white" fill-opacity="0.12"/>
-  <path d="M108 363C171 336 226 338 287 364C335 385 384 386 426 365" stroke="white" stroke-opacity="0.32" stroke-width="18" stroke-linecap="round"/>
-  <path d="M91 174C130 141 171 130 215 141C259 152 284 180 322 184C360 188 393 172 425 141" stroke="white" stroke-opacity="0.24" stroke-width="13" stroke-linecap="round" stroke-dasharray="18 20"/>
-  <g filter="url(#shadow)">
-    <rect x="104" y="112" width="304" height="288" rx="64" fill="url(#card)"/>
-    <rect x="122" y="130" width="268" height="252" rx="48" stroke="white" stroke-width="10" stroke-opacity="0.72"/>
-    <circle cx="158" cy="174" r="18" fill="#FF4E45"/>
-    <circle cx="210" cy="174" r="18" fill="#FF9B2F"/>
-    <circle cx="262" cy="174" r="18" fill="#FFD34D"/>
-    <circle cx="314" cy="174" r="18" fill="#58D1C5"/>
-    <circle cx="366" cy="174" r="18" fill="#8B5CF6"/>
-    <path d="M144 222H368" stroke="#FF7B7B" stroke-width="8" stroke-linecap="round"/>
-    <rect x="144" y="250" width="84" height="84" rx="20" fill="#FFC1A6"/>
-    <rect x="260" y="250" width="108" height="84" rx="20" fill="#FF7AA8"/>
+
+  <rect width="512" height="512" fill="white"/>
+  <rect x="106" y="64" width="300" height="300" rx="76" fill="url(#appBg)"/>
+
+  <path d="M155 166C184 143 217 137 251 150C281 162 302 187 332 185C354 184 373 172 390 155" stroke="white" stroke-opacity="0.22" stroke-width="12" stroke-linecap="round"/>
+  <path d="M133 276L145 285L139 299L151 290L164 299L158 285L170 276L155 276L151 262L146 276H133Z" fill="#FFF3BD"/>
+  <path d="M377 114L386 136L409 145L386 154L377 177L368 154L345 145L368 136L377 114Z" fill="#FFF3BD"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="158" y="146" width="196" height="196" rx="38" fill="white" fill-opacity="0.24"/>
+    <rect x="171" y="133" width="176" height="176" rx="32" fill="url(#panel)"/>
+    <rect x="185" y="148" width="148" height="148" rx="22" stroke="white" stroke-width="9" stroke-opacity="0.82"/>
+
+    <circle cx="208" cy="176" r="12" fill="#FF4E45"/>
+    <circle cx="239" cy="176" r="12" fill="#FF982F"/>
+    <circle cx="270" cy="176" r="12" fill="#FFD34D"/>
+    <circle cx="301" cy="176" r="12" fill="#5BD3C8"/>
+    <circle cx="327" cy="176" r="12" fill="#7A63FF"/>
+
+    <path d="M199 202H319" stroke="#FF7C85" stroke-width="7" stroke-linecap="round"/>
+    <rect x="199" y="222" width="120" height="66" rx="14" fill="url(#pinkCard)"/>
+
+    <text x="259" y="266" text-anchor="middle" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="50" font-weight="900" fill="#11213C">小彻</text>
+    <text x="259" y="287" text-anchor="middle" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="16" font-weight="800" letter-spacing="2" fill="#F45F6B">工作台</text>
   </g>
-  <text x="256" y="320" text-anchor="middle" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="78" font-weight="900" fill="#15213B">小彻</text>
-  <text x="256" y="365" text-anchor="middle" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="27" font-weight="800" letter-spacing="5" fill="#F45F6B">工作台</text>
-  <path d="M398 92L407 116L431 125L407 134L398 158L389 134L365 125L389 116L398 92Z" fill="#FFF0B5"/>
-  <path d="M108 330L116 351L137 359L116 367L108 388L100 367L79 359L100 351L108 330Z" fill="#FFF0B5"/>
+
+  <text x="256" y="448" text-anchor="middle" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="54" font-weight="900" fill="#0F1D33">小彻工作台</text>
 </svg>
