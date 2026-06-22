@@ -364,8 +364,12 @@ export const generateImageFromText = async (
     const ai = getClient();
     const count = options.count || 1;
 
-    // Fallback/Correction for model names
-    const effectiveModel = model.includes('imagen') ? 'imagen-3.0-generate-002' : 'gemini-3-pro-image-preview';
+    const imageModelAllowlist = new Set([
+        'gemini-3-pro-image-preview',
+        'gemini-3.1-flash-image-preview',
+        'imagen-3.0-generate-002',
+    ]);
+    const effectiveModel = imageModelAllowlist.has(model) ? model : 'gemini-3-pro-image-preview';
 
     // Prepare Contents
     const parts: Part[] = [];
@@ -421,7 +425,7 @@ export const generateImageFromText = async (
 export const generateVideo = async (
     prompt: string,
     model: string,
-    options: { aspectRatio?: string, count?: number, generationMode?: VideoGenerationMode, resolution?: string } = {},
+    options: { aspectRatio?: string, count?: number, generationMode?: VideoGenerationMode, resolution?: string, duration?: number } = {},
     inputImageBase64?: string | null,
     videoInput?: any,
     referenceImages?: string[]
@@ -472,7 +476,8 @@ export const generateVideo = async (
     const config: any = {
         numberOfVideos: 1, // API restriction: Must be 1
         aspectRatio: options.aspectRatio || '16:9',
-        resolution: resolution as any
+        resolution: resolution as any,
+        durationSeconds: options.duration || 5
     };
 
     if (referenceImages && referenceImages.length > 0 && model === 'veo-3.0-generate-001') {

@@ -470,8 +470,9 @@ export const App = () => {
             model: type === NodeType.VIDEO_GENERATOR ? 'veo-3.0-fast-generate-001' :
                 type === NodeType.VIDEO_ANALYZER ? 'gemini-3-pro-preview' :
                     type === NodeType.AUDIO_GENERATOR ? 'gemini-2.5-flash-preview-tts' :
-                        type.includes('IMAGE') ? 'gemini-3-pro-image-preview' :
-                            'gemini-3-pro-preview',
+                        type === NodeType.PROMPT_INPUT ? 'gemini-3.1-flash-lite-preview' :
+                            type.includes('IMAGE') ? 'gemini-3-pro-image-preview' :
+                                'gemini-3-pro-preview',
             generationMode: type === NodeType.VIDEO_GENERATOR ? 'DEFAULT' : undefined, // Initialize as DEFAULT (Off)
             ...initialData
         };
@@ -972,7 +973,8 @@ export const App = () => {
                         aspectRatio: node.data.aspectRatio || '16:9',
                         count: node.data.videoCount || 1,
                         generationMode: strategy.generationMode,
-                        resolution: node.data.resolution
+                        resolution: node.data.resolution,
+                        duration: node.data.duration || 5
                     },
                     strategy.inputImageForGeneration,
                     strategy.videoInput,
