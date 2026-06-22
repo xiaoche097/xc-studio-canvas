@@ -111,6 +111,22 @@ type CropImageMeta = {
   height: number;
 };
 
+type CropRect = {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+};
+
+type CropDragState = {
+  mode: 'move' | 'resize';
+  handle?: 'nw' | 'ne' | 'sw' | 'se';
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startRect: CropRect;
+};
+
 const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; poses: PosePreset[] }> = [
   { key: 'clothing', label: '通用服装动作库', desc: '默认百搭', poses: CLOTHING_POSES },
   { key: 'womensFashion', label: '通用时尚女装', desc: '女装街拍/棚拍', poses: WOMENS_FASHION_POSES },
@@ -250,13 +266,9 @@ const loadHtmlImage = (src: string): Promise<HTMLImageElement> => new Promise((r
   image.src = src;
 });
 
-const getCropRect = (
-  meta: CropImageMeta,
-  targetRatio: number,
-  zoom: number,
-  positionX: number,
-  positionY: number,
-) => {
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const getBaseCropSize = (meta: CropImageMeta, targetRatio: number) => {
   const sourceRatio = meta.width / meta.height;
   let cropWidth = meta.width;
   let cropHeight = meta.height;
@@ -269,6 +281,17 @@ const getCropRect = (
     cropHeight = cropWidth / targetRatio;
   }
 
+  return { cropWidth, cropHeight };
+};
+
+const getCropRect = (
+  meta: CropImageMeta,
+  targetRatio: number,
+  zoom: number,
+  positionX: number,
+  positionY: number,
+) : CropRect => {
+  let { cropWidth, cropHeight } = getBaseCropSize(meta, targetRatio);
   const safeZoom = Math.max(1, Math.min(3, zoom));
   cropWidth /= safeZoom;
   cropHeight /= safeZoom;
@@ -279,6 +302,21 @@ const getCropRect = (
   const sy = maxY * (positionY / 100);
 
   return { sx, sy, sw: cropWidth, sh: cropHeight };
+};
+
+const getCropControlsFromRect = (meta: CropImageMeta, targetRatio: number, rect: CropRect) => {
+  const baseSize = getBaseCropSize(meta, targetRatio);
+  const nextZoom = clamp(baseSize.cropWidth / Math.max(1, rect.sw), 1, 3);
+  const maxX = Math.max(0, meta.width - rect.sw);
+  const maxY = Math.max(0, meta.height - rect.sh);
+
+  return {
+    zoom: nextZoom,
+    position: {
+      x: maxX > 0 ? clamp((rect.sx / maxX) * 100, 0, 100) : 50,
+      y: maxY > 0 ? clamp((rect.sy / maxY) * 100, 0, 100) : 50,
+    },
+  };
 };
 
 const shuffle = <T,>(items: T[]) => {
@@ -654,6 +692,8 @@ const ModelPoseFissionTab: React.FC = () => {
   const [cropMeta, setCropMeta] = useState<CropImageMeta | null>(null);
   const [cropZoom, setCropZoom] = useState(1);
   const [cropPosition, setCropPosition] = useState({ x: 50, y: 50 });
+  const cropImageFrameRef = useRef<HTMLDivElement | null>(null);
+  const cropDragRef = useRef<CropDragState | null>(null);
   const regenerateControllersRef = useRef<Map<number, AbortController>>(new Map());
   const recentPoseIdsRef = useRef<Record<string, string[]>>({});
   const actionAnalysisPromisesRef = useRef<Map<string, Promise<ActionReferenceAnalysis | null>>>(new Map());
@@ -1179,6 +1219,95 @@ Rules:
     setCropEditor({ index, imageUrl });
   };
 
+  const setCropControlsFromRect = (rect: CropRect) => {
+    if (!cropMeta) return;
+    const controls = getCropControlsFromRect(cropMeta, cropAspectValue, rect);
+    setCropZoom(controls.zoom);
+    setCropPosition(controls.position);
+  };
+
+  const getCropPointerScale = () => {
+    if (!cropMeta || !cropImageFrameRef.current) return null;
+    const bounds = cropImageFrameRef.current.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return null;
+    return {
+      bounds,
+      scaleX: cropMeta.width / bounds.width,
+      scaleY: cropMeta.height / bounds.height,
+    };
+  };
+
+  const handleCropPointerDown = (
+    event: React.PointerEvent<HTMLElement>,
+    mode: 'move' | 'resize',
+    handle?: CropDragState['handle'],
+  ) => {
+    if (!cropMeta || !cropRect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    cropDragRef.current = {
+      mode,
+      handle,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startRect: cropRect,
+    };
+  };
+
+  const handleCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    const pointerScale = getCropPointerScale();
+    if (!drag || !cropMeta || !pointerScale || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+
+    if (drag.mode === 'move') {
+      const dx = (event.clientX - drag.startClientX) * pointerScale.scaleX;
+      const dy = (event.clientY - drag.startClientY) * pointerScale.scaleY;
+      setCropControlsFromRect({
+        ...drag.startRect,
+        sx: clamp(drag.startRect.sx + dx, 0, Math.max(0, cropMeta.width - drag.startRect.sw)),
+        sy: clamp(drag.startRect.sy + dy, 0, Math.max(0, cropMeta.height - drag.startRect.sh)),
+      });
+      return;
+    }
+
+    const pointerX = clamp((event.clientX - pointerScale.bounds.left) * pointerScale.scaleX, 0, cropMeta.width);
+    const pointerY = clamp((event.clientY - pointerScale.bounds.top) * pointerScale.scaleY, 0, cropMeta.height);
+    const handle = drag.handle || 'se';
+    const anchorX = handle.includes('w') ? drag.startRect.sx + drag.startRect.sw : drag.startRect.sx;
+    const anchorY = handle.includes('n') ? drag.startRect.sy + drag.startRect.sh : drag.startRect.sy;
+    const maxWidth = handle.includes('w') ? anchorX : cropMeta.width - anchorX;
+    const maxHeight = handle.includes('n') ? anchorY : cropMeta.height - anchorY;
+    const minWidth = Math.min(maxWidth, Math.max(80, cropMeta.width * 0.12));
+    const minHeight = Math.min(maxHeight, minWidth / cropAspectValue);
+    const rawWidth = Math.abs(pointerX - anchorX);
+    const rawHeight = Math.abs(pointerY - anchorY);
+    let nextWidth = rawWidth / Math.max(1, rawHeight) > cropAspectValue ? rawWidth : rawHeight * cropAspectValue;
+    let nextHeight = nextWidth / cropAspectValue;
+
+    if (nextWidth > maxWidth || nextHeight > maxHeight) {
+      nextWidth = Math.min(maxWidth, maxHeight * cropAspectValue);
+      nextHeight = nextWidth / cropAspectValue;
+    }
+
+    nextWidth = clamp(nextWidth, Math.min(minWidth, maxWidth), maxWidth);
+    nextHeight = clamp(nextWidth / cropAspectValue, Math.min(minHeight, maxHeight), maxHeight);
+
+    setCropControlsFromRect({
+      sx: handle.includes('w') ? anchorX - nextWidth : anchorX,
+      sy: handle.includes('n') ? anchorY - nextHeight : anchorY,
+      sw: nextWidth,
+      sh: nextHeight,
+    });
+  };
+
+  const handleCropPointerEnd = (event: React.PointerEvent<HTMLElement>) => {
+    if (cropDragRef.current?.pointerId !== event.pointerId) return;
+    cropDragRef.current = null;
+  };
+
   const handleApplyCrop = async () => {
     if (!cropEditor || !cropMeta) return;
     try {
@@ -1218,13 +1347,17 @@ Rules:
 
   const cropAspectValue = getAspectRatioValue(aspectRatio);
   const cropRect = cropMeta ? getCropRect(cropMeta, cropAspectValue, cropZoom, cropPosition.x, cropPosition.y) : null;
-  const cropBackgroundStyle: React.CSSProperties | undefined = cropEditor && cropMeta && cropRect
+  const cropPreviewFrameStyle: React.CSSProperties | undefined = cropMeta
     ? {
-        aspectRatio: `${cropAspectValue}`,
-        backgroundImage: `url(${cropEditor.imageUrl})`,
-        backgroundRepeat: 'no-repeat',
-        backgroundSize: `${(cropMeta.width / cropRect.sw) * 100}% ${(cropMeta.height / cropRect.sh) * 100}%`,
-        backgroundPosition: `${cropMeta.width === cropRect.sw ? 50 : (cropRect.sx / Math.max(1, cropMeta.width - cropRect.sw)) * 100}% ${cropMeta.height === cropRect.sh ? 50 : (cropRect.sy / Math.max(1, cropMeta.height - cropRect.sh)) * 100}%`,
+        aspectRatio: `${cropMeta.width} / ${cropMeta.height}`,
+      }
+    : undefined;
+  const cropOverlayStyle: React.CSSProperties | undefined = cropMeta && cropRect
+    ? {
+        left: `${(cropRect.sx / cropMeta.width) * 100}%`,
+        top: `${(cropRect.sy / cropMeta.height) * 100}%`,
+        width: `${(cropRect.sw / cropMeta.width) * 100}%`,
+        height: `${(cropRect.sh / cropMeta.height) * 100}%`,
       }
     : undefined;
 
@@ -1630,7 +1763,7 @@ Rules:
             <div className="flex items-center justify-between gap-3 border-b border-pastel-border px-4 py-3">
               <div>
                 <h3 className="text-sm font-black text-pastel-text">按当前画幅裁剪</h3>
-                <p className="mt-0.5 text-xs text-pastel-muted">当前比例：{aspectRatio}，裁剪后会替换这张结果图</p>
+                <p className="mt-0.5 text-xs text-pastel-muted">当前比例：{aspectRatio}，拖动裁剪框后会替换这张结果图</p>
               </div>
               <button type="button" onClick={() => setCropEditor(null)} className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-pastel-muted hover:bg-pastel-bg">
                 <X className="h-5 w-5" />
@@ -1639,16 +1772,44 @@ Rules:
 
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
               <div className="flex min-h-[18rem] items-center justify-center rounded-xl bg-neutral-950 p-3">
-                {cropBackgroundStyle ? (
+                {cropEditor && cropPreviewFrameStyle && cropOverlayStyle ? (
                   <div
-                    className="relative w-full max-w-[min(100%,36rem)] overflow-hidden rounded-lg bg-white shadow-xl ring-2 ring-white"
-                    style={cropBackgroundStyle}
+                    ref={cropImageFrameRef}
+                    className="relative w-full max-w-[min(100%,36rem)] touch-none overflow-hidden rounded-lg bg-white shadow-xl ring-2 ring-white"
+                    style={cropPreviewFrameStyle}
+                    onPointerMove={handleCropPointerMove}
+                    onPointerUp={handleCropPointerEnd}
+                    onPointerCancel={handleCropPointerEnd}
                   >
-                    <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-black/10" />
-                    <div className="pointer-events-none absolute inset-x-0 top-1/3 border-t border-white/45" />
-                    <div className="pointer-events-none absolute inset-x-0 top-2/3 border-t border-white/45" />
-                    <div className="pointer-events-none absolute inset-y-0 left-1/3 border-l border-white/45" />
-                    <div className="pointer-events-none absolute inset-y-0 left-2/3 border-l border-white/45" />
+                    <img src={cropEditor.imageUrl} alt="裁剪预览" className="h-full w-full select-none object-contain" draggable={false} />
+                    <div
+                      className="absolute cursor-move touch-none border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] ring-1 ring-black/25"
+                      style={cropOverlayStyle}
+                      onPointerDown={(event) => handleCropPointerDown(event, 'move')}
+                      onPointerUp={handleCropPointerEnd}
+                      onPointerCancel={handleCropPointerEnd}
+                    >
+                      <div className="pointer-events-none absolute inset-x-0 top-1/3 border-t border-white/55" />
+                      <div className="pointer-events-none absolute inset-x-0 top-2/3 border-t border-white/55" />
+                      <div className="pointer-events-none absolute inset-y-0 left-1/3 border-l border-white/55" />
+                      <div className="pointer-events-none absolute inset-y-0 left-2/3 border-l border-white/55" />
+                      {(['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
+                        <button
+                          key={handle}
+                          type="button"
+                          aria-label="调整裁剪框大小"
+                          onPointerDown={(event) => handleCropPointerDown(event, 'resize', handle)}
+                          onPointerUp={handleCropPointerEnd}
+                          onPointerCancel={handleCropPointerEnd}
+                          className={`absolute h-5 w-5 rounded-full border-2 border-white bg-orange-500 shadow-md ${
+                            handle === 'nw' ? '-left-2.5 -top-2.5 cursor-nwse-resize' :
+                            handle === 'ne' ? '-right-2.5 -top-2.5 cursor-nesw-resize' :
+                            handle === 'sw' ? '-bottom-2.5 -left-2.5 cursor-nesw-resize' :
+                            '-bottom-2.5 -right-2.5 cursor-nwse-resize'
+                          }`}
+                        />
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-white">
@@ -1667,24 +1828,8 @@ Rules:
                   <input type="range" min="1" max="3" step="0.01" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} className="w-full accent-orange-500" />
                 </div>
 
-                <div>
-                  <label className="mb-2 flex items-center justify-between text-xs font-bold text-pastel-text">
-                    左右位置
-                    <span className="text-pastel-muted">{Math.round(cropPosition.x)}%</span>
-                  </label>
-                  <input type="range" min="0" max="100" value={cropPosition.x} onChange={(event) => setCropPosition((prev) => ({ ...prev, x: Number(event.target.value) }))} className="w-full accent-orange-500" />
-                </div>
-
-                <div>
-                  <label className="mb-2 flex items-center justify-between text-xs font-bold text-pastel-text">
-                    上下位置
-                    <span className="text-pastel-muted">{Math.round(cropPosition.y)}%</span>
-                  </label>
-                  <input type="range" min="0" max="100" value={cropPosition.y} onChange={(event) => setCropPosition((prev) => ({ ...prev, y: Number(event.target.value) }))} className="w-full accent-orange-500" />
-                </div>
-
                 <div className="rounded-lg bg-white p-3 text-xs leading-relaxed text-pastel-muted">
-                  裁剪框比例会锁定为当前画幅。需要其它比例时，先在左侧切换画幅比例，再打开裁剪。
+                  直接拖动裁剪框可调整位置，拖动四角可按当前画幅比例缩放。需要其它比例时，先在左侧切换画幅比例，再打开裁剪。
                 </div>
 
                 <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
