@@ -246,6 +246,20 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     void loadCacheStats();
   }, [isOpen, activeTab]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleAutoCleaned = (event: Event) => {
+      const detail = (event as CustomEvent<{ deleted?: number }>).detail;
+      const deleted = detail?.deleted || 0;
+      if (deleted > 0) {
+        setCacheMessage(`检测到缓存超过 2GB，已自动清理 ${deleted} 个较早项目，仅保留最近 50 个。`);
+      }
+      if (activeTab === 'cache') void loadCacheStats();
+    };
+    window.addEventListener('project-cache-auto-cleaned', handleAutoCleaned);
+    return () => window.removeEventListener('project-cache-auto-cleaned', handleAutoCleaned);
+  }, [isOpen, activeTab]);
+
   const runCacheCleanup = async (mode: 'older7' | 'older30' | 'keep50' | 'all') => {
     const confirmText = {
       older7: '确定清理 7 天前的项目历史吗？API Key 和当前配置不会被删除。',
@@ -933,6 +947,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                       <div>
                         <h4 className="text-lg font-black text-gray-900 dark:text-white">安全清理</h4>
                         <p className="text-sm text-gray-500 mt-1">只清理项目历史和生成图片缓存，不会删除 API Key、模型配置和智能体设定。</p>
+                        <p className="text-xs font-bold text-orange-600 mt-2">自动清理：浏览器存储超过 2GB 时，会自动保留最近 50 个项目并清理更早记录。</p>
                       </div>
                       <button
                         onClick={loadCacheStats}

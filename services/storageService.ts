@@ -52,9 +52,12 @@ const STORE_NAME = 'projects';
 const DEFAULT_PAGE_SIZE = 60;
 const THUMBNAIL_SIZE = 480;
 const THUMBNAIL_QUALITY = 0.72;
+const AUTO_CLEANUP_USAGE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
+const AUTO_CLEANUP_KEEP_LATEST = 50;
 
 class StorageService {
     private dbPromise: Promise<IDBPDatabase<SkysperDB>>;
+    private autoCleanupPromise: Promise<number> | null = null;
 
     constructor() {
         this.dbPromise = openDB<SkysperDB>(DB_NAME, 1, {
@@ -73,8 +76,46 @@ class StorageService {
             thumbnail: await this.createThumbnail(project.thumbnail || project.assets.generated[0]),
         };
         await db.put(STORE_NAME, projectToSave);
+        void this.autoCleanupIfNeeded();
         window.dispatchEvent(new CustomEvent('project-cache-updated'));
         return project.id;
+    }
+
+    private async getStorageUsageBytes(): Promise<number | undefined> {
+        const storage = await navigator.storage?.estimate?.().catch(() => undefined);
+        return storage?.usage;
+    }
+
+    private async autoCleanupIfNeeded(): Promise<number> {
+        if (this.autoCleanupPromise) return this.autoCleanupPromise;
+
+        this.autoCleanupPromise = (async () => {
+            const stats = await this.getProjectCountAndEstimatedBytes();
+            const storageUsage = await this.getStorageUsageBytes();
+            const usage = storageUsage ?? stats.estimatedBytes;
+
+            if (usage < AUTO_CLEANUP_USAGE_LIMIT_BYTES || stats.count <= AUTO_CLEANUP_KEEP_LATEST) {
+                return 0;
+            }
+
+            const deleted = await this.keepLatestProjects(AUTO_CLEANUP_KEEP_LATEST);
+            if (deleted > 0) {
+                window.dispatchEvent(new CustomEvent('project-cache-auto-cleaned', {
+                    detail: {
+                        deleted,
+                        limitBytes: AUTO_CLEANUP_USAGE_LIMIT_BYTES,
+                        keepLatest: AUTO_CLEANUP_KEEP_LATEST,
+                        usageBytes: usage,
+                    },
+                }));
+                window.dispatchEvent(new CustomEvent('project-cache-updated'));
+            }
+            return deleted;
+        })().finally(() => {
+            this.autoCleanupPromise = null;
+        });
+
+        return this.autoCleanupPromise;
     }
 
     private estimateProjectBytes(project: Project): number {
