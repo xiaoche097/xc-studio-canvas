@@ -211,6 +211,33 @@ const cropImageDataUrl = async (sourceDataUrl: string, crop: CropBox) => {
   };
 };
 
+const getResolutionLongEdge = (resolution: ImageResolution) => {
+  if (resolution === ImageResolution.RES_05K) return 512;
+  if (resolution === ImageResolution.RES_1K) return 1024;
+  if (resolution === ImageResolution.RES_4K) return 4096;
+  return 2048;
+};
+
+const upscaleDataUrlToResolution = async (sourceDataUrl: string, resolution: ImageResolution) => {
+  const img = await loadCanvasImage(sourceDataUrl);
+  const targetLongEdge = getResolutionLongEdge(resolution);
+  const currentLongEdge = Math.max(img.naturalWidth, img.naturalHeight);
+  if (currentLongEdge >= targetLongEdge) return sourceDataUrl;
+
+  const scale = targetLongEdge / currentLongEdge;
+  const width = Math.round(img.naturalWidth * scale);
+  const height = Math.round(img.naturalHeight * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 不可用，无法按所选清晰度放大贴回底图。');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL('image/png', 0.96);
+};
+
 const drawImageCover = (
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -800,11 +827,12 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     let cancelled = false;
     if (!targetDataUrl || !generatedCrop || isLoading) return;
 
-    pasteCropBack(targetDataUrl, generatedCrop, committedCropBox, feather, cropPreset, {
-      scale: pasteScale,
-      offsetX: pasteOffsetX,
-      offsetY: pasteOffsetY,
-    })
+    upscaleDataUrlToResolution(targetDataUrl, resolution)
+      .then((outputTargetDataUrl) => pasteCropBack(outputTargetDataUrl, generatedCrop, committedCropBox, feather, cropPreset, {
+        scale: pasteScale,
+        offsetX: pasteOffsetX,
+        offsetY: pasteOffsetY,
+      }))
       .then((pasted) => convertImageDataUrlFormat(pasted, 'png'))
       .then((finalPng) => {
         if (!cancelled) setResultImage(finalPng);
@@ -816,7 +844,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [targetDataUrl, generatedCrop, committedCropBox, feather, cropPreset, pasteScale, pasteOffsetX, pasteOffsetY, isLoading]);
+  }, [targetDataUrl, generatedCrop, committedCropBox, feather, cropPreset, pasteScale, pasteOffsetX, pasteOffsetY, resolution, isLoading]);
 
   const startCropDrag = (event: React.PointerEvent, mode: DragMode) => {
     event.preventDefault();
@@ -841,12 +869,14 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     setError(null);
     setResultImage(null);
     setGeneratedCrop(null);
-    setProgressText('正在裁切需要贴回的局部区域...');
+    setProgressText('正在按所选清晰度准备贴回底图...');
 
     try {
       const activeCropBox = committedCropBox;
       assertCurrentGenerationTask(taskId, signal);
-      const crop = await cropImageDataUrl(targetDataUrl, activeCropBox);
+      const outputTargetDataUrl = await upscaleDataUrlToResolution(targetDataUrl, resolution);
+      setProgressText('正在裁切需要贴回的局部区域...');
+      const crop = await cropImageDataUrl(outputTargetDataUrl, activeCropBox);
       setCropPreview(crop.dataUrl);
       setProgressText('正在用高清模特原图重绘局部细节...');
 
@@ -905,7 +935,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
         blend: 1,
         redAdjust: 0,
         cyanBoost: 0,
-        saturation: 1.04,
+        saturation: 0.9,
         contrast: 1.01,
       }).catch((colorError) => {
         console.warn('Paste-back crop saturation correction failed. Using source color synced crop.', colorError);
@@ -915,7 +945,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
       const pngCrop = await composeRepairCropWithSource(crop.dataUrl, colorLockedPng, cropPreset, feather);
       setGeneratedCrop(pngCrop);
       setProgressText('正在把高清局部柔边贴回原图...');
-      const pasted = await pasteCropBack(targetDataUrl, pngCrop, activeCropBox, feather, cropPreset, {
+      const pasted = await pasteCropBack(outputTargetDataUrl, pngCrop, activeCropBox, feather, cropPreset, {
         scale: pasteScale,
         offsetX: pasteOffsetX,
         offsetY: pasteOffsetY,
@@ -1531,7 +1561,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
                       <UserCircle2 className="h-10 w-10 text-pastel-highlight/60" />
                     </div>
                     <p className="text-sm text-pastel-muted">贴回后的完整 PNG 会显示在这里</p>
-                    <p className="mt-1 text-xs text-pastel-muted/70">原图尺寸保持不变</p>
+                    <p className="mt-1 text-xs text-pastel-muted/70">按所选清晰度输出完整 PNG</p>
                   </div>
                 )}
               </div>

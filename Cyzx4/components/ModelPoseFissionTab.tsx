@@ -43,7 +43,7 @@ import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
 
 type UploadKind = 'model' | 'product' | 'scene' | 'action' | 'accessory';
 type MainReferenceKind = UploadKind | 'overall' | 'color';
-type PoseSourceMode = 'random' | 'manual' | 'reference';
+type PoseSourceMode = 'random' | 'manual' | 'reference' | 'text';
 type PlatformKey = 'amazon' | 'shein' | 'temu' | 'tmall' | 'independent';
 type PoseLibraryKey =
   | 'clothing'
@@ -364,6 +364,19 @@ const pickDiversePose = (
   return picked;
 };
 
+const parseActionPromptText = (text: string) => {
+  const prepared = text
+    .replace(/\r\n/g, '\n')
+    .replace(/(^|[\n;；])\s*(?:[-*]\s*)?(?:\d+[\.\、\)]|[（(]\d+[）)])\s*/g, '\n')
+    .replace(/\s+(?=\d+[\.\、\)]\s+)/g, '\n');
+
+  return prepared
+    .split(/[\n;；]+/)
+    .map((item) => item.replace(/^\s*(?:[-*]\s*)?(?:\d+[\.\、\)]|[（(]\d+[）)])\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 10);
+};
+
 const POSE_FISSION_DIVERSITY_DIRECTIVE =
   'MANDATORY visible pose replacement: do NOT preserve Image 1\'s original standing pose, limb placement, body angle, crop, or subject placement. Make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Returning Image 1 unchanged or with only tiny hand/expression changes is a failed result. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
 
@@ -479,8 +492,9 @@ ${isLowerBodyAction
 - For close-up, portrait, headshot, or half-body framing, use realistic shallow depth of field with a softly blurred background while keeping the face, garment, and product details sharp.
 
 # POSE DIRECTIVE
-Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseLabel}.
+Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseSourceMode === 'text' ? 'user-written action prompt' : poseLabel}.
 Pose instruction: ${poseText}
+${poseSourceMode === 'text' ? '- This is an action/pose instruction only; do not treat it as clothing, scene, identity, background, prop, lighting, or style instruction.' : ''}
 ${hasActionReference ? `- ACTION REFERENCE MUST BE VISIBLY USED: the final body pose, silhouette, body orientation, hand/arm positions, leg/foot positions, camera crop, and person-to-frame scale must visibly match the assigned action reference, not Image 1's original pose.
 - ORIGINAL-POSE REJECTION RULE: if the generated output still looks like Image 1's original pose, original crop, or original subject placement, treat it as incorrect and regenerate internally toward the action reference.` : ''}
 - ${POSE_FISSION_DIVERSITY_DIRECTIVE}
@@ -677,6 +691,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const [poseSourceMode, setPoseSourceMode] = useState<PoseSourceMode>('random');
   const [poseLibraryKey, setPoseLibraryKey] = useState<PoseLibraryKey>('clothing');
   const [selectedPoseId, setSelectedPoseId] = useState('');
+  const [actionPromptText, setActionPromptText] = useState('');
   const [generateCount, setGenerateCount] = useState(4);
   const [productCategory, setProductCategory] = useState('');
   const [scenePrompt, setScenePrompt] = useState('');
@@ -696,6 +711,7 @@ const ModelPoseFissionTab: React.FC = () => {
   const cropDragRef = useRef<CropDragState | null>(null);
   const regenerateControllersRef = useRef<Map<number, AbortController>>(new Map());
   const recentPoseIdsRef = useRef<Record<string, string[]>>({});
+  const previousActionPromptCountRef = useRef(0);
   const actionAnalysisPromisesRef = useRef<Map<string, Promise<ActionReferenceAnalysis | null>>>(new Map());
   const actionAnalysesRef = useRef<Map<string, ActionReferenceAnalysis | null>>(new Map());
   const {
@@ -709,10 +725,25 @@ const ModelPoseFissionTab: React.FC = () => {
 
   const activeLibrary = useMemo(() => getLibrary(poseLibraryKey), [poseLibraryKey]);
   const activePlatform = useMemo(() => PLATFORM_STYLES.find((platform) => platform.key === selectedPlatform) || PLATFORM_STYLES[1], [selectedPlatform]);
+  const actionPromptItems = useMemo(() => parseActionPromptText(actionPromptText), [actionPromptText]);
   const manualPose = activeLibrary.poses.find((pose) => pose.id === selectedPoseId) || activeLibrary.poses[0];
-  const effectivePoseMode: PoseSourceMode = actionImages.length > 0 ? 'reference' : poseSourceMode;
-  const effectiveGenerateCount = actionImages.length > 0 ? actionImages.length : generateCount;
+  const usesActionReferenceMode = poseSourceMode === 'reference' && actionImages.length > 0;
+  const usesActionPromptMode = poseSourceMode === 'text' && actionPromptItems.length > 0;
+  const effectivePoseMode: PoseSourceMode = usesActionReferenceMode ? 'reference' : poseSourceMode;
+  const effectiveGenerateCount = usesActionReferenceMode ? actionImages.length : usesActionPromptMode ? actionPromptItems.length : generateCount;
   const isRegeneratingAny = regeneratingIndices.length > 0;
+
+  useEffect(() => {
+    if (poseSourceMode !== 'text' || actionPromptItems.length === 0) return;
+    const suggestedCount = Math.min(10, actionPromptItems.length);
+    setGenerateCount((prev) => {
+      if (previousActionPromptCountRef.current === 0 || prev === previousActionPromptCountRef.current) {
+        return suggestedCount;
+      }
+      return prev;
+    });
+    previousActionPromptCountRef.current = suggestedCount;
+  }, [poseSourceMode, actionPromptItems.length]);
 
   useEffect(() => {
     if (!cropEditor) {
@@ -899,7 +930,14 @@ Rules:
   };
 
   const getPoseForOutput = (index: number, batchCache: Map<PoseLibraryKey, PosePreset[]> = new Map()) => {
-    if (actionImages.length > 0 && index < actionImages.length) {
+    if (poseSourceMode === 'text' && actionPromptItems.length > 0) {
+      const textPose = actionPromptItems[index % actionPromptItems.length];
+      return {
+        label: `动作提示词 #${(index % actionPromptItems.length) + 1}`,
+        prompt: textPose,
+      };
+    }
+    if (poseSourceMode === 'reference' && actionImages.length > 0 && index < actionImages.length) {
       const actionImage = actionImages[index];
       const poseAnalysis = getCachedActionAnalysis(actionImage);
       const useActionFraming = shotType === 'auto';
@@ -942,7 +980,7 @@ Rules:
       ...sceneImages.map(toApiImage),
     ];
     let poseReferenceManifest = '';
-    if (actionImages.length > 0 && index < actionImages.length) {
+    if (poseSourceMode === 'reference' && actionImages.length > 0 && index < actionImages.length) {
       const actionImage = actionImages[index];
       const poseAnalysis = getCachedActionAnalysis(actionImage);
       const actionImageNumber = inputs.length + 1;
@@ -1008,13 +1046,13 @@ Rules:
   };
 
   const generateOne = async (index: number, signal?: AbortSignal, plannedPose = getPoseForOutput(index)): Promise<ResultItem> => {
-    const hasActionReference = actionImages.length > 0 && index < actionImages.length;
+    const hasActionReference = poseSourceMode === 'reference' && actionImages.length > 0 && index < actionImages.length;
     const actionAnalysis = hasActionReference ? await ensureActionReferenceAnalysis(actionImages[index]) : null;
     const pose = hasActionReference ? getPoseForOutput(index) : plannedPose;
     const { inputs, poseReferenceManifest } = await buildInputsForOutput(index);
     const prompt = buildPrompt({
       outputNumber: index + 1,
-      poseSourceMode: hasActionReference ? 'reference' : poseSourceMode,
+      poseSourceMode: hasActionReference ? 'reference' : poseSourceMode === 'reference' ? 'random' : poseSourceMode,
       poseText: pose.prompt,
       poseLabel: pose.label,
       hasScene: sceneImages.length > 0 || overallImages.length > 0,
@@ -1026,8 +1064,8 @@ Rules:
       shotType,
       extraNotes,
       poseReferenceManifest,
-      actionBodyCoverage: actionAnalysis?.bodyCoverage || getCachedActionAnalysis(actionImages[index])?.bodyCoverage,
-      actionAnalysis: actionAnalysis || getCachedActionAnalysis(actionImages[index]),
+      actionBodyCoverage: hasActionReference ? actionAnalysis?.bodyCoverage || getCachedActionAnalysis(actionImages[index])?.bodyCoverage : undefined,
+      actionAnalysis: hasActionReference ? actionAnalysis || getCachedActionAnalysis(actionImages[index]) : null,
     });
     const [imageUrl] = await generateImageToImage(inputs, prompt, {
       aspectRatio,
@@ -1050,6 +1088,10 @@ Rules:
   const handleRegenerateOne = async (index: number) => {
     if (overallImages.length === 0) {
       setError('Please upload the main model reference image first.');
+      return;
+    }
+    if (poseSourceMode === 'text' && actionPromptItems.length === 0) {
+      setError('请先填写至少 1 条动作提示词。');
       return;
     }
     if (regenerateControllersRef.current.has(index)) return;
@@ -1095,6 +1137,10 @@ Rules:
     }
     if (overallImages.length === 0) {
       setError('请先上传模特整体参考图，用于锁定已换好产品和场景的完整效果。');
+      return;
+    }
+    if (poseSourceMode === 'text' && actionPromptItems.length === 0) {
+      setError('请先填写至少 1 条动作提示词。');
       return;
     }
     setError('');
@@ -1153,7 +1199,7 @@ Rules:
             ...productImages.map(getDataUrl),
             ...accessoryImages.map(getDataUrl),
             ...sceneImages.map(getDataUrl),
-            ...actionImages.map(getDataUrl),
+            ...(usesActionReferenceMode ? actionImages.map(getDataUrl) : []),
           ],
           prompt: generated[0].prompt,
           params: {
@@ -1167,6 +1213,8 @@ Rules:
             shotType: SHOT_TYPE_OPTIONS.find((item) => item.key === shotType)?.label || shotType,
             poseSourceMode: effectivePoseMode,
             poseLibrary: activeLibrary.label,
+            actionPromptText: poseSourceMode === 'text' ? actionPromptText : undefined,
+            actionPromptCount: poseSourceMode === 'text' ? actionPromptItems.length : undefined,
             productCategory,
             scenePrompt,
             extraNotes,
@@ -1463,14 +1511,15 @@ Rules:
                   </div>
                 </div>
                 <span className="rounded-full border border-purple-100 bg-purple-50 px-2 py-1 text-[10px] font-bold text-purple-700">
-                  当前：{effectivePoseMode === 'reference' ? '参考图锁定' : effectivePoseMode === 'manual' ? '手动动作' : '随机动作'}
+                  当前：{effectivePoseMode === 'reference' ? '参考图锁定' : effectivePoseMode === 'text' ? '动作提示词' : effectivePoseMode === 'manual' ? '手动动作' : '随机动作'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   { id: 'random' as PoseSourceMode, label: '智能随机动作', desc: '按动作库抽取' },
                   { id: 'manual' as PoseSourceMode, label: '手动指定动作', desc: '固定一个动作' },
+                  { id: 'text' as PoseSourceMode, label: '动作提示词', desc: '多条独立动作' },
                   { id: 'reference' as PoseSourceMode, label: '动作参考图', desc: '上传图优先' },
                 ].map((item) => (
                   <button key={item.id} type="button" onClick={() => setPoseSourceMode(item.id)} className={`min-h-[3.5rem] rounded-xl border px-2 py-2 text-center transition-all ${effectivePoseMode === item.id ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-pastel-border bg-pastel-bg/30 text-pastel-muted hover:border-purple-200'}`}>
@@ -1494,6 +1543,25 @@ Rules:
                     {activeLibrary.poses.map((pose) => <option key={pose.id} value={pose.id}>{pose.id}. {pose.name}</option>)}
                   </select>
                 </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className="block text-[10px] font-bold text-pastel-muted">动作提示词</label>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${poseSourceMode === 'text' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-pastel-muted'}`}>
+                    已识别 {actionPromptItems.length} 条动作
+                  </span>
+                </div>
+                <textarea
+                  value={actionPromptText}
+                  onChange={(event) => setActionPromptText(event.target.value)}
+                  disabled={poseSourceMode !== 'text'}
+                  placeholder="每行或用分号输入一个动作，例如：侧身站立，一手扶腰；向前走路，回头看镜头；坐姿，双腿自然交叠"
+                  className={`min-h-[5.5rem] w-full resize-y rounded-xl border px-3 py-2 text-xs outline-none transition-all focus:ring-2 ${poseSourceMode === 'text' ? 'border-purple-200 bg-purple-50/40 focus:ring-purple-100' : 'border-pastel-border bg-pastel-bg text-pastel-muted disabled:opacity-60'}`}
+                />
+                {poseSourceMode === 'text' && actionPromptItems.length === 0 && (
+                  <p className="mt-1 text-[10px] font-bold text-orange-600">请选择动作提示词模式后，至少输入 1 条动作。</p>
+                )}
               </div>
             </section>
 
@@ -1589,10 +1657,11 @@ Rules:
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-bold text-pastel-muted">批量</label>
-                  <select value={effectiveGenerateCount} disabled={actionImages.length > 0} onChange={(event) => setGenerateCount(Number(event.target.value))} className="min-h-[2.75rem] w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:border-purple-200 disabled:bg-purple-50 disabled:text-purple-700">
+                  <select value={effectiveGenerateCount} disabled={usesActionReferenceMode || usesActionPromptMode} onChange={(event) => setGenerateCount(Number(event.target.value))} className="min-h-[2.75rem] w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:border-purple-200 disabled:bg-purple-50 disabled:text-purple-700">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => <option key={count} value={count}>{count}张</option>)}
                   </select>
-                  {actionImages.length > 0 && <p className="mt-1 text-[0.68rem] font-semibold text-purple-600">已按 {actionImages.length} 张动作参考图锁定生成数量</p>}
+                  {usesActionReferenceMode && <p className="mt-1 text-[0.68rem] font-semibold text-purple-600">已按 {actionImages.length} 张动作参考图锁定生成数量</p>}
+                  {usesActionPromptMode && <p className="mt-1 text-[0.68rem] font-semibold text-purple-600">已按 {actionPromptItems.length} 条动作提示词锁定生成数量，每张一一对应。</p>}
                 </div>
               </div>
 
@@ -1658,7 +1727,7 @@ Rules:
               )}
             </section>
 
-            <button type="button" onClick={() => handleGenerate()} disabled={isGenerating || isRegeneratingAny || overallImages.length === 0} className={`flex min-h-[3.75rem] w-full items-center justify-center gap-3 rounded-2xl py-4 font-bold text-white shadow-lg transition-all ${isGenerating || isRegeneratingAny || overallImages.length === 0 ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01] hover:shadow-orange-500/30'}`}>
+            <button type="button" onClick={() => handleGenerate()} disabled={isGenerating || isRegeneratingAny || overallImages.length === 0 || (poseSourceMode === 'text' && actionPromptItems.length === 0)} className={`flex min-h-[3.75rem] w-full items-center justify-center gap-3 rounded-2xl py-4 font-bold text-white shadow-lg transition-all ${isGenerating || isRegeneratingAny || overallImages.length === 0 || (poseSourceMode === 'text' && actionPromptItems.length === 0) ? 'bg-gray-300' : 'bg-gradient-to-r from-orange-500 to-pink-500 hover:scale-[1.01] hover:shadow-orange-500/30'}`}>
               {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               {isGenerating ? 'Agent 正在裂变...' : '一键生成模特姿势裂变'}
             </button>
