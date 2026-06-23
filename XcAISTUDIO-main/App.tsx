@@ -24,7 +24,7 @@ import {
     Plus, Copy, Trash2, Type, Image as ImageIcon, Video as VideoIcon,
     ScanFace, Brush, MousePointerClick, LayoutTemplate, X, Film, Link, RefreshCw, Upload,
     Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2, Workflow as WorkflowIcon,
-    Globe, Layers, Volume2, Box, Clapperboard, History
+    Layers, Volume2, Box, Clapperboard, History
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 
@@ -276,6 +276,10 @@ export const App = () => {
     const historyIndexRef = useRef(historyIndex);
     const connectionStartRef = useRef(connectionStart);
     const rafRef = useRef<number | null>(null); // For RAF Throttling
+    const canvasRef = useRef<HTMLDivElement | null>(null);
+    const scaleRef = useRef(scale);
+    const panRef = useRef(pan);
+    const interactionModeRef = useRef(interactionMode);
 
     // Replacement Input Refs
     const replaceVideoInputRef = useRef<HTMLInputElement>(null);
@@ -317,7 +321,8 @@ export const App = () => {
     useEffect(() => {
         nodesRef.current = nodes; connectionsRef.current = connections; groupsRef.current = groups;
         historyRef.current = history; historyIndexRef.current = historyIndex; connectionStartRef.current = connectionStart;
-    }, [nodes, connections, groups, history, historyIndex, connectionStart]);
+        scaleRef.current = scale; panRef.current = pan; interactionModeRef.current = interactionMode;
+    }, [nodes, connections, groups, history, historyIndex, connectionStart, scale, pan, interactionMode]);
 
     // --- Persistence ---
     useEffect(() => {
@@ -461,7 +466,7 @@ export const App = () => {
     const addNode = useCallback((type: NodeType, x?: number, y?: number, initialData?: any) => {
         if (type === NodeType.IMAGE_EDITOR) {
             setIsSketchEditorOpen(true);
-            return;
+            return undefined;
         }
 
         try { saveHistory(); } catch (e) { }
@@ -502,7 +507,25 @@ export const App = () => {
         };
 
         setNodes(prev => [...prev, newNode]);
+        return newNode.id;
     }, [pan, scale, saveHistory]);
+
+    const addReferencedNode = useCallback((type: NodeType) => {
+        if (!contextMenu) return;
+        const sourceNodeId = contextMenuTarget?.sourceNodeId;
+        const initialData =
+            type === NodeType.VIDEO_GENERATOR
+                ? { generationMode: 'CONTINUE' }
+                : undefined;
+        const newNodeId = addNode(type, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale, initialData);
+
+        if (sourceNodeId && newNodeId) {
+            setConnections(prev => [...prev, { from: sourceNodeId, to: newNodeId }]);
+            setNodes(prev => prev.map(n => n.id === newNodeId ? { ...n, inputs: [...n.inputs, sourceNodeId] } : n));
+        }
+
+        setContextMenu(null);
+    }, [addNode, contextMenu, contextMenuTarget, pan, scale]);
 
     const persistAssetHistory = useCallback((updater: (current: any[]) => any[]) => {
         setAssetHistory(current => {
@@ -588,32 +611,63 @@ export const App = () => {
         }
     };
 
+    const zoomCanvasAtPoint = useCallback((deltaY: number, clientX: number, clientY: number, zoomIntensity: number) => {
+        const currentScale = scaleRef.current;
+        const newScale = Math.min(Math.max(0.2, currentScale - deltaY * zoomIntensity * currentScale), 3);
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect || newScale === currentScale) return;
+
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const scaleDiff = newScale - currentScale;
+
+        setPan(p => {
+            const nextPan = {
+                x: p.x - (x - p.x) * (scaleDiff / currentScale),
+                y: p.y - (y - p.y) * (scaleDiff / currentScale)
+            };
+            panRef.current = nextPan;
+            return nextPan;
+        });
+        scaleRef.current = newScale;
+        setScale(newScale);
+    }, []);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const handleNativeWheel = (event: WheelEvent) => {
+            if (!canvas.contains(event.target as Node)) return;
+
+            const shouldZoom = interactionModeRef.current === 'comfyui' || event.ctrlKey || event.metaKey;
+            if (!shouldZoom) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            zoomCanvasAtPoint(event.deltaY, event.clientX, event.clientY, interactionModeRef.current === 'comfyui' ? 0.0015 : 0.001);
+        };
+
+        canvas.addEventListener('wheel', handleNativeWheel, { passive: false, capture: true });
+        return () => canvas.removeEventListener('wheel', handleNativeWheel, { capture: true });
+    }, [zoomCanvasAtPoint]);
 
     const handleWheel = (e: React.WheelEvent) => {
         if (interactionMode === 'comfyui') {
             e.preventDefault();
             // ComfyUI 模式：鼠标滚轮直接进行画布缩放
-            const zoomIntensity = 0.0015;
-            const newScale = Math.min(Math.max(0.2, scale - e.deltaY * zoomIntensity * scale), 3);
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const scaleDiff = newScale - scale;
-            setPan(p => ({ x: p.x - (x - p.x) * (scaleDiff / scale), y: p.y - (y - p.y) * (scaleDiff / scale) }));
-            setScale(newScale);
+            zoomCanvasAtPoint(e.deltaY, e.clientX, e.clientY, 0.0015);
         } else {
             // 默认模式：Ctrl + 滚轮进行缩放，普通滚轮进行平移
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
-                const newScale = Math.min(Math.max(0.2, scale - e.deltaY * 0.001), 3);
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                const scaleDiff = newScale - scale;
-                setPan(p => ({ x: p.x - (x - p.x) * (scaleDiff / scale), y: p.y - (y - p.y) * (scaleDiff / scale) }));
-                setScale(newScale);
+                zoomCanvasAtPoint(e.deltaY, e.clientX, e.clientY, 0.001);
             } else {
-                setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+                setPan(p => {
+                    const nextPan = { x: p.x - e.deltaX, y: p.y - e.deltaY };
+                    panRef.current = nextPan;
+                    return nextPan;
+                });
             }
         }
     };
@@ -727,8 +781,14 @@ export const App = () => {
         });
     }, [selectionRect, isDraggingCanvas, draggingNodeId, resizingNodeId, initialSize, resizeStartPos, scale, lastMousePos]);
 
-    const handleGlobalMouseUp = useCallback(() => {
+    const handleGlobalMouseUp = useCallback((e?: MouseEvent) => {
         if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+        const pendingConnection = connectionStartRef.current;
+        if (pendingConnection && e) {
+            const sourceNode = nodesRef.current.find(n => n.id === pendingConnection.id);
+            setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: pendingConnection.id });
+            setContextMenuTarget({ type: 'reference-create', sourceNodeId: pendingConnection.id, sourceNodeType: sourceNode?.type });
+        }
         if (selectionRect) {
             const x = Math.min(selectionRect.startX, selectionRect.currentX); const y = Math.min(selectionRect.startY, selectionRect.currentY);
             const w = Math.abs(selectionRect.currentX - selectionRect.startX); const h = Math.abs(selectionRect.currentY - selectionRect.startY);
@@ -1263,6 +1323,7 @@ export const App = () => {
     return (
         <div className="w-screen h-screen overflow-hidden bg-[#0a0a0c]">
             <div
+                ref={canvasRef}
                 className={`w-full h-full overflow-hidden text-slate-200 selection:bg-cyan-500/30 ${isDraggingCanvas ? 'cursor-grabbing' : 'cursor-default'}`}
                 onMouseDown={handleCanvasMouseDown} onWheel={handleWheel}
                 onDoubleClick={(e) => { e.preventDefault(); if (e.detail > 1 && !selectionRect) { setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: '' }); setContextMenuTarget({ type: 'create' }); } }}
@@ -1427,7 +1488,7 @@ export const App = () => {
 
                 {contextMenu && (
                     <div 
-                        className={contextMenuTarget?.type === 'create'
+                        className={contextMenuTarget?.type === 'create' || contextMenuTarget?.type === 'reference-create'
                             ? "fixed z-[100] w-80 bg-[#0c0c0e]/95 backdrop-blur-3xl border border-white/5 rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-6 animate-in fade-in zoom-in-95 duration-200 origin-top-left flex flex-col overflow-y-auto max-h-[75vh] custom-scrollbar space-y-5"
                             : "fixed z-[100] bg-[#1c1c1e]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-1.5 min-w-[160px] animate-in fade-in zoom-in-95 duration-200 origin-top-left"
                         }
@@ -1442,6 +1503,41 @@ export const App = () => {
                                 {(() => { const targetNode = nodes.find(n => n.id === contextMenu.id); if (targetNode) { const isVideo = targetNode.type === NodeType.VIDEO_GENERATOR || targetNode.type === NodeType.VIDEO_ANALYZER; const isImage = targetNode.type === NodeType.IMAGE_GENERATOR || targetNode.type === NodeType.IMAGE_EDITOR; if (isVideo || isImage) { return (<button className="w-full text-left px-3 py-2 text-xs font-medium text-slate-300 hover:bg-purple-500/20 hover:text-purple-400 rounded-lg flex items-center gap-2 transition-colors" onClick={() => { replacementTargetRef.current = contextMenu.id; if (isVideo) replaceVideoInputRef.current?.click(); else replaceImageInputRef.current?.click(); setContextMenu(null); }}> <RefreshCw size={12} /> 替换素材 </button>); } } return null; })()}
                                 <button className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 rounded-lg flex items-center gap-2 transition-colors mt-1" onClick={() => { deleteNodes([contextMenuTarget.id]); setContextMenu(null); }}><Trash2 size={12} /> 删除节点</button>
                             </>
+                        )}
+                        {contextMenuTarget?.type === 'reference-create' && (
+                            <div className="space-y-2 text-left">
+                                <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-1">引用该节点生成</div>
+                                <button
+                                    onClick={() => addReferencedNode(NodeType.PROMPT_INPUT)}
+                                    className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                >
+                                    <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                        <Type size={16} />
+                                    </div>
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">文本</span>
+                                        <span className="text-[10px] text-zinc-500 truncate group-hover:text-zinc-400 transition-colors mt-0.5">脚本、广告词、品牌文案</span>
+                                    </div>
+                                </button>
+                                <button
+                                    onClick={() => addReferencedNode(NodeType.IMAGE_GENERATOR)}
+                                    className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                >
+                                    <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                        <ImageIcon size={16} />
+                                    </div>
+                                    <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">图片</span>
+                                </button>
+                                <button
+                                    onClick={() => addReferencedNode(NodeType.VIDEO_GENERATOR)}
+                                    className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
+                                >
+                                    <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
+                                        <Film size={16} />
+                                    </div>
+                                    <span className="text-[12px] font-semibold text-zinc-200 group-hover:text-white transition-colors">视频</span>
+                                </button>
+                            </div>
                         )}
                         {contextMenuTarget?.type === 'create' && (
                             <>

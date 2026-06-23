@@ -43,6 +43,9 @@ export interface AppNode {
     aspectRatio?: string; // e.g., '16:9', '4:3'
     resolution?: string; // e.g., '1080p', '4k'
     duration?: number; // Duration in seconds (for Audio/Video)
+    stylePresetId?: string;
+    stylePresetName?: string;
+    stylePresetNegativePrompt?: string;
     
     // Video Strategies (StoryContinuator, SceneDirector, FrameWeaver, CharacterRef)
     generationMode?: VideoGenerationMode; 

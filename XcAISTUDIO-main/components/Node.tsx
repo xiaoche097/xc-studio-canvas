@@ -5,6 +5,7 @@ import { AppNode, NodeStatus, NodeType } from '../types';
 import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings } from 'lucide-react';
 import { VideoModeSelector, SceneDirectorOverlay } from './VideoNodeModules';
 import React, { memo, useRef, useState, useEffect, useCallback } from 'react';
+import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
 
 // ... (keep constants and helper functions: arePropsEqual, safePlay, safePause, InputThumbnails, AudioVisualizer) ...
 
@@ -45,7 +46,11 @@ const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'];
 const VIDEO_DURATIONS = [5, 8];
 const IMAGE_COUNTS = [1, 2, 3, 4];
 const VIDEO_COUNTS = [1, 2, 3, 4];
+const UPLOAD_IMAGE_MAX_EDGE = 1536;
+const UPLOAD_IMAGE_QUALITY = 0.86;
+const IMAGE_NODE_MAX_HEIGHT = 560;
 const GLASS_PANEL = "bg-[#2c2c2e]/95 backdrop-blur-2xl border border-white/10 shadow-2xl";
+const STYLE_PRESET_TABS = ['风格库', '滤镜', '功能', '自定义前后缀'] as const;
 const DEFAULT_NODE_WIDTH = 420;
 const DEFAULT_FIXED_HEIGHT = 360;
 const AUDIO_NODE_HEIGHT = 200;
@@ -331,6 +336,62 @@ const AudioVisualizer = ({ isPlaying }: { isPlaying: boolean }) => (
     </div>
 );
 
+const dataUrlFromBlob = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+});
+
+const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) => new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image compression failed')), type, quality);
+});
+
+const prepareUploadedImage = async (file: File) => {
+    const bitmap = await createImageBitmap(file);
+    const sourceWidth = bitmap.width;
+    const sourceHeight = bitmap.height;
+    const scale = Math.min(1, UPLOAD_IMAGE_MAX_EDGE / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+        bitmap.close();
+        throw new Error('Canvas is not available');
+    }
+
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    const blob = await canvasToBlob(canvas, 'image/webp', UPLOAD_IMAGE_QUALITY);
+    return {
+        dataUrl: await dataUrlFromBlob(blob),
+        width,
+        height,
+    };
+};
+
+const getFittedImageNodeSize = (imageWidth: number, imageHeight: number, currentWidth: number) => {
+    const ratio = imageWidth / imageHeight;
+    const maxWidth = Math.max(280, currentWidth || DEFAULT_NODE_WIDTH);
+    let width = Math.min(maxWidth, DEFAULT_NODE_WIDTH);
+    let height = width / ratio;
+
+    if (height > IMAGE_NODE_MAX_HEIGHT) {
+        height = IMAGE_NODE_MAX_HEIGHT;
+        width = height * ratio;
+    }
+
+    return {
+        width: Math.max(260, Math.round(width)),
+        height: Math.max(220, Math.round(height)),
+    };
+};
+
 const NodeComponent: React.FC<NodeProps> = ({
     node, onUpdate, onAction, onDelete, onExpand, onCrop, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, isDragging, isGroupDragging, isSelected, isResizing, isConnecting
 }) => {
@@ -345,11 +406,15 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [tempTitle, setTempTitle] = useState(node.title);
     const [isHovered, setIsHovered] = useState(false);
     const [isInputFocused, setIsInputFocused] = useState(false);
+    const [isPreparingImageUpload, setIsPreparingImageUpload] = useState(false);
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const generationMode = node.data.generationMode || 'CONTINUE';
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [localPrompt, setLocalPrompt] = useState(node.data.prompt || '');
     const [inputHeight, setInputHeight] = useState(48);
+    const [isStylePresetOpen, setIsStylePresetOpen] = useState(false);
+    const [stylePresetTab, setStylePresetTab] = useState<'风格库' | '滤镜' | '功能' | '自定义前后缀'>('风格库');
+    const [styleCategory, setStyleCategory] = useState<string>('全部');
     const isResizingInput = useRef(false);
     const inputStartDragY = useRef(0);
     const inputStartHeight = useRef(0);
@@ -441,7 +506,33 @@ const NodeComponent: React.FC<NodeProps> = ({
     };
     const handleDownload = (e: React.MouseEvent) => { e.stopPropagation(); const a = document.createElement('a'); a.href = node.data.image || videoBlobUrl || node.data.audioUri || ''; a.download = `xcaistudio-${Date.now()}`; document.body.appendChild(a); a.click(); document.body.removeChild(a); };
     const handleUploadVideo = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => onUpdate(node.id, { videoUri: e.target?.result as string }); reader.readAsDataURL(file); } };
-    const handleUploadImage = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => onUpdate(node.id, { image: e.target?.result as string }); reader.readAsDataURL(file); } };
+    const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+
+        setIsPreparingImageUpload(true);
+        try {
+            const prepared = await prepareUploadedImage(file);
+            const nextSize = getFittedImageNodeSize(prepared.width, prepared.height, node.width || DEFAULT_NODE_WIDTH);
+            onUpdate(
+                node.id,
+                {
+                    image: prepared.dataUrl,
+                    images: undefined,
+                    aspectRatio: `${prepared.width}:${prepared.height}`,
+                },
+                nextSize
+            );
+        } catch (error) {
+            console.error('Image upload failed:', error);
+            const reader = new FileReader();
+            reader.onload = (event) => onUpdate(node.id, { image: event.target?.result as string });
+            reader.readAsDataURL(file);
+        } finally {
+            setIsPreparingImageUpload(false);
+        }
+    };
     const handleAspectRatioSelect = (newRatio: string) => {
         const [w, h] = newRatio.split(':').map(Number);
         let newSize: { width?: number, height?: number } = { height: undefined };
@@ -486,6 +577,38 @@ const NodeComponent: React.FC<NodeProps> = ({
     const isEmptyImageNode = isImageNode && !node.data.image && !node.data.videoUri;
     const isEmptyVideoNode = isVideoNode && !node.data.videoUri && !node.data.image;
     const isEmptyCreativeNode = isEmptyTextNode || isEmptyImageNode || isEmptyVideoNode;
+    const isReferencedEmptyNode = Boolean(hasInputs && isEmptyCreativeNode);
+    const styleCategories = ['全部', ...Array.from(new Set(STYLE_PRESETS.map(preset => preset.category)))];
+    const visibleStylePresets = styleCategory === '全部'
+        ? STYLE_PRESETS
+        : STYLE_PRESETS.filter(preset => preset.category === styleCategory);
+
+    const applyStylePreset = (preset: StylePreset) => {
+        const presetPrompt = hasInputs ? preset.promptWithRef : preset.prompt;
+        const trimmedPrompt = localPrompt.trim();
+        const nextPrompt = trimmedPrompt
+            ? `${trimmedPrompt}\n\n${presetPrompt}`
+            : presetPrompt;
+
+        setLocalPrompt(nextPrompt);
+        onUpdate(node.id, {
+            prompt: nextPrompt,
+            stylePresetId: preset.id,
+            stylePresetName: preset.name,
+            stylePresetNegativePrompt: preset.negativePrompt,
+        });
+        setIsStylePresetOpen(false);
+    };
+
+    const renderConnectedPlaceholder = (Icon: React.ElementType, title = '已连接，点击选中配置参数') => (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-zinc-500">
+            <Icon size={38} strokeWidth={1.8} className="text-zinc-600" />
+            <div className="space-y-1">
+                <p className="text-[13px] font-bold text-zinc-400">{title}</p>
+                <p className="text-[11px] font-medium text-zinc-600">选中节点后在下方配置并生成</p>
+            </div>
+        </div>
+    );
 
     const renderTopBar = () => {
         const showTopBar = isSelected || isHovered || isEmptyCreativeNode;
@@ -557,6 +680,14 @@ const NodeComponent: React.FC<NodeProps> = ({
             return (
                 <div className="w-full h-full flex flex-col group/text">
                     {isEmptyTextNode ? (
+                        isReferencedEmptyNode ? (
+                            <div className="relative h-full overflow-hidden bg-[#1b1c1e]">
+                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.12),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.045),transparent_36%)]" />
+                                <div className="relative z-10 flex h-full items-center justify-center text-[13px] font-medium text-zinc-600">
+                                    双击开始编辑...
+                                </div>
+                            </div>
+                        ) : (
                         <div className="relative h-full overflow-hidden bg-[#1b1c1e]">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.15),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.055),transparent_36%)]" />
                             <div className="absolute inset-x-10 top-10 h-px bg-gradient-to-r from-transparent via-emerald-300/30 to-transparent" />
@@ -576,6 +707,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 </div>
                             </div>
                         </div>
+                        )
                     ) : (
                         <div className="m-5 flex-1 bg-black/10 rounded-2xl border border-white/5 p-4 relative overflow-hidden backdrop-blur-sm transition-colors group-hover/text:bg-black/20">
                             <textarea className="w-full h-full bg-transparent resize-none focus:outline-none text-sm text-slate-200 placeholder-slate-500 font-medium leading-relaxed custom-scrollbar selection:bg-emerald-500/30" placeholder="输入你的创意构想..." value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={commitPrompt} onKeyDown={handleCmdEnter} onWheel={(e) => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} maxLength={1000} />
@@ -627,8 +759,22 @@ const NodeComponent: React.FC<NodeProps> = ({
                 onClick={hasContent ? handleExpand : undefined}
                 title={hasContent ? '点击放大查看' : undefined}
             >
+                {isPreparingImageUpload && (
+                    <div className="absolute inset-0 z-40 flex items-start justify-start bg-gradient-to-br from-slate-600/80 to-blue-950/80 p-4 backdrop-blur-sm">
+                        <div className="flex items-center gap-2 rounded-lg bg-white/12 px-3 py-1.5 text-[12px] font-bold text-white shadow-lg">
+                            <Loader2 size={14} className="animate-spin" />
+                            上传中，请稍后
+                        </div>
+                    </div>
+                )}
                 {!hasContent ? (
                     isImageNode ? (
+                        isReferencedEmptyNode ? (
+                            <div className="absolute inset-0 overflow-hidden bg-[#1b1c1e]">
+                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.16),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.05),transparent_34%)]" />
+                                {renderConnectedPlaceholder(ImageIcon)}
+                            </div>
+                        ) : (
                         <div className="absolute inset-0 overflow-hidden bg-[#1b1c1e]">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.18),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.06),transparent_34%)]" />
                             <div className="absolute inset-x-10 top-10 h-px bg-gradient-to-r from-transparent via-emerald-300/30 to-transparent" />
@@ -656,7 +802,14 @@ const NodeComponent: React.FC<NodeProps> = ({
                             </button>
                             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleUploadImage} />
                         </div>
+                        )
                     ) : isVideoNode ? (
+                        isReferencedEmptyNode ? (
+                            <div className="absolute inset-0 overflow-hidden bg-[#1b1c1e]">
+                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.14),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.05),transparent_36%)]" />
+                                {renderConnectedPlaceholder(VideoIcon, '选中节点后在下方配置并生成')}
+                            </div>
+                        ) : (
                         <div className="absolute inset-0 overflow-hidden bg-[#1b1c1e]">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.16),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.055),transparent_36%)]" />
                             <div className="absolute inset-x-10 top-10 h-px bg-gradient-to-r from-transparent via-emerald-300/30 to-transparent" />
@@ -684,6 +837,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             </button>
                             <input type="file" ref={fileInputRef} className="hidden" accept="video/*" onChange={handleUploadVideo} />
                         </div>
+                        )
                     ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-600"><div className="w-20 h-20 rounded-[28px] bg-white/5 border border-white/5 flex items-center justify-center cursor-pointer hover:bg-white/10 hover:scale-105 transition-all duration-300 shadow-inner" onClick={() => fileInputRef.current?.click()}>{isWorking ? <Loader2 className="animate-spin text-cyan-500" size={32} /> : <NodeIcon size={32} className="opacity-50" />}</div><span className="text-[11px] font-bold uppercase tracking-[0.2em] opacity-40">{isWorking ? "处理中..." : "拖拽或上传"}</span><input type="file" ref={fileInputRef} className="hidden" accept={node.type.includes('VIDEO') ? "video/*" : "image/*"} onChange={node.type.includes('VIDEO') ? handleUploadVideo : handleUploadImage} /></div>
                     )
@@ -749,6 +903,80 @@ const NodeComponent: React.FC<NodeProps> = ({
         );
     };
 
+    const renderStylePresetPanel = () => {
+        if (!isImageNode || !isStylePresetOpen) return null;
+
+        return (
+            <div
+                className="absolute bottom-full left-1/2 z-[260] mb-3 w-[820px] max-w-[92vw] -translate-x-1/2 rounded-[16px] border border-white/10 bg-[#1c1c1e]/95 p-5 shadow-2xl backdrop-blur-2xl"
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                onWheel={e => e.stopPropagation()}
+            >
+                <div className="mb-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-5">
+                        {STYLE_PRESET_TABS.map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setStylePresetTab(tab)}
+                                className={`pb-2 text-[13px] font-bold transition-colors ${stylePresetTab === tab ? 'border-b-2 border-white text-white' : 'border-b-2 border-transparent text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => setIsStylePresetOpen(false)}
+                        className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
+                        title="关闭"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+
+                {stylePresetTab === '风格库' ? (
+                    <>
+                        <div className="mb-4 flex flex-wrap items-center gap-2">
+                            {styleCategories.map(category => (
+                                <button
+                                    key={category}
+                                    onClick={() => setStyleCategory(category)}
+                                    className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${styleCategory === category ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-300/20' : 'bg-white/[0.04] text-zinc-500 hover:bg-white/[0.08] hover:text-zinc-300'}`}
+                                >
+                                    {category}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="grid max-h-[330px] grid-cols-3 gap-4 overflow-y-auto pr-1 custom-scrollbar sm:grid-cols-4 md:grid-cols-5">
+                            {visibleStylePresets.map(preset => {
+                                const active = node.data.stylePresetId === preset.id;
+                                return (
+                                    <button
+                                        key={preset.id}
+                                        onClick={() => applyStylePreset(preset)}
+                                        className={`group/preset overflow-hidden rounded-[10px] text-left transition-all ${active ? 'bg-emerald-400/10 ring-2 ring-emerald-300' : 'bg-white/[0.03] ring-1 ring-white/10 hover:bg-white/[0.06] hover:ring-white/20'}`}
+                                        title={preset.description}
+                                    >
+                                        <div className="aspect-square w-full overflow-hidden bg-zinc-900">
+                                            <img src={preset.previewUrl} alt={preset.name} className="h-full w-full object-cover transition-transform duration-300 group-hover/preset:scale-105" />
+                                        </div>
+                                        <div className="flex min-h-[46px] items-center px-2.5 py-2">
+                                            <span className={`line-clamp-2 text-[12px] font-bold leading-snug ${active ? 'text-emerald-100' : 'text-zinc-200'}`}>{preset.name}</span>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex h-[220px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.02] text-[12px] font-bold text-zinc-600">
+                        暂无内容
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     const renderBottomPanel = () => {
         const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode);
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
@@ -778,6 +1006,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                 {hasInputs && onInputReorder && (<div className="w-full flex justify-center mb-2 z-0 relative"><InputThumbnails assets={inputAssets!} onReorder={(newOrder) => onInputReorder(node.id, newOrder)} /></div>)}
                 {/* Glass Panel: Set strict Z-Index to higher layer to overlap thumbnails */}
                 <div className={`w-full rounded-[20px] p-1 flex flex-col gap-1 ${GLASS_PANEL} ${isEmptyCreativeNode ? 'border-emerald-400/20 shadow-[0_18px_60px_-24px_rgba(16,185,129,0.55)]' : ''} relative z-[100]`} onMouseDown={e => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+                    {renderStylePresetPanel()}
                     {isVideoNode && (
                         <div className="flex items-center justify-between gap-3 px-2 pt-1">
                             <div className="flex items-center gap-1">
@@ -807,6 +1036,26 @@ const NodeComponent: React.FC<NodeProps> = ({
                             </button>
                             <button className="flex h-14 w-14 flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] text-[10px] font-bold text-zinc-400 transition-colors hover:border-emerald-400/30 hover:bg-emerald-400/10 hover:text-emerald-200">
                                 <Wand2 size={16} />
+                                预设
+                            </button>
+                        </div>
+                    )}
+                    {isImageNode && (
+                        <div className="flex items-center gap-2 px-2 pt-2">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                                className="flex h-14 w-14 flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] text-[10px] font-bold text-zinc-400 transition-colors hover:border-emerald-400/30 hover:bg-emerald-400/10 hover:text-emerald-200"
+                                title="添加"
+                            >
+                                <Plus size={16} />
+                                添加
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setIsStylePresetOpen(open => !open); }}
+                                className={`flex h-14 w-14 flex-col items-center justify-center gap-1 rounded-xl border text-[10px] font-bold transition-colors ${isStylePresetOpen || node.data.stylePresetId ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200' : 'border-white/10 bg-white/[0.03] text-zinc-400 hover:border-emerald-400/30 hover:bg-emerald-400/10 hover:text-emerald-200'}`}
+                                title={node.data.stylePresetName || '预设'}
+                            >
+                                <Settings size={16} />
                                 预设
                             </button>
                         </div>
