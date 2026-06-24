@@ -27,11 +27,25 @@ import {
     Layers, Volume2, Box, Clapperboard, History
 } from 'lucide-react';
 import { saveGeneratedProject } from '../services/projectHistoryService';
+import { STYLE_PRESETS } from '../Cyzx4/constants/stylePresets';
 
 // Apple Physics Curve
 const SPRING = "cubic-bezier(0.32, 0.72, 0, 1)";
 const SNAP_THRESHOLD = 8; // Pixels for magnetic snap
 const COLLISION_PADDING = 24; // Spacing when nodes bounce off each other
+
+const buildImageGenerationPrompt = (node: AppNode, userPrompt: string, hasReferenceImages: boolean) => {
+    const preset = node.data.stylePresetId
+        ? STYLE_PRESETS.find(item => item.id === node.data.stylePresetId)
+        : undefined;
+    if (!preset) return userPrompt;
+
+    return [
+        hasReferenceImages ? preset.promptWithRef : preset.prompt,
+        userPrompt.trim() ? `用户补充说明：\n${userPrompt.trim()}` : '',
+        preset.negativePrompt ? `负面约束：\n${preset.negativePrompt}` : '',
+    ].filter(Boolean).join('\n\n');
+};
 
 // Helper to get image dimensions
 const getImageDimensions = (src: string): Promise<{ width: number, height: number }> => {
@@ -199,6 +213,7 @@ export const App = () => {
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
     const [assetHistory, setAssetHistory] = useState<any[]>([]);
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [agentAttachments, setAgentAttachments] = useState<{ id: string; src: string; title: string }[]>([]);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -267,6 +282,14 @@ export const App = () => {
     const [expandedMedia, setExpandedMedia] = useState<any>(null);
     const [croppingNodeId, setCroppingNodeId] = useState<string | null>(null);
     const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+
+    const handleAddImageToAgent = useCallback((src: string, title: string) => {
+        setAgentAttachments(prev => {
+            if (prev.some(item => item.src === src)) return prev;
+            return [...prev, { id: `agent-image-${Date.now()}`, src, title }].slice(-6);
+        });
+        setIsChatOpen(true);
+    }, []);
 
     // Refs for closures
     const nodesRef = useRef(nodes);
@@ -476,9 +499,11 @@ export const App = () => {
                 type === NodeType.VIDEO_ANALYZER ? 'gemini-3-pro-preview' :
                     type === NodeType.AUDIO_GENERATOR ? 'gemini-2.5-flash-preview-tts' :
                         type === NodeType.PROMPT_INPUT ? 'gemini-3.1-flash-lite-preview' :
-                            type.includes('IMAGE') ? 'gemini-3-pro-image-preview' :
+                            type.includes('IMAGE') ? 'gemini-3.1-flash-image-preview' :
                                 'gemini-3-pro-preview',
             generationMode: type === NodeType.VIDEO_GENERATOR ? 'DEFAULT' : undefined, // Initialize as DEFAULT (Off)
+            resolution: type === NodeType.IMAGE_GENERATOR ? '2K' : initialData?.resolution,
+            imageCount: type === NodeType.IMAGE_GENERATOR ? 1 : initialData?.imageCount,
             ...initialData
         };
 
@@ -992,13 +1017,14 @@ export const App = () => {
 
                             newNodes.forEach(async (n) => {
                                 try {
-                                    const res = await generateImageFromText(n.data.prompt!, n.data.model!, inputImages, { aspectRatio: n.data.aspectRatio, resolution: n.data.resolution, count: 1 });
+                                    const generationPrompt = buildImageGenerationPrompt(n, n.data.prompt || '', inputImages.length > 0);
+                                    const res = await generateImageFromText(generationPrompt, n.data.model!, inputImages, { aspectRatio: n.data.aspectRatio, resolution: n.data.resolution, count: 1 });
                                     handleNodeUpdate(n.id, { image: res[0], images: res, status: NodeStatus.SUCCESS });
                                     await saveGeneratedProject({
                                         type: 'OTHER',
                                         generated: res,
                                         original: inputImages,
-                                        prompt: n.data.prompt,
+                                        prompt: generationPrompt,
                                         params: {
                                             source: 'xc-workstation',
                                             nodeType: n.type,
@@ -1017,13 +1043,14 @@ export const App = () => {
                         console.warn("Storyboard planning failed", e);
                     }
                 }
-                const res = await generateImageFromText(prompt, node.data.model, inputImages, { aspectRatio: node.data.aspectRatio || '16:9', resolution: node.data.resolution, count: node.data.imageCount });
+                const generationPrompt = buildImageGenerationPrompt(node, prompt, inputImages.length > 0);
+                const res = await generateImageFromText(generationPrompt, node.data.model, inputImages, { aspectRatio: node.data.aspectRatio || '16:9', resolution: node.data.resolution, count: node.data.imageCount });
                 handleNodeUpdate(id, { image: res[0], images: res });
                 await saveGeneratedProject({
                     type: 'OTHER',
                     generated: res,
                     original: inputImages,
-                    prompt,
+                    prompt: generationPrompt,
                     params: {
                         source: 'xc-workstation',
                         nodeType: node.type,
@@ -1464,7 +1491,7 @@ export const App = () => {
 
                     {nodes.map(node => (
                         <Node
-                            key={node.id} node={node} onUpdate={handleNodeUpdate} onAction={handleNodeAction} onDelete={(id) => deleteNodes([id])} onExpand={setExpandedMedia} onCrop={(id, img) => { setCroppingNodeId(id); setImageToCrop(img); }}
+                            key={node.id} node={node} onUpdate={handleNodeUpdate} onAction={handleNodeAction} onDelete={(id) => deleteNodes([id])} onExpand={setExpandedMedia} onCrop={(id, img) => { setCroppingNodeId(id); setImageToCrop(img); }} onAddToAgent={handleAddImageToAgent}
                             onNodeMouseDown={(e, id) => {
                                 e.stopPropagation();
                                 if (e.shiftKey || e.metaKey || e.ctrlKey) { setSelectedNodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); } else { setSelectedNodeIds([id]); }
@@ -1501,6 +1528,7 @@ export const App = () => {
                                 setResizingNodeId(id); setInitialSize({ width: w, height: h }); setResizeStartPos({ x: e.clientX, y: e.clientY });
                             }}
                             isSelected={selectedNodeIds.includes(node.id)}
+                            canvasScale={scale}
                             inputAssets={node.inputs.map(i => nodes.find(n => n.id === i)).filter(n => n && (n.data.image || n.data.videoUri || n.data.croppedFrame)).slice(0, 6).map(n => ({ id: n!.id, type: (n!.data.croppedFrame || n!.data.image) ? 'image' : 'video', src: n!.data.croppedFrame || n!.data.image || n!.data.videoUri! }))}
                             onInputReorder={(nodeId, newOrder) => { const node = nodes.find(n => n.id === nodeId); if (node) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
                             isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIds.includes(node.id)}
@@ -1750,7 +1778,12 @@ export const App = () => {
                     onChangeActivePanel={setActiveSidebarPanel}
                 />
 
-                <AssistantPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+                <AssistantPanel
+                    isOpen={isChatOpen}
+                    onClose={() => setIsChatOpen(false)}
+                    attachments={agentAttachments}
+                    onRemoveAttachment={(id) => setAgentAttachments(prev => prev.filter(item => item.id !== id))}
+                />
 
                 {/* Canvas Mini-map (Dynamic Scale Projection) */}
                 {showMinimap && (() => {

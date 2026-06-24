@@ -362,14 +362,14 @@ export const generateImageFromText = async (
     options: { aspectRatio?: string, resolution?: string, count?: number } = {}
 ): Promise<string[]> => {
     const ai = getClient();
-    const count = options.count || 1;
+    const count = Math.min(4, Math.max(1, Math.floor(options.count || 1)));
 
     const imageModelAllowlist = new Set([
         'gemini-3-pro-image-preview',
         'gemini-3.1-flash-image-preview',
         'imagen-3.0-generate-002',
     ]);
-    const effectiveModel = imageModelAllowlist.has(model) ? model : 'gemini-3-pro-image-preview';
+    const effectiveModel = imageModelAllowlist.has(model) ? model : 'gemini-3.1-flash-image-preview';
 
     // Prepare Contents
     const parts: Part[] = [];
@@ -383,7 +383,7 @@ export const generateImageFromText = async (
 
     parts.push({ text: prompt });
 
-    try {
+    const generateOne = async (): Promise<string> => {
         const response = await ai.models.generateContent({
             model: effectiveModel,
             contents: { parts },
@@ -391,12 +391,11 @@ export const generateImageFromText = async (
                 imageConfig: {
                     aspectRatio: options.aspectRatio || '16:9',
                     aspect_ratio: options.aspectRatio || '16:9',
-                    imageSize: options.resolution || '2K',
+                    imageSize: (options.resolution || '2K').toUpperCase(),
                 } as any
             }
         });
 
-        // Parse Response for Images
         const images: string[] = [];
         if (response.candidates?.[0]?.content?.parts) {
             for (const part of response.candidates[0].content.parts) {
@@ -407,12 +406,25 @@ export const generateImageFromText = async (
             }
         }
 
-        // Handle count (Gemini often generates 1, looping if needed or if API supports count)
-        // Since Gemini Flash Image usually returns 1, we might need to call multiple times if count > 1
-        // But for simplicity/speed, we return what we got. 
-
         if (images.length === 0) {
             throw new Error("No images generated. Safety filter might have been triggered.");
+        }
+
+        return images[0];
+    };
+
+    try {
+        const results = await Promise.allSettled(
+            Array.from({ length: count }, () => generateOne())
+        );
+        const images = results
+            .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+            .map(result => result.value)
+            .slice(0, count);
+
+        if (images.length !== count) {
+            const firstFailure = results.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
+            throw firstFailure?.reason || new Error(`Expected ${count} images but generated ${images.length}.`);
         }
 
         return images;

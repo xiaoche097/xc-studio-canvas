@@ -16,6 +16,8 @@ interface Message {
 interface AssistantPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  attachments?: { id: string; src: string; title: string }[];
+  onRemoveAttachment?: (id: string) => void;
 }
 
 // --- 选择技能的配置数据 ---
@@ -195,7 +197,7 @@ const renderFormattedMessage = (text: string) => {
   return <div className="space-y-0.5 select-text cursor-text">{elements}</div>;
 };
 
-export const AssistantPanel: React.FC<AssistantPanelProps> = ({ isOpen, onClose }) => {
+export const AssistantPanel: React.FC<AssistantPanelProps> = ({ isOpen, onClose, attachments = [], onRemoveAttachment }) => {
   const [messages, setMessages] = useState<Message[]>([{ role: 'model', text: '你好！我是您的创意助手。今天想创作些什么？' }]);
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
@@ -490,12 +492,32 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({ isOpen, onClose 
 
         {/* 高级卡片样式输入包围盒 */}
         <div className="bg-[#18181c] border border-white/[0.04] rounded-[20px] shadow-2xl p-2.5 flex flex-col gap-2.5 transition-all duration-300 focus-within:border-emerald-500/20 focus-within:shadow-[0_0_20px_rgba(16,185,129,0.03)] group/input">
-          
           {/* 主体行：上传与文本框 */}
           <div className="flex gap-2.5 items-start">
             {/* 左侧大加号上传按钮 */}
-            <div className="w-[44px] h-[44px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer shrink-0 group/upload" title="上传参考图">
-              <Plus size={18} className="group-hover/upload:scale-110 transition-transform" />
+            <div className="relative w-[44px] h-[44px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer shrink-0 group/upload overflow-visible" title={attachments.length > 0 ? "已加入参考图" : "上传参考图"}>
+              {attachments.length > 0 ? (
+                <>
+                  <img src={attachments[0].src} alt={attachments[0].title} className="h-full w-full rounded-xl object-cover" />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveAttachment?.(attachments[0].id);
+                    }}
+                    className="absolute -right-1.5 -top-1.5 rounded-full border border-white/10 bg-black/80 p-1 text-zinc-300 opacity-0 shadow-lg transition-opacity hover:text-white group-hover/upload:opacity-100"
+                    title="移除参考图"
+                  >
+                    <X size={9} />
+                  </button>
+                  {attachments.length > 1 && (
+                    <span className="absolute -bottom-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border border-[#18181c] bg-emerald-400 px-1 text-[9px] font-black text-black shadow-lg">
+                      {attachments.length}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <Plus size={18} className="group-hover/upload:scale-110 transition-transform" />
+              )}
             </div>
 
             {/* 文本输入框 */}

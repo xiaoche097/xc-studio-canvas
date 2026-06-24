@@ -2,7 +2,7 @@
 
 // ... existing imports
 import { AppNode, NodeStatus, NodeType } from '../types';
-import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings } from 'lucide-react';
+import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings, SlidersHorizontal, Grid3X3, Rotate3D, SunMedium, Bot, Replace } from 'lucide-react';
 import { VideoModeSelector, SceneDirectorOverlay } from './VideoNodeModules';
 import React, { memo, useRef, useState, useEffect, useCallback } from 'react';
 import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
@@ -23,6 +23,7 @@ interface NodeProps {
     onDelete: (id: string) => void;
     onExpand?: (data: { type: 'image' | 'video', src: string, rect: DOMRect, images?: string[], initialIndex?: number }) => void;
     onCrop?: (id: string, imageBase64: string) => void;
+    onAddToAgent?: (image: string, title: string) => void;
     onNodeMouseDown: (e: React.MouseEvent, id: string) => void;
     onPortMouseDown: (e: React.MouseEvent, id: string, type: 'input' | 'output') => void;
     onPortMouseUp: (e: React.MouseEvent, id: string, type: 'input' | 'output') => void;
@@ -37,11 +38,12 @@ interface NodeProps {
     isSelected?: boolean;
     isResizing?: boolean;
     isConnecting?: boolean;
+    canvasScale?: number;
 }
 
-const IMAGE_ASPECT_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
+const IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
 const VIDEO_ASPECT_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
-const IMAGE_RESOLUTIONS = ['1k', '2k', '4k'];
+const IMAGE_RESOLUTIONS = ['1K', '2K', '4K'];
 const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'];
 const VIDEO_DURATIONS = [5, 8];
 const IMAGE_COUNTS = [1, 2, 3, 4];
@@ -54,6 +56,23 @@ const STYLE_PRESET_TABS = ['风格库', '滤镜', '功能', '自定义前后缀'
 const DEFAULT_NODE_WIDTH = 420;
 const DEFAULT_FIXED_HEIGHT = 360;
 const AUDIO_NODE_HEIGHT = 200;
+
+const getClosestAspectRatio = (width: number, height: number, ratios = IMAGE_ASPECT_RATIOS) => {
+    if (!width || !height) return ratios[0];
+    const target = width / height;
+    return ratios.reduce((closest, ratio) => {
+        const [rw, rh] = ratio.split(':').map(Number);
+        const [cw, ch] = closest.split(':').map(Number);
+        return Math.abs((rw / rh) - target) < Math.abs((cw / ch) - target) ? ratio : closest;
+    }, ratios[0]);
+};
+
+const normalizeAspectRatio = (ratio?: string, ratios = IMAGE_ASPECT_RATIOS) => {
+    if (!ratio) return ratios[0];
+    if (ratios.includes(ratio)) return ratio;
+    const [width, height] = ratio.split(':').map(Number);
+    return getClosestAspectRatio(width, height, ratios);
+};
 const IMAGE_QUICK_ACTIONS = [
     { label: '图生图', prompt: '基于参考图片生成一张高质感图片，保持主体特征，优化光影、构图和细节。', icon: ImageIcon },
     { label: '图生视频', prompt: '基于参考图片生成一段流畅视频，保留主体一致性，加入自然镜头运动。', icon: Film },
@@ -62,22 +81,22 @@ const IMAGE_QUICK_ACTIONS = [
 ];
 const IMAGE_MODEL_CONFIGS = [
     {
+        l: 'Gemini 3.1 Flash',
+        v: 'gemini-3.1-flash-image-preview',
+        badge: '默认',
+        ratios: IMAGE_ASPECT_RATIOS,
+    },
+    {
         l: 'Gemini 3 Pro',
         v: 'gemini-3-pro-image-preview',
         badge: '高质',
-        ratios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
-    },
-    {
-        l: 'Gemini 3.1 Flash',
-        v: 'gemini-3.1-flash-image-preview',
-        badge: '快速',
-        ratios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
+        ratios: IMAGE_ASPECT_RATIOS,
     },
     {
         l: 'Imagen 3',
         v: 'imagen-3.0-generate-002',
         badge: '写实',
-        ratios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
+        ratios: IMAGE_ASPECT_RATIOS,
     },
 ];
 const VIDEO_QUICK_ACTIONS = [
@@ -206,6 +225,7 @@ const arePropsEqual = (prev: NodeProps, next: NodeProps) => {
     if (prev.isDragging !== next.isDragging ||
         prev.isResizing !== next.isResizing ||
         prev.isSelected !== next.isSelected ||
+        prev.canvasScale !== next.canvasScale ||
         prev.isGroupDragging !== next.isGroupDragging ||
         prev.isConnecting !== next.isConnecting) {
         return false;
@@ -393,7 +413,7 @@ const getFittedImageNodeSize = (imageWidth: number, imageHeight: number, current
 };
 
 const NodeComponent: React.FC<NodeProps> = ({
-    node, onUpdate, onAction, onDelete, onExpand, onCrop, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, isDragging, isGroupDragging, isSelected, isResizing, isConnecting
+    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1
 }) => {
     const isWorking = node.status === NodeStatus.WORKING;
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -413,6 +433,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [localPrompt, setLocalPrompt] = useState(node.data.prompt || '');
     const [inputHeight, setInputHeight] = useState(48);
     const [isStylePresetOpen, setIsStylePresetOpen] = useState(false);
+    const [isImageMoreOpen, setIsImageMoreOpen] = useState(false);
     const [stylePresetTab, setStylePresetTab] = useState<'风格库' | '滤镜' | '功能' | '自定义前后缀'>('风格库');
     const [styleCategory, setStyleCategory] = useState<string>('全部');
     const isResizingInput = useRef(false);
@@ -420,6 +441,21 @@ const NodeComponent: React.FC<NodeProps> = ({
     const inputStartHeight = useRef(0);
 
     useEffect(() => { setLocalPrompt(node.data.prompt || ''); }, [node.data.prompt]);
+    useEffect(() => {
+        if (node.type !== NodeType.IMAGE_GENERATOR || !node.data.image) return;
+
+        let cancelled = false;
+        const image = new Image();
+        image.onload = () => {
+            if (cancelled) return;
+            const detectedRatio = getClosestAspectRatio(image.naturalWidth || image.width, image.naturalHeight || image.height);
+            if (node.data.aspectRatio !== detectedRatio) {
+                onUpdate(node.id, { aspectRatio: detectedRatio });
+            }
+        };
+        image.src = node.data.image;
+        return () => { cancelled = true; };
+    }, [node.id, node.type, node.data.image]);
     const commitPrompt = () => { if (localPrompt !== (node.data.prompt || '')) onUpdate(node.id, { prompt: localPrompt }); };
     const handleActionClick = () => { commitPrompt(); onAction(node.id, localPrompt); };
     const handleCmdEnter = (e: React.KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commitPrompt(); onAction(node.id, localPrompt); } };
@@ -515,12 +551,13 @@ const NodeComponent: React.FC<NodeProps> = ({
         try {
             const prepared = await prepareUploadedImage(file);
             const nextSize = getFittedImageNodeSize(prepared.width, prepared.height, node.width || DEFAULT_NODE_WIDTH);
+            const detectedRatio = getClosestAspectRatio(prepared.width, prepared.height);
             onUpdate(
                 node.id,
                 {
                     image: prepared.dataUrl,
                     images: undefined,
-                    aspectRatio: `${prepared.width}:${prepared.height}`,
+                    aspectRatio: detectedRatio,
                 },
                 nextSize
             );
@@ -584,20 +621,105 @@ const NodeComponent: React.FC<NodeProps> = ({
         : STYLE_PRESETS.filter(preset => preset.category === styleCategory);
 
     const applyStylePreset = (preset: StylePreset) => {
-        const presetPrompt = hasInputs ? preset.promptWithRef : preset.prompt;
-        const trimmedPrompt = localPrompt.trim();
-        const nextPrompt = trimmedPrompt
-            ? `${trimmedPrompt}\n\n${presetPrompt}`
-            : presetPrompt;
-
-        setLocalPrompt(nextPrompt);
+        const isSamePreset = node.data.stylePresetId === preset.id;
         onUpdate(node.id, {
-            prompt: nextPrompt,
-            stylePresetId: preset.id,
-            stylePresetName: preset.name,
-            stylePresetNegativePrompt: preset.negativePrompt,
+            stylePresetId: isSamePreset ? undefined : preset.id,
+            stylePresetName: isSamePreset ? undefined : preset.name,
+            stylePresetNegativePrompt: isSamePreset ? undefined : preset.negativePrompt,
         });
-        setIsStylePresetOpen(false);
+        if (!isSamePreset) setIsStylePresetOpen(false);
+    };
+
+    const clearStylePreset = () => {
+        onUpdate(node.id, {
+            stylePresetId: undefined,
+            stylePresetName: undefined,
+            stylePresetNegativePrompt: undefined,
+        });
+    };
+
+    const applyImageToolPrompt = (instruction: string) => {
+        const currentPrompt = localPrompt.trim();
+        const nextPrompt = currentPrompt ? `${currentPrompt}\n${instruction}` : instruction;
+        setLocalPrompt(nextPrompt);
+        onUpdate(node.id, { prompt: nextPrompt });
+    };
+
+    const imageToolButtonClass = 'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[10px] font-bold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white';
+
+    const renderImageSelectionToolbar = () => {
+        if (!isImageNode || !node.data.image || !isSelected) return null;
+        const toolbarScale = 1 / Math.max(0.2, canvasScale);
+        const detectedAspectRatio = normalizeAspectRatio(node.data.aspectRatio);
+
+        return (
+            <div
+                className="absolute bottom-full left-1/2 z-[240] mb-4 flex w-max items-center gap-0.5 whitespace-nowrap rounded-2xl border border-white/10 bg-[#252527]/95 p-1.5 shadow-2xl backdrop-blur-2xl"
+                style={{
+                    transform: `translateX(-50%) scale(${toolbarScale})`,
+                    transformOrigin: 'bottom center',
+                }}
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                onDoubleClick={e => e.stopPropagation()}
+            >
+                <label className={`${imageToolButtonClass} cursor-pointer`}>
+                    <Scaling size={13} />
+                    <select
+                        value={detectedAspectRatio}
+                        onChange={e => handleAspectRatioSelect(e.target.value)}
+                        className="cursor-pointer appearance-none bg-transparent pr-1 text-[10px] font-bold text-zinc-300 outline-none"
+                        title="画面比例"
+                    >
+                        {IMAGE_ASPECT_RATIOS.map(ratio => <option key={ratio} value={ratio} className="bg-[#252527]">{ratio}</option>)}
+                    </select>
+                </label>
+                <button className={imageToolButtonClass} title="增强画面细节" onClick={() => applyImageToolPrompt('增强画面清晰度、材质细节与光影层次，保持主体和构图不变。')}>
+                    <SlidersHorizontal size={13} />增强
+                </button>
+                <button className={imageToolButtonClass} title="编辑画面元素" onClick={() => applyImageToolPrompt('编辑画面中的指定元素，保持未指定区域、主体身份和整体风格不变。')}>
+                    <Layers size={13} />编辑元素
+                </button>
+                <button className={imageToolButtonClass} title="生成分镜方案" onClick={() => applyImageToolPrompt('以当前图片为视觉基准，设计一组镜头连贯、主体一致的专业分镜。')}>
+                    <Film size={13} />分镜大师
+                </button>
+                <button className={imageToolButtonClass} title="生成宫格构图" onClick={() => applyImageToolPrompt('将当前主题扩展为构图统一、视角丰富的九宫格画面方案。')}>
+                    <Grid3X3 size={13} />宫格裁剪
+                </button>
+                <button className={imageToolButtonClass} title="调整拍摄角度" onClick={() => applyImageToolPrompt('调整拍摄角度和透视关系，保持主体造型、材质和场景一致。')}>
+                    <Rotate3D size={13} />角度
+                </button>
+                <button className={imageToolButtonClass} title="调整画面打光" onClick={() => applyImageToolPrompt('重新设计专业摄影打光，提升主体轮廓、层次和商业质感。')}>
+                    <SunMedium size={13} />打光
+                </button>
+                <div className="relative">
+                    <button className={imageToolButtonClass} title="更多图片工具" onClick={() => setIsImageMoreOpen(open => !open)}>
+                        <MoreHorizontal size={13} />更多
+                    </button>
+                    {isImageMoreOpen && (
+                        <div className="absolute left-0 top-full z-[260] mt-2 min-w-32 rounded-xl border border-white/10 bg-[#252527]/98 p-1.5 shadow-2xl backdrop-blur-2xl">
+                            <button className={`${imageToolButtonClass} w-full justify-start`} onClick={() => { onCrop?.(node.id, node.data.image!); setIsImageMoreOpen(false); }}>
+                                <CropIcon size={13} />裁剪图片
+                            </button>
+                            <button className={`${imageToolButtonClass} w-full justify-start`} onClick={() => { fileInputRef.current?.click(); setIsImageMoreOpen(false); }}>
+                                <Replace size={13} />替换图片
+                            </button>
+                        </div>
+                    )}
+                </div>
+                <div className="mx-1 h-5 w-px shrink-0 bg-white/10" />
+                <button className={imageToolButtonClass} title="下载图片" onClick={handleDownload}>
+                    <Download size={13} />
+                </button>
+                <button className={imageToolButtonClass} title="放大预览" onClick={handleExpand}>
+                    <Maximize2 size={13} />
+                </button>
+                <div className="mx-1 h-5 w-px shrink-0 bg-white/10" />
+                <button className={`${imageToolButtonClass} pr-3`} title="将图片加入右侧 Agent" onClick={() => onAddToAgent?.(node.data.image!, node.title)}>
+                    <Bot size={13} />加入 Agent
+                </button>
+            </div>
+        );
     };
 
     const renderConnectedPlaceholder = (Icon: React.ElementType, title = '已连接，点击选中配置参数') => (
@@ -622,7 +744,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <span className="text-[11px] font-bold tracking-wide">Text</span>
                         </div>
                     )}
-                    {isImageNode && (
+                    {isImageNode && !node.data.image && (
                         <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/35 border border-white/10 backdrop-blur-md text-slate-300 shadow-lg">
                             <ImageIcon size={13} className="text-slate-300" />
                             <span className="text-[11px] font-bold tracking-wide">Image</span>
@@ -634,7 +756,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <span className="text-[11px] font-bold tracking-wide">Video</span>
                         </div>
                     )}
-                    {(node.data.image || node.data.videoUri || node.data.audioUri) && (
+                    {(node.data.videoUri || node.data.audioUri) && (
                         <div className="flex items-center gap-1">
                             <button onClick={handleDownload} className="p-1.5 bg-black/40 border border-white/10 backdrop-blur-md rounded-md text-slate-400 hover:text-white hover:border-white/30 transition-colors" title="下载"><Download size={14} /></button>
                             {node.type !== NodeType.AUDIO_GENERATOR && <button onClick={handleExpand} className="p-1.5 bg-black/40 border border-white/10 backdrop-blur-md rounded-md text-slate-400 hover:text-white hover:border-white/30 transition-colors" title="全屏预览"><Maximize2 size={14} /></button>}
@@ -753,11 +875,11 @@ const NodeComponent: React.FC<NodeProps> = ({
         const hasContent = node.data.image || node.data.videoUri;
         return (
             <div
-                className={`w-full h-full relative group/media overflow-hidden bg-zinc-900 ${hasContent ? 'cursor-zoom-in' : ''}`}
+                className="w-full h-full relative group/media overflow-hidden bg-zinc-900"
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
-                onClick={hasContent ? handleExpand : undefined}
-                title={hasContent ? '点击放大查看' : undefined}
+                onDoubleClick={hasContent ? handleExpand : undefined}
+                title={hasContent ? '单击选择，双击放大查看' : undefined}
             >
                 {isPreparingImageUpload && (
                     <div className="absolute inset-0 z-40 flex items-start justify-start bg-gradient-to-br from-slate-600/80 to-blue-950/80 p-4 backdrop-blur-sm">
@@ -925,13 +1047,24 @@ const NodeComponent: React.FC<NodeProps> = ({
                             </button>
                         ))}
                     </div>
-                    <button
-                        onClick={() => setIsStylePresetOpen(false)}
-                        className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
-                        title="关闭"
-                    >
-                        <X size={16} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {node.data.stylePresetId && (
+                            <button
+                                onClick={clearStylePreset}
+                                className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-bold text-zinc-400 transition-colors hover:border-red-400/30 hover:bg-red-400/10 hover:text-red-200"
+                                title="取消当前预设"
+                            >
+                                清除预设
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setIsStylePresetOpen(false)}
+                            className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
+                            title="关闭"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
                 </div>
 
                 {stylePresetTab === '风格库' ? (
@@ -985,6 +1118,9 @@ const NodeComponent: React.FC<NodeProps> = ({
             : isTextNode
                 ? '描述你想要生成的内容，并在下方调整生成参数。（Enter 生成，Shift+Enter 换行，可在左下角快捷键中修改）'
                 : '描述你想要生成的内容，使用 @ 可快速引用上传的文件，按 / 呼出指令';
+        const effectivePromptPlaceholder = isImageNode && node.data.stylePresetId
+            ? `填写补充说明，当前预设：${node.data.stylePresetName || '已选择'}`
+            : promptPlaceholder;
         let models: { l: string, v: string, badge?: string, ratios?: string[] }[] = [];
         if (node.type === NodeType.VIDEO_GENERATOR) {
             models = VIDEO_MODEL_CONFIGS;
@@ -999,6 +1135,7 @@ const NodeComponent: React.FC<NodeProps> = ({
         }
         const activeModelConfig = models.find(m => m.v === node.data.model);
         const activeAspectRatios = node.type.includes('VIDEO') ? VIDEO_ASPECT_RATIOS : (activeModelConfig?.ratios || IMAGE_ASPECT_RATIOS);
+        const displayedAspectRatio = normalizeAspectRatio(node.data.aspectRatio, activeAspectRatios);
 
         return (
             <div className={`absolute top-full left-1/2 -translate-x-1/2 w-[98%] pt-2 z-50 flex flex-col items-center justify-start transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? `opacity-100 translate-y-0 scale-100` : 'opacity-0 translate-y-[-10px] scale-95 pointer-events-none'}`}>
@@ -1062,7 +1199,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                     )}
                     {!hasGeneratedMedia && (
                         <div className="relative group/input bg-black/10 rounded-[16px]">
-                            <textarea className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500/60 p-3 focus:outline-none resize-none custom-scrollbar font-medium leading-relaxed" style={{ height: `${Math.min(inputHeight, 200)}px` }} placeholder={promptPlaceholder} value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={() => { setIsInputFocused(false); commitPrompt(); }} onKeyDown={handleCmdEnter} onFocus={() => setIsInputFocused(true)} onMouseDown={e => e.stopPropagation()} readOnly={isWorking} />
+                            <textarea className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500/60 p-3 focus:outline-none resize-none custom-scrollbar font-medium leading-relaxed" style={{ height: `${Math.min(inputHeight, 200)}px` }} placeholder={effectivePromptPlaceholder} value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={() => { setIsInputFocused(false); commitPrompt(); }} onKeyDown={handleCmdEnter} onFocus={() => setIsInputFocused(true)} onMouseDown={e => e.stopPropagation()} readOnly={isWorking} />
                             <div className="absolute bottom-0 left-0 w-full h-3 cursor-row-resize flex items-center justify-center opacity-0 group-hover/input:opacity-100 transition-opacity" onMouseDown={handleInputResizeStart}><div className="w-8 h-1 rounded-full bg-white/10 group-hover/input:bg-white/20" /></div>
                         </div>
                     )}
@@ -1077,11 +1214,11 @@ const NodeComponent: React.FC<NodeProps> = ({
                             )}
                             <div className="relative group/model">
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-emerald-300 hover:text-emerald-200"><span className="whitespace-nowrap">{activeModelConfig?.l || models.find(m => m.v === node.data.model)?.l || 'AI Model'}</span><ChevronDown size={10} /></div>
-                                <div className="absolute bottom-full left-0 pb-2 w-48 opacity-0 translate-y-2 pointer-events-none group-hover/model:opacity-100 group-hover/model:translate-y-0 group-hover/model:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{models.map(m => (<div key={m.v} onClick={() => onUpdate(node.id, { model: m.v, aspectRatio: (m.ratios?.includes(node.data.aspectRatio || '') ? node.data.aspectRatio : m.ratios?.[0]) || node.data.aspectRatio })} className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.model === m.v ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{m.l}</span>{m.badge && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">{m.badge}</span>}</div>))}</div></div>
+                                <div className="absolute bottom-full left-0 pb-2 w-48 opacity-0 translate-y-2 pointer-events-none group-hover/model:opacity-100 group-hover/model:translate-y-0 group-hover/model:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{models.map(m => (<div key={m.v} onClick={() => onUpdate(node.id, { model: m.v, aspectRatio: normalizeAspectRatio(node.data.aspectRatio, m.ratios || IMAGE_ASPECT_RATIOS) })} className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.model === m.v ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{m.l}</span>{m.badge && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">{m.badge}</span>}</div>))}</div></div>
                             </div>
-                            {node.type !== NodeType.VIDEO_ANALYZER && node.type !== NodeType.AUDIO_GENERATOR && !isVideoNode && !isTextNode && (<div className="relative group/ratio"><div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"><Scaling size={12} /><span>{node.data.aspectRatio || '16:9'}</span></div><div className="absolute bottom-full left-0 pb-2 w-28 opacity-0 translate-y-2 pointer-events-none group-hover/ratio:opacity-100 group-hover/ratio:translate-y-0 group-hover/ratio:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{activeAspectRatios.map(r => (<div key={r} onClick={() => handleAspectRatioSelect(r)} className={`flex items-center justify-between rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.aspectRatio === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{r}</span><span className="h-3 w-4 rounded-sm border border-current opacity-50" style={{ aspectRatio: r.replace(':', '/') }} /></div>))}</div></div></div>)}
+                            {node.type !== NodeType.VIDEO_ANALYZER && node.type !== NodeType.AUDIO_GENERATOR && !isVideoNode && !isTextNode && (<div className="relative group/ratio"><div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"><Scaling size={12} /><span>{displayedAspectRatio}</span></div><div className="absolute bottom-full left-0 pb-2 w-28 opacity-0 translate-y-2 pointer-events-none group-hover/ratio:opacity-100 group-hover/ratio:translate-y-0 group-hover/ratio:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{activeAspectRatios.map(r => (<div key={r} onClick={() => handleAspectRatioSelect(r)} className={`flex items-center justify-between rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${displayedAspectRatio === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{r}</span><span className="h-3 w-4 rounded-sm border border-current opacity-50" style={{ aspectRatio: r.replace(':', '/') }} /></div>))}</div></div></div>)}
                             {isVideoNode && (<div className="relative group/videoParams"><div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"><span>{node.data.resolution || '720p'} / {node.data.duration || 5}s / {generationMode === 'FIRST_LAST_FRAME' ? '是' : '否'} / {node.data.aspectRatio || '自适应'} / {generationMode === 'CUT' ? '是' : '否'}</span><ChevronDown size={10} /></div><div className="absolute bottom-full left-0 pb-2 w-44 opacity-0 translate-y-2 pointer-events-none group-hover/videoParams:opacity-100 group-hover/videoParams:translate-y-0 group-hover/videoParams:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1"><div className="px-3 py-1.5 text-[9px] font-bold text-zinc-500">清晰度</div>{VIDEO_RESOLUTIONS.map(r => (<div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.resolution === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}>{r}</div>))}<div className="mt-1 px-3 py-1.5 text-[9px] font-bold text-zinc-500">时长</div>{VIDEO_DURATIONS.map(d => (<div key={d} onClick={() => onUpdate(node.id, { duration: d })} className={`rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.duration || 5) === d ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}>{d}s</div>))}</div></div></div>)}
-                            {node.type.includes('IMAGE') && (<div className="relative group/resolution"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Monitor size={12} /><span>{node.data.resolution || '1k'}</span></div><div className="absolute bottom-full left-0 pb-2 w-20 opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{IMAGE_RESOLUTIONS.map(r => (<div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.resolution === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{r}</div>))}</div></div></div>)}
+                            {node.type.includes('IMAGE') && (<div className="relative group/resolution"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Monitor size={12} /><span>{node.data.resolution || '2K'}</span></div><div className="absolute bottom-full left-0 pb-2 w-20 opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{IMAGE_RESOLUTIONS.map(r => (<div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.resolution || '2K').toUpperCase() === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{r}</div>))}</div></div></div>)}
                             {(node.type.includes('IMAGE') || node.type === NodeType.VIDEO_GENERATOR) && (<div className="relative group/count"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Layers size={12} /><span>{node.type.includes('IMAGE') ? (node.data.imageCount || 1) : (node.data.videoCount || 1)}</span></div><div className="absolute bottom-full left-0 pb-2 w-16 opacity-0 translate-y-2 pointer-events-none group-hover/count:opacity-100 group-hover/count:translate-y-0 group-hover/count:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{(node.type.includes('IMAGE') ? IMAGE_COUNTS : VIDEO_COUNTS).map(c => (<div key={c} onClick={() => onUpdate(node.id, node.type.includes('IMAGE') ? { imageCount: c } : { videoCount: c })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${((node.type.includes('IMAGE') ? node.data.imageCount : node.data.videoCount) || 1) === c ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{c}</div>))}</div></div></div>)}
                         </div>
                         {isTextNode ? (
@@ -1117,6 +1254,7 @@ const NodeComponent: React.FC<NodeProps> = ({
             }}
             onMouseDown={(e) => onNodeMouseDown(e, node.id)} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} onContextMenu={(e) => onNodeContextMenu(e, node.id)}
         >
+            {renderImageSelectionToolbar()}
             {renderTopBar()}
             <div className={`absolute -left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md ${isConnecting ? 'ring-2 ring-cyan-400 animate-pulse' : ''}`} onMouseDown={(e) => onPortMouseDown(e, node.id, 'input')} onMouseUp={(e) => onPortMouseUp(e, node.id, 'input')} title="Input"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
             <div className={`absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md ${isConnecting ? 'ring-2 ring-purple-400 animate-pulse' : ''}`} onMouseDown={(e) => onPortMouseDown(e, node.id, 'output')} onMouseUp={(e) => onPortMouseUp(e, node.id, 'output')} title="Output"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
