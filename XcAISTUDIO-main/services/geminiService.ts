@@ -3,6 +3,7 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Modality, Part, FunctionDeclaration } from "@google/genai";
 import { SmartSequenceItem, VideoGenerationMode } from "../types";
 import { generateContentWithAnalysisFallback, getApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
+import { generateSeedanceVideo, generateWanVideo } from "./externalVideoProviders";
 
 // --- Initialization ---
 
@@ -437,26 +438,35 @@ export const generateImageFromText = async (
 export const generateVideo = async (
     prompt: string,
     model: string,
-    options: { aspectRatio?: string, count?: number, generationMode?: VideoGenerationMode, resolution?: string, duration?: number } = {},
+    options: { aspectRatio?: string, count?: number, generationMode?: VideoGenerationMode, resolution?: string, duration?: number, generateAudio?: boolean } = {},
     inputImageBase64?: string | null,
     videoInput?: any,
-    referenceImages?: string[]
+    referenceImages?: string[],
+    referenceVideos?: string[],
+    referenceAudios?: string[]
 ): Promise<{ uri: string, isFallbackImage?: boolean, videoMetadata?: any, uris?: string[] }> => {
-    const ai = getClient();
-
     // --- Quality Optimization ---
     const qualitySuffix = ", cinematic lighting, highly detailed, photorealistic, 4k, smooth motion, professional color grading";
     const enhancedPrompt = prompt + qualitySuffix;
 
-    // --- Model Selection & Resolution ---
-    // Default Veo Pro to 1080p if not specified
-    let resolution = options.resolution || (model.includes('pro') ? '1080p' : '720p');
-
-    // --- Wan 2.1 (Pollo) Path ---
-    if (model.includes('wan')) {
-        // Implementation for Wan via Pollo (Simplified for brevity, assuming similar logic or placeholder)
-        // ... (Wan Logic)
+    if (model.startsWith('seedance')) {
+        return generateSeedanceVideo(enhancedPrompt, model, options, inputImageBase64, referenceImages, referenceVideos, referenceAudios);
     }
+    if (model.startsWith('wan')) {
+        return generateWanVideo(enhancedPrompt, options, inputImageBase64);
+    }
+
+    const ai = getClient();
+
+    // --- Model Selection & Resolution ---
+    const requestedResolution = options.resolution || '1080p';
+    const resolution =
+        requestedResolution === '4k' || requestedResolution === 'native4k'
+            ? '4k'
+            : requestedResolution === '1080p' || requestedResolution === '2k' || requestedResolution === 'native1080p'
+                ? '1080p'
+                : '720p';
+    const aspectRatio = options.aspectRatio === '9:16' ? '9:16' : '16:9';
 
     // --- Google Veo Path ---
 
@@ -478,6 +488,11 @@ export const generateVideo = async (
         // Here we assume it was passed as inputImageBase64 by strategy
     }
 
+    if (options.generationMode === 'FIRST_LAST_FRAME' && referenceImages && referenceImages.length >= 2) {
+        const lastFrame = await convertImageToCompatibleFormat(referenceImages[referenceImages.length - 1]);
+        inputs.lastFrame = { imageBytes: lastFrame.data, mimeType: lastFrame.mimeType };
+    }
+
     // 2. Handle Video Input (e.g. for edit/continuation)
     if (videoInput) {
         inputs.video = videoInput;
@@ -487,12 +502,23 @@ export const generateVideo = async (
     // Note: Current SDK 'generateVideos' might support 'referenceImages' config for specific models
     const config: any = {
         numberOfVideos: 1, // API restriction: Must be 1
-        aspectRatio: options.aspectRatio || '16:9',
+        aspectRatio,
         resolution: resolution as any,
-        durationSeconds: options.duration || 5
+        durationSeconds:
+            resolution === '1080p' ||
+            resolution === '4k' ||
+            options.generationMode === 'FIRST_LAST_FRAME' ||
+            Boolean(referenceImages?.length)
+                ? 8
+                : (options.duration || 8)
     };
 
-    if (referenceImages && referenceImages.length > 0 && model === 'veo-3.0-generate-001') {
+    if (
+        referenceImages &&
+        referenceImages.length > 0 &&
+        options.generationMode !== 'FIRST_LAST_FRAME' &&
+        model.includes('veo-3.1')
+    ) {
         // Some Veo models support referenceImages config
         // Converting references
         const refsPayload = [];
@@ -536,9 +562,12 @@ export const generateVideo = async (
             if (res.status === 'fulfilled') {
                 const vid = res.value.response?.generatedVideos?.[0]?.video;
                 if (vid?.uri) {
-                    // Fetch to hydrate (and check access) - usually frontend needs key appended
-                    // But here we just return the URI. Frontend appends key.
-                    const fullUri = `${vid.uri}&key=${process.env.API_KEY}`;
+                    const apiConfig = getApiConfig();
+                    const needsGoogleKey = !apiConfig.isYunwu && /googleapis\.com|googleusercontent\.com/.test(vid.uri);
+                    const separator = vid.uri.includes('?') ? '&' : '?';
+                    const fullUri = needsGoogleKey
+                        ? `${vid.uri}${separator}key=${encodeURIComponent(apiConfig.apiKey)}`
+                        : vid.uri;
                     validUris.push(fullUri);
                     if (!primaryMetadata) primaryMetadata = vid;
                 }
@@ -561,19 +590,8 @@ export const generateVideo = async (
         };
 
     } catch (e: any) {
-        console.warn("Veo Generation Failed. Falling back to Image.", e);
-
-        // --- Fallback: Generate Image ---
-        // CRITICAL FIX: Pass the input image to the fallback generator so it respects the upstream content!
-        try {
-            const fallbackPrompt = "Cinematic movie still, " + enhancedPrompt;
-            const inputImages = finalInputImageBase64 ? [finalInputImageBase64] : [];
-
-            const imgs = await generateImageFromText(fallbackPrompt, 'gemini-3-pro-image-preview', inputImages, { aspectRatio: options.aspectRatio });
-            return { uri: imgs[0], isFallbackImage: true };
-        } catch (imgErr) {
-            throw new Error("Video generation failed and Image fallback also failed: " + getErrorMessage(e));
-        }
+        console.error("Veo Generation Failed:", e);
+        throw new Error("Veo 视频生成失败：" + getErrorMessage(e));
     }
 };
 

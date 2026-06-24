@@ -36,6 +36,7 @@ interface UnifiedSettingsModalProps {
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 const NO1_IMAGE_NODES = [
@@ -117,6 +118,25 @@ const sendTestRequest = async (
   throw lastError || new Error('Connection failed');
 };
 
+const testVolcengineConnection = async (
+  baseUrl: string,
+  apiKey: string
+): Promise<void> => {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+  const response = await fetch(`${normalizedBaseUrl}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData?.error?.message || errorData?.message || `HTTP Error ${response.status}`);
+  }
+  await response.json().catch(() => ({}));
+};
+
 export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOpen, onClose, initialTab = 'model' }) => {
   const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'cache'>(initialTab);
 
@@ -146,6 +166,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isJijingKeyVisible, setIsJijingKeyVisible] = useState(false);
   const [jijingEnabled, setJijingEnabled] = useState(false);
 
+  const [volcengineApiKey, setVolcengineApiKey] = useState('');
+  const [isVolcengineKeyVisible, setIsVolcengineKeyVisible] = useState(false);
+  const [volcengineEnabled, setVolcengineEnabled] = useState(false);
+
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
@@ -161,6 +185,8 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
   const [nativeTestStatus, setNativeTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [nativeTestMessage, setNativeTestMessage] = useState('');
+  const [volcengineTestStatus, setVolcengineTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [volcengineTestMessage, setVolcengineTestMessage] = useState('');
   const [showUsageGuide, setShowUsageGuide] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
@@ -238,6 +264,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     lastAutoJijingKeyRef.current = savedJijingKey || '';
     if (savedJijingUrl) setJijingBaseUrl(savedJijingUrl === LEGACY_JIJING_BASE_URL ? DEFAULT_NO1_IMAGE_BASE_URL : savedJijingUrl);
     setJijingEnabled(savedJijingEnabled === 'true');
+
+    const savedVolcengineKey = localStorage.getItem('volcengine_api_key') || localStorage.getItem('seedance_api_key');
+    const savedVolcengineEnabled = localStorage.getItem('seedance_enabled');
+    if (savedVolcengineKey) setVolcengineApiKey(savedVolcengineKey);
+    setVolcengineEnabled(savedVolcengineEnabled === 'true' || Boolean(savedVolcengineKey));
     setSettingsLoaded(true);
   }, [isOpen]);
 
@@ -319,6 +350,12 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('jijing_api_key', jijingApiKey.trim());
     localStorage.setItem('jijing_base_url', jijingBaseUrl.trim() || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingEnabled));
+
+    localStorage.setItem('volcengine_api_key', volcengineApiKey.trim());
+    localStorage.setItem('seedance_api_key', volcengineApiKey.trim());
+    localStorage.setItem('seedance_base_url', DEFAULT_VOLCENGINE_BASE_URL);
+    localStorage.removeItem('seedance_model');
+    localStorage.setItem('seedance_enabled', String(volcengineEnabled));
 
     window.dispatchEvent(new Event('agent-settings-updated'));
     window.dispatchEvent(new Event('api-settings-updated'));
@@ -406,6 +443,28 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     } catch (e: any) {
       setNativeTestStatus('error');
       setNativeTestMessage(`❌ ${e.message}`);
+    }
+  };
+
+  const handleTestVolcengine = async () => {
+    const key = volcengineApiKey.trim();
+    if (!key) {
+      setVolcengineTestStatus('error');
+      setVolcengineTestMessage('请输入火山方舟 API Key');
+      return;
+    }
+    setVolcengineTestStatus('testing');
+    setVolcengineTestMessage('正在验证火山方舟配置...');
+    try {
+      await testVolcengineConnection(
+        DEFAULT_VOLCENGINE_BASE_URL,
+        key
+      );
+      setVolcengineTestStatus('success');
+      setVolcengineTestMessage('连接成功，可使用火山方舟模型');
+    } catch (e: any) {
+      setVolcengineTestStatus('error');
+      setVolcengineTestMessage(e?.message || '连接失败');
     }
   };
 
@@ -605,6 +664,66 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
             <div className="flex-1 overflow-y-auto p-8 lg:p-10 custom-scrollbar">
               {activeTab === 'model' ? (
                 <div className="space-y-8 max-w-4xl">
+                  {/* Volcengine Ark / Seedance Config */}
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${volcengineEnabled ? 'bg-white dark:bg-white/5 border-orange-300 dark:border-orange-500/40' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-3 rounded-2xl ${volcengineEnabled ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'}`}>
+                          <Cloud className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className={`text-lg font-black ${volcengineEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>火山引擎方舟</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">配置一次 API Key，即可供工作站中的火山方舟模型共用</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setVolcengineEnabled(!volcengineEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${volcengineEnabled ? 'bg-orange-500' : 'bg-gray-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${volcengineEnabled ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {volcengineEnabled && (
+                      <div className="space-y-5 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> Ark API Key</label>
+                          <div className="relative">
+                            <textarea
+                              value={volcengineApiKey}
+                              onChange={(e) => setVolcengineApiKey(e.target.value)}
+                              rows={3}
+                              style={{ WebkitTextSecurity: isVolcengineKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-orange-500/20 outline-none font-mono resize-none"
+                              placeholder="输入火山方舟 API Key"
+                            />
+                            <button onClick={() => setIsVolcengineKeyVisible(!isVolcengineKeyVisible)} className="absolute right-3 top-3 text-gray-400">
+                              {isVolcengineKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-gray-500">模型 ID 由工作站中的模型选择器自动传入，无需在此单独配置。</p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4 mt-2">
+                          <div className="flex-1">
+                            {volcengineTestStatus !== 'idle' && (
+                              <span className={`text-xs font-bold ${volcengineTestStatus === 'success' ? 'text-green-500' : volcengineTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                {volcengineTestStatus === 'testing' ? '正在测试连接...' : volcengineTestMessage}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={handleTestVolcengine}
+                            disabled={volcengineTestStatus === 'testing'}
+                            className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-orange-50 dark:hover:bg-orange-500/10 text-gray-500 hover:text-orange-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
+                          >
+                            {volcengineTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Plato Config */}
                   <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${platoEnabled ? 'bg-white dark:bg-white/5 border-rose-200 dark:border-rose-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">

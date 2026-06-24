@@ -7,6 +7,8 @@ export interface StrategyResult {
     videoInput: any;
     inputImageForGeneration: string | null;
     referenceImages: string[] | undefined;
+    referenceVideos?: string[];
+    referenceAudios?: string[];
     generationMode: VideoGenerationMode;
 }
 
@@ -19,12 +21,12 @@ export const processDefaultVideoGen = async (
     // In Default mode, we strictly look for an Image input to do standard I2V.
     // We ignore video metadata (continuations), reference arrays, etc.
 
-    let inputImageForGeneration: string | null = null;
+    let inputImageForGeneration: string | null = node.data.croppedFrame || node.data.image || null;
 
     // Prioritize direct image inputs or cropped frames
     const imageInput = inputs.find(n => n.data.image || n.data.croppedFrame);
 
-    if (imageInput) {
+    if (!inputImageForGeneration && imageInput) {
         inputImageForGeneration = imageInput.data.croppedFrame || imageInput.data.image || null;
     }
 
@@ -46,7 +48,9 @@ export const processStoryContinuator = async (
     inputs: AppNode[],
     prompt: string
 ): Promise<StrategyResult> => {
-    let inputImages: string[] = [];
+    let inputImages: string[] = node.data.croppedFrame || node.data.image
+        ? [node.data.croppedFrame || node.data.image!]
+        : [];
 
     // 1. Check for Upstream Video (for Metadata)
     // CRITICAL FIX: For Story Continuation, we strictly want "Image-to-Video" behavior
@@ -56,7 +60,7 @@ export const processStoryContinuator = async (
 
     const videoNode = inputs.find(n => n.data.videoUri || n.data.videoMetadata);
 
-    if (videoNode && videoNode.data.videoUri) {
+    if (inputImages.length === 0 && videoNode && videoNode.data.videoUri) {
         try {
             let videoSrc = videoNode.data.videoUri;
             // Ensure we have a base64 source for frame extraction (canvas needs it, or cross-origin blob)
@@ -89,6 +93,8 @@ export const processFrameWeaver = async (
     prompt: string
 ): Promise<StrategyResult> => {
     const inputImages: string[] = [];
+    if (node.data.croppedFrame) inputImages.push(node.data.croppedFrame);
+    else if (node.data.image) inputImages.push(node.data.image);
     inputs.forEach(n => {
         if (n.data.croppedFrame) inputImages.push(n.data.croppedFrame);
         else if (n.data.image) inputImages.push(n.data.image);
@@ -211,10 +217,19 @@ export const processCharacterRef = async (
 ): Promise<StrategyResult> => {
     // 1. Identify Sources
     const videoSource = inputs.find(n => n.data.videoUri);
-    const imageSource = inputs.find(n => n.data.image);
+    const imageSource = inputs.find(n => n.data.image || n.data.croppedFrame);
+    const referenceImages = inputs
+        .map(n => n.data.croppedFrame || n.data.image)
+        .filter((value): value is string => Boolean(value));
+    const referenceVideos = inputs
+        .map(n => n.data.videoUri)
+        .filter((value): value is string => Boolean(value));
+    const referenceAudios = inputs
+        .map(n => n.data.audioUri)
+        .filter((value): value is string => Boolean(value));
 
     // Fallback: If no image source, check for inputs that have image data (maybe prompts that generated images)
-    const characterImage = imageSource?.data.image || inputs.find(n => n.data.image)?.data.image || null;
+    const characterImage = imageSource?.data.croppedFrame || imageSource?.data.image || null;
 
     let motionDescription = "";
 
@@ -250,7 +265,9 @@ export const processCharacterRef = async (
         finalPrompt,
         videoInput: null, // We do NOT pass the video bytes to Veo for generation, we only used it for prompting
         inputImageForGeneration: characterImage, // This is the "Anchor" (The Character)
-        referenceImages: undefined,
+        referenceImages,
+        referenceVideos,
+        referenceAudios,
         generationMode: 'CHARACTER_REF'
     };
 };
