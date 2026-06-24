@@ -3,7 +3,7 @@
 // ... existing imports
 import { AppNode, NodeStatus, NodeType } from '../types';
 import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings, SlidersHorizontal, Grid3X3, Rotate3D, SunMedium, Bot, Replace } from 'lucide-react';
-import { VideoModeSelector, SceneDirectorOverlay } from './VideoNodeModules';
+import { SceneDirectorOverlay } from './VideoNodeModules';
 import React, { memo, useRef, useState, useEffect, useCallback } from 'react';
 import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
 
@@ -12,7 +12,7 @@ import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
 // Restore missing constants
 interface InputAsset {
     id: string;
-    type: 'image' | 'video';
+    type: 'image' | 'video' | 'audio';
     src: string;
 }
 
@@ -42,10 +42,10 @@ interface NodeProps {
 }
 
 const IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
-const VIDEO_ASPECT_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
+const VIDEO_ASPECT_RATIOS = ['9:16', '16:9', '4:3', '1:1', '3:4', '21:9'];
 const IMAGE_RESOLUTIONS = ['1K', '2K', '4K'];
-const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'];
-const VIDEO_DURATIONS = [5, 8];
+const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p', '2k', '4k', 'native1080p', 'native4k'];
+const VIDEO_DURATIONS = Array.from({ length: 12 }, (_, index) => index + 4);
 const IMAGE_COUNTS = [1, 2, 3, 4];
 const VIDEO_COUNTS = [1, 2, 3, 4];
 const UPLOAD_IMAGE_MAX_EDGE = 1536;
@@ -113,8 +113,8 @@ const VIDEO_MODE_TABS = [
 ];
 const VIDEO_MODEL_CONFIGS = [
     { l: 'Seedance 2.0', v: 'seedance-2.0', badge: '推荐' },
-    { l: 'Veo 极速版', v: 'veo-3.0-fast-generate-001', badge: '快速' },
-    { l: 'Veo 专业版', v: 'veo-3.0-generate-001', badge: 'Pro' },
+    { l: 'Veo 3.1 Fast', v: 'veo-3.1-fast-generate-preview', badge: '快速' },
+    { l: 'Veo 3.1', v: 'veo-3.1-generate-preview', badge: 'Pro' },
     { l: 'Wan 2.1', v: 'wan-2.1-t2v-14b', badge: 'Animate' },
 ];
 const TEXT_QUICK_ACTIONS = [
@@ -319,6 +319,7 @@ const InputThumbnails = ({ assets, onReorder }: { assets: InputAsset[], onReorde
                         else if (index < originalIndex && index >= draggingVirtualIndex) translateX = ITEM_FULL_WIDTH;
                     }
                     const isVideo = asset.type === 'video';
+                    const isAudio = asset.type === 'audio';
                     return (
                         <div
                             key={asset.id}
@@ -333,6 +334,10 @@ const InputThumbnails = ({ assets, onReorder }: { assets: InputAsset[], onReorde
                         >
                             {isVideo ? (
                                 <SecureVideo src={asset.src} className="w-full h-full object-cover pointer-events-none select-none opacity-80 group-hover:opacity-100 transition-opacity bg-zinc-900" muted loop autoPlay />
+                            ) : isAudio ? (
+                                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-pink-500/20 to-purple-500/20 text-pink-300">
+                                    <Music size={18} />
+                                </div>
                             ) : (
                                 <img src={asset.src} className="w-full h-full object-cover pointer-events-none select-none opacity-80 group-hover:opacity-100 transition-opacity bg-zinc-900" alt="" />
                             )}
@@ -428,11 +433,12 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isInputFocused, setIsInputFocused] = useState(false);
     const [isPreparingImageUpload, setIsPreparingImageUpload] = useState(false);
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-    const generationMode = node.data.generationMode || 'CONTINUE';
+    const generationMode = node.data.generationMode || 'DEFAULT';
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [localPrompt, setLocalPrompt] = useState(node.data.prompt || '');
     const [inputHeight, setInputHeight] = useState(48);
     const [isStylePresetOpen, setIsStylePresetOpen] = useState(false);
+    const [isVideoSettingsOpen, setIsVideoSettingsOpen] = useState(false);
     const [isImageMoreOpen, setIsImageMoreOpen] = useState(false);
     const [stylePresetTab, setStylePresetTab] = useState<'风格库' | '滤镜' | '功能' | '自定义前后缀'>('风格库');
     const [styleCategory, setStyleCategory] = useState<string>('全部');
@@ -570,6 +576,22 @@ const NodeComponent: React.FC<NodeProps> = ({
             setIsPreparingImageUpload(false);
         }
     };
+    const handleUploadVideoReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.type.startsWith('image/')) {
+            e.target.value = '';
+            const prepared = await prepareUploadedImage(file);
+            onUpdate(node.id, {
+                image: prepared.dataUrl,
+                videoUri: undefined,
+                videoMetadata: undefined,
+                generationMode: node.data.generationMode === 'FIRST_LAST_FRAME' ? 'FIRST_LAST_FRAME' : 'CONTINUE',
+            });
+            return;
+        }
+        handleUploadVideo(e);
+    };
     const handleAspectRatioSelect = (newRatio: string) => {
         const [w, h] = newRatio.split(':').map(Number);
         let newSize: { width?: number, height?: number } = { height: undefined };
@@ -607,6 +629,29 @@ const NodeComponent: React.FC<NodeProps> = ({
     const nodeHeight = getNodeHeight();
     const nodeWidth = node.width || DEFAULT_NODE_WIDTH;
     const hasInputs = inputAssets && inputAssets.length > 0;
+    const inputImageCount = inputAssets?.filter(asset => asset.type === 'image').length || 0;
+    const inputVideoCount = inputAssets?.filter(asset => asset.type === 'video').length || 0;
+    const inputAudioCount = inputAssets?.filter(asset => asset.type === 'audio').length || 0;
+    const referenceCount = inputImageCount + inputVideoCount + inputAudioCount;
+    const getVideoModeAvailability = (mode: AppNode['data']['generationMode']) => {
+        if (mode === 'DEFAULT') return { enabled: true, tip: '无需连接参考素材' };
+        if (mode === 'CHARACTER_REF') {
+            return {
+                enabled: referenceCount > 0 && inputImageCount <= 9 && inputVideoCount <= 3 && inputAudioCount <= 3,
+                tip: '需要连接上游节点（最多 9 张图片 / 3 个视频 / 3 个音频）',
+            };
+        }
+        if (mode === 'CONTINUE') {
+            return {
+                enabled: inputImageCount === 1 && inputVideoCount === 0 && inputAudioCount === 0,
+                tip: '需断开其他素材，仅连接 1 个图片节点',
+            };
+        }
+        return {
+            enabled: inputImageCount >= 1 && inputImageCount <= 2 && inputVideoCount === 0 && inputAudioCount === 0,
+            tip: '仅支持连接 1–2 张图片',
+        };
+    };
     const isTextNode = node.type === NodeType.PROMPT_INPUT;
     const isImageNode = node.type === NodeType.IMAGE_GENERATOR;
     const isVideoNode = node.type === NodeType.VIDEO_GENERATOR;
@@ -637,6 +682,13 @@ const NodeComponent: React.FC<NodeProps> = ({
             stylePresetNegativePrompt: undefined,
         });
     };
+
+    useEffect(() => {
+        if (!isVideoNode || generationMode === 'DEFAULT') return;
+        if (!getVideoModeAvailability(generationMode).enabled) {
+            onUpdate(node.id, { generationMode: 'DEFAULT' });
+        }
+    }, [isVideoNode, generationMode, inputImageCount, inputVideoCount, inputAudioCount]);
 
     const applyImageToolPrompt = (instruction: string) => {
         const currentPrompt = localPrompt.trim();
@@ -737,7 +789,6 @@ const NodeComponent: React.FC<NodeProps> = ({
         return (
             <div className={`absolute -top-10 left-0 w-full flex items-center justify-between px-1 transition-all duration-300 ${showTopBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
                 <div className="flex items-center gap-1.5 pointer-events-auto">
-                    {node.type === NodeType.VIDEO_GENERATOR && !isEmptyVideoNode && (<VideoModeSelector currentMode={generationMode} onSelect={(mode) => onUpdate(node.id, { generationMode: mode })} />)}
                     {isTextNode && (
                         <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/35 border border-white/10 backdrop-blur-md text-slate-300 shadow-lg">
                             <Type size={13} className="text-slate-300" />
@@ -957,11 +1008,11 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 <Upload size={13} />
                                 上传参考
                             </button>
-                            <input type="file" ref={fileInputRef} className="hidden" accept="video/*" onChange={handleUploadVideo} />
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleUploadVideoReference} />
                         </div>
                         )
                     ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-600"><div className="w-20 h-20 rounded-[28px] bg-white/5 border border-white/5 flex items-center justify-center cursor-pointer hover:bg-white/10 hover:scale-105 transition-all duration-300 shadow-inner" onClick={() => fileInputRef.current?.click()}>{isWorking ? <Loader2 className="animate-spin text-cyan-500" size={32} /> : <NodeIcon size={32} className="opacity-50" />}</div><span className="text-[11px] font-bold uppercase tracking-[0.2em] opacity-40">{isWorking ? "处理中..." : "拖拽或上传"}</span><input type="file" ref={fileInputRef} className="hidden" accept={node.type.includes('VIDEO') ? "video/*" : "image/*"} onChange={node.type.includes('VIDEO') ? handleUploadVideo : handleUploadImage} /></div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-600"><div className="w-20 h-20 rounded-[28px] bg-white/5 border border-white/5 flex items-center justify-center cursor-pointer hover:bg-white/10 hover:scale-105 transition-all duration-300 shadow-inner" onClick={() => fileInputRef.current?.click()}>{isWorking ? <Loader2 className="animate-spin text-cyan-500" size={32} /> : <NodeIcon size={32} className="opacity-50" />}</div><span className="text-[11px] font-bold uppercase tracking-[0.2em] opacity-40">{isWorking ? "处理中..." : "拖拽或上传"}</span><input type="file" ref={fileInputRef} className="hidden" accept={node.type.includes('VIDEO') ? "image/*,video/*" : "image/*"} onChange={node.type.includes('VIDEO') ? handleUploadVideoReference : handleUploadImage} /></div>
                     )
                 ) : (
                     <>
@@ -1148,15 +1199,31 @@ const NodeComponent: React.FC<NodeProps> = ({
                         <div className="flex items-center justify-between gap-3 px-2 pt-1">
                             <div className="flex items-center gap-1">
                                 {VIDEO_MODE_TABS.map(tab => {
-                                    const active = generationMode === tab.mode || (tab.label === '文生视频' && generationMode === 'DEFAULT');
+                                    const active = generationMode === tab.mode;
+                                    const availability = getVideoModeAvailability(tab.mode);
                                     return (
-                                        <button
-                                            key={tab.label}
-                                            onClick={() => onUpdate(node.id, { generationMode: tab.mode })}
-                                            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${active ? 'bg-white/10 text-zinc-100 ring-1 ring-white/10' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
-                                        >
-                                            {tab.label}
-                                        </button>
+                                        <div key={tab.label} className="group/mode relative">
+                                            <button
+                                                type="button"
+                                                aria-disabled={!availability.enabled}
+                                                onClick={() => availability.enabled && onUpdate(node.id, { generationMode: tab.mode })}
+                                                className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
+                                                    active
+                                                        ? 'bg-white/10 text-zinc-100 ring-1 ring-white/10'
+                                                        : availability.enabled
+                                                            ? 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
+                                                            : 'cursor-not-allowed text-zinc-700'
+                                                }`}
+                                            >
+                                                {tab.label}
+                                            </button>
+                                            {tab.mode !== 'DEFAULT' && (
+                                                <div className="pointer-events-none absolute bottom-full left-1/2 z-[300] mb-2 hidden w-max max-w-[230px] -translate-x-1/2 rounded-lg border border-white/10 bg-black/95 px-2.5 py-1.5 text-[10px] font-medium leading-4 text-zinc-300 shadow-xl group-hover/mode:block">
+                                                    {availability.tip}
+                                                    <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-black/95" />
+                                                </div>
+                                            )}
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -1214,10 +1281,91 @@ const NodeComponent: React.FC<NodeProps> = ({
                             )}
                             <div className="relative group/model">
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-emerald-300 hover:text-emerald-200"><span className="whitespace-nowrap">{activeModelConfig?.l || models.find(m => m.v === node.data.model)?.l || 'AI Model'}</span><ChevronDown size={10} /></div>
-                                <div className="absolute bottom-full left-0 pb-2 w-48 opacity-0 translate-y-2 pointer-events-none group-hover/model:opacity-100 group-hover/model:translate-y-0 group-hover/model:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{models.map(m => (<div key={m.v} onClick={() => onUpdate(node.id, { model: m.v, aspectRatio: normalizeAspectRatio(node.data.aspectRatio, m.ratios || IMAGE_ASPECT_RATIOS) })} className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.model === m.v ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{m.l}</span>{m.badge && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">{m.badge}</span>}</div>))}</div></div>
+                                <div className="absolute bottom-full left-0 pb-2 w-48 opacity-0 translate-y-2 pointer-events-none group-hover/model:opacity-100 group-hover/model:translate-y-0 group-hover/model:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{models.map(m => (<div key={m.v} onClick={() => onUpdate(node.id, isVideoNode ? { model: m.v, resolution: node.data.resolution || '1080p', duration: m.v.includes('veo-3.1') ? 8 : (node.data.duration || 5) } : { model: m.v, aspectRatio: normalizeAspectRatio(node.data.aspectRatio, m.ratios || IMAGE_ASPECT_RATIOS) })} className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.model === m.v ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{m.l}</span>{m.badge && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">{m.badge}</span>}</div>))}</div></div>
                             </div>
                             {node.type !== NodeType.VIDEO_ANALYZER && node.type !== NodeType.AUDIO_GENERATOR && !isVideoNode && !isTextNode && (<div className="relative group/ratio"><div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"><Scaling size={12} /><span>{displayedAspectRatio}</span></div><div className="absolute bottom-full left-0 pb-2 w-28 opacity-0 translate-y-2 pointer-events-none group-hover/ratio:opacity-100 group-hover/ratio:translate-y-0 group-hover/ratio:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{activeAspectRatios.map(r => (<div key={r} onClick={() => handleAspectRatioSelect(r)} className={`flex items-center justify-between rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${displayedAspectRatio === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{r}</span><span className="h-3 w-4 rounded-sm border border-current opacity-50" style={{ aspectRatio: r.replace(':', '/') }} /></div>))}</div></div></div>)}
-                            {isVideoNode && (<div className="relative group/videoParams"><div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"><span>{node.data.resolution || '720p'} / {node.data.duration || 5}s / {generationMode === 'FIRST_LAST_FRAME' ? '是' : '否'} / {node.data.aspectRatio || '自适应'} / {generationMode === 'CUT' ? '是' : '否'}</span><ChevronDown size={10} /></div><div className="absolute bottom-full left-0 pb-2 w-44 opacity-0 translate-y-2 pointer-events-none group-hover/videoParams:opacity-100 group-hover/videoParams:translate-y-0 group-hover/videoParams:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1"><div className="px-3 py-1.5 text-[9px] font-bold text-zinc-500">清晰度</div>{VIDEO_RESOLUTIONS.map(r => (<div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.resolution === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}>{r}</div>))}<div className="mt-1 px-3 py-1.5 text-[9px] font-bold text-zinc-500">时长</div>{VIDEO_DURATIONS.map(d => (<div key={d} onClick={() => onUpdate(node.id, { duration: d })} className={`rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.duration || 5) === d ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}>{d}s</div>))}</div></div></div>)}
+                            {isVideoNode && (
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setIsVideoSettingsOpen(open => !open)}
+                                        className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-emerald-400/30 hover:bg-emerald-400/10 hover:text-emerald-200"
+                                    >
+                                        <span>
+                                            {node.data.resolution || '1080p'} / {node.data.duration || 5}s / {node.data.generateAudio === false ? '否' : '是'} / {node.data.aspectRatio || '自适应'}
+                                        </span>
+                                        <ChevronDown size={10} className={isVideoSettingsOpen ? 'rotate-180' : ''} />
+                                    </button>
+                                    {isVideoSettingsOpen && (
+                                        <div className="absolute bottom-full left-0 z-[240] mb-2 w-[320px] rounded-2xl border border-white/10 bg-[#232325] p-4 shadow-2xl">
+                                            <div className="space-y-4">
+                                                <section>
+                                                    <div className="mb-2 text-[11px] font-bold text-zinc-400">分辨率</div>
+                                                    <div className="grid grid-cols-5 gap-1 rounded-xl bg-black/20 p-1">
+                                                        {VIDEO_RESOLUTIONS.map(resolution => (
+                                                            <button
+                                                                key={resolution}
+                                                                onClick={() => onUpdate(node.id, { resolution })}
+                                                                className={`rounded-lg px-1 py-2 text-[10px] font-bold transition-colors ${node.data.resolution === resolution ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
+                                                            >
+                                                                {resolution}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </section>
+                                                <section>
+                                                    <div className="mb-2 text-[11px] font-bold text-zinc-400">生成时长</div>
+                                                    <div className="grid grid-cols-4 gap-1 rounded-xl bg-black/20 p-1">
+                                                        {VIDEO_DURATIONS.map(duration => (
+                                                            <button
+                                                                key={duration}
+                                                                onClick={() => onUpdate(node.id, { duration })}
+                                                                className={`rounded-lg py-2 text-[10px] font-bold transition-colors ${(node.data.duration || 5) === duration ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
+                                                            >
+                                                                {duration}s
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </section>
+                                                <section>
+                                                    <div className="mb-2 text-[11px] font-bold text-zinc-400">生成视频音频</div>
+                                                    <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/20 p-1">
+                                                        {[true, false].map(enabled => (
+                                                            <button
+                                                                key={String(enabled)}
+                                                                onClick={() => onUpdate(node.id, { generateAudio: enabled })}
+                                                                className={`rounded-lg py-2 text-[10px] font-bold transition-colors ${(node.data.generateAudio !== false) === enabled ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
+                                                            >
+                                                                {enabled ? '是' : '否'}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </section>
+                                                <section>
+                                                    <div className="mb-2 text-[11px] font-bold text-zinc-400">比例</div>
+                                                    <div className="grid grid-cols-4 gap-1 rounded-xl bg-black/20 p-1">
+                                                        <button
+                                                            onClick={() => onUpdate(node.id, { aspectRatio: undefined })}
+                                                            className={`rounded-lg py-2 text-[10px] font-bold transition-colors ${!node.data.aspectRatio ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
+                                                        >
+                                                            自适应
+                                                        </button>
+                                                        {VIDEO_ASPECT_RATIOS.map(ratio => (
+                                                            <button
+                                                                key={ratio}
+                                                                onClick={() => handleAspectRatioSelect(ratio)}
+                                                                className={`flex flex-col items-center gap-1 rounded-lg py-2 text-[10px] font-bold transition-colors ${node.data.aspectRatio === ratio ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
+                                                            >
+                                                                <span className="block h-3 rounded-sm border border-current opacity-70" style={{ aspectRatio: ratio.replace(':', '/'), width: ratio === '9:16' ? 7 : 14 }} />
+                                                                {ratio}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </section>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {node.type.includes('IMAGE') && (<div className="relative group/resolution"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Monitor size={12} /><span>{node.data.resolution || '2K'}</span></div><div className="absolute bottom-full left-0 pb-2 w-20 opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{IMAGE_RESOLUTIONS.map(r => (<div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.resolution || '2K').toUpperCase() === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{r}</div>))}</div></div></div>)}
                             {(node.type.includes('IMAGE') || node.type === NodeType.VIDEO_GENERATOR) && (<div className="relative group/count"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Layers size={12} /><span>{node.type.includes('IMAGE') ? (node.data.imageCount || 1) : (node.data.videoCount || 1)}</span></div><div className="absolute bottom-full left-0 pb-2 w-16 opacity-0 translate-y-2 pointer-events-none group-hover/count:opacity-100 group-hover/count:translate-y-0 group-hover/count:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{(node.type.includes('IMAGE') ? IMAGE_COUNTS : VIDEO_COUNTS).map(c => (<div key={c} onClick={() => onUpdate(node.id, node.type.includes('IMAGE') ? { imageCount: c } : { videoCount: c })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${((node.type.includes('IMAGE') ? node.data.imageCount : node.data.videoCount) || 1) === c ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{c}</div>))}</div></div></div>)}
                         </div>

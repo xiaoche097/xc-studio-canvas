@@ -1,84 +1,127 @@
-
-import React, { useState, useEffect } from 'react';
-import { X, Save, Key, ExternalLink } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Key, Save, X } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+interface ProviderFields {
+  seedanceKey: string;
+  seedanceBaseUrl: string;
+  seedanceModel: string;
+  wanKey: string;
+  wanBaseUrl: string;
+  wanModel: string;
+}
+
+const defaults: ProviderFields = {
+  seedanceKey: '',
+  seedanceBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  seedanceModel: 'seedance-2.0',
+  wanKey: '',
+  wanBaseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+  wanModel: 'wan2.1-t2v-turbo',
+};
+
+const Field = ({
+  label,
+  value,
+  onChange,
+  secret = false,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  secret?: boolean;
+  placeholder?: string;
+}) => (
+  <label className="block space-y-2">
+    <span className="text-[11px] font-bold text-zinc-400">{label}</span>
+    <input
+      type={secret ? 'password' : 'text'}
+      autoComplete="off"
+      value={value}
+      placeholder={placeholder}
+      onChange={event => onChange(event.target.value)}
+      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs text-white outline-none transition-colors placeholder:text-zinc-700 focus:border-emerald-400/50"
+    />
+  </label>
+);
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [polloKey, setPolloKey] = useState('');
-  const [isSaved, setIsSaved] = useState(false);
+  const [fields, setFields] = useState(defaults);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem('pollo_api_key');
-    if (stored) setPolloKey(stored);
+    if (!isOpen) return;
+    setFields({
+      seedanceKey: localStorage.getItem('seedance_api_key') || '',
+      seedanceBaseUrl: localStorage.getItem('seedance_base_url') || defaults.seedanceBaseUrl,
+      seedanceModel: localStorage.getItem('seedance_model') || defaults.seedanceModel,
+      wanKey: localStorage.getItem('wan_api_key') || '',
+      wanBaseUrl: localStorage.getItem('wan_base_url') || defaults.wanBaseUrl,
+      wanModel: localStorage.getItem('wan_model') || defaults.wanModel,
+    });
   }, [isOpen]);
 
+  const update = (key: keyof ProviderFields, value: string) => {
+    setFields(current => ({ ...current, [key]: value }));
+  };
+
   const handleSave = () => {
-    localStorage.setItem('pollo_api_key', polloKey.trim());
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2000);
-    setTimeout(onClose, 500);
+    localStorage.setItem('seedance_api_key', fields.seedanceKey.trim());
+    localStorage.setItem('seedance_base_url', fields.seedanceBaseUrl.trim());
+    localStorage.setItem('seedance_model', fields.seedanceModel.trim());
+    localStorage.setItem('wan_api_key', fields.wanKey.trim());
+    localStorage.setItem('wan_base_url', fields.wanBaseUrl.trim());
+    localStorage.setItem('wan_model', fields.wanModel.trim());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-200" onClick={onClose}>
-      <div 
-        className="w-[480px] bg-[#1c1c1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/5">
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
-            <X size={18} />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[86vh] w-[560px] overflow-hidden rounded-2xl border border-white/10 bg-[#1c1c1e] shadow-2xl" onClick={event => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.03] p-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-white">
+            <Key size={16} />
+            视频模型接入
+          </div>
+          <button onClick={onClose} className="text-zinc-500 transition-colors hover:text-white"><X size={18} /></button>
+        </div>
+
+        <div className="max-h-[68vh] space-y-5 overflow-y-auto p-6">
+          <section className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+            <div>
+              <h3 className="text-sm font-bold text-white">Seedance / 火山方舟</h3>
+              <p className="mt-1 text-[11px] leading-5 text-zinc-500">支持文生视频、首帧、首尾帧与多参考素材。模型 ID 可按方舟控制台实际开通的接入点修改。</p>
+            </div>
+            <Field label="API Key" secret value={fields.seedanceKey} onChange={value => update('seedanceKey', value)} placeholder="输入火山方舟 API Key" />
+            <Field label="Base URL" value={fields.seedanceBaseUrl} onChange={value => update('seedanceBaseUrl', value)} />
+            <Field label="模型 / Endpoint ID" value={fields.seedanceModel} onChange={value => update('seedanceModel', value)} />
+          </section>
+
+          <section className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+            <div>
+              <h3 className="text-sm font-bold text-white">Wan / DashScope</h3>
+              <p className="mt-1 text-[11px] leading-5 text-zinc-500">支持文生视频和图生视频。图生视频时会自动使用上传或连接的首帧。</p>
+            </div>
+            <Field label="API Key" secret value={fields.wanKey} onChange={value => update('wanKey', value)} placeholder="输入 DashScope API Key" />
+            <Field label="Base URL" value={fields.wanBaseUrl} onChange={value => update('wanBaseUrl', value)} />
+            <Field label="默认模型 ID" value={fields.wanModel} onChange={value => update('wanModel', value)} />
+          </section>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-white/5 bg-[#121214] p-4">
+          <span className="text-[10px] text-zinc-600">密钥仅保存在当前浏览器本地。</span>
+          <button onClick={handleSave} className={`flex items-center gap-2 rounded-xl px-5 py-2 text-xs font-bold transition-colors ${saved ? 'bg-emerald-500 text-white' : 'bg-white text-black hover:bg-emerald-300'}`}>
+            <Save size={13} />
+            {saved ? '已保存' : '保存配置'}
           </button>
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-slate-700/50 rounded-lg">
-                <Key size={16} className="text-white" />
-            </div>
-            <span className="text-sm font-bold text-white">设置 (Settings)</span>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pollo.ai API Key (Wan 2.5)</label>
-                <a href="https://pollo.ai/dashboard/api-keys" target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors">
-                    <span>获取 Key</span>
-                    <ExternalLink size={10} />
-                </a>
-            </div>
-            
-            <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-slate-500 font-mono text-xs">key-</span>
-                </div>
-                <input 
-                    type="password" 
-                    autoComplete="off"
-                    className="w-full bg-black/30 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 transition-colors font-mono"
-                    placeholder="粘贴您的 Pollo API Key..."
-                    value={polloKey}
-                    onChange={(e) => setPolloKey(e.target.value)}
-                />
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-                用于激活 <strong>Wan 2.1 / Wan 2.5</strong> 视频生成模型。密钥仅保存在您的浏览器本地存储中，不会上传至 SunStudio 服务器。
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 border-t border-white/5 bg-[#121214] flex justify-end">
-            <button 
-                onClick={handleSave}
-                className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${isSaved ? 'bg-green-500 text-white' : 'bg-white text-black hover:bg-cyan-400'}`}
-            >
-                {isSaved ? '已保存' : '保存设置'}
-            </button>
         </div>
       </div>
     </div>

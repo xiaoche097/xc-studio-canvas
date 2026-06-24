@@ -43,6 +43,7 @@ export interface AppNode {
     aspectRatio?: string; // e.g., '16:9', '4:3'
     resolution?: string; // e.g., '1080p', '4k'
     duration?: number; // Duration in seconds (for Audio/Video)
+    generateAudio?: boolean; // Whether the video model should generate synchronized audio
     stylePresetId?: string;
     stylePresetName?: string;
     stylePresetNegativePrompt?: string;

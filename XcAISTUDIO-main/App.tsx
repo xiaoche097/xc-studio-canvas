@@ -8,7 +8,7 @@ import { ImageCropper } from './components/ImageCropper';
 import { SketchEditor } from './components/SketchEditor';
 import { SmartSequenceDock } from './components/SmartSequenceDock';
 import { SonicStudio } from './components/SonicStudio';
-import { SettingsModal } from './components/SettingsModal';
+import { UnifiedSettingsModal } from '../components/UnifiedSettingsModal';
 import { HistoryModal } from './components/HistoryModal';
 
 declare global {
@@ -495,14 +495,17 @@ export const App = () => {
         try { saveHistory(); } catch (e) { }
 
         const defaults: any = {
-            model: type === NodeType.VIDEO_GENERATOR ? 'veo-3.0-fast-generate-001' :
+            model: type === NodeType.VIDEO_GENERATOR ? 'seedance-2.0' :
                 type === NodeType.VIDEO_ANALYZER ? 'gemini-3-pro-preview' :
                     type === NodeType.AUDIO_GENERATOR ? 'gemini-2.5-flash-preview-tts' :
                         type === NodeType.PROMPT_INPUT ? 'gemini-3.1-flash-lite-preview' :
                             type.includes('IMAGE') ? 'gemini-3.1-flash-image-preview' :
                                 'gemini-3-pro-preview',
             generationMode: type === NodeType.VIDEO_GENERATOR ? 'DEFAULT' : undefined, // Initialize as DEFAULT (Off)
-            resolution: type === NodeType.IMAGE_GENERATOR ? '2K' : initialData?.resolution,
+            aspectRatio: initialData?.aspectRatio,
+            resolution: type === NodeType.IMAGE_GENERATOR ? '2K' : type === NodeType.VIDEO_GENERATOR ? '1080p' : initialData?.resolution,
+            duration: type === NodeType.VIDEO_GENERATOR ? 5 : initialData?.duration,
+            generateAudio: type === NodeType.VIDEO_GENERATOR ? true : initialData?.generateAudio,
             imageCount: type === NodeType.IMAGE_GENERATOR ? 1 : initialData?.imageCount,
             ...initialData
         };
@@ -1055,12 +1058,39 @@ export const App = () => {
                         source: 'xc-workstation',
                         nodeType: node.type,
                         model: node.data.model,
-                        aspectRatio: node.data.aspectRatio || '16:9',
+                        aspectRatio: node.data.aspectRatio,
                         resolution: node.data.resolution,
                     }
                 });
 
             } else if (node.type === NodeType.VIDEO_GENERATOR) {
+                const referenceImages = inputs.filter(input => input?.data.croppedFrame || input?.data.image);
+                const referenceVideos = inputs.filter(input => input?.data.videoUri);
+                const referenceAudios = inputs.filter(input => input?.data.audioUri);
+                const mode = node.data.generationMode || 'DEFAULT';
+
+                if (mode === 'CHARACTER_REF') {
+                    if (referenceImages.length + referenceVideos.length + referenceAudios.length === 0) {
+                        throw new Error('全能参考需要连接上游素材节点');
+                    }
+                    if (referenceImages.length > 9 || referenceVideos.length > 3 || referenceAudios.length > 3) {
+                        throw new Error('全能参考最多支持 9 张图片、3 个视频和 3 个音频');
+                    }
+                }
+                if (mode === 'CONTINUE' && (referenceImages.length !== 1 || referenceVideos.length > 0 || referenceAudios.length > 0)) {
+                    throw new Error('首帧模式只能连接 1 个图片节点');
+                }
+                if (
+                    mode === 'FIRST_LAST_FRAME' &&
+                    (
+                        referenceImages.length < 1 ||
+                        referenceImages.length > 2 ||
+                        referenceVideos.length > 0 ||
+                        referenceAudios.length > 0
+                    )
+                ) {
+                    throw new Error('首尾帧模式仅支持连接 1–2 张图片');
+                }
 
                 const strategy = await getGenerationStrategy(node, inputs, prompt);
 
@@ -1068,15 +1098,18 @@ export const App = () => {
                     strategy.finalPrompt,
                     node.data.model,
                     {
-                        aspectRatio: node.data.aspectRatio || '16:9',
+                        aspectRatio: node.data.aspectRatio,
                         count: node.data.videoCount || 1,
                         generationMode: strategy.generationMode,
                         resolution: node.data.resolution,
-                        duration: node.data.duration || 5
+                        duration: node.data.duration || 5,
+                        generateAudio: node.data.generateAudio !== false
                     },
                     strategy.inputImageForGeneration,
                     strategy.videoInput,
-                    strategy.referenceImages
+                    strategy.referenceImages,
+                    strategy.referenceVideos,
+                    strategy.referenceAudios
                 );
 
                 if (res.isFallbackImage) {
@@ -1529,7 +1562,15 @@ export const App = () => {
                             }}
                             isSelected={selectedNodeIds.includes(node.id)}
                             canvasScale={scale}
-                            inputAssets={node.inputs.map(i => nodes.find(n => n.id === i)).filter(n => n && (n.data.image || n.data.videoUri || n.data.croppedFrame)).slice(0, 6).map(n => ({ id: n!.id, type: (n!.data.croppedFrame || n!.data.image) ? 'image' : 'video', src: n!.data.croppedFrame || n!.data.image || n!.data.videoUri! }))}
+                            inputAssets={node.inputs
+                                .map(i => nodes.find(n => n.id === i))
+                                .filter(n => n && (n.data.image || n.data.videoUri || n.data.croppedFrame || n.data.audioUri))
+                                .slice(0, 15)
+                                .map(n => ({
+                                    id: n!.id,
+                                    type: (n!.data.croppedFrame || n!.data.image) ? 'image' as const : n!.data.videoUri ? 'video' as const : 'audio' as const,
+                                    src: n!.data.croppedFrame || n!.data.image || n!.data.videoUri || n!.data.audioUri!
+                                }))}
                             onInputReorder={(nodeId, newOrder) => { const node = nodes.find(n => n.id === nodeId); if (node) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
                             isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIds.includes(node.id)}
                         />
@@ -1728,7 +1769,7 @@ export const App = () => {
                     history={assetHistory.filter(a => a.type === 'audio')}
                     onGenerate={(src, prompt) => handleAssetGenerated('audio', src, prompt)}
                 />
-                <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+                <UnifiedSettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} initialTab="model" />
                 <HistoryModal
                     isOpen={isHistoryModalOpen}
                     onClose={() => setIsHistoryModalOpen(false)}
