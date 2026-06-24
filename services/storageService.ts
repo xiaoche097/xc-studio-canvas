@@ -256,11 +256,13 @@ class StorageService {
     async deleteProject(id: string): Promise<void> {
         const db = await this.dbPromise;
         await db.delete(STORE_NAME, id);
+        window.dispatchEvent(new CustomEvent('project-cache-updated'));
     }
 
     async deleteAllProjects(): Promise<void> {
         const db = await this.dbPromise;
         await db.clear(STORE_NAME);
+        window.dispatchEvent(new CustomEvent('project-cache-updated'));
     }
 
     async deleteProjectsOlderThan(cutoffTime: number): Promise<number> {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CardProps } from '../types';
 import { RefreshIcon, CheckIcon } from './Icons';
 import { Visualizer } from './Visualizer';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 // --- Shared Button Component ---
 const CardActions: React.FC<{ onConfirm: () => void; onRegenerate?: () => void; confirmText: string }> = ({ onConfirm, onRegenerate, confirmText }) => (
@@ -567,6 +568,17 @@ export const GenerationCard: React.FC<GenerationCardProps> = ({
         initialImage={resultImage}
         allowedRatios={['1:1', '3:4', '4:3', '16:9', '9:16']}
         autoGenerate={false}
+        onImageGenerated={(url) => {
+          void saveGeneratedProject({
+            type: 'OTHER',
+            generated: [url],
+            prompt,
+            params: {
+              source: 'agent-generation-card',
+              aspectRatio,
+            }
+          });
+        }}
       />
 
       {/* Prompt Reference (Optional, but useful) */}

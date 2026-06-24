@@ -8,6 +8,7 @@ import { ChatInput } from './ChatInput';
 import { PromptInspector } from './PromptInspector';
 import { gemini } from '../lib/gemini';
 import { storageService } from '../services/storageService';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 // @ts-ignore
 import launchPrompt from '../src/prompts/launch.md?raw';
 // @ts-ignore
@@ -1218,7 +1219,20 @@ ${customCaps ? `核心能力与指令：\n${customCaps}\n` : ''}
               productionData={prodExtracted}
               mode={mode}
               generatedImages={analysisImages}
-              onImageUpdate={(key, url) => setAnalysisImages(prev => ({ ...prev, [key]: url }))}
+              onImageUpdate={(key, url) => {
+                setAnalysisImages(prev => ({ ...prev, [key]: url }));
+                void saveGeneratedProject({
+                  type: 'LAUNCH_PACKAGE',
+                  generated: [url],
+                  original: initialImages,
+                  prompt: initialInput,
+                  params: {
+                    source: 'agent-production',
+                    assetKey: key,
+                    model: initialModel,
+                  }
+                });
+              }}
               onConfirm={() => handleUserConfirm(WorkflowStep.COMPLETED)}
             />
             <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-white/10 mt-2">

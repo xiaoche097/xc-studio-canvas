@@ -26,7 +26,7 @@ import {
     Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2, Workflow as WorkflowIcon,
     Layers, Volume2, Box, Clapperboard, History
 } from 'lucide-react';
-import { storageService } from '../services/storageService';
+import { saveGeneratedProject } from '../services/projectHistoryService';
 
 // Apple Physics Curve
 const SPRING = "cubic-bezier(0.32, 0.72, 0, 1)";
@@ -885,19 +885,6 @@ export const App = () => {
                     handleAssetGenerated('image', data.image, updated.title);
                 }
 
-                if (data.image) {
-                    // Auto-Save Image Project
-                    if (n.type === NodeType.IMAGE_GENERATOR) {
-                        storageService.saveProject({
-                            id: crypto.randomUUID(),
-                            type: 'OTHER', // Or Image
-                            createdAt: Date.now(),
-                            thumbnail: data.image,
-                            assets: { generated: [data.image] },
-                            metadata: { prompt: n.data.prompt || updated.title }
-                        }).catch(console.error);
-                    }
-                }
                 if (data.videoUris?.length) {
                     handleAssetsGenerated('video', data.videoUris, updated.title);
                 } else if (data.videoUri) {
@@ -906,14 +893,12 @@ export const App = () => {
 
                 if (data.videoUri) {
                     // Auto-Save Video Project
-                    storageService.saveProject({
-                        id: crypto.randomUUID(),
+                    saveGeneratedProject({
                         type: 'VIDEO',
-                        createdAt: Date.now(),
-                        thumbnail: '', // Video usually needs a poster, but we can rely on IDB to store generic or use a placeholder
-                        assets: { generated: [data.videoUri] },
-                        metadata: { prompt: n.data.prompt || updated.title }
-                    }).catch(console.error);
+                        generated: [data.videoUri],
+                        prompt: n.data.prompt || updated.title,
+                        params: { source: 'xc-workstation', nodeType: n.type }
+                    });
                 }
                 if (data.audioUri) handleAssetGenerated('audio', data.audioUri, updated.title);
 
@@ -1009,6 +994,19 @@ export const App = () => {
                                 try {
                                     const res = await generateImageFromText(n.data.prompt!, n.data.model!, inputImages, { aspectRatio: n.data.aspectRatio, resolution: n.data.resolution, count: 1 });
                                     handleNodeUpdate(n.id, { image: res[0], images: res, status: NodeStatus.SUCCESS });
+                                    await saveGeneratedProject({
+                                        type: 'OTHER',
+                                        generated: res,
+                                        original: inputImages,
+                                        prompt: n.data.prompt,
+                                        params: {
+                                            source: 'xc-workstation',
+                                            nodeType: n.type,
+                                            model: n.data.model,
+                                            aspectRatio: n.data.aspectRatio,
+                                            resolution: n.data.resolution,
+                                        }
+                                    });
                                 } catch (e: any) {
                                     handleNodeUpdate(n.id, { error: e.message, status: NodeStatus.ERROR });
                                 }
@@ -1021,6 +1019,19 @@ export const App = () => {
                 }
                 const res = await generateImageFromText(prompt, node.data.model, inputImages, { aspectRatio: node.data.aspectRatio || '16:9', resolution: node.data.resolution, count: node.data.imageCount });
                 handleNodeUpdate(id, { image: res[0], images: res });
+                await saveGeneratedProject({
+                    type: 'OTHER',
+                    generated: res,
+                    original: inputImages,
+                    prompt,
+                    params: {
+                        source: 'xc-workstation',
+                        nodeType: node.type,
+                        model: node.data.model,
+                        aspectRatio: node.data.aspectRatio || '16:9',
+                        resolution: node.data.resolution,
+                    }
+                });
 
             } else if (node.type === NodeType.VIDEO_GENERATOR) {
 
@@ -1049,6 +1060,12 @@ export const App = () => {
                         error: "Region restricted: Generated preview image instead.",
                         status: NodeStatus.SUCCESS
                     });
+                    await saveGeneratedProject({
+                        type: 'OTHER',
+                        generated: [res.uri],
+                        prompt: strategy.finalPrompt,
+                        params: { source: 'xc-workstation', nodeType: node.type, fallbackFromVideo: true }
+                    });
                 } else {
                     handleNodeUpdate(id, { videoUri: res.uri, videoMetadata: res.videoMetadata, videoUris: res.uris });
                 }
@@ -1070,6 +1087,13 @@ export const App = () => {
                 const img = node.data.image || inputImages[0];
                 const res = await editImageWithText(img, prompt, node.data.model);
                 handleNodeUpdate(id, { image: res });
+                await saveGeneratedProject({
+                    type: 'RETOUCHING',
+                    generated: [res],
+                    original: img ? [img] : [],
+                    prompt,
+                    params: { source: 'xc-workstation', nodeType: node.type, model: node.data.model }
+                });
             }
             setNodes(p => p.map(n => n.id === id ? { ...n, status: NodeStatus.SUCCESS } : n));
         } catch (e: any) {
