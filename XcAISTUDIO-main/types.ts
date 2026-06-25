@@ -49,6 +49,7 @@ export interface AppNode {
     stylePresetId?: string;
     stylePresetName?: string;
     stylePresetNegativePrompt?: string;
+    textMode?: 'launcher' | 'editor';
     
     // Video Strategies (StoryContinuator, SceneDirector, FrameWeaver, CharacterRef)
     generationMode?: VideoGenerationMode; 

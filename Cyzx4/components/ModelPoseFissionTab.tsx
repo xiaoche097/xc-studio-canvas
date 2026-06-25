@@ -40,6 +40,7 @@ import { SOLAVIBE_POSES } from '../constants/solavibePosePresets';
 import { KARISMINA_POSES } from '../constants/karisminaPosePresets';
 import { Y2K_POSES } from '../constants/y2kPosePresets';
 import { SURI_MIRA_POSES } from '../constants/suriMiraPosePresets';
+import { QURAKEM_POSES } from '../constants/qurakemPosePresets';
 
 type UploadKind = 'model' | 'product' | 'scene' | 'action' | 'accessory';
 type MainReferenceKind = UploadKind | 'overall' | 'color';
@@ -59,7 +60,8 @@ type PoseLibraryKey =
   | 'solavibe'
   | 'karismina'
   | 'suriMira'
-  | 'y2k';
+  | 'y2k'
+  | 'qurakem';
 
 type PosePreset = {
   id: string;
@@ -142,6 +144,7 @@ const POSE_LIBRARIES: Array<{ key: PoseLibraryKey; label: string; desc: string; 
   { key: 'sleepwear', label: '睡衣/居家', desc: '居家睡衣', poses: SLEEPWEAR_POSES },
   { key: 'solavibe', label: 'Solavibe 大码度假', desc: '度假大码', poses: SOLAVIBE_POSES },
   { key: 'y2k', label: 'Y2K Editorial', desc: 'Denim/Trouser high-fashion', poses: Y2K_POSES },
+  { key: 'qurakem', label: 'Qurakem高张力男装', desc: 'Y2K/设计师裤装/冷感棚拍', poses: QURAKEM_POSES },
 ];
 
 const PLATFORM_STYLES: Array<{ key: PlatformKey; label: string; desc: string; icon: string; prompt: string }> = [
