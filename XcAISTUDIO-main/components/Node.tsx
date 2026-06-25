@@ -222,10 +222,13 @@ const safePause = (e: React.SyntheticEvent<HTMLVideoElement> | HTMLVideoElement)
 
 // Custom Comparator for React.memo to prevent unnecessary re-renders during drag
 const arePropsEqual = (prev: NodeProps, next: NodeProps) => {
+    const renderQualityChanged = (prev.canvasScale < 0.65) !== (next.canvasScale < 0.65);
+    const selectedScaleChanged = Boolean(prev.isSelected || next.isSelected) && prev.canvasScale !== next.canvasScale;
     if (prev.isDragging !== next.isDragging ||
         prev.isResizing !== next.isResizing ||
         prev.isSelected !== next.isSelected ||
-        prev.canvasScale !== next.canvasScale ||
+        renderQualityChanged ||
+        selectedScaleChanged ||
         prev.isGroupDragging !== next.isGroupDragging ||
         prev.isConnecting !== next.isConnecting) {
         return false;
@@ -235,7 +238,11 @@ const arePropsEqual = (prev: NodeProps, next: NodeProps) => {
     const nextInputs = next.inputAssets || [];
     if (prevInputs.length !== nextInputs.length) return false;
     for (let i = 0; i < prevInputs.length; i++) {
-        if (prevInputs[i].id !== nextInputs[i].id || prevInputs[i].src !== nextInputs[i].src) return false;
+        if (
+            prevInputs[i].id !== nextInputs[i].id ||
+            prevInputs[i].src !== nextInputs[i].src ||
+            prevInputs[i].type !== nextInputs[i].type
+        ) return false;
     }
     return true;
 };
@@ -448,7 +455,7 @@ const NodeComponent: React.FC<NodeProps> = ({
 
     useEffect(() => { setLocalPrompt(node.data.prompt || ''); }, [node.data.prompt]);
     useEffect(() => {
-        if (node.type !== NodeType.IMAGE_GENERATOR || !node.data.image) return;
+        if (node.type !== NodeType.IMAGE_GENERATOR || !node.data.image || node.data.aspectRatio) return;
 
         let cancelled = false;
         const image = new Image();
@@ -459,9 +466,9 @@ const NodeComponent: React.FC<NodeProps> = ({
                 onUpdate(node.id, { aspectRatio: detectedRatio });
             }
         };
-        image.src = node.data.image;
+        image.src = node.data.imagePreview || node.data.image;
         return () => { cancelled = true; };
-    }, [node.id, node.type, node.data.image]);
+    }, [node.id, node.type, node.data.image, node.data.imagePreview, node.data.aspectRatio]);
     const commitPrompt = () => { if (localPrompt !== (node.data.prompt || '')) onUpdate(node.id, { prompt: localPrompt }); };
     const handleActionClick = () => { commitPrompt(); onAction(node.id, localPrompt); };
     const handleCmdEnter = (e: React.KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commitPrompt(); onAction(node.id, localPrompt); } };
@@ -838,7 +845,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                     {isWorking && <div className="bg-[#2c2c2e]/90 backdrop-blur-md p-1.5 rounded-full border border-white/10"><Loader2 className="animate-spin w-3 h-3 text-cyan-400" /></div>}
                     <div className={`px-2 py-1 flex items-center gap-2`}>
                         {isEditingTitle ? (
-                            <input className="bg-transparent border-none outline-none text-slate-400 text-[10px] font-bold uppercase tracking-wider w-24 text-right" value={tempTitle} onChange={(e) => setTempTitle(e.target.value)} onBlur={handleTitleSave} onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()} onMouseDown={e => e.stopPropagation()} autoFocus />
+                            <input className="bg-transparent border-none outline-none text-slate-400 text-[10px] font-bold uppercase tracking-wider w-24 text-right select-text" value={tempTitle} onChange={(e) => setTempTitle(e.target.value)} onBlur={handleTitleSave} onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()} onMouseDown={e => e.stopPropagation()} autoFocus />
                         ) : (
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 cursor-text text-right" onClick={() => setIsEditingTitle(true)}>{node.title}</span>
                         )}
@@ -883,7 +890,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                         )
                     ) : (
                         <div className="m-5 flex-1 bg-black/10 rounded-2xl border border-white/5 p-4 relative overflow-hidden backdrop-blur-sm transition-colors group-hover/text:bg-black/20">
-                            <textarea className="w-full h-full bg-transparent resize-none focus:outline-none text-sm text-slate-200 placeholder-slate-500 font-medium leading-relaxed custom-scrollbar selection:bg-emerald-500/30" placeholder="输入你的创意构想..." value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={commitPrompt} onKeyDown={handleCmdEnter} onWheel={(e) => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} maxLength={1000} />
+                            <textarea className="w-full h-full bg-transparent resize-none focus:outline-none text-sm text-slate-200 placeholder-slate-500 font-medium leading-relaxed custom-scrollbar selection:bg-emerald-500/30 select-text" placeholder="输入你的创意构想..." value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={commitPrompt} onKeyDown={handleCmdEnter} onWheel={(e) => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} maxLength={1000} />
                         </div>
                     )}
                 </div>
@@ -1017,7 +1024,16 @@ const NodeComponent: React.FC<NodeProps> = ({
                 ) : (
                     <>
                         {node.data.image ?
-                            <img ref={mediaRef as any} src={node.data.image} className="w-full h-full object-cover transition-transform duration-700 group-hover/media:scale-105 bg-zinc-900" draggable={false} style={{ filter: showImageGrid ? 'blur(10px)' : 'none' }} onContextMenu={(e) => onMediaContextMenu?.(e, node.id, 'image', node.data.image!)} />
+                            <img
+                                ref={mediaRef as any}
+                                src={node.data.imagePreview || node.data.image}
+                                className={`w-full h-full object-cover bg-zinc-900 ${isSelected && canvasScale >= 0.65 ? 'transition-transform duration-300 group-hover/media:scale-[1.02]' : ''}`}
+                                draggable={false}
+                                loading="lazy"
+                                decoding="async"
+                                style={{ filter: showImageGrid && canvasScale >= 0.65 ? 'blur(8px)' : 'none' }}
+                                onContextMenu={(e) => onMediaContextMenu?.(e, node.id, 'image', node.data.image!)}
+                            />
                             :
                             <SecureVideo
                                 videoRef={mediaRef} // Pass Ref to Video
@@ -1035,7 +1051,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <div className="absolute inset-0 bg-black/40 z-10 grid grid-cols-2 gap-2 p-2 animate-in fade-in duration-200">
                                 {node.data.images ? node.data.images.map((img, idx) => (
                                     <div key={idx} className={`relative rounded-lg overflow-hidden cursor-pointer border-2 bg-zinc-900 ${img === node.data.image ? 'border-cyan-500' : 'border-transparent hover:border-white/50'}`} onClick={(e) => { e.stopPropagation(); onUpdate(node.id, { image: img }); }}>
-                                        <img src={img} className="w-full h-full object-cover" />
+                                        <img src={img} className="w-full h-full object-cover" loading="lazy" decoding="async" draggable={false} />
                                     </div>
                                 )) : node.data.videoUris?.map((uri, idx) => (
                                     <div key={idx} className={`relative rounded-lg overflow-hidden cursor-pointer border-2 bg-zinc-900 ${uri === node.data.videoUri ? 'border-cyan-500' : 'border-transparent hover:border-white/50'}`} onClick={(e) => { e.stopPropagation(); onUpdate(node.id, { videoUri: uri }); }}>
@@ -1266,7 +1282,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                     )}
                     {!hasGeneratedMedia && (
                         <div className="relative group/input bg-black/10 rounded-[16px]">
-                            <textarea className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500/60 p-3 focus:outline-none resize-none custom-scrollbar font-medium leading-relaxed" style={{ height: `${Math.min(inputHeight, 200)}px` }} placeholder={effectivePromptPlaceholder} value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={() => { setIsInputFocused(false); commitPrompt(); }} onKeyDown={handleCmdEnter} onFocus={() => setIsInputFocused(true)} onMouseDown={e => e.stopPropagation()} readOnly={isWorking} />
+                            <textarea className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500/60 p-3 focus:outline-none resize-none custom-scrollbar font-medium leading-relaxed select-text" style={{ height: `${Math.min(inputHeight, 200)}px` }} placeholder={effectivePromptPlaceholder} value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={() => { setIsInputFocused(false); commitPrompt(); }} onKeyDown={handleCmdEnter} onFocus={() => setIsInputFocused(true)} onMouseDown={e => e.stopPropagation()} readOnly={isWorking} />
                             <div className="absolute bottom-0 left-0 w-full h-3 cursor-row-resize flex items-center justify-center opacity-0 group-hover/input:opacity-100 transition-opacity" onMouseDown={handleInputResizeStart}><div className="w-8 h-1 rounded-full bg-white/10 group-hover/input:bg-white/20" /></div>
                         </div>
                     )}
@@ -1389,14 +1405,15 @@ const NodeComponent: React.FC<NodeProps> = ({
     };
 
     const isInteracting = isDragging || isResizing || isGroupDragging;
+    const enableExpensiveEffects = Boolean((isSelected || isEmptyCreativeNode) && canvasScale >= 0.65 && !isInteracting);
     return (
         <div
             className={`absolute group ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'} ${isSelected || isEmptyCreativeNode ? 'ring-1 ring-emerald-400/80 shadow-[0_0_0_1px_rgba(45,212,191,0.12),0_0_42px_-14px_rgba(16,185,129,0.7)] z-30' : 'ring-1 ring-white/10 hover:ring-white/20 z-10'}`}
             style={{
                 left: node.x, top: node.y, width: nodeWidth, height: nodeHeight,
                 background: isSelected || isEmptyCreativeNode ? 'rgba(28, 28, 30, 0.88)' : 'rgba(28, 28, 30, 0.6)',
-                transition: isInteracting ? 'none' : 'all 0.5s cubic-bezier(0.32, 0.72, 0, 1)',
-                backdropFilter: isInteracting ? 'none' : 'blur(24px)',
+                transition: enableExpensiveEffects ? 'all 0.3s cubic-bezier(0.32, 0.72, 0, 1)' : 'none',
+                backdropFilter: enableExpensiveEffects ? 'blur(18px)' : 'none',
                 boxShadow: isInteracting ? 'none' : undefined,
                 willChange: isInteracting ? 'left, top, width, height' : 'auto'
             }}
@@ -1404,8 +1421,8 @@ const NodeComponent: React.FC<NodeProps> = ({
         >
             {renderImageSelectionToolbar()}
             {renderTopBar()}
-            <div className={`absolute -left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md ${isConnecting ? 'ring-2 ring-cyan-400 animate-pulse' : ''}`} onMouseDown={(e) => onPortMouseDown(e, node.id, 'input')} onMouseUp={(e) => onPortMouseUp(e, node.id, 'input')} title="Input"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
-            <div className={`absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md ${isConnecting ? 'ring-2 ring-purple-400 animate-pulse' : ''}`} onMouseDown={(e) => onPortMouseDown(e, node.id, 'output')} onMouseUp={(e) => onPortMouseUp(e, node.id, 'output')} title="Output"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
+            <div className={`absolute -left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-cyan-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'input'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'input')} title="Input"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
+            <div className={`absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-purple-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'output'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'output')} title="Output"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
             <div className={`w-full h-full flex flex-col relative overflow-hidden bg-zinc-900 ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'}`}><div className="flex-1 min-h-0 relative bg-zinc-900">{renderMediaContent()}</div></div>
             {renderBottomPanel()}
             <div className="absolute -bottom-3 -right-3 w-6 h-6 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100 z-50" onMouseDown={(e) => onResizeMouseDown(e, node.id, nodeWidth, nodeHeight)}><div className="w-1.5 h-1.5 rounded-full bg-current" /></div>

@@ -1,6 +1,6 @@
 
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Node } from './components/Node';
 import { SidebarDock } from './components/SidebarDock';
 import { AssistantPanel } from './components/AssistantPanel';
@@ -24,7 +24,7 @@ import {
     Plus, Copy, Trash2, Type, Image as ImageIcon, Video as VideoIcon,
     ScanFace, Brush, MousePointerClick, LayoutTemplate, X, Film, Link, RefreshCw, Upload,
     Minus, FolderHeart, Unplug, Sparkles, ChevronLeft, ChevronRight, Scan, Music, Mic2, Loader2, Workflow as WorkflowIcon,
-    Layers, Volume2, Box, Clapperboard, History
+    Layers, Volume2, Box, Clapperboard, History, Play, Save
 } from 'lucide-react';
 import { saveGeneratedProject } from '../services/projectHistoryService';
 import { STYLE_PRESETS } from '../Cyzx4/constants/stylePresets';
@@ -33,6 +33,50 @@ import { STYLE_PRESETS } from '../Cyzx4/constants/stylePresets';
 const SPRING = "cubic-bezier(0.32, 0.72, 0, 1)";
 const SNAP_THRESHOLD = 8; // Pixels for magnetic snap
 const COLLISION_PADDING = 24; // Spacing when nodes bounce off each other
+const CANVAS_SAVE_DELAY = 800;
+const VIEWPORT_BUFFER_PX = 640;
+const PREVIEW_MAX_EDGE = 640;
+const GROUP_PADDING_X = 44;
+const GROUP_PADDING_TOP = 72;
+const GROUP_PADDING_BOTTOM = 250;
+
+const getImageSourceFingerprint = (src?: string) => {
+    if (!src) return '';
+    if (src.startsWith('data:')) return `${src.length}:${src.slice(-32)}`;
+    return src;
+};
+
+const createCanvasImagePreview = (src: string): Promise<string> => new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.decoding = 'async';
+    image.onload = () => {
+        const sourceWidth = image.naturalWidth || image.width;
+        const sourceHeight = image.naturalHeight || image.height;
+        const ratio = Math.min(1, PREVIEW_MAX_EDGE / Math.max(sourceWidth, sourceHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(sourceWidth * ratio));
+        canvas.height = Math.max(1, Math.round(sourceHeight * ratio));
+        const context = canvas.getContext('2d');
+        if (!context) {
+            reject(new Error('Canvas preview context is unavailable'));
+            return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => {
+            if (!blob) {
+                reject(new Error('Image preview encoding failed'));
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        }, 'image/webp', 0.78);
+    };
+    image.onerror = () => reject(new Error('Image preview loading failed'));
+    image.src = src;
+});
 
 const buildImageGenerationPrompt = (node: AppNode, userPrompt: string, hasReferenceImages: boolean) => {
     const preset = node.data.stylePresetId
@@ -247,8 +291,8 @@ export const App = () => {
     const [scale, setScale] = useState<number>(1);
     const [pan, setPan] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
     const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
-    const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+    const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
     // 新增 UI 与交互状态
     const [showGrid, setShowGrid] = useState(true);
@@ -268,6 +312,9 @@ export const App = () => {
     const [activeGroupNodeIds, setActiveGroupNodeIds] = useState<string[]>([]);
     const [connectionStart, setConnectionStart] = useState<{ id: string, x: number, y: number } | null>(null);
     const [selectionRect, setSelectionRect] = useState<any>(null);
+    const [runningGroupIds, setRunningGroupIds] = useState<Set<string>>(new Set());
+    const [groupRunMessages, setGroupRunMessages] = useState<Record<string, string>>({});
+    const [groupSaveMessages, setGroupSaveMessages] = useState<Record<string, string>>({});
 
     // Node Resizing
     const [resizingNodeId, setResizingNodeId] = useState<string | null>(null);
@@ -298,7 +345,13 @@ export const App = () => {
     const historyRef = useRef(history);
     const historyIndexRef = useRef(historyIndex);
     const connectionStartRef = useRef(connectionStart);
+    const lastMousePosRef = useRef({ x: 0, y: 0 });
     const rafRef = useRef<number | null>(null); // For RAF Throttling
+    const persistenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const persistenceDirtyRef = useRef(false);
+    const previousInteractionRef = useRef(false);
+    const previewJobsRef = useRef(new Set<string>());
+    const previewFailuresRef = useRef(new Set<string>());
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const scaleRef = useRef(scale);
     const panRef = useRef(pan);
@@ -347,6 +400,12 @@ export const App = () => {
         scaleRef.current = scale; panRef.current = pan; interactionModeRef.current = interactionMode;
     }, [nodes, connections, groups, history, historyIndex, connectionStart, scale, pan, interactionMode]);
 
+    useEffect(() => {
+        const handleResize = () => setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
     // --- Persistence ---
     useEffect(() => {
         if (window.aistudio) window.aistudio.hasSelectedApiKey().then(hasKey => { if (!hasKey) window.aistudio.openSelectKey(); });
@@ -366,15 +425,68 @@ export const App = () => {
         loadData();
     }, []);
 
+    const isCanvasInteracting = Boolean(
+        isDraggingCanvas ||
+        draggingNodeId ||
+        draggingGroup ||
+        resizingNodeId ||
+        resizingGroupId ||
+        connectionStart ||
+        selectionRect
+    );
+
+    const flushCanvasPersistence = useCallback(() => {
+        if (!isLoaded) return;
+        if (persistenceTimerRef.current) {
+            clearTimeout(persistenceTimerRef.current);
+            persistenceTimerRef.current = null;
+        }
+        persistenceDirtyRef.current = false;
+        void Promise.all([
+            saveToStorage('assets', assetHistory),
+            saveToStorage('workflows', workflows),
+            saveToStorage('nodes', nodesRef.current),
+            saveToStorage('connections', connectionsRef.current),
+            saveToStorage('groups', groupsRef.current),
+        ]).catch(error => console.error('Failed to persist workstation state', error));
+    }, [assetHistory, workflows, isLoaded]);
+
     useEffect(() => {
         if (!isLoaded) return;
+        persistenceDirtyRef.current = true;
+        if (persistenceTimerRef.current) clearTimeout(persistenceTimerRef.current);
+        if (isCanvasInteracting) return;
+        persistenceTimerRef.current = setTimeout(flushCanvasPersistence, CANVAS_SAVE_DELAY);
+        return () => {
+            if (persistenceTimerRef.current) {
+                clearTimeout(persistenceTimerRef.current);
+                persistenceTimerRef.current = null;
+            }
+        };
+    }, [assetHistory, workflows, nodes, connections, groups, isLoaded, isCanvasInteracting, flushCanvasPersistence]);
 
-        saveToStorage('assets', assetHistory);
-        saveToStorage('workflows', workflows);
-        saveToStorage('nodes', nodes);
-        saveToStorage('connections', connections);
-        saveToStorage('groups', groups);
-    }, [assetHistory, workflows, nodes, connections, groups, isLoaded]);
+    useEffect(() => {
+        const wasInteracting = previousInteractionRef.current;
+        previousInteractionRef.current = isCanvasInteracting;
+        if (!wasInteracting || isCanvasInteracting || !persistenceDirtyRef.current) return;
+        const timer = window.setTimeout(flushCanvasPersistence, 0);
+        return () => window.clearTimeout(timer);
+    }, [isCanvasInteracting, flushCanvasPersistence]);
+
+    useEffect(() => {
+        const handleVisibility = () => {
+            if (document.visibilityState === 'hidden' && persistenceDirtyRef.current) flushCanvasPersistence();
+        };
+        const handleBeforeUnload = () => {
+            if (persistenceDirtyRef.current) flushCanvasPersistence();
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [flushCanvasPersistence]);
 
     useEffect(() => {
         const handleAssetsCleared = () => setAssetHistory([]);
@@ -398,6 +510,165 @@ export const App = () => {
         const w = node.width || 420;
         return { x: node.x, y: node.y, width: w, height: h, r: node.x + w, b: node.y + h };
     };
+
+    const inferLegacyGroupNodeIds = useCallback((group: Group, sourceNodes = nodesRef.current) => (
+        sourceNodes
+            .filter(node => {
+                const bounds = getNodeBounds(node);
+                const centerX = bounds.x + bounds.width / 2;
+                const centerY = bounds.y + bounds.height / 2;
+                return (
+                    centerX > group.x &&
+                    centerX < group.x + group.width &&
+                    centerY > group.y &&
+                    centerY < group.y + group.height
+                );
+            })
+            .map(node => node.id)
+    ), []);
+
+    const getGroupNodeIds = useCallback((group: Group, sourceNodes = nodesRef.current) => (
+        group.nodeIds?.filter(id => sourceNodes.some(node => node.id === id)) ||
+        inferLegacyGroupNodeIds(group, sourceNodes)
+    ), [inferLegacyGroupNodeIds]);
+
+    const getGroupBoundsForNodes = useCallback((memberNodes: AppNode[]) => {
+        if (memberNodes.length === 0) return null;
+        const bounds = memberNodes.map(getNodeBounds);
+        const minX = Math.min(...bounds.map(item => item.x));
+        const minY = Math.min(...bounds.map(item => item.y));
+        const maxRight = Math.max(...bounds.map(item => item.r));
+        const maxBottom = Math.max(...bounds.map(item => item.b));
+        return {
+            x: minX - GROUP_PADDING_X,
+            y: minY - GROUP_PADDING_TOP,
+            width: (maxRight - minX) + GROUP_PADDING_X * 2,
+            height: (maxBottom - minY) + GROUP_PADDING_TOP + GROUP_PADDING_BOTTOM,
+        };
+    }, []);
+
+    const nodeById = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
+
+    const visibleNodeIds = useMemo(() => {
+        const currentScale = Math.max(scale, 0.01);
+        const buffer = VIEWPORT_BUFFER_PX / currentScale;
+        const viewLeft = (-pan.x / currentScale) - buffer;
+        const viewTop = (-pan.y / currentScale) - buffer;
+        const viewRight = ((viewportSize.width - pan.x) / currentScale) + buffer;
+        const viewBottom = ((viewportSize.height - pan.y) / currentScale) + buffer;
+        const forcedIds = new Set(selectedNodeIds);
+        if (draggingNodeId) forcedIds.add(draggingNodeId);
+        if (resizingNodeId) forcedIds.add(resizingNodeId);
+        if (connectionStart?.id && connectionStart.id !== 'smart-sequence-dock') forcedIds.add(connectionStart.id);
+
+        const ids = new Set<string>();
+        nodes.forEach(node => {
+            if (forcedIds.has(node.id)) {
+                ids.add(node.id);
+                return;
+            }
+            const bounds = getNodeBounds(node);
+            if (bounds.r >= viewLeft && bounds.x <= viewRight && bounds.b >= viewTop && bounds.y <= viewBottom) {
+                ids.add(node.id);
+            }
+        });
+        return ids;
+    }, [nodes, pan.x, pan.y, scale, viewportSize, selectedNodeIds, draggingNodeId, resizingNodeId, connectionStart]);
+
+    const visibleNodes = useMemo(
+        () => nodes.filter(node => visibleNodeIds.has(node.id)),
+        [nodes, visibleNodeIds]
+    );
+
+    const visibleConnections = useMemo(
+        () => connections.filter(connection => visibleNodeIds.has(connection.from) || visibleNodeIds.has(connection.to)),
+        [connections, visibleNodeIds]
+    );
+
+    useEffect(() => {
+        if (draggingGroup || draggingNodeId || resizingNodeId || resizingGroupId || groups.length === 0) return;
+        setGroups(previous => {
+            let changed = false;
+            const next = previous.map(group => {
+                const nodeIds = getGroupNodeIds(group, nodes);
+                const memberNodes = nodeIds.map(id => nodeById.get(id)).filter(Boolean) as AppNode[];
+                const fitted = getGroupBoundsForNodes(memberNodes);
+                if (!fitted) return group;
+                const needsUpdate =
+                    !group.nodeIds ||
+                    group.nodeIds.length !== nodeIds.length ||
+                    group.nodeIds.some((id, index) => id !== nodeIds[index]) ||
+                    Math.abs(group.x - fitted.x) > 1 ||
+                    Math.abs(group.y - fitted.y) > 1 ||
+                    Math.abs(group.width - fitted.width) > 1 ||
+                    Math.abs(group.height - fitted.height) > 1;
+                if (!needsUpdate) return group;
+                changed = true;
+                return { ...group, ...fitted, nodeIds };
+            });
+            return changed ? next : previous;
+        });
+    }, [
+        nodes,
+        groups.length,
+        draggingGroup,
+        draggingNodeId,
+        resizingNodeId,
+        resizingGroupId,
+        nodeById,
+        getGroupNodeIds,
+        getGroupBoundsForNodes,
+    ]);
+
+    useEffect(() => {
+        const candidate = visibleNodes.find(node => {
+            const source = node.data.image;
+            if (!source) return false;
+            const fingerprint = getImageSourceFingerprint(source);
+            const jobKey = `${node.id}:${fingerprint}`;
+            return (
+                node.data.imagePreviewSource !== fingerprint &&
+                !previewJobsRef.current.has(node.id) &&
+                !previewFailuresRef.current.has(jobKey)
+            );
+        });
+        if (!candidate?.data.image) return;
+
+        const source = candidate.data.image;
+        const fingerprint = getImageSourceFingerprint(source);
+        previewJobsRef.current.add(candidate.id);
+        const run = () => {
+            void createCanvasImagePreview(source)
+                .then(preview => {
+                    setNodes(previous => previous.map(node => {
+                        if (node.id !== candidate.id || getImageSourceFingerprint(node.data.image) !== fingerprint) return node;
+                        return {
+                            ...node,
+                            data: {
+                                ...node.data,
+                                imagePreview: preview,
+                                imagePreviewSource: fingerprint,
+                            },
+                        };
+                    }));
+                })
+                .catch(error => {
+                    previewFailuresRef.current.add(`${candidate.id}:${fingerprint}`);
+                    console.debug('Image preview generation skipped:', error);
+                })
+                .finally(() => previewJobsRef.current.delete(candidate.id));
+        };
+
+        const idleWindow = window as Window & {
+            requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+            cancelIdleCallback?: (id: number) => void;
+        };
+        if (idleWindow.requestIdleCallback) {
+            idleWindow.requestIdleCallback(run, { timeout: 1200 });
+        } else {
+            window.setTimeout(run, 80);
+        }
+    }, [visibleNodes]);
 
     const getNodeNameCN = (t: string) => {
         switch (t) {
@@ -461,7 +732,15 @@ export const App = () => {
 
     const saveHistory = useCallback(() => {
         try {
-            const currentStep = { nodes: JSON.parse(JSON.stringify(nodesRef.current)), connections: JSON.parse(JSON.stringify(connectionsRef.current)), groups: JSON.parse(JSON.stringify(groupsRef.current)) };
+            const currentStep = {
+                nodes: nodesRef.current.map(node => ({
+                    ...node,
+                    data: node.data,
+                    inputs: [...node.inputs],
+                })),
+                connections: connectionsRef.current.map(connection => ({ ...connection })),
+                groups: groupsRef.current.map(group => ({ ...group })),
+            };
             const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
             newHistory.push(currentStep); if (newHistory.length > 50) newHistory.shift();
             setHistory(newHistory); setHistoryIndex(newHistory.length - 1);
@@ -483,6 +762,10 @@ export const App = () => {
         saveHistory();
         setNodes(p => p.filter(n => !ids.includes(n.id)).map(n => ({ ...n, inputs: n.inputs.filter(i => !ids.includes(i)) })));
         setConnections(p => p.filter(c => !ids.includes(c.from) && !ids.includes(c.to)));
+        setGroups(previous => previous
+            .map(group => group.nodeIds ? { ...group, nodeIds: group.nodeIds.filter(id => !ids.includes(id)) } : group)
+            .filter(group => !group.nodeIds || group.nodeIds.length > 0)
+        );
         setSelectedNodeIds([]);
     }, [saveHistory]);
 
@@ -724,7 +1007,7 @@ export const App = () => {
 
         if (isMiddleClick || isSpaceDrag || isDefaultShiftDrag || isComfyRightDrag) {
             setIsDraggingCanvas(true);
-            setLastMousePos({ x: e.clientX, y: e.clientY });
+            lastMousePosRef.current = { x: e.clientX, y: e.clientY };
             if (e.button === 2) {
                 e.preventDefault();
             }
@@ -732,11 +1015,21 @@ export const App = () => {
     };
 
     const handleGlobalMouseMove = useCallback((e: MouseEvent) => {
+        if (
+            !selectionRect &&
+            !dragGroupRef.current &&
+            !isDraggingCanvas &&
+            !draggingNodeId &&
+            !resizingNodeId &&
+            !connectionStartRef.current
+        ) {
+            return;
+        }
         const { clientX, clientY } = e;
         if (rafRef.current) return;
         rafRef.current = requestAnimationFrame(() => {
             rafRef.current = null;
-            setMousePos({ x: clientX, y: clientY });
+            if (connectionStartRef.current) setMousePos({ x: clientX, y: clientY });
 
             if (selectionRect) { setSelectionRect((prev: any) => prev ? ({ ...prev, currentX: clientX, currentY: clientY }) : null); return; }
 
@@ -755,10 +1048,10 @@ export const App = () => {
             }
 
             if (isDraggingCanvas) {
-                const dx = clientX - lastMousePos.x;
-                const dy = clientY - lastMousePos.y;
+                const dx = clientX - lastMousePosRef.current.x;
+                const dy = clientY - lastMousePosRef.current.y;
                 setPan(p => ({ x: p.x + dx, y: p.y + dy }));
-                setLastMousePos({ x: clientX, y: clientY });
+                lastMousePosRef.current = { x: clientX, y: clientY };
             }
 
             if (draggingNodeId && dragNodeRef.current && dragNodeRef.current.id === draggingNodeId) {
@@ -796,10 +1089,10 @@ export const App = () => {
                 setNodes(prev => prev.map(n => n.id === draggingNodeId ? { ...n, x: proposedX, y: proposedY } : n));
 
             } else if (draggingNodeId) {
-                const dx = (clientX - lastMousePos.x) / scale;
-                const dy = (clientY - lastMousePos.y) / scale;
+                const dx = (clientX - lastMousePosRef.current.x) / scale;
+                const dy = (clientY - lastMousePosRef.current.y) / scale;
                 setNodes(prev => prev.map(n => n.id === draggingNodeId ? { ...n, x: n.x + dx, y: n.y + dy } : n));
-                setLastMousePos({ x: clientX, y: clientY });
+                lastMousePosRef.current = { x: clientX, y: clientY };
             }
 
             if (resizingNodeId && initialSize && resizeStartPos) {
@@ -807,7 +1100,7 @@ export const App = () => {
                 setNodes(prev => prev.map(n => n.id === resizingNodeId ? { ...n, width: Math.max(360, initialSize.width + dx), height: Math.max(240, initialSize.height + dy) } : n));
             }
         });
-    }, [selectionRect, isDraggingCanvas, draggingNodeId, resizingNodeId, initialSize, resizeStartPos, scale, lastMousePos]);
+    }, [selectionRect, isDraggingCanvas, draggingNodeId, resizingNodeId, initialSize, resizeStartPos, scale]);
 
     const handleGlobalMouseUp = useCallback((e?: MouseEvent) => {
         if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
@@ -826,12 +1119,18 @@ export const App = () => {
                 if (enclosed.length > 0) {
                     saveHistory();
                     const freeNodes = enclosed.filter(n => {
-                        const cx = n.x + (n.width || 420) / 2; const cy = n.y + 160;
-                        return !groupsRef.current.some(g => cx > g.x && cx < g.x + g.width && cy > g.y && cy < g.y + g.height);
+                        return !groupsRef.current.some(group => getGroupNodeIds(group).includes(n.id));
                     });
                     if (freeNodes.length > 0) {
-                        const fMinX = Math.min(...freeNodes.map(n => n.x)), fMinY = Math.min(...freeNodes.map(n => n.y)), fMaxX = Math.max(...freeNodes.map(n => n.x + (n.width || 420))), fMaxY = Math.max(...freeNodes.map(n => n.y + 320));
-                        setGroups(prev => [...prev, { id: `g-${Date.now()}`, title: '新建分组', x: fMinX - 32, y: fMinY - 32, width: (fMaxX - fMinX) + 64, height: (fMaxY - fMinY) + 64 }]);
+                        const fitted = getGroupBoundsForNodes(freeNodes);
+                        if (fitted) {
+                            setGroups(prev => [...prev, {
+                                id: `g-${Date.now()}`,
+                                title: '新建工作流',
+                                ...fitted,
+                                nodeIds: freeNodes.map(node => node.id),
+                            }]);
+                        }
                     }
                 }
             }
@@ -844,6 +1143,8 @@ export const App = () => {
             if (draggedNode) {
                 const myBounds = getNodeBounds(draggedNode);
                 const otherNodes = nodesRef.current.filter(n => n.id !== draggingNodeId);
+                let resolvedX = draggedNode.x;
+                let resolvedY = draggedNode.y;
 
                 // Simple Iterative Solver for Collision
                 // We check against all nodes. If we collide, we move out the shortest distance.
@@ -872,39 +1173,75 @@ export const App = () => {
                         const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
 
                         if (minOverlap === overlapLeft) {
-                            draggedNode.x = otherBounds.x - myBounds.width - COLLISION_PADDING;
+                            resolvedX = otherBounds.x - myBounds.width - COLLISION_PADDING;
                         } else if (minOverlap === overlapRight) {
-                            draggedNode.x = otherBounds.r + COLLISION_PADDING;
+                            resolvedX = otherBounds.r + COLLISION_PADDING;
                         } else if (minOverlap === overlapTop) {
-                            draggedNode.y = otherBounds.y - myBounds.height - COLLISION_PADDING;
+                            resolvedY = otherBounds.y - myBounds.height - COLLISION_PADDING;
                         } else if (minOverlap === overlapBottom) {
-                            draggedNode.y = otherBounds.b + COLLISION_PADDING;
+                            resolvedY = otherBounds.b + COLLISION_PADDING;
                         }
 
                         // Update temporary bounds for next iteration in loop
-                        myBounds.x = draggedNode.x;
-                        myBounds.y = draggedNode.y;
-                        myBounds.r = draggedNode.x + myBounds.width;
-                        myBounds.b = draggedNode.y + myBounds.height;
+                        myBounds.x = resolvedX;
+                        myBounds.y = resolvedY;
+                        myBounds.r = resolvedX + myBounds.width;
+                        myBounds.b = resolvedY + myBounds.height;
                     }
                 }
 
                 // Update State
-                setNodes(prev => prev.map(n => n.id === draggingNodeId ? { ...n, x: draggedNode.x, y: draggedNode.y } : n));
+                setNodes(prev => prev.map(n => n.id === draggingNodeId ? { ...n, x: resolvedX, y: resolvedY } : n));
             }
         }
 
         if (draggingNodeId || resizingNodeId || dragGroupRef.current) saveHistory();
+        connectionStartRef.current = null;
         setIsDraggingCanvas(false); setDraggingNodeId(null); setDraggingNodeParentGroupId(null); setDraggingGroup(null); setResizingGroupId(null); setActiveGroupNodeIds([]); setResizingNodeId(null); setInitialSize(null); setResizeStartPos(null); setConnectionStart(null);
         dragNodeRef.current = null; resizeContextRef.current = null; dragGroupRef.current = null;
     }, [selectionRect, pan, scale, saveHistory, draggingNodeId, resizingNodeId]);
 
     useEffect(() => { window.addEventListener('mousemove', handleGlobalMouseMove); window.addEventListener('mouseup', handleGlobalMouseUp); return () => { window.removeEventListener('mousemove', handleGlobalMouseMove); window.removeEventListener('mouseup', handleGlobalMouseUp); }; }, [handleGlobalMouseMove, handleGlobalMouseUp]);
 
+    const clearConnectionInteraction = useCallback(() => {
+        connectionStartRef.current = null;
+        setConnectionStart(null);
+        window.getSelection()?.removeAllRanges();
+    }, []);
+
+    useEffect(() => {
+        if (!connectionStart) return;
+        const previousUserSelect = document.body.style.userSelect;
+        document.body.style.userSelect = 'none';
+        document.documentElement.classList.add('xc-connecting');
+        window.getSelection()?.removeAllRanges();
+        const handleBlur = () => clearConnectionInteraction();
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') clearConnectionInteraction();
+        };
+        window.addEventListener('blur', handleBlur);
+        window.addEventListener('keydown', handleEscape);
+        return () => {
+            document.body.style.userSelect = previousUserSelect;
+            document.documentElement.classList.remove('xc-connecting');
+            window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('keydown', handleEscape);
+        };
+    }, [connectionStart, clearConnectionInteraction]);
+
     const handleNodeUpdate = useCallback((id: string, data: any, size?: any, title?: string) => {
         setNodes(prev => prev.map(n => {
             if (n.id === id) {
-                const updated = { ...n, data: { ...n.data, ...data }, title: title || n.title };
+                const imageChanged = typeof data.image === 'string' && data.image !== n.data.image;
+                const updated = {
+                    ...n,
+                    data: {
+                        ...n.data,
+                        ...data,
+                        ...(imageChanged ? { imagePreview: undefined, imagePreviewSource: undefined } : {}),
+                    },
+                    title: title || n.title
+                };
                 if (size) { if (size.width) updated.width = size.width; if (size.height) updated.height = size.height; }
 
                 if (data.images?.length) {
@@ -951,8 +1288,8 @@ export const App = () => {
         e.target.value = ''; setContextMenu(null); replacementTargetRef.current = null;
     };
 
-    const handleNodeAction = useCallback(async (id: string, promptOverride?: string) => {
-        const node = nodesRef.current.find(n => n.id === id); if (!node) return;
+    const handleNodeAction = useCallback(async (id: string, promptOverride?: string): Promise<boolean> => {
+        const node = nodesRef.current.find(n => n.id === id); if (!node) return false;
         handleNodeUpdate(id, { error: undefined });
         setNodes(p => p.map(n => n.id === id ? { ...n, status: NodeStatus.WORKING } : n));
 
@@ -992,8 +1329,6 @@ export const App = () => {
                             const childHeight = (childWidth * rh / rw);
                             const startX = node.x + (node.width || 420) + 150;
                             const startY = node.y;
-                            const totalRows = Math.ceil(storyboard.length / COLUMNS);
-
                             storyboard.forEach((shotPrompt, index) => {
                                 const col = index % COLUMNS;
                                 const row = Math.floor(index / COLUMNS);
@@ -1009,11 +1344,15 @@ export const App = () => {
                                 newConnections.push({ from: node.id, to: newNodeId });
                             });
 
-                            const groupPadding = 30;
-                            const groupWidth = (Math.min(storyboard.length, COLUMNS) * childWidth) + ((Math.min(storyboard.length, COLUMNS) - 1) * gapX) + (groupPadding * 2);
-                            const groupHeight = (totalRows * childHeight) + ((totalRows - 1) * gapY) + (groupPadding * 2);
-
-                            setGroups(prev => [...prev, { id: `g-${Date.now()}`, title: '分镜生成组', x: startX - groupPadding, y: startY - groupPadding, width: groupWidth, height: groupHeight }]);
+                            const fittedStoryboardGroup = getGroupBoundsForNodes(newNodes);
+                            if (fittedStoryboardGroup) {
+                                setGroups(prev => [...prev, {
+                                    id: `g-${Date.now()}`,
+                                    title: '分镜生成组',
+                                    ...fittedStoryboardGroup,
+                                    nodeIds: newNodes.map(item => item.id),
+                                }]);
+                            }
                             setNodes(prev => [...prev, ...newNodes]);
                             setConnections(prev => [...prev, ...newConnections]);
                             handleNodeUpdate(id, { status: NodeStatus.SUCCESS });
@@ -1040,7 +1379,7 @@ export const App = () => {
                                     handleNodeUpdate(n.id, { error: e.message, status: NodeStatus.ERROR });
                                 }
                             });
-                            return;
+                            return true;
                         }
                     } catch (e) {
                         console.warn("Storyboard planning failed", e);
@@ -1156,30 +1495,153 @@ export const App = () => {
                 });
             }
             setNodes(p => p.map(n => n.id === id ? { ...n, status: NodeStatus.SUCCESS } : n));
+            return true;
         } catch (e: any) {
             handleNodeUpdate(id, { error: e.message });
             setNodes(p => p.map(n => n.id === id ? { ...n, status: NodeStatus.ERROR } : n));
+            return false;
         }
     }, [handleNodeUpdate]);
 
+    const runGroupWorkflow = useCallback(async (groupId: string) => {
+        if (runningGroupIds.has(groupId)) return;
+        const group = groupsRef.current.find(item => item.id === groupId);
+        if (!group) return;
+        const memberIds = getGroupNodeIds(group);
+        const memberIdSet = new Set(memberIds);
+        const groupNodes = memberIds
+            .map(id => nodesRef.current.find(node => node.id === id))
+            .filter(Boolean) as AppNode[];
+        if (groupNodes.length === 0) {
+            setGroupRunMessages(previous => ({ ...previous, [groupId]: '分组内没有可运行节点' }));
+            return;
+        }
+
+        const internalDependencies = new Map<string, Set<string>>();
+        const dependents = new Map<string, Set<string>>();
+        groupNodes.forEach(node => {
+            internalDependencies.set(node.id, new Set(node.inputs.filter(id => memberIdSet.has(id))));
+            dependents.set(node.id, new Set());
+        });
+        connectionsRef.current.forEach(connection => {
+            if (!memberIdSet.has(connection.from) || !memberIdSet.has(connection.to)) return;
+            internalDependencies.get(connection.to)?.add(connection.from);
+        });
+        internalDependencies.forEach((dependencies, nodeId) => {
+            dependencies.forEach(dependencyId => dependents.get(dependencyId)?.add(nodeId));
+        });
+
+        const remaining = new Map(Array.from(internalDependencies, ([id, dependencies]) => [id, dependencies.size]));
+        const levels: string[][] = [];
+        let ready = groupNodes.filter(node => remaining.get(node.id) === 0).map(node => node.id);
+        let processed = 0;
+        while (ready.length > 0) {
+            levels.push(ready);
+            processed += ready.length;
+            const next: string[] = [];
+            ready.forEach(nodeId => {
+                dependents.get(nodeId)?.forEach(dependentId => {
+                    const count = (remaining.get(dependentId) || 0) - 1;
+                    remaining.set(dependentId, count);
+                    if (count === 0) next.push(dependentId);
+                });
+            });
+            ready = next;
+        }
+        if (processed !== groupNodes.length) {
+            setGroupRunMessages(previous => ({ ...previous, [groupId]: '工作流存在循环连接，请先调整连线' }));
+            return;
+        }
+
+        setRunningGroupIds(previous => new Set(previous).add(groupId));
+        setGroupRunMessages(previous => ({ ...previous, [groupId]: '正在启动工作流…' }));
+        try {
+            for (let levelIndex = 0; levelIndex < levels.length; levelIndex += 1) {
+                const runnableIds = levels[levelIndex].filter(nodeId => {
+                    const node = nodesRef.current.find(item => item.id === nodeId);
+                    if (!node || node.type === NodeType.PROMPT_INPUT) return false;
+                    const hasInternalDependencies = (internalDependencies.get(nodeId)?.size || 0) > 0;
+                    const hasExistingSource =
+                        node.type === NodeType.IMAGE_GENERATOR ? Boolean(node.data.image) :
+                        node.type === NodeType.VIDEO_GENERATOR ? Boolean(node.data.videoUri) :
+                        node.type === NodeType.AUDIO_GENERATOR ? Boolean(node.data.audioUri) :
+                        node.type === NodeType.VIDEO_ANALYZER ? Boolean(node.data.analysis) :
+                        false;
+                    return hasInternalDependencies || !hasExistingSource;
+                });
+                if (runnableIds.length === 0) continue;
+                setGroupRunMessages(previous => ({
+                    ...previous,
+                    [groupId]: `正在运行第 ${levelIndex + 1}/${levels.length} 阶段（${runnableIds.length} 个节点）`,
+                }));
+                const results = await Promise.all(runnableIds.map(nodeId => handleNodeAction(nodeId)));
+                if (results.some(result => !result)) {
+                    throw new Error('部分节点执行失败，工作流已停止');
+                }
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            }
+            setGroupRunMessages(previous => ({ ...previous, [groupId]: '工作流运行完成' }));
+        } catch (error: any) {
+            setGroupRunMessages(previous => ({ ...previous, [groupId]: error?.message || '工作流运行失败' }));
+        } finally {
+            setRunningGroupIds(previous => {
+                const next = new Set(previous);
+                next.delete(groupId);
+                return next;
+            });
+        }
+    }, [getGroupNodeIds, handleNodeAction, runningGroupIds]);
+
 
     const saveCurrentAsWorkflow = () => {
-        const thumbnailNode = nodes.find(n => n.data.image);
-        const thumbnail = thumbnailNode?.data.image || '';
-        const newWf: Workflow = { id: `wf-${Date.now()}`, title: `工作流 ${new Date().toLocaleDateString()}`, thumbnail, nodes: JSON.parse(JSON.stringify(nodes)), connections: JSON.parse(JSON.stringify(connections)), groups: JSON.parse(JSON.stringify(groups)) };
+        if (nodes.length === 0) return;
+        const thumbnailNode = nodes.find(n => n.data.imagePreview || n.data.image);
+        const thumbnail = thumbnailNode?.data.imagePreview || thumbnailNode?.data.image || '';
+        const now = Date.now();
+        const newWf: Workflow = {
+            id: `wf-${now}`,
+            title: `工作流 ${new Date(now).toLocaleDateString()}`,
+            thumbnail,
+            nodes: JSON.parse(JSON.stringify(nodes)),
+            connections: JSON.parse(JSON.stringify(connections)),
+            groups: JSON.parse(JSON.stringify(groups)),
+            updatedAt: now,
+        };
         setWorkflows(prev => [newWf, ...prev]);
     };
 
     const saveGroupAsWorkflow = (groupId: string) => {
         const group = groups.find(g => g.id === groupId);
         if (!group) return;
-        const nodesInGroup = nodes.filter(n => { const w = n.width || 420; const h = n.height || getApproxNodeHeight(n); const cx = n.x + w / 2; const cy = n.y + h / 2; return cx > group.x && cx < group.x + group.width && cy > group.y && cy < group.y + group.height; });
+        const explicitNodeIds = getGroupNodeIds(group, nodes);
+        const explicitNodeIdSet = new Set(explicitNodeIds);
+        const nodesInGroup = nodes.filter(node => explicitNodeIdSet.has(node.id));
         const nodeIds = new Set(nodesInGroup.map(n => n.id));
         const connectionsInGroup = connections.filter(c => nodeIds.has(c.from) && nodeIds.has(c.to));
-        const thumbNode = nodesInGroup.find(n => n.data.image);
-        const thumbnail = thumbNode ? thumbNode.data.image : '';
-        const newWf: Workflow = { id: `wf-${Date.now()}`, title: group.title || '未命名工作流', thumbnail: thumbnail || '', nodes: JSON.parse(JSON.stringify(nodesInGroup)), connections: JSON.parse(JSON.stringify(connectionsInGroup)), groups: [JSON.parse(JSON.stringify(group))] };
-        setWorkflows(prev => [newWf, ...prev]);
+        if (nodesInGroup.length === 0) return;
+        const thumbNode = nodesInGroup.find(n => n.data.imagePreview || n.data.image);
+        const thumbnail = thumbNode?.data.imagePreview || thumbNode?.data.image || '';
+        const existingWorkflow = workflows.find(workflow => workflow.sourceGroupId === groupId);
+        const now = Date.now();
+        const newWf: Workflow = {
+            id: existingWorkflow?.id || `wf-${now}`,
+            title: group.title || '未命名工作流',
+            thumbnail: thumbnail || '',
+            nodes: JSON.parse(JSON.stringify(nodesInGroup)),
+            connections: JSON.parse(JSON.stringify(connectionsInGroup)),
+            groups: [JSON.parse(JSON.stringify({ ...group, nodeIds: explicitNodeIds }))],
+            sourceGroupId: groupId,
+            updatedAt: now,
+        };
+        setWorkflows(prev => [newWf, ...prev.filter(workflow => workflow.id !== newWf.id)]);
+        setGroupSaveMessages(previous => ({ ...previous, [groupId]: existingWorkflow ? '工作流已更新' : '已保存到我的工作流' }));
+        window.setTimeout(() => {
+            setGroupSaveMessages(previous => {
+                const next = { ...previous };
+                delete next[groupId];
+                return next;
+            });
+        }, 2400);
     };
 
     const loadWorkflow = (id: string) => {
@@ -1251,7 +1713,15 @@ export const App = () => {
                 const newNodes = wf.nodes.map(n => { const newId = `n-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`; idMap.set(n.id, newId); return { ...n, id: newId, x: n.x + offsetX, y: n.y + offsetY, status: NodeStatus.IDLE, inputs: [] }; });
                 newNodes.forEach((n, i) => { const original = wf.nodes[i]; n.inputs = original.inputs.map(oldId => idMap.get(oldId)).filter(Boolean) as string[]; });
                 const newConnections = wf.connections.map(c => ({ from: idMap.get(c.from)!, to: idMap.get(c.to)! })).filter(c => c.from && c.to);
-                const newGroups = (wf.groups || []).map(g => ({ ...g, id: `g-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, x: g.x + offsetX, y: g.y + offsetY }));
+                const newGroups = (wf.groups || []).map(g => ({
+                    ...g,
+                    id: `g-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    x: g.x + offsetX,
+                    y: g.y + offsetY,
+                    nodeIds: (g.nodeIds || wf.nodes.map(node => node.id))
+                        .map(oldId => idMap.get(oldId))
+                        .filter(Boolean) as string[],
+                }));
                 setNodes(prev => [...prev, ...newNodes]); setConnections(prev => [...prev, ...newConnections]); setGroups(prev => [...prev, ...newGroups]);
             }
             return;
@@ -1408,8 +1878,11 @@ export const App = () => {
         <div className="w-screen h-screen overflow-hidden bg-[#0a0a0c]">
             <div
                 ref={canvasRef}
-                className={`w-full h-full overflow-hidden text-slate-200 selection:bg-cyan-500/30 ${isDraggingCanvas ? 'cursor-grabbing' : 'cursor-default'}`}
+                className={`w-full h-full overflow-hidden text-slate-200 select-none selection:bg-cyan-500/30 ${isDraggingCanvas ? 'cursor-grabbing' : 'cursor-default'}`}
                 onMouseDown={handleCanvasMouseDown} onWheel={handleWheel}
+                onDragStart={(event) => {
+                    if (connectionStartRef.current) event.preventDefault();
+                }}
                 onDoubleClick={(e) => { e.preventDefault(); if (e.detail > 1 && !selectionRect) { setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: '' }); setContextMenuTarget({ type: 'create' }); } }}
                 onContextMenu={(e) => { e.preventDefault(); if (e.target === e.currentTarget) setContextMenu(null); }}
                 onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}
@@ -1476,25 +1949,87 @@ export const App = () => {
 
                 <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, width: '100%', height: '100%', transformOrigin: '0 0' }} className="w-full h-full">
                     {/* Groups Layer */}
-                    {groups.map(g => (
-                        <div
-                            key={g.id} className={`absolute rounded-[32px] border transition-all ${(draggingGroup?.id === g.id || draggingNodeParentGroupId === g.id) ? 'duration-0' : 'duration-300'} ${selectedGroupId === g.id ? 'border-cyan-500/30 bg-cyan-500/5' : 'border-white/10 bg-white/5'}`} style={{ left: g.x, top: g.y, width: g.width, height: g.height }}
-                            onMouseDown={(e) => {
-                                e.stopPropagation(); setSelectedGroupId(g.id);
-                                const childNodes = nodes.filter(n => { const b = getNodeBounds(n); const cx = b.x + b.width / 2; const cy = b.y + b.height / 2; return cx > g.x && cx < g.x + g.width && cy > g.y && cy < g.y + g.height; }).map(n => ({ id: n.id, startX: n.x, startY: n.y }));
-                                dragGroupRef.current = { id: g.id, startX: g.x, startY: g.y, mouseStartX: e.clientX, mouseStartY: e.clientY, childNodes };
-                                setActiveGroupNodeIds(childNodes.map(c => c.id)); setDraggingGroup({ id: g.id });
-                            }}
-                            onContextMenu={e => { e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: g.id }); setContextMenuTarget({ type: 'group', id: g.id }); }}
-                        >
-                            <div className="absolute -top-8 left-4 text-xs font-bold text-white/40 uppercase tracking-widest">{g.title}</div>
-                        </div>
-                    ))}
+                    {groups.map(g => {
+                        const memberIds = getGroupNodeIds(g, nodes);
+                        const isRunning = runningGroupIds.has(g.id);
+                        const runMessage = groupRunMessages[g.id];
+                        const saveMessage = groupSaveMessages[g.id];
+                        return (
+                            <div
+                                key={g.id}
+                                className={`absolute z-[1] rounded-[32px] border transition-all ${(draggingGroup?.id === g.id || draggingNodeParentGroupId === g.id) ? 'duration-0' : 'duration-300'} ${selectedGroupId === g.id ? 'border-cyan-400/45 bg-cyan-500/[0.055] shadow-[0_0_40px_rgba(34,211,238,0.08)]' : 'border-white/10 bg-white/[0.025]'}`}
+                                style={{ left: g.x, top: g.y, width: g.width, height: g.height }}
+                                onMouseDown={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedGroupId(g.id);
+                                    const childNodes = memberIds
+                                        .map(id => nodeById.get(id))
+                                        .filter(Boolean)
+                                        .map(node => ({ id: node!.id, startX: node!.x, startY: node!.y }));
+                                    dragGroupRef.current = { id: g.id, startX: g.x, startY: g.y, mouseStartX: e.clientX, mouseStartY: e.clientY, childNodes };
+                                    setActiveGroupNodeIds(childNodes.map(c => c.id));
+                                    setDraggingGroup({ id: g.id });
+                                }}
+                                onContextMenu={e => { e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: g.id }); setContextMenuTarget({ type: 'group', id: g.id }); }}
+                            >
+                                <div className="absolute left-5 right-5 top-3 flex h-11 items-center justify-between rounded-2xl border border-white/10 bg-[#111216]/90 px-4 shadow-xl backdrop-blur-xl">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <WorkflowIcon size={14} className="shrink-0 text-cyan-300" />
+                                            <span className="truncate text-xs font-bold text-zinc-200">{g.title}</span>
+                                            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[9px] font-bold text-zinc-500">{memberIds.length} 节点</span>
+                                        </div>
+                                        {(runMessage || saveMessage) && (
+                                            <p className={`mt-0.5 max-w-[360px] truncate text-[9px] ${runMessage?.includes('失败') || runMessage?.includes('循环') ? 'text-red-400' : runMessage?.includes('完成') || saveMessage ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                                {saveMessage || runMessage}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="ml-4 flex shrink-0 items-center gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={memberIds.length === 0}
+                                            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+                                            onClick={event => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                saveGroupAsWorkflow(g.id);
+                                            }}
+                                            className="flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 text-[10px] font-bold text-zinc-200 transition-all hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                                            title="保存或更新到我的工作流"
+                                        >
+                                            <Save size={12} />
+                                            保存
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={isRunning || memberIds.length === 0}
+                                            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+                                            onClick={event => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                void runGroupWorkflow(g.id);
+                                            }}
+                                            className={`flex h-8 items-center gap-1.5 rounded-xl px-3 text-[10px] font-bold transition-all ${
+                                                isRunning
+                                                    ? 'cursor-wait bg-cyan-400/10 text-cyan-300'
+                                                    : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:scale-105 hover:shadow-lg hover:shadow-emerald-400/20 active:scale-95'
+                                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                                            title="按连接依赖顺序运行组内工作流"
+                                        >
+                                            {isRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} fill="currentColor" />}
+                                            {isRunning ? '运行中' : '启动'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
 
                     {/* Connections Layer */}
                     <svg className="absolute top-0 left-0 w-full h-full overflow-visible pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg" style={{ overflow: 'visible', pointerEvents: 'none', zIndex: 0 }}>
-                        {connections.map((conn) => {
-                            const f = nodes.find(n => n.id === conn.from), t = nodes.find(n => n.id === conn.to);
+                        {visibleConnections.map((conn) => {
+                            const f = nodeById.get(conn.from), t = nodeById.get(conn.to);
                             if (!f || !t) return null;
                             const fHeight = f.height || getApproxNodeHeight(f); const tHeight = t.height || getApproxNodeHeight(t);
                             const fx = f.x + (f.width || 420) + 3; let fy = f.y + fHeight / 2; const tx = t.x - 3; let ty = t.y + tHeight / 2;
@@ -1514,7 +2049,7 @@ export const App = () => {
                             if (connectionStart.id === 'smart-sequence-dock') {
                                 startX = (connectionStart.x - pan.x) / scale; startY = (connectionStart.y - pan.y) / scale;
                             } else {
-                                const startNode = nodes.find(n => n.id === connectionStart.id); if (!startNode) return null;
+                                const startNode = nodeById.get(connectionStart.id); if (!startNode) return null;
                                 const startHeight = startNode.height || getApproxNodeHeight(startNode); startX = startNode.x + (startNode.width || 420) + 3; startY = startNode.y + startHeight / 2;
                             }
                             const endX = (mousePos.x - pan.x) / scale; const endY = (mousePos.y - pan.y) / scale;
@@ -1522,40 +2057,49 @@ export const App = () => {
                         })()}
                     </svg>
 
-                    {nodes.map(node => (
+                    {visibleNodes.map(node => (
                         <Node
                             key={node.id} node={node} onUpdate={handleNodeUpdate} onAction={handleNodeAction} onDelete={(id) => deleteNodes([id])} onExpand={setExpandedMedia} onCrop={(id, img) => { setCroppingNodeId(id); setImageToCrop(img); }} onAddToAgent={handleAddImageToAgent}
                             onNodeMouseDown={(e, id) => {
                                 e.stopPropagation();
                                 if (e.shiftKey || e.metaKey || e.ctrlKey) { setSelectedNodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); } else { setSelectedNodeIds([id]); }
-                                const n = nodes.find(x => x.id === id);
+                                const n = nodeById.get(id);
                                 if (n) {
-                                    const w = n.width || 420; const h = n.height || getApproxNodeHeight(n); const cx = n.x + w / 2; const cy = n.y + 160;
-                                    const pGroup = groups.find(g => { return cx > g.x && cx < g.x + g.width && cy > g.y && cy < g.y + g.height; });
+                                    const w = n.width || 420; const h = n.height || getApproxNodeHeight(n);
+                                    const pGroup = groups.find(group => getGroupNodeIds(group, nodes).includes(id));
                                     let siblingNodeIds: string[] = [];
-                                    if (pGroup) { siblingNodeIds = nodes.filter(other => { if (other.id === id) return false; const b = getNodeBounds(other); const ocx = b.x + b.width / 2; const ocy = b.y + b.height / 2; return ocx > pGroup.x && ocx < pGroup.x + pGroup.width && ocy > pGroup.y && ocy < pGroup.y + pGroup.height; }).map(s => s.id); }
+                                    if (pGroup) siblingNodeIds = getGroupNodeIds(pGroup, nodes).filter(nodeId => nodeId !== id);
                                     dragNodeRef.current = { id, startX: n.x, startY: n.y, mouseStartX: e.clientX, mouseStartY: e.clientY, parentGroupId: pGroup?.id, siblingNodeIds, nodeWidth: w, nodeHeight: h };
                                     setDraggingNodeParentGroupId(pGroup?.id || null); setDraggingNodeId(id);
                                 }
                             }}
-                            onPortMouseDown={(e, id, type) => { e.stopPropagation(); setConnectionStart({ id, x: e.clientX, y: e.clientY }); }}
+                            onPortMouseDown={(e, id, type) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                window.getSelection()?.removeAllRanges();
+                                const nextConnection = { id, x: e.clientX, y: e.clientY };
+                                connectionStartRef.current = nextConnection;
+                                setMousePos({ x: e.clientX, y: e.clientY });
+                                setConnectionStart(nextConnection);
+                            }}
                             onPortMouseUp={(e, id, type) => {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 const start = connectionStartRef.current;
                                 if (start && start.id !== id) {
                                     if (start.id === 'smart-sequence-dock') { } else { setConnections(p => [...p, { from: start.id, to: id }]); setNodes(p => p.map(n => n.id === id ? { ...n, inputs: [...n.inputs, start.id] } : n)); }
                                 }
+                                connectionStartRef.current = null;
                                 setConnectionStart(null);
                             }}
                             onNodeContextMenu={(e, id) => { e.stopPropagation(); e.preventDefault(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id }); setContextMenuTarget({ type: 'node', id }); }}
                             onResizeMouseDown={(e, id, w, h) => {
-                                e.stopPropagation(); const n = nodes.find(x => x.id === id);
+                                e.stopPropagation(); const n = nodeById.get(id);
                                 if (n) {
-                                    const cx = n.x + w / 2; const cy = n.y + 160;
-                                    const pGroup = groups.find(g => { return cx > g.x && cx < g.x + g.width && cy > g.y && cy < g.y + g.height; });
+                                    const pGroup = groups.find(group => getGroupNodeIds(group, nodes).includes(id));
                                     setDraggingNodeParentGroupId(pGroup?.id || null);
                                     let siblingNodeIds: string[] = [];
-                                    if (pGroup) { siblingNodeIds = nodes.filter(other => { if (other.id === id) return false; const b = getNodeBounds(other); const ocx = b.x + b.width / 2; const ocy = b.y + b.height / 2; return ocx > pGroup.x && ocx < pGroup.x + pGroup.width && ocy > pGroup.y && ocy < pGroup.y + pGroup.height; }).map(s => s.id); }
+                                    if (pGroup) siblingNodeIds = getGroupNodeIds(pGroup, nodes).filter(nodeId => nodeId !== id);
                                     resizeContextRef.current = { nodeId: id, initialWidth: w, initialHeight: h, startX: e.clientX, startY: e.clientY, parentGroupId: pGroup?.id || null, siblingNodeIds };
                                 }
                                 setResizingNodeId(id); setInitialSize({ width: w, height: h }); setResizeStartPos({ x: e.clientX, y: e.clientY });
@@ -1563,15 +2107,15 @@ export const App = () => {
                             isSelected={selectedNodeIds.includes(node.id)}
                             canvasScale={scale}
                             inputAssets={node.inputs
-                                .map(i => nodes.find(n => n.id === i))
+                                .map(i => nodeById.get(i))
                                 .filter(n => n && (n.data.image || n.data.videoUri || n.data.croppedFrame || n.data.audioUri))
                                 .slice(0, 15)
                                 .map(n => ({
                                     id: n!.id,
                                     type: (n!.data.croppedFrame || n!.data.image) ? 'image' as const : n!.data.videoUri ? 'video' as const : 'audio' as const,
-                                    src: n!.data.croppedFrame || n!.data.image || n!.data.videoUri || n!.data.audioUri!
+                                    src: n!.data.croppedFrame || n!.data.imagePreview || n!.data.image || n!.data.videoUri || n!.data.audioUri!
                                 }))}
-                            onInputReorder={(nodeId, newOrder) => { const node = nodes.find(n => n.id === nodeId); if (node) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
+                            onInputReorder={(nodeId, newOrder) => { const targetNode = nodeById.get(nodeId); if (targetNode) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
                             isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIds.includes(node.id)}
                         />
                     ))}
@@ -1744,6 +2288,7 @@ export const App = () => {
                         )}
                         {contextMenuTarget?.type === 'group' && (
                             <>
+                                <button className="w-full text-left px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/15 rounded-lg flex items-center gap-2 transition-colors mb-1" onClick={() => { void runGroupWorkflow(contextMenu.id); setContextMenu(null); }}> <Play size={12} fill="currentColor" /> 启动工作流 </button>
                                 <button className="w-full text-left px-3 py-2 text-xs font-medium text-slate-200 hover:bg-white/10 rounded-lg flex items-center gap-2 transition-colors mb-1" onClick={() => { saveGroupAsWorkflow(contextMenu.id); setContextMenu(null); }}> <FolderHeart size={12} className="text-cyan-400" /> 保存为工作流 </button>
                                 <button className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 rounded-lg flex items-center gap-2 transition-colors" onClick={() => { setGroups(p => p.filter(g => g.id !== contextMenu.id)); setContextMenu(null); }}> <Trash2 size={12} /> 删除分组 </button>
                             </>
@@ -1761,7 +2306,15 @@ export const App = () => {
                     isOpen={isMultiFrameOpen}
                     onClose={() => setIsMultiFrameOpen(false)}
                     onGenerate={handleMultiFrameGenerate}
-                    onConnectStart={(e, type) => { e.preventDefault(); e.stopPropagation(); setConnectionStart({ id: 'smart-sequence-dock', x: e.clientX, y: e.clientY }); }}
+                    onConnectStart={(e, type) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.getSelection()?.removeAllRanges();
+                        const nextConnection = { id: 'smart-sequence-dock', x: e.clientX, y: e.clientY };
+                        connectionStartRef.current = nextConnection;
+                        setMousePos({ x: e.clientX, y: e.clientY });
+                        setConnectionStart(nextConnection);
+                    }}
                 />
                 <SonicStudio
                     isOpen={isSonicStudioOpen}
