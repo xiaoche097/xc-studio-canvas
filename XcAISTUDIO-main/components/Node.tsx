@@ -6,6 +6,7 @@ import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCir
 import { SceneDirectorOverlay } from './VideoNodeModules';
 import React, { memo, useRef, useState, useEffect, useCallback } from 'react';
 import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
+import * as mammoth from 'mammoth/mammoth.browser';
 
 // ... (keep constants and helper functions: arePropsEqual, safePlay, safePause, InputThumbnails, AudioVisualizer) ...
 
@@ -32,6 +33,8 @@ interface NodeProps {
     onResizeMouseDown: (e: React.MouseEvent, id: string, initialWidth: number, initialHeight: number) => void;
     inputAssets?: InputAsset[];
     onInputReorder?: (nodeId: string, newOrder: string[]) => void;
+    onTextQuickAction?: (nodeId: string, action: TextQuickActionId) => void;
+    onFocusNode?: (nodeId: string) => void;
 
     isDragging?: boolean;
     isGroupDragging?: boolean;
@@ -40,6 +43,8 @@ interface NodeProps {
     isConnecting?: boolean;
     canvasScale?: number;
 }
+
+type TextQuickActionId = 'write' | 'upload' | 'text-to-video' | 'image-to-prompt';
 
 const IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
 const VIDEO_ASPECT_RATIOS = ['9:16', '16:9', '4:3', '1:1', '3:4', '21:9'];
@@ -118,10 +123,10 @@ const VIDEO_MODEL_CONFIGS = [
     { l: 'Wan 2.1', v: 'wan-2.1-t2v-14b', badge: 'Animate' },
 ];
 const TEXT_QUICK_ACTIONS = [
-    { label: '自己编写内容', prompt: '', icon: Edit },
-    { label: '上传文档解析文本', prompt: '请解析上传文档内容，并整理为清晰、可复用的创作提示词。', icon: Upload },
-    { label: '文字生视频', prompt: '请把这段文字改写成适合视频生成的镜头提示词，包含主体、场景、运动、光影和风格。', icon: VideoIcon },
-    { label: '图片反推提示词', prompt: '请根据参考图片反推出完整提示词，包含主体、构图、光线、材质、风格和负面约束。', icon: Type },
+    { id: 'write' as const, label: '自己编写内容', icon: Edit },
+    { id: 'upload' as const, label: '上传文档解析文本', icon: Upload },
+    { id: 'text-to-video' as const, label: '文字生视频', icon: VideoIcon },
+    { id: 'image-to-prompt' as const, label: '图片反推提示词', icon: Type },
 ];
 const TEXT_MODEL_CONFIGS = [
     { l: '全能语言模型3.5 flash', v: 'gemini-3.1-flash-lite-preview', badge: '快速' },
@@ -425,7 +430,7 @@ const getFittedImageNodeSize = (imageWidth: number, imageHeight: number, current
 };
 
 const NodeComponent: React.FC<NodeProps> = ({
-    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1
+    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1
 }) => {
     const isWorking = node.status === NodeStatus.WORKING;
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -442,6 +447,8 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const generationMode = node.data.generationMode || 'DEFAULT';
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const textDocumentInputRef = useRef<HTMLInputElement>(null);
+    const textEditorRef = useRef<HTMLTextAreaElement>(null);
     const [localPrompt, setLocalPrompt] = useState(node.data.prompt || '');
     const [inputHeight, setInputHeight] = useState(48);
     const [isStylePresetOpen, setIsStylePresetOpen] = useState(false);
@@ -449,6 +456,8 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isImageMoreOpen, setIsImageMoreOpen] = useState(false);
     const [stylePresetTab, setStylePresetTab] = useState<'风格库' | '滤镜' | '功能' | '自定义前后缀'>('风格库');
     const [styleCategory, setStyleCategory] = useState<string>('全部');
+    const [isParsingDocument, setIsParsingDocument] = useState(false);
+    const [isTextEditorActive, setIsTextEditorActive] = useState(false);
     const isResizingInput = useRef(false);
     const inputStartDragY = useRef(0);
     const inputStartHeight = useRef(0);
@@ -472,6 +481,60 @@ const NodeComponent: React.FC<NodeProps> = ({
     const commitPrompt = () => { if (localPrompt !== (node.data.prompt || '')) onUpdate(node.id, { prompt: localPrompt }); };
     const handleActionClick = () => { commitPrompt(); onAction(node.id, localPrompt); };
     const handleCmdEnter = (e: React.KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commitPrompt(); onAction(node.id, localPrompt); } };
+
+    const textMode = node.data.textMode || ((node.data.prompt || node.inputs.length > 0) ? 'editor' : 'launcher');
+
+    const enterTextEditor = useCallback(() => {
+        onUpdate(node.id, { textMode: 'editor', error: undefined });
+    }, [node.id, onUpdate]);
+
+    const focusTextEditor = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        setIsTextEditorActive(true);
+        onFocusNode?.(node.id);
+        window.setTimeout(() => textEditorRef.current?.focus(), 180);
+    }, [node.id, onFocusNode]);
+
+    const handleTextQuickAction = (action: TextQuickActionId) => {
+        if (action === 'upload') {
+            textDocumentInputRef.current?.click();
+            return;
+        }
+        setIsTextEditorActive(action !== 'image-to-prompt');
+        enterTextEditor();
+        onTextQuickAction?.(node.id, action);
+    };
+
+    const handleTextDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+
+        setIsParsingDocument(true);
+        try {
+            const extension = file.name.split('.').pop()?.toLowerCase();
+            let text = '';
+            if (extension === 'txt' || file.type === 'text/plain') {
+                text = await file.text();
+            } else if (extension === 'docx') {
+                const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+                text = result.value;
+            } else {
+                throw new Error('仅支持 .docx 和 .txt 文件');
+            }
+
+            const normalizedText = text.replace(/\r\n/g, '\n').trim();
+            if (!normalizedText) throw new Error('文档中没有可读取的文本内容');
+            setLocalPrompt(normalizedText);
+            setIsTextEditorActive(true);
+            onUpdate(node.id, { prompt: normalizedText, textMode: 'editor', error: undefined });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '文档解析失败，请检查文件后重试';
+            onUpdate(node.id, { error: message });
+        } finally {
+            setIsParsingDocument(false);
+        }
+    };
 
     const handleInputResizeStart = (e: React.MouseEvent) => {
         e.stopPropagation(); e.preventDefault();
@@ -859,26 +922,18 @@ const NodeComponent: React.FC<NodeProps> = ({
         if (node.type === NodeType.PROMPT_INPUT) {
             return (
                 <div className="w-full h-full flex flex-col group/text">
-                    {isEmptyTextNode ? (
-                        isReferencedEmptyNode ? (
-                            <div className="relative h-full overflow-hidden bg-[#1b1c1e]">
-                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.12),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.045),transparent_36%)]" />
-                                <div className="relative z-10 flex h-full items-center justify-center text-[13px] font-medium text-zinc-600">
-                                    双击开始编辑...
-                                </div>
-                            </div>
-                        ) : (
+                    {textMode === 'launcher' ? (
                         <div className="relative h-full overflow-hidden bg-[#1b1c1e]">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.15),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.055),transparent_36%)]" />
                             <div className="absolute inset-x-10 top-10 h-px bg-gradient-to-r from-transparent via-emerald-300/30 to-transparent" />
                             <div className="relative z-10 flex h-full flex-col justify-center px-10">
                                 <p className="mb-5 text-[11px] font-bold tracking-wide text-zinc-500">尝试:</p>
                                 <div className="grid gap-3">
-                                    {TEXT_QUICK_ACTIONS.map(({ label, prompt, icon: ActionIcon }) => (
+                                    {TEXT_QUICK_ACTIONS.map(({ id, label, icon: ActionIcon }) => (
                                         <button
-                                            key={label}
-                                            onClick={(e) => { e.stopPropagation(); setLocalPrompt(prompt); onUpdate(node.id, { prompt }); }}
-                                            className={`group/action flex w-fit min-w-[156px] items-center gap-3 rounded-xl border px-3 py-1.5 text-left text-[12px] font-bold transition-all duration-200 ${label === '文字生视频' ? 'border-white/10 bg-white/8 text-zinc-100 shadow-[0_10px_28px_-18px_rgba(255,255,255,0.5)]' : 'border-transparent text-zinc-400 hover:border-emerald-400/25 hover:bg-emerald-400/10 hover:text-emerald-100'}`}
+                                            key={id}
+                                            onClick={(e) => { e.stopPropagation(); handleTextQuickAction(id); }}
+                                            className="group/action flex w-fit min-w-[156px] items-center gap-3 rounded-xl border border-transparent px-3 py-1.5 text-left text-[12px] font-bold text-zinc-400 transition-all duration-200 hover:border-emerald-400/25 hover:bg-emerald-400/10 hover:text-emerald-100"
                                         >
                                             <ActionIcon size={15} className="text-zinc-500 transition-colors group-hover/action:text-emerald-300" />
                                             <span>{label}</span>
@@ -886,12 +941,24 @@ const NodeComponent: React.FC<NodeProps> = ({
                                     ))}
                                 </div>
                             </div>
+                            <input ref={textDocumentInputRef} type="file" className="hidden" accept=".docx,.txt,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleTextDocumentUpload} />
+                            {isParsingDocument && <div className="absolute inset-0 z-20 flex items-center justify-center gap-2 bg-black/55 text-xs font-bold text-emerald-200 backdrop-blur-sm"><Loader2 size={16} className="animate-spin" />正在解析文档...</div>}
+                            {node.data.error && <div className="absolute inset-x-6 bottom-5 z-20 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">{node.data.error}</div>}
                         </div>
-                        )
                     ) : (
-                        <div className="m-5 flex-1 bg-black/10 rounded-2xl border border-white/5 p-4 relative overflow-hidden backdrop-blur-sm transition-colors group-hover/text:bg-black/20">
-                            <textarea className="w-full h-full bg-transparent resize-none focus:outline-none text-sm text-slate-200 placeholder-slate-500 font-medium leading-relaxed custom-scrollbar selection:bg-emerald-500/30 select-text" placeholder="输入你的创意构想..." value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={commitPrompt} onKeyDown={handleCmdEnter} onWheel={(e) => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} maxLength={1000} />
-                        </div>
+                        isReferencedEmptyNode && !localPrompt && !isTextEditorActive ? (
+                            <div className="relative h-full overflow-hidden bg-[#1b1c1e]">
+                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(20,184,166,0.12),transparent_43%),linear-gradient(145deg,rgba(255,255,255,0.045),transparent_36%)]" />
+                                <div className="relative z-10 flex h-full items-center justify-center text-[13px] font-medium text-zinc-600" onDoubleClick={focusTextEditor}>
+                                    双击开始编辑...
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="m-5 flex-1 bg-black/10 rounded-2xl border border-white/5 p-4 relative overflow-hidden backdrop-blur-sm transition-colors group-hover/text:bg-black/20" onDoubleClick={focusTextEditor}>
+                                <textarea ref={textEditorRef} className="w-full h-full bg-transparent resize-none focus:outline-none text-sm text-slate-200 placeholder-slate-500 font-medium leading-relaxed custom-scrollbar selection:bg-emerald-500/30 select-text" placeholder="双击开始编辑..." value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={commitPrompt} onKeyDown={handleCmdEnter} onWheel={(e) => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onDoubleClick={focusTextEditor} maxLength={10000} />
+                                {node.data.error && <div className="absolute inset-x-4 bottom-4 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">{node.data.error}</div>}
+                            </div>
+                        )
                     )}
                 </div>
             );

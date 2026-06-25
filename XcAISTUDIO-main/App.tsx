@@ -290,6 +290,7 @@ export const App = () => {
     // Viewport
     const [scale, setScale] = useState<number>(1);
     const [pan, setPan] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
+    const [isViewportAnimating, setIsViewportAnimating] = useState(false);
     const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -790,6 +791,7 @@ export const App = () => {
             duration: type === NodeType.VIDEO_GENERATOR ? 5 : initialData?.duration,
             generateAudio: type === NodeType.VIDEO_GENERATOR ? true : initialData?.generateAudio,
             imageCount: type === NodeType.IMAGE_GENERATOR ? 1 : initialData?.imageCount,
+            textMode: type === NodeType.PROMPT_INPUT ? 'launcher' : undefined,
             ...initialData
         };
 
@@ -837,6 +839,72 @@ export const App = () => {
 
         setContextMenu(null);
     }, [addNode, contextMenu, contextMenuTarget, pan, scale]);
+
+    const handleTextQuickAction = useCallback((nodeId: string, action: 'write' | 'upload' | 'text-to-video' | 'image-to-prompt') => {
+        if (action === 'write' || action === 'upload') return;
+        const sourceNode = nodesRef.current.find(node => node.id === nodeId);
+        if (!sourceNode) return;
+
+        const sourceWidth = sourceNode.width || 420;
+        if (action === 'text-to-video') {
+            const newNodeId = addNode(
+                NodeType.VIDEO_GENERATOR,
+                sourceNode.x + sourceWidth + 150,
+                sourceNode.y,
+                { generationMode: 'DEFAULT' }
+            );
+            if (!newNodeId) return;
+            setConnections(previous => [...previous, { from: nodeId, to: newNodeId }]);
+            setNodes(previous => previous.map(node => (
+                node.id === newNodeId
+                    ? { ...node, inputs: node.inputs.includes(nodeId) ? node.inputs : [...node.inputs, nodeId] }
+                    : node
+            )));
+            setSelectedNodeIds([newNodeId]);
+            return;
+        }
+
+        const newNodeId = addNode(
+            NodeType.IMAGE_GENERATOR,
+            sourceNode.x - 420 - 150,
+            sourceNode.y
+        );
+        if (!newNodeId) return;
+        setConnections(previous => [...previous, { from: newNodeId, to: nodeId }]);
+        setNodes(previous => previous.map(node => (
+            node.id === nodeId
+                ? {
+                    ...node,
+                    data: { ...node.data, textMode: 'editor', error: undefined },
+                    inputs: node.inputs.includes(newNodeId) ? node.inputs : [...node.inputs, newNodeId],
+                }
+                : node
+        )));
+        setSelectedNodeIds([newNodeId]);
+    }, [addNode]);
+
+    const handleFocusNode = useCallback((nodeId: string) => {
+        const targetNode = nodesRef.current.find(node => node.id === nodeId);
+        const canvas = canvasRef.current;
+        if (!targetNode || !canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const width = targetNode.width || 420;
+        const height = targetNode.height || getApproxNodeHeight(targetNode);
+        const nextScale = Math.min(1.4, Math.max(scaleRef.current, 1.2));
+        const nextPan = {
+            x: rect.width / 2 - (targetNode.x + width / 2) * nextScale,
+            y: rect.height / 2 - (targetNode.y + height / 2) * nextScale,
+        };
+
+        setSelectedNodeIds([nodeId]);
+        setIsViewportAnimating(true);
+        scaleRef.current = nextScale;
+        panRef.current = nextPan;
+        setScale(nextScale);
+        setPan(nextPan);
+        window.setTimeout(() => setIsViewportAnimating(false), 320);
+    }, []);
 
     const persistAssetHistory = useCallback((updater: (current: any[]) => any[]) => {
         setAssetHistory(current => {
@@ -1947,7 +2015,7 @@ export const App = () => {
                 <input type="file" ref={replaceVideoInputRef} className="hidden" accept="video/*" onChange={(e) => handleReplaceFile(e, 'video')} />
                 <input type="file" ref={replaceImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleReplaceFile(e, 'image')} />
 
-                <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, width: '100%', height: '100%', transformOrigin: '0 0' }} className="w-full h-full">
+                <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, width: '100%', height: '100%', transformOrigin: '0 0' }} className={`w-full h-full ${isViewportAnimating ? 'transition-transform duration-300 ease-out' : ''}`}>
                     {/* Groups Layer */}
                     {groups.map(g => {
                         const memberIds = getGroupNodeIds(g, nodes);
@@ -2060,6 +2128,8 @@ export const App = () => {
                     {visibleNodes.map(node => (
                         <Node
                             key={node.id} node={node} onUpdate={handleNodeUpdate} onAction={handleNodeAction} onDelete={(id) => deleteNodes([id])} onExpand={setExpandedMedia} onCrop={(id, img) => { setCroppingNodeId(id); setImageToCrop(img); }} onAddToAgent={handleAddImageToAgent}
+                            onTextQuickAction={handleTextQuickAction}
+                            onFocusNode={handleFocusNode}
                             onNodeMouseDown={(e, id) => {
                                 e.stopPropagation();
                                 if (e.shiftKey || e.metaKey || e.ctrlKey) { setSelectedNodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); } else { setSelectedNodeIds([id]); }
