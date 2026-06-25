@@ -48,22 +48,6 @@ const MOCK_AVATARS = [
     { id: 'a14', title: '黑发女孩唇红齿白', src: 'https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' }
 ];
 
-// 工作流中心精品创意模板假数据
-const MOCK_WORKFLOW_TEMPLATES = [
-    { id: 'w1', title: '去青神球比完居然被美妆拍到了', src: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=400&h=400&q=80', category: '行业定制' },
-    { id: 'w2', title: '2D转高清渲染图', src: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=400&h=400&q=80', category: '行业定制' },
-    { id: 'w3', title: '产品功能宣传短片工作流', src: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=400&h=400&q=80', category: '电商模版' },
-    { id: 'w4', title: '口播带货短视频制作', src: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?auto=format&fit=crop&w=400&h=400&q=80', category: '电商模版' },
-    { id: 'w5', title: '高颜值证件照 | DIY脱胎发型背景', src: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&h=400&q=80', category: '行业定制' },
-    { id: 'w6', title: 'AI-PPT 万能模版', src: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=400&h=400&q=80', category: '文案策划' },
-    { id: 'w7', title: '美妆品牌模特产品展示', src: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=400&h=400&q=80', category: '平面设计' },
-    { id: 'w8', title: '自定义虚拟人：幕后定制、数智', src: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=400&h=400&q=80', category: '数字虚拟' },
-    { id: 'w9', title: '美妆产品上妆效果图', src: 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=400&h=400&q=80', category: '行业定制' },
-    { id: 'w10', title: '头像设计', src: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&h=400&q=80', category: '平面设计' },
-    { id: 'w11', title: '虚拟试穿演示视频', src: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=400&h=400&q=80', category: '数字虚拟' },
-    { id: 'w12', title: '产品开箱讲解视频', src: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&h=400&q=80', category: '辅助内容' }
-];
-
 interface SidebarDockProps {
     onAddNode: (type: NodeType) => void;
     onUndo: () => void;
@@ -163,10 +147,10 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
     const [selectedAvatarCategory, setSelectedAvatarCategory] = useState('角色套装');
     const [selectedMyAssetCategory, setSelectedMyAssetCategory] = useState('全部');
 
-    // 工作流大弹窗相关的 State 状态
-    const [activeWorkflowMainTab, setActiveWorkflowMainTab] = useState<'inspiration' | 'my_workflow'>('inspiration');
     const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');
-    const [selectedWorkflowTemplateCategory, setSelectedWorkflowTemplateCategory] = useState('全部');
+    const [activeWorkflowMainTab] = useState<'inspiration' | 'my_workflow'>('my_workflow');
+    const selectedWorkflowTemplateCategory = '全部';
+    const setSelectedWorkflowTemplateCategory = (_category: string) => undefined;
 
     // Hover Handlers
     const handleSidebarHover = (id: string) => {
@@ -468,6 +452,15 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                 
                                 {/* 搜索与关闭按钮 */}
                                 <div className="flex items-center gap-4">
+                                    <button
+                                        type="button"
+                                        onClick={onSaveWorkflow}
+                                        className="flex h-9 items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 text-xs font-bold text-black transition-all hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-95"
+                                        title="将当前画布保存到我的工作流"
+                                    >
+                                        <Save size={14} />
+                                        保存当前画布
+                                    </button>
                                     <div className="relative flex items-center">
                                         <Search size={14} className="absolute left-3 text-zinc-500" />
                                         <input
@@ -684,11 +677,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
             {/* 工作流中心大弹窗 (AIGC 工作流中心) */}
             {activePanel === 'workflow' && (() => {
                 // 根据当前选中分类和搜索词进行实时过滤
-                const filteredTemplates = MOCK_WORKFLOW_TEMPLATES.filter(w => {
-                    const matchesCategory = selectedWorkflowTemplateCategory === '全部' || w.category === selectedWorkflowTemplateCategory;
-                    const matchesSearch = w.title.toLowerCase().includes(workflowSearchQuery.toLowerCase());
-                    return matchesCategory && matchesSearch;
-                });
+                const filteredTemplates: Array<{ id: string; title: string; src: string; category: string }> = [];
 
                 const filteredUserWorkflows = workflows.filter(w => {
                     const matchesSearch = w.title.toLowerCase().includes(workflowSearchQuery.toLowerCase());
@@ -713,14 +702,12 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                 <div className="flex items-center gap-6">
                                     <div className="flex bg-black/40 p-1 rounded-2xl border border-white/5">
                                         {[
-                                            { id: 'inspiration', label: '灵感库' },
                                             { id: 'my_workflow', label: '我的工作流' }
                                         ].map(tab => (
                                             <button
                                                 key={tab.id}
                                                 onClick={() => {
-                                                    setActiveWorkflowMainTab(tab.id as any);
-                                                    setWorkflowSearchQuery(''); // 切换时清空搜索
+                                                    setWorkflowSearchQuery('');
                                                 }}
                                                 className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-300 ${activeWorkflowMainTab === tab.id ? 'bg-white/10 text-emerald-400 shadow-md scale-105 border border-white/5' : 'text-zinc-400 hover:text-zinc-200'}`}
                                             >
@@ -738,10 +725,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                             type="text"
                                             value={workflowSearchQuery}
                                             onChange={(e) => setWorkflowSearchQuery(e.target.value)}
-                                            placeholder={
-                                                activeWorkflowMainTab === 'inspiration' ? '搜索灵感工作流...' :
-                                                '搜索我的工作流...'
-                                            }
+                                            placeholder="搜索我的工作流..."
                                             className="w-64 bg-black/40 border border-white/5 rounded-full pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all font-medium"
                                         />
                                         {workflowSearchQuery && (
@@ -833,7 +817,16 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                             <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
                                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                                             </div>
-                                            <span className="text-xs font-bold tracking-wider text-zinc-400 uppercase">暂无工作流</span>
+                                            <span className="text-xs font-bold tracking-wider text-zinc-400">暂无已保存的工作流</span>
+                                            <span className="mt-2 max-w-sm text-center text-[11px] leading-5 text-zinc-600">将调试完成的分组直接保存，或保存当前完整画布，之后可随时加载和拖回画布复用。</span>
+                                            <button
+                                                type="button"
+                                                onClick={onSaveWorkflow}
+                                                className="mt-5 flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-xs font-bold text-black transition-all hover:bg-emerald-400 active:scale-95"
+                                            >
+                                                <Save size={14} />
+                                                保存当前画布
+                                            </button>
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
@@ -852,7 +845,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                                     className="relative aspect-[3/4] rounded-2xl overflow-hidden border border-white/5 bg-zinc-900/50 hover:border-emerald-500/50 transition-all duration-300 group cursor-pointer shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-1"
                                                 >
                                                     {wf.thumbnail ? (
-                                                        <img src={wf.thumbnail} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt={wf.title} />
+                                                        <img src={wf.thumbnail} loading="lazy" decoding="async" className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt={wf.title} />
                                                     ) : (
                                                         <div className="w-full h-full flex items-center justify-center bg-black/40 text-zinc-600">
                                                             <WorkflowIcon size={32} />

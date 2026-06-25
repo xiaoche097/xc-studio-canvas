@@ -30,6 +30,8 @@ export interface AppNode {
     prompt?: string;
     model?: string; // Selected AI model
     image?: string; // Base64 (The currently displayed main image)
+    imagePreview?: string; // Lightweight WebP preview used by the canvas
+    imagePreviewSource?: string; // Compact fingerprint of the original image
     images?: string[]; // Array of Base64 strings (for multiple generations)
     imageCount?: number; // Number of images to generate (1-4)
     videoCount?: number; // Number of videos to generate (1-4)
@@ -66,6 +68,7 @@ export interface Group {
   width: number;
   height: number;
   title: string;
+  nodeIds?: string[]; // Explicit workflow membership; inferred for legacy groups
 }
 
 export interface Connection {
@@ -87,6 +90,8 @@ export interface Workflow {
   nodes: AppNode[];
   connections: Connection[];
   groups: Group[];
+  sourceGroupId?: string;
+  updatedAt?: number;
 }
 
 // New Smart Sequence Types
