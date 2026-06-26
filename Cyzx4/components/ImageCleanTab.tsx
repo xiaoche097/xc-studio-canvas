@@ -1876,9 +1876,12 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
             const flatResults = batchResults.flat();
             const normalizedResults = await normalizeGeneratedImagesToAspectRatio(flatResults, aspectRatio, resolution);
             assertCurrentGenerationTask(taskId, signal);
+            const fallbackColorReference = colorReference || sceneReferences[0] || modelReference || productImages[0];
             const colorCorrectedResults = await applyColorCorrectionBatch(normalizedResults, {
                 mode: colorCorrectionMode,
-                reference: colorReference ? `data:${colorReference.mime};base64,${colorReference.base64}` : undefined,
+                reference: colorCorrectionMode === 'match' && fallbackColorReference
+                    ? `data:${fallbackColorReference.mime};base64,${fallbackColorReference.base64}`
+                    : undefined,
                 blend: colorCorrectionBlend,
             });
             assertCurrentGenerationTask(taskId, signal);
