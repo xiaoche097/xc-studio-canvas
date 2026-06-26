@@ -380,6 +380,47 @@ const parseActionPromptText = (text: string) => {
     .slice(0, 10);
 };
 
+const extractUserCropRange = (text: string) => {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const explicitCrop = normalized.match(/(?:裁切范围|裁剪范围|构图范围|画面范围|取景范围|裁切|裁剪)\s*[:：]\s*([^。；;\n]+)/);
+  if (explicitCrop?.[1]) return explicitCrop[1].trim();
+
+  if (/(鼻部以下|鼻子以下|嘴部至|嘴巴至|裁掉眼睛|裁掉眼睛以上|眼睛以上|顶部裁掉|不保留眼睛|不要露眼睛|只保留嘴部)/.test(normalized)) {
+    return normalized;
+  }
+
+  return '';
+};
+
+const buildUserCropDirective = (poseText: string) => {
+  const cropRange = extractUserCropRange(poseText);
+  if (!cropRange) return '';
+
+  const normalized = cropRange.replace(/\s+/g, ' ');
+  const hidesEyesOrUpperFace = /(鼻部以下|鼻子以下|嘴部|嘴巴|裁掉眼睛|眼睛以上|不保留眼睛|不要露眼睛|只保留嘴|顶部裁掉)/.test(normalized);
+  const endsAtHip = /(臀部|胯部|髋部|腰臀|hip|hips)/i.test(normalized);
+  const upperGarmentDetail = /(上装|领口|胸|肩|半身|中近景|近景|细节|neckline|upper)/i.test(normalized);
+
+  const hardRules = [
+    `USER-WRITTEN CROP RANGE LOCK: the user explicitly requires this crop/framing: "${cropRange}". Treat this as a hard camera boundary, not a soft pose description.`,
+    'The output must rebuild the camera framing to match the user crop range even if Image 1 shows a full face or full body.',
+  ];
+
+  if (hidesEyesOrUpperFace) {
+    hardRules.push('Cut off the upper face: eyes, eyebrows, forehead, hairline, and top of head must be outside the frame. The visible top boundary should start around the nose/mouth area according to the user crop.');
+  }
+  if (endsAtHip) {
+    hardRules.push('The bottom boundary must end around the hips/buttocks area. Do not show thighs, knees, calves, feet, or a full-body/head-to-toe composition.');
+  }
+  if (upperGarmentDetail) {
+    hardRules.push('Prioritize upper garment readability: neckline, collar, shoulder/chest fabric, waist and upper-body product details should be large in frame.');
+  }
+
+  return `- ${hardRules.join('\n- ')}
+- USER CROP REJECTION RULE: if the generated image shows a complete face, visible eyes/forehead, full body, legs below the hip, or a wider crop than requested, treat it as incorrect and regenerate internally with the exact crop boundary.
+- USER CROP NEGATIVE TERMS: full face, complete face, eyes visible, forehead visible, top of head visible, full body, head-to-toe, knees, feet, wide shot.`;
+};
+
 const POSE_FISSION_DIVERSITY_DIRECTIVE =
   'MANDATORY visible pose replacement: do NOT preserve Image 1\'s original standing pose, limb placement, body angle, crop, or subject placement. Make this a clearly different body pose from Image 1, with a changed leg stance, torso angle, shoulder line, head direction, arm/hand placement, and/or walking/sitting/leaning geometry. Returning Image 1 unchanged or with only tiny hand/expression changes is a failed result. Keep the same model identity, outfit, product details, and scene DNA, but rebuild the body posture as a new fashion pose.';
 
@@ -434,6 +475,7 @@ const buildPrompt = (options: {
   } = options;
   const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
   const isManualShotType = shotType !== 'auto';
+  const userCropDirective = poseSourceMode === 'text' ? buildUserCropDirective(poseText) : '';
 
   const effectiveBodyCoverage = shotType === 'auto' ? actionBodyCoverage : undefined;
   const isLowerBodyAction = hasActionReference && effectiveBodyCoverage === 'lower_body';
@@ -498,6 +540,7 @@ ${isLowerBodyAction
 Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseSourceMode === 'text' ? 'user-written action prompt' : poseLabel}.
 Pose instruction: ${poseText}
 ${poseSourceMode === 'text' ? '- This is an action/pose instruction only; do not treat it as clothing, scene, identity, background, prop, lighting, or style instruction.' : ''}
+${userCropDirective}
 ${hasActionReference ? `- ACTION REFERENCE MUST BE VISIBLY USED: the final body pose, silhouette, body orientation, hand/arm positions, leg/foot positions, camera crop, and person-to-frame scale must visibly match the assigned action reference, not Image 1's original pose.
 - ORIGINAL-POSE REJECTION RULE: if the generated output still looks like Image 1's original pose, original crop, or original subject placement, treat it as incorrect and regenerate internally toward the action reference.` : ''}
 - ${POSE_FISSION_DIVERSITY_DIRECTIVE}
@@ -509,6 +552,7 @@ ${hasActionReference ? `- ACTION REFERENCE MUST BE VISIBLY USED: the final body 
 - Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
 - Shot type preset: ${shotPreset.label}. ${shotPreset.prompt}
 - SHOT TYPE LOCK: Treat the selected shot type as a hard framing rule, not a soft style note. If user text says close-up/detail, obey this structured preset over generic pose-library full-body tendencies. ${isManualShotType ? MANUAL_SHOT_OVERRIDE_LOCK : hasActionReference ? 'In auto mode, an uploaded action reference may guide the crop and camera distance for that output.' : ''}
+${userCropDirective ? '- USER CROP OVERRIDES SHOT PRESET: when the written action prompt includes an explicit crop range, that crop range outranks the selected shot type preset and Image 1 framing.' : ''}
 ${shotType === 'closeup' || isCloseUpAction ? '- CLOSE-UP HARD RULE: the final image must NOT be full-body, head-to-toe, knee-up, or full-dress. Crop tightly from face/chin/neck to chest or upper torso, or tighter on the requested garment area. The waist, hips, legs, feet, and full skirt/dress length must be outside the frame unless explicitly requested by the user.' : ''}
 ${shotType === 'macro' ? '- MACRO HARD RULE: the final image must be a tight garment-detail crop. Do not show the full person, full outfit, complete face portrait, full dress length, legs, or feet.' : ''}
 ${shotType === 'medium' || isUpperBodyAction ? '- MEDIUM SHOT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
@@ -1081,7 +1125,9 @@ Rules:
     if (!imageUrl) throw new Error('模型未返回图片');
     const correctedImageUrl = await applyColorCorrection(imageUrl, {
       mode: colorCorrectionMode,
-      reference: colorReferenceImages[0] ? getDataUrl(colorReferenceImages[0]) : undefined,
+      reference: colorCorrectionMode === 'match'
+        ? getDataUrl(colorReferenceImages[0] || overallImages[0])
+        : undefined,
       blend: colorCorrectionBlend,
     });
     const formattedImageUrl = await convertImageDataUrlFormat(correctedImageUrl, outputFormat);
@@ -1716,7 +1762,7 @@ Rules:
               </div>
               {colorCorrectionMode === 'match' && (
                 <div className="mt-3">
-                  <UploadCard title="标准色参考图" desc="上传白平衡正确、色调满意的图，只用于生成后色彩映射" icon={<ImageIcon className="h-4 w-4" />} images={colorReferenceImages} max={1} multiple={false} onUpload={(files) => addImages(files, setColorReferenceImages, 1, true)} onRemove={(id) => removeImage('color', id)} />
+                  <UploadCard title="标准色参考图" desc="可选。不传时默认匹配模特整体参考图的色温和色调。" icon={<ImageIcon className="h-4 w-4" />} images={colorReferenceImages} max={1} multiple={false} onUpload={(files) => addImages(files, setColorReferenceImages, 1, true)} onRemove={(id) => removeImage('color', id)} />
                 </div>
               )}
               {colorCorrectionMode !== 'off' && (
@@ -1770,11 +1816,11 @@ Rules:
 
               <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg/50">
                 {isGenerating && regeneratingIndex === null && (
-                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center space-y-5 bg-white/80 backdrop-blur-sm">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-full border bg-white text-orange-500 shadow-xl">
-                      <Loader2 className="h-8 w-8 animate-spin" />
+                  <div className="pointer-events-none sticky top-0 z-10 mx-5 mt-5 flex items-center gap-3 rounded-xl border border-orange-100 bg-white/95 px-4 py-3 text-orange-600 shadow-sm backdrop-blur">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-50">
+                      <Loader2 className="h-5 w-5 animate-spin" />
                     </div>
-                    <div className="text-center">
+                    <div className="min-w-0">
                       <h4 className="font-bold text-pastel-text">姿势裂变生成中</h4>
                       <p className="mt-1 text-xs text-pastel-muted">{statusMessage || '正在保持人物一致性并生成多姿势结果...'}</p>
                     </div>

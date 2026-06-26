@@ -185,6 +185,113 @@ const getRgbStats = (data: Uint8ClampedArray, neutralPreferred = false) => {
     return { mean, std };
 };
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+type ColorMatchStats = {
+    meanY: number;
+    stdY: number;
+    meanRg: number;
+    stdRg: number;
+    meanYb: number;
+    stdYb: number;
+};
+
+const getLuma = (r: number, g: number, b: number) => r * 0.299 + g * 0.587 + b * 0.114;
+const getRg = (r: number, g: number) => r - g;
+const getYb = (r: number, g: number, b: number) => (r + g) * 0.5 - b;
+
+const getColorSampleWeight = (r: number, g: number, b: number) => {
+    const y = getLuma(r, g, b);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const chroma = max - min;
+
+    if (y < 18 || y > 248) return 0;
+
+    let weight = 1;
+    if (y < 45) weight *= (y - 18) / 27;
+    if (y > 220) weight *= (248 - y) / 28;
+    if (chroma > 120) weight *= 0.45;
+
+    return clamp(weight, 0, 1);
+};
+
+const getPixelCorrectionWeight = (y: number) => {
+    if (y < 12 || y > 252) return 0.12;
+    if (y < 45) return clamp((y - 12) / 33, 0.25, 1);
+    if (y > 220) return clamp((252 - y) / 32, 0.25, 1);
+    return 1;
+};
+
+const getColorMatchStats = (data: Uint8ClampedArray): ColorMatchStats => {
+    let totalWeight = 0;
+    let meanY = 0;
+    let meanRg = 0;
+    let meanYb = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const weight = getColorSampleWeight(r, g, b);
+        if (weight <= 0) continue;
+
+        totalWeight += weight;
+        meanY += getLuma(r, g, b) * weight;
+        meanRg += getRg(r, g) * weight;
+        meanYb += getYb(r, g, b) * weight;
+    }
+
+    if (totalWeight <= 0) {
+        const fallback = getRgbStats(data);
+        const r = fallback.mean[0];
+        const g = fallback.mean[1];
+        const b = fallback.mean[2];
+        return {
+            meanY: getLuma(r, g, b),
+            stdY: 24,
+            meanRg: getRg(r, g),
+            stdRg: 18,
+            meanYb: getYb(r, g, b),
+            stdYb: 18,
+        };
+    }
+
+    meanY /= totalWeight;
+    meanRg /= totalWeight;
+    meanYb /= totalWeight;
+
+    let varianceY = 0;
+    let varianceRg = 0;
+    let varianceYb = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const weight = getColorSampleWeight(r, g, b);
+        if (weight <= 0) continue;
+
+        varianceY += ((getLuma(r, g, b) - meanY) ** 2) * weight;
+        varianceRg += ((getRg(r, g) - meanRg) ** 2) * weight;
+        varianceYb += ((getYb(r, g, b) - meanYb) ** 2) * weight;
+    }
+
+    return {
+        meanY,
+        stdY: Math.sqrt(varianceY / totalWeight) || 1,
+        meanRg,
+        stdRg: Math.sqrt(varianceRg / totalWeight) || 1,
+        meanYb,
+        stdYb: Math.sqrt(varianceYb / totalWeight) || 1,
+    };
+};
+
+const opponentToRgb = (y: number, rg: number, yb: number) => [
+    y + 0.644 * rg + 0.114 * yb,
+    y - 0.356 * rg + 0.114 * yb,
+    y + 0.144 * rg - 0.886 * yb,
+];
+
 const adjustSaturation = (r: number, g: number, b: number, saturation: number) => {
     const gray = r * 0.299 + g * 0.587 + b * 0.114;
     return [
@@ -226,26 +333,30 @@ export const applyColorCorrection = async (
         if (!refCtx) throw new Error('Canvas is not available for color reference.');
         refCtx.drawImage(refImage, 0, 0);
         const refData = refCtx.getImageData(0, 0, refCanvas.width, refCanvas.height).data;
-        const srcStats = getRgbStats(data, true);
-        const refStats = getRgbStats(refData, true);
+        const srcStats = getColorMatchStats(data);
+        const refStats = getColorMatchStats(refData);
 
         for (let i = 0; i < data.length; i += 4) {
             const originalR = data[i];
             const originalG = data[i + 1];
             const originalB = data[i + 2];
-            const originalLuma = originalR * 0.299 + originalG * 0.587 + originalB * 0.114;
-            const mappedRgb = [0, 0, 0];
-            for (let c = 0; c < 3; c += 1) {
-                mappedRgb[c] = ((data[i + c] - srcStats.mean[c]) / srcStats.std[c]) * refStats.std[c] + refStats.mean[c];
-            }
-            let r = originalR * (1 - blend) + mappedRgb[0] * blend;
-            let g = originalG * (1 - blend) + mappedRgb[1] * blend;
-            let b = originalB * (1 - blend) + mappedRgb[2] * blend;
-            const correctedLuma = r * 0.299 + g * 0.587 + b * 0.114;
-            const lumaScale = Math.max(0.72, Math.min(1.28, originalLuma / Math.max(1, correctedLuma)));
-            r = originalLuma * 0.2 + r * lumaScale * 0.8;
-            g = originalLuma * 0.2 + g * lumaScale * 0.8;
-            b = originalLuma * 0.2 + b * lumaScale * 0.8;
+            const originalLuma = getLuma(originalR, originalG, originalB);
+            const pixelWeight = getPixelCorrectionWeight(originalLuma);
+            const effectiveBlend = blend * pixelWeight;
+
+            const originalRg = getRg(originalR, originalG);
+            const originalYb = getYb(originalR, originalG, originalB);
+            const rgScale = clamp(refStats.stdRg / Math.max(1, srcStats.stdRg), 0.75, 1.25);
+            const ybScale = clamp(refStats.stdYb / Math.max(1, srcStats.stdYb), 0.75, 1.25);
+            const mappedRg = ((originalRg - srcStats.meanRg) * rgScale) + refStats.meanRg;
+            const mappedYb = ((originalYb - srcStats.meanYb) * ybScale) + refStats.meanYb;
+            const mappedLuma = ((originalLuma - srcStats.meanY) * clamp(refStats.stdY / Math.max(1, srcStats.stdY), 0.88, 1.12)) + refStats.meanY;
+
+            const rg = originalRg + clamp(mappedRg - originalRg, -26, 26) * effectiveBlend;
+            const yb = originalYb + clamp(mappedYb - originalYb, -30, 30) * effectiveBlend;
+            const y = originalLuma + clamp(mappedLuma - originalLuma, -10, 10) * effectiveBlend * 0.25;
+            let [r, g, b] = opponentToRgb(y, rg, yb);
+
             data[i] = clampByte(r);
             data[i + 1] = clampByte(g);
             data[i + 2] = clampByte(b);
