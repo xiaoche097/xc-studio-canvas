@@ -153,17 +153,17 @@ const App: React.FC = () => {
 
             {/* Persist ProductSwapTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.PRODUCT_SWAP ? 'block' : 'none', height: '100%' }}>
-              <ProductSwapTab />
+              <ProductSwapTab isActive={activeTab === AppMode.PRODUCT_SWAP} />
             </div>
 
             {/* Persist FusionTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.FUSION ? 'block' : 'none', height: '100%' }}>
-              <FusionTab />
+              <FusionTab isActive={activeTab === AppMode.FUSION} />
             </div>
 
             {/* Persist InpaintingTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.INPAINTING ? 'block' : 'none', height: '100%' }}>
-              <InpaintingTab />
+              <InpaintingTab isActive={activeTab === AppMode.INPAINTING} />
             </div>
 
             {/* Persist HDUpscaleTab state (Replacing EditorTab) */}
@@ -173,17 +173,17 @@ const App: React.FC = () => {
 
             {/* Persist StyleReplicateTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.COPYWRITING ? 'block' : 'none', height: '100%' }}>
-              <StyleReplicateTab />
+              <StyleReplicateTab isActive={activeTab === AppMode.COPYWRITING} />
             </div>
 
             {/* Persist SceneGenerationTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.SCENE_GENERATION ? 'block' : 'none', height: '100%' }}>
-              <SceneGenerationTab />
+              <SceneGenerationTab isActive={activeTab === AppMode.SCENE_GENERATION} />
             </div>
 
             {/* Persist ImageCleanTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.IMAGE_CLEAN ? 'block' : 'none', height: '100%' }}>
-              <ImageCleanTab />
+              <ImageCleanTab isActive={activeTab === AppMode.IMAGE_CLEAN} />
             </div>
 
             <div style={{ display: activeTab === AppMode.MODEL_TRANSFER ? 'block' : 'none', height: '100%' }}>
@@ -191,16 +191,16 @@ const App: React.FC = () => {
             </div>
 
             <div style={{ display: activeTab === AppMode.MODEL_POSE_FISSION ? 'block' : 'none', height: '100%' }}>
-              <ModelPoseFissionTab />
+              <ModelPoseFissionTab isActive={activeTab === AppMode.MODEL_POSE_FISSION} />
             </div>
 
             <div style={{ display: activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK ? 'block' : 'none', height: '100%' }}>
-              <ModelOriginalPasteBackTab />
+              <ModelOriginalPasteBackTab isActive={activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK} />
             </div>
 
             {/* Persist OutfitExtractionTab state by hiding instead of unmounting */}
             <div style={{ display: activeTab === AppMode.OUTFIT_EXTRACTION ? 'block' : 'none', height: '100%' }}>
-              <OutfitExtractionTab />
+              <OutfitExtractionTab isActive={activeTab === AppMode.OUTFIT_EXTRACTION} />
             </div>
             {activeTab === AppMode.RATIO_QUERY && <AspectRatioTab />}
           </div>

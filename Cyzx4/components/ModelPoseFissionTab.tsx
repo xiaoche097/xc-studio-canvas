@@ -83,6 +83,30 @@ interface ActionReferenceAnalysis {
   reasoning?: string;
 }
 
+type GarmentProductKind = 'upper' | 'lower' | 'skirt' | 'dress' | 'set' | 'outerwear' | 'swimwear' | 'sleepwear' | 'accessory' | 'other';
+type ProductDisplayCoverage = 'full_body' | 'upper_body' | 'lower_body' | 'detail';
+
+interface ProductGarmentAnalysis {
+  kind: GarmentProductKind;
+  label: string;
+  displayArea: string;
+  productDescription: string;
+  mustShow: string[];
+  canCrop: string[];
+  negativeCropTerms: string[];
+  confidence: number;
+  source: 'ai' | 'manual' | 'fallback';
+}
+
+interface OutputDisplayPlan {
+  coverage: ProductDisplayCoverage;
+  label: string;
+  focus: string;
+  framingRule: string;
+  conflictRule: string;
+  negativeTerms: string;
+}
+
 type UploadedImage = {
   id: string;
   preview: string;
@@ -262,6 +286,224 @@ const getAspectRatioValue = (ratio: AspectRatio) => {
   return width / height;
 };
 
+const PRODUCT_KIND_LABELS: Record<GarmentProductKind, string> = {
+  upper: '上衣',
+  lower: '下装',
+  skirt: '短裙/半裙',
+  dress: '连衣裙/长裙',
+  set: '套装',
+  outerwear: '外套',
+  swimwear: '泳装',
+  sleepwear: '睡衣/家居服',
+  accessory: '配饰',
+  other: '其他服装',
+};
+
+const PRODUCT_KIND_ALIASES: Array<{ kind: GarmentProductKind; pattern: RegExp }> = [
+  { kind: 'dress', pattern: /(连衣裙|长裙|礼服|dress|gown|maxi|midi)/i },
+  { kind: 'skirt', pattern: /(半裙|短裙|裙子|skirt|mini skirt|pleated skirt)/i },
+  { kind: 'lower', pattern: /(裤|裤子|长裤|短裤|牛仔裤|阔腿裤|工装裤|leggings|pants|trousers|jeans|shorts|bottom)/i },
+  { kind: 'outerwear', pattern: /(外套|夹克|大衣|风衣|西装外套|开衫|coat|jacket|blazer|cardigan|outerwear)/i },
+  { kind: 'set', pattern: /(套装|两件套|三件套|set|co-ord|coord|matching set)/i },
+  { kind: 'swimwear', pattern: /(泳装|泳衣|比基尼|泳裤|swimwear|bikini|swimsuit|swim shorts)/i },
+  { kind: 'sleepwear', pattern: /(睡衣|家居服|睡袍|pajama|pyjama|sleepwear|loungewear|robe)/i },
+  { kind: 'upper', pattern: /(上衣|衬衫|t恤|T恤|针织|毛衣|卫衣|背心|吊带|polo|shirt|tee|t-shirt|sweater|knit|top|blouse|hoodie|tank|camisole)/i },
+  { kind: 'accessory', pattern: /(包|帽|围巾|鞋|首饰|腰带|bag|hat|scarf|shoes|jewelry|belt|accessory)/i },
+];
+
+const normalizeProductKind = (value?: string): GarmentProductKind => {
+  const text = (value || '').trim();
+  if (!text) return 'other';
+  const direct = text as GarmentProductKind;
+  if (PRODUCT_KIND_LABELS[direct]) return direct;
+  return PRODUCT_KIND_ALIASES.find((item) => item.pattern.test(text))?.kind || 'other';
+};
+
+const buildFallbackProductAnalysis = (
+  category?: string,
+  source: ProductGarmentAnalysis['source'] = category?.trim() ? 'manual' : 'fallback',
+): ProductGarmentAnalysis => {
+  const kind = normalizeProductKind(category);
+  const label = PRODUCT_KIND_LABELS[kind];
+  const byKind: Record<GarmentProductKind, Omit<ProductGarmentAnalysis, 'kind' | 'label' | 'confidence' | 'source'>> = {
+    upper: {
+      displayArea: '上半身、领口、肩袖、胸腰和衣摆',
+      productDescription: 'upper-body fashion garment',
+      mustShow: ['neckline/collar', 'shoulders', 'sleeves', 'chest fabric', 'hem and fit'],
+      canCrop: ['legs', 'feet', 'most lower body after the first full-body look'],
+      negativeCropTerms: ['tiny upper garment', 'distant full body in every output', 'legs dominating the frame'],
+    },
+    lower: {
+      displayArea: '腰部到脚、臀胯、裤腿/脚口',
+      productDescription: 'lower-body garment such as pants or shorts',
+      mustShow: ['waistband', 'hips', 'pockets or seams', 'leg silhouette', 'hem break and footwear relationship'],
+      canCrop: ['head', 'face', 'upper chest', 'most upper body after the styling look'],
+      negativeCropTerms: ['full body in every output', 'tiny pants', 'upper body dominating the frame', 'cropped-out waistband'],
+    },
+    skirt: {
+      displayArea: '腰线、臀胯、裙摆和腿部比例',
+      productDescription: 'skirt or lower-body skirt product',
+      mustShow: ['waistline', 'hip fit', 'skirt silhouette', 'hemline', 'leg proportion'],
+      canCrop: ['head', 'face', 'upper chest', 'most upper body after the styling look'],
+      negativeCropTerms: ['full body in every output', 'tiny skirt', 'upper body dominating the frame', 'missing hemline'],
+    },
+    dress: {
+      displayArea: '完整裙长、腰线、裙摆和整体轮廓',
+      productDescription: 'one-piece dress product',
+      mustShow: ['neckline', 'waist shaping', 'full dress length', 'skirt drape', 'hemline'],
+      canCrop: ['empty background', 'excess scene margins'],
+      negativeCropTerms: ['cropped dress length', 'missing hemline', 'pants-like lower crop', 'tiny dress'],
+    },
+    set: {
+      displayArea: '上下装整体搭配以及关键半身细节',
+      productDescription: 'matching set outfit',
+      mustShow: ['top piece', 'bottom piece', 'waist connection', 'overall styling', 'fabric consistency'],
+      canCrop: ['excess background'],
+      negativeCropTerms: ['only top visible in all outputs', 'only bottom visible in all outputs', 'missing set relationship'],
+    },
+    outerwear: {
+      displayArea: '上半身、肩线、门襟、袖型和衣长',
+      productDescription: 'outerwear garment',
+      mustShow: ['shoulder line', 'front opening', 'sleeves', 'collar', 'hem length'],
+      canCrop: ['feet', 'lower legs after the first full-body look'],
+      negativeCropTerms: ['tiny jacket', 'full body in every output', 'missing front opening'],
+    },
+    swimwear: {
+      displayArea: '泳装主体、腰胯、版型和覆盖范围',
+      productDescription: 'swimwear product',
+      mustShow: ['fit coverage', 'waist/hip structure', 'straps or waistband', 'fabric surface'],
+      canCrop: ['excess background'],
+      negativeCropTerms: ['product too small', 'hidden swimsuit structure', 'unrelated outfit covering swimwear'],
+    },
+    sleepwear: {
+      displayArea: '整套廓形、领口袖口、裤长/裙长和舒适垂坠',
+      productDescription: 'sleepwear or loungewear product',
+      mustShow: ['relaxed fit', 'neckline', 'sleeves', 'bottom length', 'soft fabric drape'],
+      canCrop: ['excess background'],
+      negativeCropTerms: ['product too small', 'formal styling hiding loungewear', 'missing relaxed silhouette'],
+    },
+    accessory: {
+      displayArea: '配饰所在区域和佩戴/手持关系',
+      productDescription: 'fashion accessory',
+      mustShow: ['accessory shape', 'scale', 'placement', 'material', 'interaction with model'],
+      canCrop: ['unrelated body areas'],
+      negativeCropTerms: ['missing accessory', 'accessory too small', 'accessory covered by hands or clothing'],
+    },
+    other: {
+      displayArea: '产品主体最大化展示',
+      productDescription: 'fashion apparel product',
+      mustShow: ['main product structure', 'fabric', 'fit', 'silhouette', 'key details'],
+      canCrop: ['excess background'],
+      negativeCropTerms: ['product too small', 'generic full body in every output', 'hidden product details'],
+    },
+  };
+
+  return {
+    kind,
+    label,
+    ...byKind[kind],
+    confidence: source === 'fallback' ? 0.2 : 0.75,
+    source,
+  };
+};
+
+const getProductStrategySummary = (analysis: ProductGarmentAnalysis | null, total: number) => {
+  if (!analysis) return '等待产品分析；默认按服装通用策略。';
+  if (analysis.kind === 'lower' || analysis.kind === 'skirt') return total > 1 ? '1全身 + 其余下半身' : '下半身重点';
+  if (analysis.kind === 'upper' || analysis.kind === 'outerwear') return total > 1 ? '1全身 + 其余上半身/细节' : '上半身产品优先';
+  if (analysis.kind === 'dress') return '全身/膝下/裙摆展示，保留完整裙长';
+  if (analysis.kind === 'set' || analysis.kind === 'sleepwear') return '全身与半身均衡，保持套装关系';
+  if (analysis.kind === 'accessory') return '配饰区域优先，保证佩戴/手持关系';
+  return '产品主体优先，避免产品过小';
+};
+
+const buildProductDisplayPlan = (
+  index: number,
+  total: number,
+  analysis: ProductGarmentAnalysis | null,
+  shotType: ShotTypeKey,
+  actionAnalysis?: ActionReferenceAnalysis | null,
+): OutputDisplayPlan => {
+  const product = analysis || buildFallbackProductAnalysis();
+  const manualShot = shotType !== 'auto';
+  const first = index === 0;
+  let coverage: ProductDisplayCoverage = 'full_body';
+  let label = '全身搭配';
+  let focus = product.displayArea;
+  let framingRule = 'Show the model and product with ecommerce readability.';
+
+  if (product.kind === 'lower' || product.kind === 'skirt') {
+    if (first) {
+      coverage = 'full_body';
+      label = '全身搭配';
+      framingRule = 'Show one full head-to-toe styling image so the buyer understands the complete outfit, but keep the lower-body product clearly readable.';
+    } else {
+      coverage = 'lower_body';
+      label = product.kind === 'skirt' ? '裙装下半身重点' : '下装重点';
+      framingRule = 'Crop from waist/hips to shoes or just below the waist to feet. The product must occupy most of the frame. Show waistband, hips, leg/skirt silhouette, hemline, and footwear relationship. Crop out the head, face, shoulders, and most upper torso.';
+    }
+  } else if (product.kind === 'upper' || product.kind === 'outerwear') {
+    if (first) {
+      coverage = 'full_body';
+      label = '全身搭配';
+      framingRule = 'Show one full-body styling image, but the upper garment must remain large enough to read.';
+    } else if (index % 4 === 3) {
+      coverage = 'detail';
+      label = '上衣细节';
+      framingRule = 'Use a close product-detail crop on neckline, shoulder, sleeve, buttons, front opening, knit/fabric texture, or hem. Do not show legs or feet.';
+    } else {
+      coverage = 'upper_body';
+      label = '上半身重点';
+      framingRule = 'Frame waist-up or hip-up. The upper garment must dominate the image. Show neckline/collar, shoulders, sleeves, chest fabric, waist/hem fit, and surface details. Do not show full head-to-toe body.';
+    }
+  } else if (product.kind === 'dress') {
+    coverage = first || index % 3 !== 2 ? 'full_body' : 'detail';
+    label = coverage === 'detail' ? '连衣裙细节' : '完整裙长';
+    framingRule = coverage === 'detail'
+      ? 'Use a closer crop on neckline, waist shaping, fabric, print, sleeve, or skirt drape while preserving dress identity.'
+      : 'Show the full one-piece dress length and overall silhouette. Include neckline, waist, skirt drape, and hemline; do not crop off the dress bottom.';
+  } else if (product.kind === 'set' || product.kind === 'sleepwear' || product.kind === 'swimwear') {
+    coverage = first || index % 2 === 0 ? 'full_body' : 'upper_body';
+    label = coverage === 'full_body' ? '套装整体' : '套装半身';
+    framingRule = coverage === 'full_body'
+      ? 'Show the complete outfit relationship and full silhouette clearly.'
+      : 'Use a medium crop that still communicates the product set relationship; do not hide the main product piece.';
+  } else if (product.kind === 'accessory') {
+    coverage = first ? 'full_body' : 'detail';
+    label = coverage === 'detail' ? '配饰重点' : '配饰搭配';
+    framingRule = coverage === 'detail'
+      ? 'Frame around the accessory and its natural placement on the body or in the hand. The accessory must be large and unobstructed.'
+      : 'Show the accessory in full styling context with correct scale.';
+  } else if (!first) {
+    coverage = index % 3 === 0 ? 'detail' : 'upper_body';
+    label = coverage === 'detail' ? '产品细节' : '产品重点';
+    framingRule = coverage === 'detail'
+      ? 'Use a closer crop that makes the product details large and readable.'
+      : 'Use a product-first medium crop; avoid distant generic full-body framing.';
+  }
+
+  const actionCoverage = actionAnalysis?.bodyCoverage;
+  const conflictRule = [
+    `Product display strategy is higher priority than pose-library full-body tendencies and action-reference crop when they conflict with this output's required coverage (${coverage}).`,
+    actionCoverage ? `Detected action-reference body coverage: ${actionCoverage}. Keep its pose geometry, limb relationship, body angle, and gesture, but rewrite the camera crop to the product display coverage above if needed.` : 'If the written action or pose library implies a wider crop, keep the action idea but crop for the product display plan.',
+    manualShot ? `The user selected shot type "${shotType}". Use it only when it does not hide or shrink the product; product display coverage still protects the selling area.` : 'Auto shot mode must follow this product display plan.',
+  ].join(' ');
+
+  const negativeTerms = [...product.negativeCropTerms];
+  if (coverage === 'lower_body') negativeTerms.push('head visible', 'face visible', 'upper body dominating frame', 'distant full body');
+  if (coverage === 'upper_body') negativeTerms.push('feet visible', 'full body', 'lower body dominating frame');
+  if (coverage === 'detail') negativeTerms.push('full body', 'distant shot', 'tiny product');
+
+  return {
+    coverage,
+    label,
+    focus,
+    framingRule,
+    conflictRule,
+    negativeTerms: negativeTerms.join(', '),
+  };
+};
+
 const loadHtmlImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const image = new Image();
   image.onload = () => resolve(image);
@@ -380,6 +622,38 @@ const parseActionPromptText = (text: string) => {
     .slice(0, 10);
 };
 
+const parseActionPromptTextV2 = (text: string) => {
+  const normalized = text.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return [];
+
+  const numberedText = normalized.replace(/\s+(?=\d+[\.\u3001)]\s+)/g, '\n');
+  const lines = numberedText.split('\n');
+  const numberedLinePattern = /^\s*(?:[-*]\s*)?(?:\d+[\.\u3001)]|[（(]\d+[）)])\s*/;
+  const numberedStarts = lines
+    .map((line, index) => (numberedLinePattern.test(line) ? index : -1))
+    .filter((index) => index >= 0);
+
+  if (numberedStarts.length > 0) {
+    return numberedStarts
+      .map((start, itemIndex) => {
+        const end = numberedStarts[itemIndex + 1] ?? lines.length;
+        return lines
+          .slice(start, end)
+          .join('\n')
+          .replace(numberedLinePattern, '')
+          .trim();
+      })
+      .filter(Boolean)
+      .slice(0, 10);
+  }
+
+  return normalized
+    .split(/[;；]+|\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+};
+
 const extractUserCropRange = (text: string) => {
   const normalized = text.replace(/\s+/g, ' ').trim();
   const explicitCrop = normalized.match(/(?:裁切范围|裁剪范围|构图范围|画面范围|取景范围|裁切|裁剪)\s*[:：]\s*([^。；;\n]+)/);
@@ -450,6 +724,8 @@ const buildPrompt = (options: {
   platformStyle: string;
   scenePrompt: string;
   productCategory: string;
+  productAnalysis?: ProductGarmentAnalysis | null;
+  productDisplayPlan?: OutputDisplayPlan;
   shotType: ShotTypeKey;
   extraNotes: string;
   poseReferenceManifest?: string;
@@ -467,6 +743,8 @@ const buildPrompt = (options: {
     platformStyle,
     scenePrompt,
     productCategory,
+    productAnalysis,
+    productDisplayPlan,
     shotType,
     extraNotes,
     poseReferenceManifest,
@@ -476,11 +754,27 @@ const buildPrompt = (options: {
   const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
   const isManualShotType = shotType !== 'auto';
   const userCropDirective = poseSourceMode === 'text' ? buildUserCropDirective(poseText) : '';
+  const productPlan = productDisplayPlan || buildProductDisplayPlan(outputNumber - 1, outputNumber, productAnalysis || buildFallbackProductAnalysis(productCategory), shotType, actionAnalysis);
+  const productDisplayDirective = `- PRODUCT DISPLAY DECISION: ${productAnalysis?.label || PRODUCT_KIND_LABELS[normalizeProductKind(productCategory)] || 'fashion apparel'} / ${productPlan.label}.
+- REQUIRED BODY COVERAGE FOR THIS OUTPUT: ${productPlan.coverage}.
+- PRODUCT SELLING AREA: ${productPlan.focus}.
+- PRODUCT FRAMING HARD RULE: ${productPlan.framingRule}
+- PRODUCT VS ACTION CONFLICT RULE: ${productPlan.conflictRule}
+- PRODUCT DETAIL LOCK: ${productAnalysis?.productDescription || 'Use uploaded product images as the source of truth for structure, color, material, fit, silhouette, and details.'}
+- MUST SHOW PRODUCT FEATURES: ${(productAnalysis?.mustShow || []).join(', ') || 'main product structure, fabric, fit, silhouette, key details'}.
+- CAN CROP AWAY WHEN NEEDED: ${(productAnalysis?.canCrop || []).join(', ') || 'excess background and non-selling body areas'}.
+- PRODUCT CROP REJECTION RULE: if this output is supposed to be lower-body, do not generate another generic full-body model image; if it is supposed to be upper-body, do not shrink the upper garment into a distant head-to-toe shot; if it is a dress, do not crop off the dress hem.`;
 
   const effectiveBodyCoverage = shotType === 'auto' ? actionBodyCoverage : undefined;
   const isLowerBodyAction = hasActionReference && effectiveBodyCoverage === 'lower_body';
   const isUpperBodyAction = hasActionReference && effectiveBodyCoverage === 'upper_body';
   const isCloseUpAction = hasActionReference && effectiveBodyCoverage === 'close_up';
+  const forceLowerBodyProduct = productPlan.coverage === 'lower_body';
+  const forceUpperBodyProduct = productPlan.coverage === 'upper_body';
+  const forceDetailProduct = productPlan.coverage === 'detail';
+  const actionTextCameraOverrideDirective = poseSourceMode === 'text' && productPlan.coverage !== 'full_body'
+    ? `- ACTION TEXT CAMERA OVERRIDE: The user-written action may contain camera/framing words such as full body, full-body composition, head-to-toe, keep head and feet, complete body, centered person, subject occupies 85%, wide shot, medium shot, close-up, crop range, camera framing, 镜头构图, 全身构图, 完整保留头顶与双脚, 人物居中, 占画面. For this output, those camera/framing words are INVALID because product display coverage is ${productPlan.coverage}. Extract ONLY the pose idea, body orientation, hand placement, leg stance, and camera angle feeling. Do NOT obey the written full-body framing.`
+    : '';
   const requiresSceneCompatiblePose = hasActionReference && actionAnalysis?.poseTransferMode === 'scene_compatible';
   const supportRequirement = actionAnalysis?.supportRequirement;
   const forbiddenSceneElements = actionAnalysis?.forbiddenSceneElements?.length
@@ -515,14 +809,14 @@ ${poseReferenceManifest || ''}` : ''}
 - SCENE DNA LOCK: keep Image 1's background/location family, lighting direction, shadow logic, color temperature, lens mood, materials, and commercial atmosphere. Do not replace the room/set because of platform style, action reference, pose library, or AI analysis.
 - PHYSICAL SUPPORT ADAPTATION: if the action needs support, the result must include believable contact, occlusion, and contact shadows. Prefer existing Image 1 surfaces/objects; if needed, add or reposition only minimal same-style support surfaces that look like they belong to Image 1. Do not copy action-reference furniture or architecture.
 - EXISTING-SCENE SUPPORT RULE: if the action pose needs support and Image 1 already has a compatible support surface/object, use the existing Image 1 surface/object. Example: for a wall-leaning action reference, lean against the original wall/panel/background surface from Image 1; do not turn it into a floating unsupported pose.
-${isLowerBodyAction 
-  ? `- CAMERA CROP OVERRIDE: The pose reference specifies a lower body only shot. Therefore, you MUST crop out the model's head, face, neck, shoulders, chest, arms, and upper torso. Generate ONLY the lower body (waist-down / hip-down / legs and skirt/pants). DO NOT show any part of the model's head, face, neck, shoulders, collarbone, chest, breasts, or upper garments (no shirts, no sleeveless tops, no halter tops).
+${forceLowerBodyProduct || isLowerBodyAction 
+  ? `- CAMERA CROP OVERRIDE: This output requires a lower body product shot. Therefore, you MUST crop out the model's head, face, neck, shoulders, chest, arms, and most upper torso. Generate ONLY the lower body product area (waist-down / hip-down / legs and skirt/pants). DO NOT show any part of the model's head, face, neck, shoulders, collarbone, chest, breasts, or upper garments as the dominant subject.
 - Focus body consistency on the legs, lower torso, skin tone, and garment details (like the skirt/pants) from Image 1. Crop out and ignore any upper garments, halter tops, necklines, or head/hair features from Image 1.`
-  : isUpperBodyAction
-  ? `- CAMERA CROP OVERRIDE: The pose reference specifies an upper body only shot. Therefore, you MUST crop out the model's lower body, legs, and feet. Generate ONLY the upper body (waist-up / hip-up / chest-up). DO NOT show legs, feet, or shoes.
+  : forceUpperBodyProduct || isUpperBodyAction
+  ? `- CAMERA CROP OVERRIDE: This output requires an upper body product shot. Therefore, you MUST crop out the model's lower body, legs, and feet. Generate ONLY the upper body (waist-up / hip-up / chest-up). DO NOT show legs, feet, or shoes as the dominant subject.
 - Focus consistency on the face, hair, skin tone, and upper garment fit from Image 1.`
-  : isCloseUpAction
-  ? `- CAMERA CROP OVERRIDE: The pose reference specifies a close-up shot. Therefore, you MUST crop tightly on the model's face/chest/shoulders or specific garment detail, as shown in the reference. Do not generate a medium or full-body shot.`
+  : forceDetailProduct || isCloseUpAction
+  ? `- CAMERA CROP OVERRIDE: This output requires a close product-detail shot. Therefore, you MUST crop tightly on the specific garment/product detail area. Do not generate a generic medium or full-body shot.`
   : `- The generated person must look like the exact same model from Image 1 in every output.
 - Do not change face shape, facial proportions, eyes, nose, mouth, jawline, hair, skin tone, body size, age impression, ethnicity impression, beauty marks, or model identity.`}
 - Preserve the worn product and scene DNA from Image 1 as the primary reference. Do not randomly change location family, background style, lighting mood, product color, product structure, styling, or outfit coordination.
@@ -540,6 +834,7 @@ ${isLowerBodyAction
 Pose source: ${poseSourceMode === 'reference' ? 'uploaded action reference image' : poseSourceMode === 'text' ? 'user-written action prompt' : poseLabel}.
 Pose instruction: ${poseText}
 ${poseSourceMode === 'text' ? '- This is an action/pose instruction only; do not treat it as clothing, scene, identity, background, prop, lighting, or style instruction.' : ''}
+${actionTextCameraOverrideDirective}
 ${userCropDirective}
 ${hasActionReference ? `- ACTION REFERENCE MUST BE VISIBLY USED: the final body pose, silhouette, body orientation, hand/arm positions, leg/foot positions, camera crop, and person-to-frame scale must visibly match the assigned action reference, not Image 1's original pose.
 - ORIGINAL-POSE REJECTION RULE: if the generated output still looks like Image 1's original pose, original crop, or original subject placement, treat it as incorrect and regenerate internally toward the action reference.` : ''}
@@ -549,13 +844,16 @@ ${hasActionReference ? `- ACTION REFERENCE MUST BE VISIBLY USED: the final body 
 # PRODUCT, PLATFORM AND SCENE
 - Platform visual DNA: ${platformStyle}
 - Product category: ${productCategory || 'fashion apparel'}.
+${productDisplayDirective}
 - Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
 - Shot type preset: ${shotPreset.label}. ${shotPreset.prompt}
 - SHOT TYPE LOCK: Treat the selected shot type as a hard framing rule, not a soft style note. If user text says close-up/detail, obey this structured preset over generic pose-library full-body tendencies. ${isManualShotType ? MANUAL_SHOT_OVERRIDE_LOCK : hasActionReference ? 'In auto mode, an uploaded action reference may guide the crop and camera distance for that output.' : ''}
-${userCropDirective ? '- USER CROP OVERRIDES SHOT PRESET: when the written action prompt includes an explicit crop range, that crop range outranks the selected shot type preset and Image 1 framing.' : ''}
-${shotType === 'closeup' || isCloseUpAction ? '- CLOSE-UP HARD RULE: the final image must NOT be full-body, head-to-toe, knee-up, or full-dress. Crop tightly from face/chin/neck to chest or upper torso, or tighter on the requested garment area. The waist, hips, legs, feet, and full skirt/dress length must be outside the frame unless explicitly requested by the user.' : ''}
+${userCropDirective && productPlan.coverage === 'full_body' ? '- USER CROP OVERRIDES SHOT PRESET: when the written action prompt includes an explicit crop range, that crop range outranks the selected shot type preset and Image 1 framing.' : ''}
+${userCropDirective && productPlan.coverage !== 'full_body' ? '- PRODUCT CROP OVERRIDES USER CROP: the written action prompt contains framing/crop language, but this output is product-display controlled. Ignore any full-body or wider user crop instruction and keep only the action/pose idea.' : ''}
+${shotType === 'closeup' || forceDetailProduct || isCloseUpAction ? '- CLOSE-UP HARD RULE: the final image must NOT be a generic full-body, head-to-toe, knee-up, or distant portrait. Crop tightly around the required product selling area.' : ''}
 ${shotType === 'macro' ? '- MACRO HARD RULE: the final image must be a tight garment-detail crop. Do not show the full person, full outfit, complete face portrait, full dress length, legs, or feet.' : ''}
-${shotType === 'medium' || isUpperBodyAction ? '- MEDIUM SHOT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
+${shotType === 'medium' || forceUpperBodyProduct || isUpperBodyAction ? '- MEDIUM/UPPER PRODUCT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
+${forceLowerBodyProduct ? '- LOWER PRODUCT HARD RULE: the final image must be waist-down, hip-down, or lower-body dominant. Do not show a complete face/head or let the upper body occupy the main frame.' : ''}
 - Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
 - If accessory/styling references are uploaded, add them only when they look natural for the pose and platform. Keep scale, placement, and material believable; do not let accessories cover important garment details.
 - If the scene or pose conflicts with product fidelity, preserve product identity and adapt the garment naturally to the pose.
@@ -564,11 +862,11 @@ ${shotType === 'medium' || isUpperBodyAction ? '- MEDIUM SHOT HARD RULE: the fin
 ${extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-${isLowerBodyAction 
+${forceLowerBodyProduct || isLowerBodyAction 
   ? 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, head, face, eyes, mouth, hair, shoulders, neck, collarbone, upper chest, breasts, cleavage, upper garment, halter top, sleeves, t-shirt, shirt, changed skin tone, changed body shape, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry product details'
-  : isUpperBodyAction
+  : forceUpperBodyProduct || isUpperBodyAction
   ? 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, legs, knees, feet, shoes, pants, skirt, lower body, full body, head-to-toe, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'
-  : 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, same arm placement as Image 1, same leg stance as Image 1, same torso direction as Image 1, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'}${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
+  : 'unchanged original image, same pose as Image 1, original Image 1 standing pose, ignored action reference, weak pose change, same arm placement as Image 1, same leg stance as Image 1, same torso direction as Image 1, wrong person, identity drift, changed face, changed facial features, changed eyes, changed nose, changed mouth, changed jawline, changed hair, changed skin tone, changed body shape, stiff expression, forced smile, frozen smile, exaggerated grin, doll face, copied model-reference background, copied action-reference background, action-reference scene transfer, action-reference wall or floor, action-reference lighting, copied action-reference clothing, copied action-reference props, wrong garment, changed color, changed fabric, missing seams, poorly integrated accessories, oversized accessories, accessories covering garment, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details'}${shotPreset.negative ? `, ${shotPreset.negative}` : ''}, ${productPlan.negativeTerms}.
 `.trim();
 };
 
@@ -579,9 +877,10 @@ const UploadCard: React.FC<{
   images: UploadedImage[];
   max: number;
   multiple?: boolean;
+  pasteEnabled?: boolean;
   onUpload: (files: File[]) => void;
   onRemove: (id: string) => void;
-}> = ({ title, desc, icon, images, max, multiple = true, onUpload, onRemove }) => {
+}> = ({ title, desc, icon, images, max, multiple = true, pasteEnabled = true, onUpload, onRemove }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isActive, setIsActive] = useState(false);
@@ -592,7 +891,7 @@ const UploadCard: React.FC<{
 
   useEffect(() => {
     const handleGlobalPaste = (event: ClipboardEvent) => {
-      if (!isActive) return;
+      if (!pasteEnabled || !isActive) return;
       const items = event.clipboardData?.items;
       if (!items) return;
       
@@ -616,7 +915,7 @@ const UploadCard: React.FC<{
     return () => {
       window.removeEventListener('paste', handleGlobalPaste);
     };
-  }, [isActive, onUpload]);
+  }, [isActive, pasteEnabled, onUpload]);
 
   return (
     <div className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
@@ -719,7 +1018,11 @@ const UploadCard: React.FC<{
   );
 };
 
-const ModelPoseFissionTab: React.FC = () => {
+type ModelPoseFissionTabProps = {
+  isActive?: boolean;
+};
+
+const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = true }) => {
   const [overallImages, setOverallImages] = useState<UploadedImage[]>([]);
   const [modelImages, setModelImages] = useState<UploadedImage[]>([]);
   const [productImages, setProductImages] = useState<UploadedImage[]>([]);
@@ -741,6 +1044,8 @@ const ModelPoseFissionTab: React.FC = () => {
   const [actionPromptText, setActionPromptText] = useState('');
   const [generateCount, setGenerateCount] = useState(4);
   const [productCategory, setProductCategory] = useState('');
+  const [productAnalysis, setProductAnalysis] = useState<ProductGarmentAnalysis | null>(null);
+  const [isProductAnalyzing, setIsProductAnalyzing] = useState(false);
   const [scenePrompt, setScenePrompt] = useState('');
   const [extraNotes, setExtraNotes] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -772,13 +1077,35 @@ const ModelPoseFissionTab: React.FC = () => {
 
   const activeLibrary = useMemo(() => getLibrary(poseLibraryKey), [poseLibraryKey]);
   const activePlatform = useMemo(() => PLATFORM_STYLES.find((platform) => platform.key === selectedPlatform) || PLATFORM_STYLES[1], [selectedPlatform]);
-  const actionPromptItems = useMemo(() => parseActionPromptText(actionPromptText), [actionPromptText]);
+  const actionPromptItems = useMemo(() => parseActionPromptTextV2(actionPromptText), [actionPromptText]);
   const manualPose = activeLibrary.poses.find((pose) => pose.id === selectedPoseId) || activeLibrary.poses[0];
   const usesActionReferenceMode = poseSourceMode === 'reference' && actionImages.length > 0;
   const usesActionPromptMode = poseSourceMode === 'text' && actionPromptItems.length > 0;
   const effectivePoseMode: PoseSourceMode = usesActionReferenceMode ? 'reference' : poseSourceMode;
   const effectiveGenerateCount = usesActionReferenceMode ? actionImages.length : usesActionPromptMode ? actionPromptItems.length : generateCount;
   const isRegeneratingAny = regeneratingIndices.length > 0;
+  const effectiveProductAnalysis = useMemo(() => {
+    if (productCategory.trim()) {
+      const manual = buildFallbackProductAnalysis(productCategory, 'manual');
+      return productAnalysis
+        ? {
+            ...productAnalysis,
+            kind: manual.kind,
+            label: manual.label,
+            displayArea: manual.displayArea,
+            mustShow: manual.mustShow,
+            canCrop: manual.canCrop,
+            negativeCropTerms: manual.negativeCropTerms,
+            source: 'manual' as const,
+          }
+        : manual;
+    }
+    return productAnalysis;
+  }, [productAnalysis, productCategory]);
+  const productStrategySummary = useMemo(
+    () => getProductStrategySummary(effectiveProductAnalysis, effectiveGenerateCount),
+    [effectiveProductAnalysis, effectiveGenerateCount]
+  );
 
   useEffect(() => {
     if (poseSourceMode !== 'text' || actionPromptItems.length === 0) return;
@@ -907,6 +1234,75 @@ Rules:
     return image.poseAnalysis || actionAnalysesRef.current.get(image.id) || null;
   };
 
+  const analyzeProductImagesForDisplay = async (
+    images: UploadedImage[],
+    userCategory?: string
+  ): Promise<ProductGarmentAnalysis> => {
+    if (userCategory?.trim()) return buildFallbackProductAnalysis(userCategory, 'manual');
+    if (images.length === 0) return buildFallbackProductAnalysis('', 'fallback');
+
+    try {
+      const ai = getAiClient();
+      const parts: any[] = images.slice(0, 4).map((image) => ({
+        inlineData: { mimeType: image.mime, data: image.base64 },
+      }));
+      parts.push({
+        text: `Analyze the uploaded fashion product images for an ecommerce model pose fission workflow.
+
+The product image is the source of truth for deciding HOW the product should be displayed on a model. The key goal is to prevent lower-body products from being generated as generic full-body shots in every output.
+
+Return ONLY a valid JSON object:
+{
+  "kind": "Choose exactly one: upper, lower, skirt, dress, set, outerwear, swimwear, sleepwear, accessory, other",
+  "displayArea": "Short Chinese phrase describing the primary body/product area to display, e.g. 腰部到脚, 上半身, 完整裙长",
+  "productDescription": "Concise English description of the product structure, silhouette, material, color, and key design details",
+  "mustShow": ["English product features that must be visible"],
+  "canCrop": ["English body areas that can be cropped away after the hero styling image"],
+  "negativeCropTerms": ["English bad framing terms to avoid"],
+  "confidence": 0.0
+}
+
+Classification rules:
+- Pants, trousers, jeans, shorts, leggings, cargo pants are "lower".
+- Skirts that are not one-piece dresses are "skirt".
+- One-piece dresses, gowns, maxi/midi dresses are "dress"; never classify them as lower.
+- Shirts, tees, knits, sweaters, blouses, camisoles, tops are "upper".
+- Jackets, coats, blazers, cardigans are "outerwear".
+- Matching top+bottom outfits are "set".
+- If unsure whether it is pants/skirt/top, use the visible product structure and choose the closest ecommerce display category.
+
+Display strategy rules:
+- For lower/skirt: primary displayArea must emphasize waist/hips/legs/hem, not full body.
+- For upper/outerwear: primary displayArea must emphasize neckline/shoulders/sleeves/chest/hem.
+- For dress: primary displayArea must preserve full dress length and hemline.
+- For set: preserve relationship between top and bottom.`
+      });
+
+      const response = await generateContentWithAnalysisFallback(ai, {
+        model: 'gemini-3.5-flash',
+        contents: { parts },
+      });
+      const raw = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      const parsed = JSON.parse(raw);
+      const fallback = buildFallbackProductAnalysis(parsed.kind || '', 'ai');
+      return {
+        ...fallback,
+        kind: normalizeProductKind(parsed.kind) || fallback.kind,
+        label: PRODUCT_KIND_LABELS[normalizeProductKind(parsed.kind)] || fallback.label,
+        displayArea: parsed.displayArea || fallback.displayArea,
+        productDescription: parsed.productDescription || fallback.productDescription,
+        mustShow: Array.isArray(parsed.mustShow) && parsed.mustShow.length ? parsed.mustShow : fallback.mustShow,
+        canCrop: Array.isArray(parsed.canCrop) && parsed.canCrop.length ? parsed.canCrop : fallback.canCrop,
+        negativeCropTerms: Array.isArray(parsed.negativeCropTerms) && parsed.negativeCropTerms.length ? parsed.negativeCropTerms : fallback.negativeCropTerms,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.65,
+        source: 'ai',
+      };
+    } catch (err) {
+      console.error('Product display analysis failed:', err);
+      return buildFallbackProductAnalysis('', 'fallback');
+    }
+  };
+
   const addImages = async (
     files: File[],
     setter: React.Dispatch<React.SetStateAction<UploadedImage[]>>,
@@ -952,6 +1348,14 @@ Rules:
         });
       }
     }
+
+    if (kind === 'product') {
+      const nextProductImages = [...(replace ? [] : productImages), ...compressed].slice(0, max);
+      setIsProductAnalyzing(true);
+      analyzeProductImagesForDisplay(nextProductImages, productCategory)
+        .then((analysis) => setProductAnalysis(analysis))
+        .finally(() => setIsProductAnalyzing(false));
+    }
   };
 
   const removeImage = (kind: MainReferenceKind, id: string) => {
@@ -972,6 +1376,17 @@ Rules:
     if (kind === 'action') {
       actionAnalysisPromisesRef.current.delete(id);
       actionAnalysesRef.current.delete(id);
+    }
+    if (kind === 'product') {
+      const remaining = productImages.filter((image) => image.id !== id);
+      if (remaining.length === 0) {
+        setProductAnalysis(productCategory.trim() ? buildFallbackProductAnalysis(productCategory, 'manual') : null);
+      } else {
+        setIsProductAnalyzing(true);
+        analyzeProductImagesForDisplay(remaining, productCategory)
+          .then((analysis) => setProductAnalysis(analysis))
+          .finally(() => setIsProductAnalyzing(false));
+      }
     }
     setResults([]);
   };
@@ -1097,6 +1512,13 @@ Rules:
     const actionAnalysis = hasActionReference ? await ensureActionReferenceAnalysis(actionImages[index]) : null;
     const pose = hasActionReference ? getPoseForOutput(index) : plannedPose;
     const { inputs, poseReferenceManifest } = await buildInputsForOutput(index);
+    const productDisplayPlan = buildProductDisplayPlan(
+      index,
+      effectiveGenerateCount,
+      effectiveProductAnalysis || buildFallbackProductAnalysis(productCategory),
+      shotType,
+      hasActionReference ? actionAnalysis || getCachedActionAnalysis(actionImages[index]) : null
+    );
     const prompt = buildPrompt({
       outputNumber: index + 1,
       poseSourceMode: hasActionReference ? 'reference' : poseSourceMode === 'reference' ? 'random' : poseSourceMode,
@@ -1108,6 +1530,8 @@ Rules:
       platformStyle: activePlatform.prompt,
       scenePrompt,
       productCategory,
+      productAnalysis: effectiveProductAnalysis || buildFallbackProductAnalysis(productCategory),
+      productDisplayPlan,
       shotType,
       extraNotes,
       poseReferenceManifest,
@@ -1265,6 +1689,8 @@ Rules:
             actionPromptText: poseSourceMode === 'text' ? actionPromptText : undefined,
             actionPromptCount: poseSourceMode === 'text' ? actionPromptItems.length : undefined,
             productCategory,
+            productDisplayKind: effectiveProductAnalysis?.kind,
+            productDisplayStrategy: productStrategySummary,
             scenePrompt,
             extraNotes,
           },
@@ -1525,19 +1951,47 @@ Rules:
                 images={overallImages}
                 max={1}
                 multiple={false}
+                pasteEnabled={isActive}
                 onUpload={(files) => addImages(files, setOverallImages, 1, true)}
                 onRemove={(id) => removeImage('overall', id)}
               />
             </section>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <UploadCard title="模特图" desc="人物长相、发型、肤色、体型一致性来源" icon={<UserCircle2 className="h-4 w-4" />} images={modelImages} max={1} multiple={false} onUpload={(files) => addImages(files, setModelImages, 1, true)} onRemove={(id) => removeImage('model', id)} />
-              <UploadCard title="服装/产品图" desc="服装结构、颜色、面料和版型最高优先级" icon={<ImageIcon className="h-4 w-4" />} images={productImages} max={4} onUpload={(files) => addImages(files, setProductImages, 4)} onRemove={(id) => removeImage('product', id)} />
+              <UploadCard title="模特图" desc="人物长相、发型、肤色、体型一致性来源" icon={<UserCircle2 className="h-4 w-4" />} images={modelImages} max={1} multiple={false} pasteEnabled={isActive} onUpload={(files) => addImages(files, setModelImages, 1, true)} onRemove={(id) => removeImage('model', id)} />
+              <UploadCard title="服装/产品图" desc="上传后自动判断产品展示区域，下装会优先腰部到脚" icon={<ImageIcon className="h-4 w-4" />} images={productImages} max={4} pasteEnabled={isActive} onUpload={(files) => addImages(files, setProductImages, 4, false, 'product')} onRemove={(id) => removeImage('product', id)} />
             </div>
 
+            {(productImages.length > 0 || effectiveProductAnalysis) && (
+              <section className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-2">
+                    {isProductAnalyzing ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-orange-600" />
+                    ) : (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 text-green-600" />
+                    )}
+                    <div>
+                      <h3 className="text-sm font-bold text-pastel-text">产品展示策略</h3>
+                      <p className="mt-0.5 text-[10px] leading-relaxed text-pastel-muted">
+                        {isProductAnalyzing
+                          ? '正在识别产品类型和主展示区域...'
+                          : effectiveProductAnalysis
+                          ? `${effectiveProductAnalysis.label} / 主展示：${effectiveProductAnalysis.displayArea}`
+                          : '未识别到产品图，生成时使用通用服装展示策略。'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-white px-3 py-1 text-[10px] font-bold text-orange-700 shadow-sm">
+                    {productStrategySummary}
+                  </span>
+                </div>
+              </section>
+            )}
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <UploadCard title="场景参考图" desc="可选。用于锁定背景、地点、光线和氛围" icon={<Sparkles className="h-4 w-4" />} images={sceneImages} max={3} onUpload={(files) => addImages(files, setSceneImages, 3)} onRemove={(id) => removeImage('scene', id)} />
-              <UploadCard title="动作参考图" desc="可选。上传后优先按每张参考图裂变" icon={<Wand2 className="h-4 w-4" />} images={actionImages} max={10} onUpload={(files) => { setPoseSourceMode('reference'); addImages(files, setActionImages, 10, false, 'action'); }} onRemove={(id) => removeImage('action', id)} />
+              <UploadCard title="场景参考图" desc="可选。用于锁定背景、地点、光线和氛围" icon={<Sparkles className="h-4 w-4" />} images={sceneImages} max={3} pasteEnabled={isActive} onUpload={(files) => addImages(files, setSceneImages, 3)} onRemove={(id) => removeImage('scene', id)} />
+              <UploadCard title="动作参考图" desc="可选。上传后优先按每张参考图裂变" icon={<Wand2 className="h-4 w-4" />} images={actionImages} max={10} pasteEnabled={isActive} onUpload={(files) => { setPoseSourceMode('reference'); addImages(files, setActionImages, 10, false, 'action'); }} onRemove={(id) => removeImage('action', id)} />
             </div>
 
             <UploadCard
@@ -1546,6 +2000,7 @@ Rules:
               icon={<ImageIcon className="h-4 w-4" />}
               images={accessoryImages}
               max={10}
+              pasteEnabled={isActive}
               onUpload={(files) => addImages(files, setAccessoryImages, 10)}
               onRemove={(id) => removeImage('accessory', id)}
             />
@@ -1762,7 +2217,7 @@ Rules:
               </div>
               {colorCorrectionMode === 'match' && (
                 <div className="mt-3">
-                  <UploadCard title="标准色参考图" desc="可选。不传时默认匹配模特整体参考图的色温和色调。" icon={<ImageIcon className="h-4 w-4" />} images={colorReferenceImages} max={1} multiple={false} onUpload={(files) => addImages(files, setColorReferenceImages, 1, true)} onRemove={(id) => removeImage('color', id)} />
+                  <UploadCard title="标准色参考图" desc="可选。不传时默认匹配模特整体参考图的色温和色调。" icon={<ImageIcon className="h-4 w-4" />} images={colorReferenceImages} max={1} multiple={false} pasteEnabled={isActive} onUpload={(files) => addImages(files, setColorReferenceImages, 1, true)} onRemove={(id) => removeImage('color', id)} />
                 </div>
               )}
               {colorCorrectionMode !== 'off' && (

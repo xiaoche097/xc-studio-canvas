@@ -485,7 +485,11 @@ const COT_STEPS = [
     { id: 7, label: "商业级调色", desc: "正在注入电商高转化色彩基因...", icon: "🎨" },
 ];
 
-const HeroImageTab: React.FC = () => {
+type HeroImageTabProps = {
+    isActive?: boolean;
+};
+
+const HeroImageTab: React.FC<HeroImageTabProps> = ({ isActive = true }) => {
     // Selection states
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
@@ -885,7 +889,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
         else if (hoveredSlot === 'model') handleModelUpload(files);
         else handleProductUpload(files);
         setError(null);
-    });
+    }, isActive);
 
     const runAIAnalysis = async () => {
         if (productImages.length === 0) return;

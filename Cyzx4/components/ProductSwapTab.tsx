@@ -66,7 +66,11 @@ type ImageData = {
     height?: number;
 };
 
-const ProductSwapTab: React.FC = () => {
+type ProductSwapTabProps = {
+    isActive?: boolean;
+};
+
+const ProductSwapTab: React.FC<ProductSwapTabProps> = ({ isActive = true }) => {
     // Image state
     const [sceneImage, setSceneImage] = useState<ImageData | null>(null);
     const [productImages, setProductImages] = useState<ImageData[]>([]);
@@ -181,7 +185,7 @@ const ProductSwapTab: React.FC = () => {
         else {
             handleProductUpload(files);
         }
-    });
+    }, isActive);
 
     // ==================== Drag & Drop ====================
     const handleDrop = async (e: React.DragEvent, type: 'scene' | 'product') => {
