@@ -123,7 +123,11 @@ const RESOLUTION_OPTIONS = [
     { value: ImageResolution.RES_4K, label: '4K 极致', desc: '超清' },
 ];
 
-const OutfitExtractionTab: React.FC = () => {
+type OutfitExtractionTabProps = {
+    isActive?: boolean;
+};
+
+const OutfitExtractionTab: React.FC<OutfitExtractionTabProps> = ({ isActive = true }) => {
     const [activeWorkflow, setActiveWorkflow] = useState<ActiveWorkflow>('extract');
 
     // Image state
@@ -362,6 +366,7 @@ Return ONLY valid JSON:
 
     useEffect(() => {
         const handleWindowPaste = (event: ClipboardEvent) => {
+            if (!isActive) return;
             if (isProcessing || sourceImage) return;
             const target = event.target as HTMLElement | null;
             const isTextInput = target?.closest('input, textarea, [contenteditable="true"]');
@@ -377,7 +382,7 @@ Return ONLY valid JSON:
 
         window.addEventListener('paste', handleWindowPaste);
         return () => window.removeEventListener('paste', handleWindowPaste);
-    }, [isProcessing, sourceImage]);
+    }, [isActive, isProcessing, sourceImage]);
 
     const handleReferenceUpload = async (files?: FileList | null) => {
         if (!files || isProcessing) return;

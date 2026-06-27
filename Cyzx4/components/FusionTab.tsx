@@ -34,7 +34,11 @@ const BananaIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const FusionTab: React.FC = () => {
+type FusionTabProps = {
+  isActive?: boolean;
+};
+
+const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [description, setDescription] = useState('');
@@ -296,7 +300,7 @@ const FusionTab: React.FC = () => {
   useImagePaste(async (files) => {
     const compressed = await compressImageFiles(files);
     addFiles(compressed);
-  });
+  }, isActive);
 
   const addFiles = (files: File[]) => {
     const validFiles = files.filter(f => f.type.startsWith('image/'));

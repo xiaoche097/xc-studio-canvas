@@ -67,7 +67,11 @@ const COT_STEPS = [
     { id: 8, label: "最终质检", desc: "正在检查产品一致性与画面完整度...", icon: "质检" },
 ];
 
-const StyleReplicateTab: React.FC = () => {
+type StyleReplicateTabProps = {
+    isActive?: boolean;
+};
+
+const StyleReplicateTab: React.FC<StyleReplicateTabProps> = ({ isActive = true }) => {
     // Tab state
     const [tabMode, setTabMode] = useState<TabMode>('single');
 
@@ -217,7 +221,7 @@ const StyleReplicateTab: React.FC = () => {
         if (processed.length === 0) return;
         setProductImages(prev => [...prev, ...processed].slice(0, PRODUCT_IMAGE_LIMIT));
         setError(null);
-    });
+    }, isActive);
 
     const clearProductUploads = () => {
         if (tabMode === 'batch') {

@@ -24,7 +24,11 @@ const BananaIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const InpaintingTab: React.FC = () => {
+type InpaintingTabProps = {
+  isActive?: boolean;
+};
+
+const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
   // 图片状态
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
@@ -167,7 +171,7 @@ const InpaintingTab: React.FC = () => {
       setRefFiles(prev => [...prev, ...files]);
       setRefUrls(prev => [...prev, ...urls]);
     }
-  });
+  }, isActive);
 
   // 参考图操作
   const handleRefUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

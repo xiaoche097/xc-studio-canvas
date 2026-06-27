@@ -585,7 +585,11 @@ ${notes || 'No extra notes.'}
 Negative: zoomed-in crop, close-up portrait, enlarged face, enlarged head, enlarged shoulders, enlarged torso, larger subject scale, cropped-out torso, cropped-out hand, cropped-out bag, different person, face drift, changed expression character, changed head angle, changed shoulder line, changed pose, changed crop, shifted subject, moved background, changed clothing, changed garment edge, changed background, copied reference background, copied reference clothing, copied reference pose, color shift, warmer color, cooler color, changed sea color, changed wall color, red skin cast, waxy skin, plastic skin, over-smoothed skin, blurry face, low detail skin, CGI, doll face, text, watermark.
 `.trim();
 
-const ModelOriginalPasteBackTab: React.FC = () => {
+type ModelOriginalPasteBackTabProps = {
+  isActive?: boolean;
+};
+
+const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ isActive = true }) => {
   const [targetImage, setTargetImage] = useState<UploadedImage | null>(null);
   const [referenceImages, setReferenceImages] = useState<UploadedImage[]>([]);
   const [cropPreset, setCropPreset] = useState<CropPreset>('headShoulders');
@@ -735,7 +739,7 @@ const ModelOriginalPasteBackTab: React.FC = () => {
     } else {
       handleReferenceUpload(files);
     }
-  });
+  }, isActive);
 
   useEffect(() => {
     let cancelled = false;

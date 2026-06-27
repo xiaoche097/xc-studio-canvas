@@ -322,7 +322,11 @@ const PERSONA_PRESETS: Record<string, {
   '无模特（纯产品）': { modelEthnicity: '无', modelAgeGroup: '无', modelFamilyStructure: '无', modelLifestyle: '无' },
 };
 
-const SceneGenerationTab: React.FC = () => {
+type SceneGenerationTabProps = {
+  isActive?: boolean;
+};
+
+const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refSceneInputRef = useRef<HTMLInputElement>(null);
 
@@ -427,7 +431,7 @@ const SceneGenerationTab: React.FC = () => {
     } else {
       addFiles(files);
     }
-  });
+  }, isActive);
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
