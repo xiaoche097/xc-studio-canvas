@@ -713,6 +713,88 @@ const NATURAL_EXPRESSION_LOCK =
 const MANUAL_SHOT_OVERRIDE_LOCK =
   'MANUAL SHOT TYPE OVERRIDE: when the user selected a non-auto shot type, the selected framing overrides the camera distance, crop, and visible body extent from Image 1, pose references, pose-library prompts, and action-reference analysis. Preserve identity/product/scene, but rebuild the camera crop to match the selected shot type exactly.';
 
+const USER_FRAMING_TERMS_PATTERN =
+  /(头|脸|面部|眼|脖|颈|肩|胸|腰|臀|胯|腿|膝|脚|鞋|上半身|下半身|半身|全身|特写|近景|远景|裁切|构图|镜头|画面|不可见|可见|不露|露出|head|face|eyes|neck|shoulder|chest|waist|hip|leg|knee|feet|shoe|upper body|lower body|half body|full body|head-to-toe|close-up|closeup|crop|framing|camera|visible|not visible)/i;
+
+const hasExplicitUserFraming = (text: string) => USER_FRAMING_TERMS_PATTERN.test(text || '');
+
+const buildDirectTextPosePrompt = (options: {
+  outputNumber: number;
+  poseText: string;
+  poseLabel: string;
+  hasScene: boolean;
+  hasAccessoryReference: boolean;
+  platformStyle: string;
+  scenePrompt: string;
+  productCategory: string;
+  productAnalysis?: ProductGarmentAnalysis | null;
+  productDisplayPlan?: OutputDisplayPlan;
+  shotType: ShotTypeKey;
+  extraNotes: string;
+}) => {
+  const {
+    outputNumber,
+    poseText,
+    poseLabel,
+    hasScene,
+    hasAccessoryReference,
+    platformStyle,
+    scenePrompt,
+    productCategory,
+    productAnalysis,
+    productDisplayPlan,
+    shotType,
+    extraNotes,
+  } = options;
+  const shotPreset = SHOT_TYPE_OPTIONS.find((item) => item.key === shotType) || SHOT_TYPE_OPTIONS[0];
+  const explicitUserFraming = hasExplicitUserFraming(poseText);
+  const productPlan = productDisplayPlan || buildProductDisplayPlan(outputNumber - 1, outputNumber, productAnalysis || buildFallbackProductAnalysis(productCategory), shotType);
+  const productHint = productAnalysis
+    ? `${productAnalysis.label} / main selling area: ${productAnalysis.displayArea}. Must keep: ${(productAnalysis.mustShow || []).join(', ') || 'main garment details'}.`
+    : `Fashion product category: ${productCategory || 'fashion apparel'}.`;
+  const softProductCropHint = explicitUserFraming
+    ? ''
+    : `- Soft product display hint: ${productPlan.label}. ${productPlan.framingRule} This is only a fallback because the user prompt did not specify framing.`;
+
+  return `
+Create ONE photorealistic ecommerce fashion image for model pose fission output #${outputNumber}.
+
+# IMAGE ROUTING
+- Image 1 is the source of truth for the correct model, worn product, styling, scene, lighting mood, camera feeling, and commercial visual direction.
+- Keep the same model identity, face, hair, skin tone, body proportions, outfit/product, material, print, color, fit, styling logic, lighting direction, shadow logic, and scene DNA from Image 1.
+- Optional model reference images reinforce identity only.
+- Optional product/garment images reinforce product structure, silhouette, color, fabric, seams, trim, pattern, fit, and details only.
+${hasAccessoryReference ? '- Optional accessory/styling reference images define matching bags, jewelry, hats, shoes, handheld props, and styling add-ons. Integrate them naturally without covering the garment.' : ''}
+${hasScene ? '- Scene reference images may reinforce the background/location identity, lighting mood, materials, and environment cues.' : '- No scene reference is uploaded. Use Image 1 scene DNA and the written scene instruction.'}
+
+# USER PROMPT IS THE DIRECT BRIEF
+Pose label: ${poseLabel}
+User prompt:
+${poseText}
+
+- Obey the user prompt as the highest-priority instruction for pose, body angle, gesture, hand/arm placement, leg/foot placement, camera framing, crop range, visible body parts, subject scale, and composition.
+- If the user prompt says the head, face, upper body, legs, or feet are not visible, they must be outside the frame.
+- If the user prompt says full body, show full body. If it says upper body, frame upper body. If it says lower body, frame lower body. If it says close-up/detail, crop tightly.
+- Do not replace the user's framing/crop wording with automatic product strategy, pose-library defaults, or Image 1's original crop.
+- The result should feel like Image 1 was regenerated with this exact prompt, not like a separate rule system interpreted it.
+
+# PRODUCT AND SCENE
+- Platform visual DNA: ${platformStyle}
+- Product lock: ${productHint}
+${softProductCropHint}
+- Scene instruction: ${scenePrompt || 'clean professional ecommerce fashion photography, natural commercial lighting'}.
+- Selected shot preset: ${shotPreset.label}. ${shotPreset.prompt}
+- If the selected shot preset conflicts with the explicit user prompt, the user prompt wins.
+- Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
+
+# USER NOTES
+${extraNotes || 'No extra notes.'}
+
+# NEGATIVE
+wrong person, identity drift, changed face, changed hair, changed skin tone, changed body shape, changed garment, changed product color, changed fabric, missing product details, ignored user prompt, ignored user crop, full body when user requested crop, visible face/head when user requested it out of frame, legs/feet visible when user requested upper crop, upper body dominating when user requested lower crop, unchanged original pose, same pose as Image 1, stiff expression, copied unrelated clothing, copied unrelated background, extra people, two models, collage, split screen, text, watermark, logo, distorted hands, broken limbs, unnatural anatomy, blurry face, blurry product details${shotPreset.negative ? `, ${shotPreset.negative}` : ''}.
+`.trim();
+};
+
 const buildPrompt = (options: {
   outputNumber: number;
   poseSourceMode: PoseSourceMode;
@@ -1519,25 +1601,41 @@ Display strategy rules:
       shotType,
       hasActionReference ? actionAnalysis || getCachedActionAnalysis(actionImages[index]) : null
     );
-    const prompt = buildPrompt({
-      outputNumber: index + 1,
-      poseSourceMode: hasActionReference ? 'reference' : poseSourceMode === 'reference' ? 'random' : poseSourceMode,
-      poseText: pose.prompt,
-      poseLabel: pose.label,
-      hasScene: sceneImages.length > 0 || overallImages.length > 0,
-      hasActionReference,
-      hasAccessoryReference: accessoryImages.length > 0,
-      platformStyle: activePlatform.prompt,
-      scenePrompt,
-      productCategory,
-      productAnalysis: effectiveProductAnalysis || buildFallbackProductAnalysis(productCategory),
-      productDisplayPlan,
-      shotType,
-      extraNotes,
-      poseReferenceManifest,
-      actionBodyCoverage: hasActionReference ? actionAnalysis?.bodyCoverage || getCachedActionAnalysis(actionImages[index])?.bodyCoverage : undefined,
-      actionAnalysis: hasActionReference ? actionAnalysis || getCachedActionAnalysis(actionImages[index]) : null,
-    });
+    const useDirectTextPrompt = !hasActionReference && poseSourceMode === 'text';
+    const prompt = useDirectTextPrompt
+      ? buildDirectTextPosePrompt({
+        outputNumber: index + 1,
+        poseText: pose.prompt,
+        poseLabel: pose.label,
+        hasScene: sceneImages.length > 0 || overallImages.length > 0,
+        hasAccessoryReference: accessoryImages.length > 0,
+        platformStyle: activePlatform.prompt,
+        scenePrompt,
+        productCategory,
+        productAnalysis: effectiveProductAnalysis || buildFallbackProductAnalysis(productCategory),
+        productDisplayPlan,
+        shotType,
+        extraNotes,
+      })
+      : buildPrompt({
+        outputNumber: index + 1,
+        poseSourceMode: hasActionReference ? 'reference' : poseSourceMode === 'reference' ? 'random' : poseSourceMode,
+        poseText: pose.prompt,
+        poseLabel: pose.label,
+        hasScene: sceneImages.length > 0 || overallImages.length > 0,
+        hasActionReference,
+        hasAccessoryReference: accessoryImages.length > 0,
+        platformStyle: activePlatform.prompt,
+        scenePrompt,
+        productCategory,
+        productAnalysis: effectiveProductAnalysis || buildFallbackProductAnalysis(productCategory),
+        productDisplayPlan,
+        shotType,
+        extraNotes,
+        poseReferenceManifest,
+        actionBodyCoverage: hasActionReference ? actionAnalysis?.bodyCoverage || getCachedActionAnalysis(actionImages[index])?.bodyCoverage : undefined,
+        actionAnalysis: hasActionReference ? actionAnalysis || getCachedActionAnalysis(actionImages[index]) : null,
+      });
     const [imageUrl] = await generateImageToImage(inputs, prompt, {
       aspectRatio,
       resolution,
