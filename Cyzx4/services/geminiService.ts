@@ -977,6 +977,8 @@ export const generateImageToImage = async (
   const isGptModel = targetModel.toLowerCase().includes('gpt');
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all' || targetModel === 'gpt-image-2-vip';
   const isMidjourneyModel = targetModel === 'mj_imagine';
+  const usesOpenAiImageEndpoint = isGptImage2 || (initialConfig.isRight && !isMidjourneyModel);
+  const openAiImageProviderLabel = initialConfig.isRight ? 'Right Code Image' : 'GPT Image 2';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -1028,10 +1030,10 @@ export const generateImageToImage = async (
         );
       }
 
-      // SPECIAL HANDLING FOR gpt-image-2 (OpenAI-compatible Proxy Endpoint)
-      if (isGptImage2) {
+      // SPECIAL HANDLING FOR OpenAI-compatible image proxy endpoints.
+      if (usesOpenAiImageEndpoint) {
         const gptSize = getGptImage2Size(aspectRatio as AspectRatio, resolution as ImageResolution);
-        console.warn(`[GPT Image 2] Sending optimized request. Size: ${gptSize}, Ratio: ${aspectRatio}, Workflow: ${workflowHint}`);
+        console.warn(`[${openAiImageProviderLabel}] Sending optimized request. Model: ${targetModel}, Size: ${gptSize}, Ratio: ${aspectRatio}, Workflow: ${workflowHint}`);
         
         // Build workflow-aware prompt for GPT (since it doesn't get separate system instructions)
         let gptPrompt = forcedPrompt;
@@ -1256,7 +1258,7 @@ ${forcedPrompt}`;
 
         const sendGptRequest = async (modelName: string) => {
           const payload = {
-            model: resolveRuntimeModelId(modelName),
+            model: resolveRuntimeModelId(modelName, config),
             prompt: gptPrompt,
             size: gptSize,
             quality: "auto",
@@ -1281,19 +1283,29 @@ ${forcedPrompt}`;
 
           if (!fetchResponse.ok) {
             const errText = await fetchResponse.text();
-            throw new Error(`GPT Image 2 API Error: ${fetchResponse.status} ${errText}`);
+            throw new Error(`${openAiImageProviderLabel} API Error: ${fetchResponse.status} ${errText}`);
           }
 
           const data = await fetchResponse.json();
-          const results = (data.data || []).map((item: any) => {
-            if (!item.b64_json) return item.url;
-            // Fix double prefix on output: only add if not already present
-            const b64 = item.b64_json;
-            return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
-          });
+          const imageItems = Array.isArray(data.data)
+            ? data.data
+            : Array.isArray(data.images)
+              ? data.images
+              : [];
+          const results = imageItems.map((item: any) => {
+            const b64 = item?.b64_json || item?.base64 || item?.image || item?.data;
+            const url = item?.url || item?.image_url;
+            if (typeof b64 === 'string' && b64.length > 0) {
+              return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+            }
+            if (typeof url === 'string' && url.length > 0) {
+              return url;
+            }
+            return null;
+          }).filter(Boolean);
           
           if (results.length > 0) return results;
-          throw new Error("API returned success but no images were found in the data array.");
+          throw new Error("API returned success but no images were found in the response.");
         };
 
         const endpoint = `${config.baseUrl}/v1/images/generations`; 
@@ -1311,7 +1323,7 @@ ${forcedPrompt}`;
             errorMsg.includes('invalid model') ||
             errorMsg.includes('path not found')
           )) {
-            console.warn(`[GPT Image 2 Fallback] Model ${targetModel} failed. Retrying with fallback ${fallbackModel}...`);
+            console.warn(`[${openAiImageProviderLabel} Fallback] Model ${targetModel} failed. Retrying with fallback ${fallbackModel}...`);
             targetModel = fallbackModel;
             return await sendGptRequest(targetModel);
           } else {
