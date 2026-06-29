@@ -1754,9 +1754,20 @@ Display strategy rules:
           setResults((prev) => {
             const next = [...prev];
             next[index] = { ...(next[index] || { id: `error-${index}`, imageUrl: null, prompt: '', poseLabel: `#${index + 1}` }), status: 'error', imageUrl: null, error: message };
+            for (let pendingIndex = index + 1; pendingIndex < total; pendingIndex += 1) {
+              if (next[pendingIndex]?.status === 'pending' || next[pendingIndex]?.status === 'generating') {
+                next[pendingIndex] = {
+                  ...next[pendingIndex],
+                  status: 'error',
+                  imageUrl: null,
+                  error: '前一张未返回图片，已中断后续生成',
+                };
+              }
+            }
             return next;
           });
-          if (regenerateIndex !== undefined) throw itemError;
+          setStatusMessage(`第 ${index + 1} 张未返回图片，已中断后续生成`);
+          throw itemError;
         }
       }
       assertCurrentGenerationTask(taskId, signal);
