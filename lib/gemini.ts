@@ -97,6 +97,53 @@ class GeminiClient {
     // Model Routing logic
     // Default to gpt-image-2 as requested for quality
     const imageModel = resolveRuntimeModelId(options.model || "gpt-image-2", config);
+
+    if (config.isRight) {
+      const openAiImageSize = (() => {
+        if (options.aspectRatio === '16:9' || options.aspectRatio === '4:3') return '1536x1024';
+        if (options.aspectRatio === '9:16' || options.aspectRatio === '3:4') return '1024x1536';
+        return '1024x1024';
+      })();
+      const rightUrl = `${baseUrl}/v1/images/generations`;
+      const response = await fetch(rightUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${activeKey}`,
+        },
+        body: JSON.stringify({
+          model: imageModel,
+          prompt: finalPrompt,
+          n: 1,
+          size: openAiImageSize,
+          response_format: "b64_json",
+        }),
+      });
+
+      if (!response.ok) {
+        const txt = await response.text();
+        let errorInfo = txt;
+        try {
+          const errJson = JSON.parse(txt);
+          errorInfo = errJson.error?.message || txt;
+        } catch(e) {}
+        throw new Error(`Right Code API Error ${response.status}: ${errorInfo}`);
+      }
+
+      const data = await response.json();
+      const image = data.data?.[0];
+      const base64Data = image?.b64_json || image?.base64 || image?.image;
+      const imageUrl = image?.url || image?.image_url;
+
+      if (base64Data) {
+        return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+      }
+      if (typeof imageUrl === 'string') {
+        return imageUrl;
+      }
+
+      throw new Error("Right Code returned no image data.");
+    }
     
     // Some proxies use v1/models/ or v1beta/models/
     // We try to stick to the configured version in apiHelpers if possible

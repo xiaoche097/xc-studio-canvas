@@ -37,6 +37,7 @@ interface UnifiedSettingsModalProps {
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+const DEFAULT_RIGHT_BASE_URL = 'https://www.right.codes/draw';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 const NO1_IMAGE_NODES = [
@@ -166,6 +167,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isJijingKeyVisible, setIsJijingKeyVisible] = useState(false);
   const [jijingEnabled, setJijingEnabled] = useState(false);
 
+  const [rightApiKey, setRightApiKey] = useState('');
+  const [rightBaseUrl, setRightBaseUrl] = useState(DEFAULT_RIGHT_BASE_URL);
+  const [isRightKeyVisible, setIsRightKeyVisible] = useState(false);
+  const [rightEnabled, setRightEnabled] = useState(false);
+
   const [volcengineApiKey, setVolcengineApiKey] = useState('');
   const [isVolcengineKeyVisible, setIsVolcengineKeyVisible] = useState(false);
   const [volcengineEnabled, setVolcengineEnabled] = useState(false);
@@ -179,6 +185,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
   const [jijingTestStatus, setJijingTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [jijingTestMessage, setJijingTestMessage] = useState('');
+
+  const [rightTestStatus, setRightTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [rightTestMessage, setRightTestMessage] = useState('');
   
   const [yunwuTestStatus, setYunwuTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [yunwuTestMessage, setYunwuTestMessage] = useState('');
@@ -197,10 +206,12 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const yunwuAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const platoAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jijingAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rightAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAutoNativeKeyRef = useRef('');
   const lastAutoYunwuKeyRef = useRef('');
   const lastAutoPlatoKeyRef = useRef('');
   const lastAutoJijingKeyRef = useRef('');
+  const lastAutoRightKeyRef = useRef('');
 
   const formatBytes = (bytes?: number) => {
     if (!bytes || bytes <= 0) return '0 MB';
@@ -264,6 +275,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     lastAutoJijingKeyRef.current = savedJijingKey || '';
     if (savedJijingUrl) setJijingBaseUrl(savedJijingUrl === LEGACY_JIJING_BASE_URL ? DEFAULT_NO1_IMAGE_BASE_URL : savedJijingUrl);
     setJijingEnabled(savedJijingEnabled === 'true');
+
+    const savedRightKey = localStorage.getItem('right_api_key');
+    const savedRightUrl = localStorage.getItem('right_base_url');
+    const savedRightEnabled = localStorage.getItem('right_enabled');
+    if (savedRightKey) setRightApiKey(savedRightKey);
+    lastAutoRightKeyRef.current = savedRightKey || '';
+    if (savedRightUrl) setRightBaseUrl(savedRightUrl);
+    setRightEnabled(savedRightEnabled === 'true');
 
     const savedVolcengineKey = localStorage.getItem('volcengine_api_key') || localStorage.getItem('seedance_api_key');
     const savedVolcengineEnabled = localStorage.getItem('seedance_enabled');
@@ -351,6 +370,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('jijing_base_url', jijingBaseUrl.trim() || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingEnabled));
 
+    localStorage.setItem('right_api_key', rightApiKey.trim());
+    localStorage.setItem('right_base_url', rightBaseUrl.trim() || DEFAULT_RIGHT_BASE_URL);
+    localStorage.setItem('right_enabled', String(rightEnabled));
+
     localStorage.setItem('volcengine_api_key', volcengineApiKey.trim());
     localStorage.setItem('seedance_api_key', volcengineApiKey.trim());
     localStorage.setItem('seedance_base_url', DEFAULT_VOLCENGINE_BASE_URL);
@@ -404,6 +427,39 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     } catch (e: any) {
       setJijingTestStatus('error');
       setJijingTestMessage(`❌ ${e.message}`);
+    }
+  };
+
+  const handleTestRight = async () => {
+    const key = rightApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
+    if (!key) {
+      setRightTestStatus('error');
+      setRightTestMessage('请输入 API Key');
+      return;
+    }
+    setRightTestStatus('testing');
+    setRightTestMessage('正在测试...');
+    try {
+      const baseUrl = (rightBaseUrl || DEFAULT_RIGHT_BASE_URL).replace(/\/+$/, '');
+      const response = await fetch(`${baseUrl}/v1/models`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${key}`,
+        },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData.error?.message || errorData.message || `HTTP Error ${response.status}`;
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(message);
+        }
+        throw new Error(`${message}; Right server is reachable, but the lightweight model-list check failed. Save and verify with image generation.`);
+      }
+      setRightTestStatus('success');
+      setRightTestMessage('连接成功');
+    } catch (e: any) {
+      setRightTestStatus('error');
+      setRightTestMessage(e?.message || '连接失败');
     }
   };
 
@@ -551,6 +607,27 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       if (jijingAutoTestTimerRef.current) clearTimeout(jijingAutoTestTimerRef.current);
     };
   }, [jijingApiKey, jijingEnabled, isOpen, settingsLoaded]);
+
+  useEffect(() => {
+    if (!isOpen || !settingsLoaded || !rightEnabled) return;
+    const key = rightApiKey.trim();
+    if (key === lastAutoRightKeyRef.current) return;
+    if (rightAutoTestTimerRef.current) clearTimeout(rightAutoTestTimerRef.current);
+    lastAutoRightKeyRef.current = key;
+    if (!key) {
+      setRightTestStatus('idle');
+      setRightTestMessage('');
+      return;
+    }
+    setRightTestStatus('testing');
+    setRightTestMessage('输入已更新，正在自动测试...');
+    rightAutoTestTimerRef.current = setTimeout(() => {
+      void handleTestRight();
+    }, 900);
+    return () => {
+      if (rightAutoTestTimerRef.current) clearTimeout(rightAutoTestTimerRef.current);
+    };
+  }, [rightApiKey, rightEnabled, isOpen, settingsLoaded]);
 
   const activeTitle = activeTab === 'model' ? '模型配置' : activeTab === 'agent' ? '智能体设定' : '缓存磁盘';
   const activeSubtitle = activeTab === 'model'
@@ -797,73 +874,70 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     )}
                   </div>
 
-                  {/* Jijing Config */}
-                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${jijingEnabled ? 'bg-white dark:bg-white/5 border-orange-200 dark:border-orange-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                  {/* Right Config */}
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${rightEnabled ? 'bg-white dark:bg-white/5 border-amber-200 dark:border-amber-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className={`p-3 rounded-2xl ${jijingEnabled ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'}`}>
+                        <div className={`p-3 rounded-2xl ${rightEnabled ? 'bg-amber-100 text-amber-600' : 'bg-gray-200 text-gray-500'}`}>
                           <Sparkles className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`text-lg font-black ${jijingEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>No.1图 API 中转站</h4>
-                          <p className="text-xs text-gray-500 mt-0.5">Gemini 兼容中转服务</p>
+                          <h4 className={`text-lg font-black ${rightEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>Right Code API 中转站</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">绘图接口统一入口，支持聊天与 OpenAI 原生图片生成接口</p>
                         </div>
                       </div>
                       <button
-                        onClick={() => setJijingEnabled(!jijingEnabled)}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${jijingEnabled ? 'bg-orange-500' : 'bg-gray-300'}`}
+                        onClick={() => setRightEnabled(!rightEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${rightEnabled ? 'bg-amber-500' : 'bg-gray-300'}`}
                       >
-                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${jijingEnabled ? 'left-7' : 'left-1'}`} />
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${rightEnabled ? 'left-7' : 'left-1'}`} />
                       </button>
                     </div>
 
-                    {jijingEnabled && (
+                    {rightEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
-                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点选择</label>
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
                           <div className="flex flex-wrap gap-2 mb-2">
-                            {NO1_IMAGE_NODES.map((node) => (
-                              <button
-                                key={node.url}
-                                onClick={() => setJijingBaseUrl(node.url)}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${jijingBaseUrl === node.url ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
-                              >
-                                {node.name}
-                              </button>
-                            ))}
+                            <button
+                              onClick={() => setRightBaseUrl(DEFAULT_RIGHT_BASE_URL)}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${rightBaseUrl === DEFAULT_RIGHT_BASE_URL ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                            >
+                              Right 绘图主站
+                            </button>
                           </div>
                         </div>
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">
                             <textarea
-                              value={jijingApiKey}
-                              onChange={(e) => setJijingApiKey(e.target.value)}
+                              value={rightApiKey}
+                              onChange={(e) => setRightApiKey(e.target.value)}
                               rows={4}
-                              style={{ WebkitTextSecurity: isJijingKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
-                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-orange-500/20 outline-none font-mono resize-none"
+                              style={{ WebkitTextSecurity: isRightKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-amber-500/20 outline-none font-mono resize-none"
                               placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                             />
-                            <button onClick={() => setIsJijingKeyVisible(!isJijingKeyVisible)} className="absolute right-3 top-3 text-gray-400">
-                              {isJijingKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            <button onClick={() => setIsRightKeyVisible(!isRightKeyVisible)} className="absolute right-3 top-3 text-gray-400">
+                              {isRightKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                           </div>
                           <p className="text-[10px] text-gray-500">支持多 Key 轮询，请使用逗号或换行分隔。</p>
                         </div>
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
-                             {jijingTestStatus !== 'idle' && (
-                                <span className={`text-xs font-bold ${jijingTestStatus === 'success' ? 'text-green-500' : jijingTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
-                                 {jijingTestStatus === 'success' ? '连接成功' : jijingTestStatus === 'testing' ? '正在自动测试...' : jijingTestMessage}
+                             {rightTestStatus !== 'idle' && (
+                                <span className={`text-xs font-bold ${rightTestStatus === 'success' ? 'text-green-500' : rightTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                 {rightTestStatus === 'success' ? '连接成功' : rightTestStatus === 'testing' ? '正在自动测试...' : rightTestMessage}
                                </span>
                              )}
                            </div>
                            <button
-                             onClick={handleTestJijing}
-                             disabled={jijingTestStatus === 'testing'}
-                             className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-orange-50 dark:hover:bg-orange-500/10 text-gray-500 hover:text-orange-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
+                             onClick={handleTestRight}
+                             disabled={rightTestStatus === 'testing'}
+                             className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-amber-50 dark:hover:bg-amber-500/10 text-gray-500 hover:text-amber-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
                            >
-                             {jijingTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
+                             {rightTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
                         </div>
                       </div>

@@ -970,8 +970,12 @@ export const generateImageToImage = async (
     }
   }
 
+  if (initialConfig.isRight) {
+    targetModel = resolveRuntimeModelId(targetModel, initialConfig);
+  }
+
   const isGptModel = targetModel.toLowerCase().includes('gpt');
-  const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all';
+  const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all' || targetModel === 'gpt-image-2-vip';
   const isMidjourneyModel = targetModel === 'mj_imagine';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
@@ -2117,7 +2121,7 @@ export const generateInpainting = async (
     ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
     : prompt;
 
-  const isGptImage2 = targetModel === 'gpt-image-2';
+  const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-vip';
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const config = getApiConfig(initialConfig.currentIndex + attempt);

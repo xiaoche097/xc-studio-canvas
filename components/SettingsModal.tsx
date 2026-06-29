@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, Save, Key, Globe, Zap, Eye, EyeOff, ShieldCheck, 
   Settings as SettingsIcon, Bot, ChevronRight, Check,
-  AlertCircle, ExternalLink, LayoutDashboard
+  AlertCircle, ExternalLink, LayoutDashboard, Sparkles
 } from 'lucide-react';
 import { gemini } from '../lib/gemini';
 
 type TabType = 'api' | 'agent' | 'about';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
+const DEFAULT_RIGHT_BASE_URL = 'https://www.right.codes/draw';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -112,6 +113,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     baseUrl: DEFAULT_NO1_IMAGE_BASE_URL
   });
 
+  const [rightConfig, setRightConfig] = useState({
+    enabled: false,
+    apiKey: '',
+    baseUrl: DEFAULT_RIGHT_BASE_URL
+  });
+
   // Global Status
   const [status, setStatus] = useState<{ type: 'idle' | 'testing' | 'success' | 'error'; message: string }>({
     type: 'idle',
@@ -144,6 +151,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
       const jUrl = !savedJUrl || savedJUrl === LEGACY_JIJING_BASE_URL ? DEFAULT_NO1_IMAGE_BASE_URL : savedJUrl;
       const jEnabled = localStorage.getItem('jijing_enabled') === 'true';
       setJijingConfig({ enabled: jEnabled, apiKey: jKey, baseUrl: jUrl });
+
+      const rKey = localStorage.getItem('right_api_key') || '';
+      const rUrl = localStorage.getItem('right_base_url') || DEFAULT_RIGHT_BASE_URL;
+      const rEnabled = localStorage.getItem('right_enabled') === 'true';
+      setRightConfig({ enabled: rEnabled, apiKey: rKey, baseUrl: rUrl });
     }
   }, [isOpen]);
 
@@ -165,11 +177,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     localStorage.setItem('jijing_base_url', jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingConfig.enabled));
 
+    localStorage.setItem('right_api_key', rightConfig.apiKey);
+    localStorage.setItem('right_base_url', rightConfig.baseUrl || DEFAULT_RIGHT_BASE_URL);
+    localStorage.setItem('right_enabled', String(rightConfig.enabled));
+
     // Determine active provider
     let activeKey = geminiConfig.apiKey;
     let activeUrl = geminiConfig.baseUrl;
 
-    if (jijingConfig.enabled && jijingConfig.apiKey) {
+    if (rightConfig.enabled && rightConfig.apiKey) {
+        activeKey = rightConfig.apiKey;
+        activeUrl = rightConfig.baseUrl || DEFAULT_RIGHT_BASE_URL;
+    } else if (jijingConfig.enabled && jijingConfig.apiKey) {
         activeKey = jijingConfig.apiKey;
         activeUrl = jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL;
     } else if (platoConfig.enabled && platoConfig.apiKey) {
@@ -187,7 +206,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     setTimeout(() => setStatus({ type: 'idle', message: '' }), 2000);
   };
 
-  const testConnection = async (type: 'gemini' | 'yunwu' | 'plato' | 'jijing') => {
+  const testConnection = async (type: 'gemini' | 'yunwu' | 'plato' | 'jijing' | 'right') => {
     setStatus({ type: 'testing', message: `正在连接 ${type}...` });
     
     let key = '';
@@ -197,6 +216,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     if (type === 'yunwu') { key = yunwuConfig.apiKey; url = yunwuConfig.baseUrl; }
     if (type === 'plato') { key = platoConfig.apiKey; url = platoConfig.baseUrl; }
     if (type === 'jijing') { key = jijingConfig.apiKey; url = jijingConfig.baseUrl; }
+    if (type === 'right') { key = rightConfig.apiKey; url = rightConfig.baseUrl; }
 
     if (!key) {
         setStatus({ type: 'error', message: '请输入 API Key 后再测试' });
@@ -205,7 +225,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
     try {
         const cleanUrl = (url || 'https://generativelanguage.googleapis.com').replace(/\/$/, "");
-        const response = await fetch(`${cleanUrl}/v1beta/models?key=${key}`);
+        const response = type === 'right'
+          ? await fetch(`${cleanUrl}/v1/models`, {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${key}`,
+              },
+            })
+          : await fetch(`${cleanUrl}/v1beta/models?key=${key}`);
         if (response.ok) {
             setStatus({ type: 'success', message: `${type} 连接成功！` });
         } else {
@@ -427,26 +454,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                             </div>
                         </ProviderCard>
 
-                        {/* Jijing API */}
+                        {/* Right Code API */}
                         <ProviderCard 
-                          title="No.1图 API 中转站"
-                          description="Gemini 兼容中转服务，默认使用 DCDN主站。"
-                          icon={<Zap className="text-orange-500" />}
-                          enabled={jijingConfig.enabled}
-                          onToggle={(v) => setJijingConfig(c => ({ ...c, enabled: v }))}
+                          title="Right Code API 中转站"
+                          description="Right Code 绘图相关接口，默认使用绘图主站。"
+                          icon={<Sparkles className="text-amber-500" />}
+                          enabled={rightConfig.enabled}
+                          onToggle={(v) => setRightConfig(c => ({ ...c, enabled: v }))}
                         >
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <ConfigInput 
                                   label="API Key"
-                                  value={jijingConfig.apiKey}
-                                  onChange={(v) => setJijingConfig(c => ({ ...c, apiKey: v }))}
+                                  value={rightConfig.apiKey}
+                                  onChange={(v) => setRightConfig(c => ({ ...c, apiKey: v }))}
                                   placeholder="sk-..."
                                   type="password"
                                   icon={<Key size={16} />}
                                 />
                             </div>
                             <div className="flex justify-end mt-4">
-                                <button onClick={() => testConnection('jijing')} className="text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors">
+                                <button onClick={() => testConnection('right')} className="text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors">
                                     测试连接
                                 </button>
                             </div>

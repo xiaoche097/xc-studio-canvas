@@ -11,6 +11,7 @@ export const MAX_REF_IMAGES = 3;
 export const MAX_UPLOAD_IMAGES = 10;
 export const LEGACY_JIJING_BASE_URL = "https://api.jijing.ai";
 export const DEFAULT_NO1_IMAGE_BASE_URL = "https://api.rcouyi.com";
+export const DEFAULT_RIGHT_BASE_URL = "https://www.right.codes/draw";
 export const NO1_IMAGE_NODES = [
     { name: "DCDN主站", url: "https://api.rcouyi.com" },
     { name: "美国芝加哥OVH线路", url: "https://us.rcouyi.com" },
@@ -29,6 +30,7 @@ export interface ApiConfig {
     isYunwu: boolean;
     isPlato: boolean;
     isJijing?: boolean;
+    isRight?: boolean;
     apiVersion?: string;
     providerRetryCount?: number;
 }
@@ -39,7 +41,7 @@ export interface GenerateContentParams {
     config?: any;
 }
 
-type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato'>;
+type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRight'>;
 
 const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
     const normalizedPreferred = !preferredUrl || preferredUrl === LEGACY_JIJING_BASE_URL
@@ -54,6 +56,7 @@ const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
 
 export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
 export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
+export const RIGHT_DEFAULT_IMAGE_MODEL = 'gpt-image-2-vip';
 export const YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL = 'gemini-3.5-flash';
 export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL;
 export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
@@ -78,6 +81,10 @@ export const resolveRuntimeModelId = (
             !(
                 Boolean(localStorage.getItem("jijing_api_key")) &&
                 localStorage.getItem("jijing_enabled") !== "false"
+            ) &&
+            !(
+                Boolean(localStorage.getItem("right_api_key")) &&
+                localStorage.getItem("right_enabled") !== "false"
             ),
         isPlato:
             (
@@ -87,8 +94,33 @@ export const resolveRuntimeModelId = (
             (
                 Boolean(localStorage.getItem("jijing_api_key")) &&
                 localStorage.getItem("jijing_enabled") !== "false"
+            ) ||
+            (
+                Boolean(localStorage.getItem("right_api_key")) &&
+                localStorage.getItem("right_enabled") !== "false"
             ),
+        isRight:
+            Boolean(localStorage.getItem("right_api_key")) &&
+            localStorage.getItem("right_enabled") !== "false",
     };
+    if (runtimeConfig.isRight) {
+        const rightImageModelMap: Record<string, string> = {
+            'gemini-3.1-flash-image-preview': 'nano-banana-2',
+            'gemini-3.1-flash-image': 'nano-banana-2',
+            'gemini-3-pro-image-preview': 'nano-banana-pro',
+            'gemini-3-pro-image': 'nano-banana-pro',
+            'gpt-image-2': RIGHT_DEFAULT_IMAGE_MODEL,
+            'gpt-image-2-all': RIGHT_DEFAULT_IMAGE_MODEL,
+            'nanobanana2': 'nano-banana-2',
+            'standard': 'nano-banana-2',
+            'nanobananapro': 'nano-banana-pro',
+            'pro': 'nano-banana-pro',
+            'nano-banana': 'nano-banana',
+            'nano-banana-2': 'nano-banana-2',
+            'nano-banana-pro': 'nano-banana-pro',
+        };
+        return rightImageModelMap[modelId] || modelId;
+    }
     if (
         runtimeConfig.isYunwu &&
         !runtimeConfig.isPlato &&
@@ -255,6 +287,46 @@ export const throwIfAborted = (signal?: AbortSignal) => {
  * @param forceIndex 强制使用的 Key 索引（用于自动重试）
  */
 export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: number, currentIndex: number } => {
+    // Right Code API
+    const rightKey = localStorage.getItem("right_api_key");
+    const rightBaseUrl = localStorage.getItem("right_base_url");
+    const rightEnabled = localStorage.getItem("right_enabled") !== "false";
+
+    if (rightKey && rightEnabled) {
+        const keys = rightKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
+        if (keys.length === 0) {
+            throw new Error("Right Code API Key is empty. Please check Settings.");
+        }
+        const keyCount = keys.length;
+        let activeKey = keys[0];
+        let currentIndex = 0;
+
+        if (keyCount > 1) {
+            const lastIndexKey = "right_api_key_last_index";
+            if (forceIndex !== undefined) {
+                currentIndex = forceIndex % keyCount;
+            } else {
+                const lastIndex = parseInt(localStorage.getItem(lastIndexKey) || "-1");
+                currentIndex = (lastIndex + 1) % keyCount;
+                localStorage.setItem(lastIndexKey, currentIndex.toString());
+            }
+            activeKey = keys[currentIndex];
+            console.log(`[Right Code API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+        }
+
+        return {
+            apiKey: activeKey,
+            baseUrl: rightBaseUrl || DEFAULT_RIGHT_BASE_URL,
+            isYunwu: true,
+            isPlato: true,
+            isJijing: false,
+            isRight: true,
+            apiVersion: 'v1',
+            keyCount,
+            currentIndex
+        };
+    }
+
     // 1. Jijing API
     const jijingKey = localStorage.getItem("jijing_api_key");
     const jijingBaseUrl = localStorage.getItem("jijing_base_url");
@@ -399,7 +471,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
         };
     }
 
-    throw new Error("No active API configuration found. Please enable No.1 Image, Plato, Yunwu or Native API in Settings.");
+    throw new Error("No active API configuration found. Please enable Right Code, No.1 Image, Plato, Yunwu or Native API in Settings.");
 };
 
 /**
@@ -430,9 +502,12 @@ export const getAiClient = (): GoogleGenAI => {
 /**
  * 获取当前激活的API信息（用于调试）
  */
-export const getActiveApiInfo = (): { type: 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+export const getActiveApiInfo = (): { type: 'right' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
         const config = getApiConfig();
+        if (localStorage.getItem("right_api_key") && (localStorage.getItem("right_enabled") !== "false")) {
+            return { type: 'right', baseUrl: config.baseUrl };
+        }
         if (localStorage.getItem("jijing_api_key") && (localStorage.getItem("jijing_enabled") !== "false")) {
             return { type: 'jijing', baseUrl: config.baseUrl };
         }
