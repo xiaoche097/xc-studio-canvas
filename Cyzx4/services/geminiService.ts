@@ -10,6 +10,7 @@ import {
   resolveRuntimeModelId,
   generateContentWithAnalysisFallback,
   executeWithTimeout,
+  createAbortError,
   throwIfAborted,
   isAbortError,
   blobToBase64,
@@ -909,6 +910,236 @@ const generateMidjourneyImagine = async (
   throw new Error('Midjourney generation timed out before returning an image.');
 };
 
+const RIGHT_CODE_IMAGE_VALUE_KEYS = new Set([
+  'b64_json',
+  'base64',
+  'image',
+  'image_url',
+  'imageurl',
+  'url',
+  'urls',
+  'result',
+  'results',
+  'output',
+  'outputs',
+  'data',
+  'file',
+  'files',
+  'thumbnail',
+  'thumbnail_url',
+  'thumbnailurl',
+]);
+
+const looksLikeImageUrl = (value: string): boolean => {
+  if (value.startsWith('data:image/')) return true;
+  if (!/^https?:\/\//i.test(value)) return false;
+  return /\.(png|jpe?g|webp|gif|avif)(?:[?#].*)?$/i.test(value) ||
+    /\/(image|images|img|file|files|result|output|thumbnail|cdn)\b/i.test(value);
+};
+
+const looksLikeBase64Image = (value: string): boolean => {
+  if (value.startsWith('data:image/')) return true;
+  if (value.length < 300) return false;
+  if (/^task[_-]/i.test(value)) return false;
+  return /^[A-Za-z0-9+/=\r\n]+$/.test(value);
+};
+
+const normalizeGeneratedImageValue = (value: unknown, keyHint = ''): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('data:image/')) return trimmed;
+  if (looksLikeImageUrl(trimmed)) return trimmed;
+  if (
+    looksLikeBase64Image(trimmed) &&
+    !/(^|_)(id|task|status|model|prompt|message|error)(_|$)/i.test(keyHint)
+  ) {
+    return `data:image/png;base64,${trimmed.replace(/\s/g, '')}`;
+  }
+  return null;
+};
+
+const extractGeneratedImagesFromResponse = (data: any): string[] => {
+  const results: string[] = [];
+  const seenValues = new Set<string>();
+  const seenObjects = new WeakSet<object>();
+
+  const add = (value: string | null) => {
+    if (!value || seenValues.has(value)) return;
+    seenValues.add(value);
+    results.push(value);
+  };
+
+  const walk = (value: any, keyHint = '') => {
+    const directValue = normalizeGeneratedImageValue(value, keyHint);
+    if (directValue) {
+      add(directValue);
+      return;
+    }
+
+    if (!value || typeof value !== 'object') return;
+    if (seenObjects.has(value)) return;
+    seenObjects.add(value);
+
+    if (Array.isArray(value)) {
+      value.forEach(item => walk(item, keyHint));
+      return;
+    }
+
+    Object.entries(value).forEach(([key, nestedValue]) => {
+      const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, '');
+      if (RIGHT_CODE_IMAGE_VALUE_KEYS.has(normalizedKey)) {
+        walk(nestedValue, normalizedKey);
+      }
+    });
+
+    Object.entries(value).forEach(([key, nestedValue]) => {
+      const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, '');
+      if (!RIGHT_CODE_IMAGE_VALUE_KEYS.has(normalizedKey)) {
+        walk(nestedValue, normalizedKey);
+      }
+    });
+  };
+
+  walk(data);
+  return results;
+};
+
+const describeImageResponseWithoutImages = (data: any): string => {
+  const taskId = data?.task_id || data?.taskId || data?.id || data?.result?.task_id || data?.result?.taskId;
+  const status = data?.status || data?.state || data?.result?.status || data?.result?.state;
+  const code = data?.code ?? data?.status_code ?? data?.statusCode;
+  const message = data?.message || data?.msg || data?.error?.message || data?.error;
+  const details = [
+    taskId ? `task=${taskId}` : '',
+    status ? `status=${status}` : '',
+    code !== undefined ? `code=${code}` : '',
+    message ? `message=${typeof message === 'string' ? message : JSON.stringify(message)}` : '',
+  ].filter(Boolean).join(', ');
+  return details
+    ? `API returned success but no image URL/base64 was found in the response (${details}).`
+    : "API returned success but no image URL/base64 was found in the response.";
+};
+
+const delayWithAbort = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(createAbortError());
+    return;
+  }
+  const timeoutId = setTimeout(resolve, ms);
+  const abortHandler = () => {
+    clearTimeout(timeoutId);
+    reject(createAbortError());
+  };
+  signal?.addEventListener('abort', abortHandler, { once: true });
+});
+
+const getRightCodeTaskId = (data: any): string => {
+  return String(
+    data?.task_id ||
+    data?.taskId ||
+    data?.task?.task_id ||
+    data?.data?.task_id ||
+    data?.result?.task_id ||
+    data?.id ||
+    ''
+  ).trim();
+};
+
+const getRightCodeTaskStatus = (data: any): string => {
+  return String(
+    data?.status ||
+    data?.state ||
+    data?.task?.status ||
+    data?.data?.status ||
+    data?.result?.status ||
+    ''
+  ).toLowerCase();
+};
+
+const isRightCodeTaskPending = (status: string): boolean => (
+  ['queued', 'running', 'processing', 'in_progress', 'pending'].includes(status)
+);
+
+const isRightCodeTaskFailed = (status: string): boolean => (
+  ['failed', 'failure', 'error', 'expired', 'cancelled', 'canceled'].includes(status)
+);
+
+const getRightCodeRootUrl = (baseUrl?: string): string => {
+  const normalized = (baseUrl || 'https://www.right.codes/draw').replace(/\/$/, '');
+  try {
+    const url = new URL(normalized);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return normalized.replace(/\/draw(?:\/.*)?$/, '');
+  }
+};
+
+const pollRightCodeImageTask = async (
+  config: ReturnType<typeof getApiConfig>,
+  taskId: string,
+  signal?: AbortSignal
+): Promise<string[]> => {
+  const rootUrl = getRightCodeRootUrl(config.baseUrl);
+  const endpoints = Array.from(new Set([
+    `${rootUrl}/async-task/${encodeURIComponent(taskId)}`,
+  ]));
+  let lastData: any = null;
+  let lastError: any = null;
+
+  while (true) {
+    await delayWithAbort(8000, signal);
+
+    for (const endpoint of endpoints) {
+      let taskResponse: Response;
+      try {
+        taskResponse = await executeWithTimeout(
+          fetch(endpoint, {
+            method: 'GET',
+            signal,
+            headers: {
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+          }),
+          { timeoutMs: 30000, signal }
+        );
+      } catch (error) {
+        lastError = error;
+        continue;
+      }
+
+      if (!taskResponse.ok) {
+        const errText = await taskResponse.text();
+        lastError = new Error(`Right Code async task fetch failed: ${taskResponse.status} ${errText}`);
+        continue;
+      }
+
+      lastData = await taskResponse.json();
+      const taskData = lastData?.data || lastData?.task || lastData;
+      const images = extractGeneratedImagesFromResponse(taskData);
+      if (images.length > 0) return images;
+
+      const status = getRightCodeTaskStatus(taskData);
+      if (isRightCodeTaskFailed(status)) {
+        const message = taskData?.error?.message || taskData?.error || taskData?.message || taskData?.failReason || 'unknown error';
+        throw new Error(`Right Code async image task failed (${taskId}): ${typeof message === 'string' ? message : JSON.stringify(message)}`);
+      }
+
+      if (!isRightCodeTaskPending(status) && status && status !== 'completed') {
+        console.warn('[Right Code Image] Async task has no recognized image yet:', taskData);
+      }
+
+      lastError = null;
+      break;
+    }
+
+    if (lastError) {
+      console.warn(`[Right Code Image] Async task ${taskId} is still waiting; polling will continue.`, lastError);
+      lastError = null;
+    }
+  }
+};
+
 /**
  * 2.1.1 Image-to-Image Generation (Multi-Image Support)
  * Supports dynamic model selection and automatic API key rotation on failure.
@@ -1262,7 +1493,7 @@ ${forcedPrompt}`;
             prompt: gptPrompt,
             size: gptSize,
             quality: "auto",
-            response_format: "b64_json",
+            response_format: config.isRight ? "url" : "b64_json",
             // Exact match with your doc: array[string]
             // AND adding the prefix for input images as required by most reverse proxies
             image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
@@ -1287,24 +1518,37 @@ ${forcedPrompt}`;
           }
 
           const data = await fetchResponse.json();
-          const imageItems = Array.isArray(data.data)
-            ? data.data
-            : Array.isArray(data.images)
-              ? data.images
-              : [];
-          const results = imageItems.map((item: any) => {
-            const b64 = item?.b64_json || item?.base64 || item?.image || item?.data;
-            const url = item?.url || item?.image_url;
-            if (typeof b64 === 'string' && b64.length > 0) {
-              return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
-            }
-            if (typeof url === 'string' && url.length > 0) {
-              return url;
-            }
-            return null;
-          }).filter(Boolean);
+          const results = config.isRight
+            ? extractGeneratedImagesFromResponse(data)
+            : (
+              Array.isArray(data.data)
+                ? data.data
+                : Array.isArray(data.images)
+                  ? data.images
+                  : []
+            ).map((item: any) => {
+              const b64 = item?.b64_json || item?.base64 || item?.image || item?.data;
+              const url = item?.url || item?.image_url;
+              if (typeof b64 === 'string' && b64.length > 0) {
+                return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+              }
+              if (typeof url === 'string' && url.length > 0) {
+                return url;
+              }
+              return null;
+            }).filter(Boolean);
           
           if (results.length > 0) return results;
+          if (config.isRight) {
+            const taskId = getRightCodeTaskId(data);
+            const taskStatus = getRightCodeTaskStatus(data);
+            if (taskId && isRightCodeTaskPending(taskStatus)) {
+              console.warn(`[${openAiImageProviderLabel}] Async task ${taskId} is ${taskStatus}; polling result...`);
+              return await pollRightCodeImageTask(config, taskId, signal);
+            }
+            console.warn(`[${openAiImageProviderLabel}] Response did not contain a recognized image payload:`, data);
+            throw new Error(describeImageResponseWithoutImages(data));
+          }
           throw new Error("API returned success but no images were found in the response.");
         };
 

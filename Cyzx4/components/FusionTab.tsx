@@ -796,40 +796,65 @@ Do not combine this image with any other uploaded image. Do not create extra var
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
-        const width = img.naturalWidth || img.width;
-        const height = img.naturalHeight || img.height;
-        if (!width || !height) {
-          resolve(url);
-          return;
-        }
+        try {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          if (!width || !height) {
+            resolve(url);
+            return;
+          }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(url);
-          return;
-        }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(url);
+            return;
+          }
 
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch {
+          resolve(url);
+        }
       };
       img.onerror = () => resolve(url);
       img.src = url;
     });
   };
 
-  const downloadImage = async (url: string, filename: string) => {
-    const jpegUrl = await convertImageToJpeg(url);
+  const triggerDownload = (href: string, filename: string) => {
     const link = document.createElement('a');
-    link.href = jpegUrl;
+    link.href = href;
     link.download = filename;
+    link.rel = 'noopener';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const downloadImage = async (url: string, filename: string) => {
+    if (/^https?:\/\//i.test(url)) {
+      try {
+        const response = await fetch(url, { mode: 'cors' });
+        if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        triggerDownload(objectUrl, filename);
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        return;
+      } catch (error) {
+        console.warn('Remote image download fallback: opening original URL because blob download failed.', error);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
+
+    const jpegUrl = await convertImageToJpeg(url);
+    triggerDownload(jpegUrl, filename);
   };
 
   const downloadAllWhiteBackgroundImages = () => {

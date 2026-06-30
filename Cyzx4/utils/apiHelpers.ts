@@ -477,8 +477,133 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
 /**
  * 获取AI客户端实例
  */
+const toRightCodeBaseUrl = (baseUrl?: string): string => {
+    return (baseUrl || DEFAULT_RIGHT_BASE_URL).replace(/\/$/, "");
+};
+
+const normalizeRightCodeContent = (parts: any[]): string | any[] => {
+    const content: any[] = [];
+
+    parts.forEach(part => {
+        if (!part) return;
+        if (typeof part.text === 'string' && part.text.length > 0) {
+            content.push({ type: 'text', text: part.text });
+            return;
+        }
+
+        const inlineData = part.inlineData || part.inline_data;
+        if (inlineData?.data) {
+            const mimeType = inlineData.mimeType || inlineData.mime_type || 'image/png';
+            const dataUrl = String(inlineData.data).startsWith('data:')
+                ? inlineData.data
+                : `data:${mimeType};base64,${inlineData.data}`;
+            content.push({
+                type: 'image_url',
+                image_url: { url: dataUrl }
+            });
+            return;
+        }
+
+        const fileData = part.fileData || part.file_data;
+        const fileUri = fileData?.fileUri || fileData?.file_uri || fileData?.uri;
+        if (typeof fileUri === 'string' && fileUri.length > 0) {
+            content.push({
+                type: 'image_url',
+                image_url: { url: fileUri }
+            });
+        }
+    });
+
+    if (content.length === 1 && content[0].type === 'text') {
+        return content[0].text;
+    }
+    return content;
+};
+
+const normalizeRightCodeMessages = (request: any): any[] => {
+    const messages: any[] = [];
+    const systemInstruction = request?.config?.systemInstruction || request?.systemInstruction;
+    if (systemInstruction) {
+        const systemParts = Array.isArray(systemInstruction?.parts)
+            ? systemInstruction.parts
+            : [{ text: typeof systemInstruction === 'string' ? systemInstruction : systemInstruction.text || String(systemInstruction) }];
+        messages.push({
+            role: 'system',
+            content: normalizeRightCodeContent(systemParts)
+        });
+    }
+
+    const rawContents = Array.isArray(request?.contents)
+        ? request.contents
+        : request?.contents
+            ? [request.contents]
+            : [];
+
+    rawContents.forEach((content: any) => {
+        const parts = Array.isArray(content?.parts)
+            ? content.parts
+            : Array.isArray(content)
+                ? content
+                : [];
+        if (parts.length === 0) return;
+        messages.push({
+            role: content?.role === 'model' ? 'assistant' : (content?.role || 'user'),
+            content: normalizeRightCodeContent(parts)
+        });
+    });
+
+    if (messages.length === 0) {
+        messages.push({ role: 'user', content: '' });
+    }
+    return messages;
+};
+
+const createRightCodeChatClient = (config: ApiConfig) => {
+    return {
+        models: {
+            generateContent: async (request: any) => {
+                const endpoint = `${toRightCodeBaseUrl(config.baseUrl)}/v1/chat/completions`;
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${config.apiKey}`,
+                    },
+                    body: JSON.stringify({
+                        model: resolveRuntimeModelId(request.model, config),
+                        stream: false,
+                        messages: normalizeRightCodeMessages(request),
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    const error = new Error(`Right Code Chat API Error ${response.status}: ${errorText}`);
+                    (error as any).status = response.status;
+                    throw error;
+                }
+
+                const data = await response.json();
+                const text = data?.choices?.[0]?.message?.content || '';
+                return {
+                    text,
+                    candidates: [{
+                        content: { parts: [{ text }] },
+                        finishReason: data?.choices?.[0]?.finish_reason,
+                    }],
+                    usageMetadata: data?.usage,
+                };
+            }
+        }
+    } as unknown as GoogleGenAI;
+};
+
 export const getAiClient = (): GoogleGenAI => {
     const config = getApiConfig();
+
+    if (config.isRight) {
+        return createRightCodeChatClient(config);
+    }
 
     if (config.isYunwu && config.baseUrl) {
         return new GoogleGenAI({

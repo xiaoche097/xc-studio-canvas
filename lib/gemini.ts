@@ -1,6 +1,92 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getApiConfig, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
 
+const toOpenAiContent = (text: string, images: string[] = []) => {
+  const content: any[] = [];
+  if (text) {
+    content.push({ type: "text", text });
+  }
+  images.forEach(img => {
+    content.push({
+      type: "image_url",
+      image_url: { url: img }
+    });
+  });
+  return content.length === 1 && content[0].type === "text" ? content[0].text : content;
+};
+
+const partsToOpenAiContent = (parts: any[] = []) => {
+  const content: any[] = [];
+  parts.forEach(part => {
+    if (typeof part?.text === "string" && part.text.length > 0) {
+      content.push({ type: "text", text: part.text });
+      return;
+    }
+    const inlineData = part?.inlineData || part?.inline_data;
+    if (inlineData?.data) {
+      const mimeType = inlineData.mimeType || inlineData.mime_type || "image/png";
+      const url = String(inlineData.data).startsWith("data:")
+        ? inlineData.data
+        : `data:${mimeType};base64,${inlineData.data}`;
+      content.push({ type: "image_url", image_url: { url } });
+    }
+  });
+  return content.length === 1 && content[0].type === "text" ? content[0].text : content;
+};
+
+async function* parseRightCodeSseStream(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const dataLines = event
+        .split(/\r?\n/)
+        .filter(line => line.startsWith("data:"))
+        .map(line => line.replace(/^data:\s*/, ""));
+
+      for (const dataLine of dataLines) {
+        if (!dataLine || dataLine === "[DONE]") continue;
+        try {
+          const data = JSON.parse(dataLine);
+          const text = data?.choices?.[0]?.delta?.content || "";
+          if (text) {
+            yield { text: () => text };
+          }
+        } catch {
+          // Ignore malformed keepalive chunks.
+        }
+      }
+    }
+  }
+
+  const tail = buffer.trim();
+  if (tail.startsWith("data:")) {
+    const dataLine = tail.replace(/^data:\s*/, "");
+    if (dataLine && dataLine !== "[DONE]") {
+      try {
+        const data = JSON.parse(dataLine);
+        const text = data?.choices?.[0]?.delta?.content || "";
+        if (text) {
+          yield { text: () => text };
+        }
+      } catch {
+        // Ignore malformed trailing chunks.
+      }
+    }
+  }
+}
+
 class GeminiClient {
   private getClient() {
     const config = getApiConfig();
@@ -17,6 +103,44 @@ class GeminiClient {
   ) {
     const config = getApiConfig();
     const selectedModelName = resolveRuntimeModelId(modelName || "gemini-1.5-flash", config);
+
+    if (config.isRight) {
+      const baseUrl = (config.baseUrl || "https://www.right.codes/draw").replace(/\/$/, "");
+      const messages: any[] = [];
+      if (systemInstruction) {
+        messages.push({ role: "system", content: systemInstruction });
+      }
+      history.forEach(h => {
+        messages.push({
+          role: h.role === "model" || h.role === "ai" ? "assistant" : "user",
+          content: partsToOpenAiContent(h.parts)
+        });
+      });
+      messages.push({
+        role: "user",
+        content: toOpenAiContent(prompt, images)
+      });
+
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: selectedModelName,
+          stream: true,
+          messages,
+        }),
+      });
+
+      if (!response.ok) {
+        const txt = await response.text();
+        throw new Error(`Right Code Chat API Error ${response.status}: ${txt}`);
+      }
+
+      return { stream: parseRightCodeSseStream(response) };
+    }
     
     // For Proxies (Plato/Yunwu), the SDK might fail if it hardcodes the Google URL.
     // However, if the user has configured it in Settings, we should honor it.
@@ -116,7 +240,7 @@ class GeminiClient {
           prompt: finalPrompt,
           n: 1,
           size: openAiImageSize,
-          response_format: "b64_json",
+          response_format: "url",
         }),
       });
 
