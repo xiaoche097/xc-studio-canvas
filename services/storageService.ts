@@ -52,12 +52,16 @@ const STORE_NAME = 'projects';
 const DEFAULT_PAGE_SIZE = 60;
 const THUMBNAIL_SIZE = 480;
 const THUMBNAIL_QUALITY = 0.72;
+const PROJECT_AUTO_EXPIRE_MS = 30 * 60 * 1000;
+const PROJECT_AUTO_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_CLEANUP_USAGE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
 const AUTO_CLEANUP_KEEP_LATEST = 50;
 
 class StorageService {
     private dbPromise: Promise<IDBPDatabase<SkysperDB>>;
     private autoCleanupPromise: Promise<number> | null = null;
+    private expirationCleanupPromise: Promise<number> | null = null;
+    private expirationCleanupTimer: ReturnType<typeof window.setInterval> | null = null;
 
     constructor() {
         this.dbPromise = openDB<SkysperDB>(DB_NAME, 1, {
@@ -76,9 +80,51 @@ class StorageService {
             thumbnail: await this.createThumbnail(project.thumbnail || project.assets.generated[0]),
         };
         await db.put(STORE_NAME, projectToSave);
+        void this.cleanupExpiredProjects();
         void this.autoCleanupIfNeeded();
         window.dispatchEvent(new CustomEvent('project-cache-updated'));
         return project.id;
+    }
+
+    startAutoExpirationCleanup(): void {
+        if (typeof window === 'undefined' || this.expirationCleanupTimer) return;
+
+        void this.cleanupExpiredProjects();
+        this.expirationCleanupTimer = window.setInterval(() => {
+            void this.cleanupExpiredProjects();
+        }, PROJECT_AUTO_CLEANUP_INTERVAL_MS);
+    }
+
+    stopAutoExpirationCleanup(): void {
+        if (!this.expirationCleanupTimer) return;
+        window.clearInterval(this.expirationCleanupTimer);
+        this.expirationCleanupTimer = null;
+    }
+
+    async cleanupExpiredProjects(): Promise<number> {
+        if (this.expirationCleanupPromise) return this.expirationCleanupPromise;
+
+        this.expirationCleanupPromise = (async () => {
+            const cutoffTime = Date.now() - PROJECT_AUTO_EXPIRE_MS;
+            const deleted = await this.deleteProjectsOlderThanInternal(cutoffTime);
+
+            if (deleted > 0) {
+                window.dispatchEvent(new CustomEvent('project-cache-auto-cleaned', {
+                    detail: {
+                        deleted,
+                        reason: 'expired',
+                        maxAgeMs: PROJECT_AUTO_EXPIRE_MS,
+                    },
+                }));
+                window.dispatchEvent(new CustomEvent('project-cache-updated'));
+            }
+
+            return deleted;
+        })().finally(() => {
+            this.expirationCleanupPromise = null;
+        });
+
+        return this.expirationCleanupPromise;
     }
 
     private async getStorageUsageBytes(): Promise<number | undefined> {
@@ -265,7 +311,7 @@ class StorageService {
         window.dispatchEvent(new CustomEvent('project-cache-updated'));
     }
 
-    async deleteProjectsOlderThan(cutoffTime: number): Promise<number> {
+    private async deleteProjectsOlderThanInternal(cutoffTime: number): Promise<number> {
         const db = await this.dbPromise;
         const tx = db.transaction(STORE_NAME, 'readwrite');
         let deleted = 0;
@@ -279,6 +325,10 @@ class StorageService {
 
         await tx.done;
         return deleted;
+    }
+
+    async deleteProjectsOlderThan(cutoffTime: number): Promise<number> {
+        return this.deleteProjectsOlderThanInternal(cutoffTime);
     }
 
     async keepLatestProjects(maxCount: number): Promise<number> {

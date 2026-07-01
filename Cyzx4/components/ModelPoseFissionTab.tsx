@@ -217,9 +217,9 @@ const ASPECT_OPTIONS = [
   { id: AspectRatio.LANDSCAPE_16_9, label: '16:9', desc: '横幅' },
 ];
 
-type ShotTypeKey = 'auto' | 'wide' | 'medium' | 'closeup' | 'macro';
+type ShotTypeKey = 'auto' | 'upper' | 'lower' | 'closeup';
 
-const SHOT_TYPE_OPTIONS: Array<{ key: ShotTypeKey; label: string; desc: string; prompt: string; negative: string }> = [
+const LEGACY_SHOT_TYPE_OPTIONS: Array<{ key: string; label: string; desc: string; prompt: string; negative: string }> = [
   {
     key: 'auto',
     label: '智能推荐',
@@ -254,6 +254,37 @@ const SHOT_TYPE_OPTIONS: Array<{ key: ShotTypeKey; label: string; desc: string; 
     desc: '局部材质',
     prompt: 'Macro/detail crop: focus tightly on a specific garment detail such as fabric texture, neckline, sleeve, lace, bow, button, seam, print, embroidery, or trim. The model can be partially cropped. Product material detail must dominate the image. Do not render a standard model portrait.',
     negative: 'full body, half body, complete face portrait, full outfit, distant shot, tiny detail, generic catalog pose',
+  },
+];
+
+const SHOT_TYPE_OPTIONS: Array<{ key: ShotTypeKey; label: string; desc: string; prompt: string; negative: string }> = [
+  {
+    key: 'auto',
+    label: '智能推荐',
+    desc: '按动作/产品判断',
+    prompt: 'Use the most suitable ecommerce framing for the selected pose and product.',
+    negative: '',
+  },
+  {
+    key: 'upper',
+    label: '上衣展示',
+    desc: '腰部以上',
+    prompt: 'UPPER GARMENT DISPLAY LOCK: 人物画面裁剪至腰部以上，腿部不可见. Frame only the model above the waist. The legs, knees, feet, shoes, and lower-body area must be outside the image. The upper garment must dominate the frame.',
+    negative: 'legs visible, knees visible, feet visible, shoes visible, lower body visible, full body, head-to-toe, distant shot, tiny upper garment',
+  },
+  {
+    key: 'lower',
+    label: '下装展示',
+    desc: '胸部以下',
+    prompt: 'LOWER GARMENT DISPLAY LOCK: 人物画面裁剪至胸部以下，胸部以上不可见. Frame only the model below the chest. The head, face, neck, shoulders, collarbone, chest, breasts, and upper-body area must be outside the image. The lower garment must dominate the frame.',
+    negative: 'head visible, face visible, neck visible, shoulders visible, collarbone visible, chest visible, breasts visible, upper body visible, full body, head-to-toe, distant shot, tiny lower garment',
+  },
+  {
+    key: 'closeup',
+    label: '近景特写',
+    desc: '面料/细节',
+    prompt: 'Close-up product-detail fashion framing: camera is close to the model. Frame from face/chin/neck to chest or upper torso, prioritizing neckline, shoulders, sleeves, chest fabric texture, buttons, lace, bow, print, and surface detail. Keep the product large in frame. Do NOT zoom out to a normal half-body or full-body portrait. Do NOT show waist, hips, legs, feet, or full dress length unless the user explicitly asks for them.',
+    negative: 'full body, head-to-toe, full dress length, waist visible, hips visible, legs visible, feet visible, distant portrait, zoomed-out portrait, small product in frame',
   },
 ];
 
@@ -432,7 +463,22 @@ const buildProductDisplayPlan = (
   let focus = product.displayArea;
   let framingRule = 'Show the model and product with ecommerce readability.';
 
-  if (product.kind === 'lower' || product.kind === 'skirt') {
+  if (shotType === 'upper') {
+    coverage = 'upper_body';
+    label = '上衣展示';
+    focus = 'upper garment, neckline, shoulders, sleeves, chest fabric, waist fit';
+    framingRule = '人物画面裁剪至腰部以上，腿部不可见. This is a hard crop boundary: frame only the model above the waist. The legs, knees, feet, shoes, and lower-body area must be completely outside the image. The upper garment must dominate the frame.';
+  } else if (shotType === 'lower') {
+    coverage = 'lower_body';
+    label = '下装展示';
+    focus = 'lower garment, waistband, hips, leg/skirt silhouette, hemline, fabric and fit';
+    framingRule = '人物画面裁剪至胸部以下，胸部以上不可见. This is a hard crop boundary: frame only the model below the chest. The head, face, neck, shoulders, collarbone, chest, breasts, and upper-body area must be completely outside the image. The lower garment must dominate the frame.';
+  } else if (shotType === 'closeup') {
+    coverage = 'detail';
+    label = '近景特写';
+    focus = product.displayArea;
+    framingRule = 'Use a close product-detail crop. The selling area must be large in frame, with fabric, seams, trim, print, buttons, neckline, sleeve, waistband, hem, or other relevant details clearly readable. Do not generate a generic full-body or distant portrait.';
+  } else if (product.kind === 'lower' || product.kind === 'skirt') {
     if (first) {
       coverage = 'full_body';
       label = '全身搭配';
@@ -490,8 +536,8 @@ const buildProductDisplayPlan = (
   ].join(' ');
 
   const negativeTerms = [...product.negativeCropTerms];
-  if (coverage === 'lower_body') negativeTerms.push('head visible', 'face visible', 'upper body dominating frame', 'distant full body');
-  if (coverage === 'upper_body') negativeTerms.push('feet visible', 'full body', 'lower body dominating frame');
+  if (coverage === 'lower_body') negativeTerms.push('head visible', 'face visible', 'neck visible', 'shoulders visible', 'collarbone visible', 'chest visible', 'breasts visible', 'upper body visible', 'upper body dominating frame', 'distant full body');
+  if (coverage === 'upper_body') negativeTerms.push('legs visible', 'knees visible', 'feet visible', 'shoes visible', 'lower body visible', 'full body', 'lower body dominating frame');
   if (coverage === 'detail') negativeTerms.push('full body', 'distant shot', 'tiny product');
 
   return {
@@ -892,11 +938,11 @@ ${poseReferenceManifest || ''}` : ''}
 - PHYSICAL SUPPORT ADAPTATION: if the action needs support, the result must include believable contact, occlusion, and contact shadows. Prefer existing Image 1 surfaces/objects; if needed, add or reposition only minimal same-style support surfaces that look like they belong to Image 1. Do not copy action-reference furniture or architecture.
 - EXISTING-SCENE SUPPORT RULE: if the action pose needs support and Image 1 already has a compatible support surface/object, use the existing Image 1 surface/object. Example: for a wall-leaning action reference, lean against the original wall/panel/background surface from Image 1; do not turn it into a floating unsupported pose.
 ${forceLowerBodyProduct || isLowerBodyAction 
-  ? `- CAMERA CROP OVERRIDE: This output requires a lower body product shot. Therefore, you MUST crop out the model's head, face, neck, shoulders, chest, arms, and most upper torso. Generate ONLY the lower body product area (waist-down / hip-down / legs and skirt/pants). DO NOT show any part of the model's head, face, neck, shoulders, collarbone, chest, breasts, or upper garments as the dominant subject.
-- Focus body consistency on the legs, lower torso, skin tone, and garment details (like the skirt/pants) from Image 1. Crop out and ignore any upper garments, halter tops, necklines, or head/hair features from Image 1.`
+  ? `- CAMERA CROP OVERRIDE: 人物画面裁剪至胸部以下，胸部以上不可见. This output requires a lower garment display shot. The top frame boundary must be below the chest. You MUST crop out the model's head, face, neck, shoulders, collarbone, chest, breasts, arms, and upper-body area. Generate ONLY the lower product area below the chest, with the lower garment large and readable.
+- Focus body consistency on the lower torso, waist/hips, legs, skin tone, and lower garment details from Image 1. Crop out and ignore any upper garments, halter tops, necklines, face/head/hair features, shoulders, and chest from Image 1.`
   : forceUpperBodyProduct || isUpperBodyAction
-  ? `- CAMERA CROP OVERRIDE: This output requires an upper body product shot. Therefore, you MUST crop out the model's lower body, legs, and feet. Generate ONLY the upper body (waist-up / hip-up / chest-up). DO NOT show legs, feet, or shoes as the dominant subject.
-- Focus consistency on the face, hair, skin tone, and upper garment fit from Image 1.`
+  ? `- CAMERA CROP OVERRIDE: 人物画面裁剪至腰部以上，腿部不可见. This output requires an upper garment display shot. The bottom frame boundary must be at or above the waist. You MUST crop out the model's legs, knees, feet, shoes, and lower-body area. Generate ONLY the upper product area above the waist, with the upper garment large and readable.
+- Focus consistency on the face when visible, hair when visible, skin tone, upper torso, and upper garment fit from Image 1.`
   : forceDetailProduct || isCloseUpAction
   ? `- CAMERA CROP OVERRIDE: This output requires a close product-detail shot. Therefore, you MUST crop tightly on the specific garment/product detail area. Do not generate a generic medium or full-body shot.`
   : `- The generated person must look like the exact same model from Image 1 in every output.
@@ -933,9 +979,8 @@ ${productDisplayDirective}
 ${userCropDirective && productPlan.coverage === 'full_body' ? '- USER CROP OVERRIDES SHOT PRESET: when the written action prompt includes an explicit crop range, that crop range outranks the selected shot type preset and Image 1 framing.' : ''}
 ${userCropDirective && productPlan.coverage !== 'full_body' ? '- PRODUCT CROP OVERRIDES USER CROP: the written action prompt contains framing/crop language, but this output is product-display controlled. Ignore any full-body or wider user crop instruction and keep only the action/pose idea.' : ''}
 ${shotType === 'closeup' || forceDetailProduct || isCloseUpAction ? '- CLOSE-UP HARD RULE: the final image must NOT be a generic full-body, head-to-toe, knee-up, or distant portrait. Crop tightly around the required product selling area.' : ''}
-${shotType === 'macro' ? '- MACRO HARD RULE: the final image must be a tight garment-detail crop. Do not show the full person, full outfit, complete face portrait, full dress length, legs, or feet.' : ''}
-${shotType === 'medium' || forceUpperBodyProduct || isUpperBodyAction ? '- MEDIUM/UPPER PRODUCT HARD RULE: the final image must be waist-up or hip-up. Do not show the full body, feet, or head-to-toe outfit.' : ''}
-${forceLowerBodyProduct ? '- LOWER PRODUCT HARD RULE: the final image must be waist-down, hip-down, or lower-body dominant. Do not show a complete face/head or let the upper body occupy the main frame.' : ''}
+${shotType === 'upper' || forceUpperBodyProduct || isUpperBodyAction ? '- UPPER GARMENT HARD RULE: 人物画面裁剪至腰部以上，腿部不可见. The final image must be above-waist only. Do not show legs, knees, feet, shoes, full body, or head-to-toe outfit.' : ''}
+${shotType === 'lower' || forceLowerBodyProduct ? '- LOWER GARMENT HARD RULE: 人物画面裁剪至胸部以下，胸部以上不可见. The final image must be below-chest only. Do not show head, face, neck, shoulders, collarbone, chest, breasts, or a full-body/head-to-toe composition.' : ''}
 - Keep the garment naturally worn on the model. No flat-lay, no mannequin, no standalone product shot.
 - If accessory/styling references are uploaded, add them only when they look natural for the pose and platform. Keep scale, placement, and material believable; do not let accessories cover important garment details.
 - If the scene or pose conflicts with product fidelity, preserve product identity and adapt the garment naturally to the pose.
@@ -2240,7 +2285,7 @@ Display strategy rules:
                   <label className="block text-xs font-bold text-pastel-text">画面景别</label>
                   <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">影响构图远近</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {SHOT_TYPE_OPTIONS.map((item) => (
                     <button
                       key={item.key}
