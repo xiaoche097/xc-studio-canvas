@@ -89,7 +89,6 @@ const STYLE_PRESETS = [
     '运动休闲',
 ];
 
-const DEFAULT_MATCH_STYLE = '现代电商百搭、干净高级、适合日常销售图';
 const MAX_MATCH_REFERENCE_IMAGES = 5;
 
 // Tags for elements to exclude
@@ -220,8 +219,8 @@ const OutfitExtractionTab: React.FC<OutfitExtractionTabProps> = ({ isActive = tr
         productImage: UploadedImage,
         referenceImages: UploadedImage[] = matchReferenceImages,
         options: { resetBeforeAnalyze?: boolean } = {}
-    ) => {
-        if (!productImage.base64) return;
+    ): Promise<MatchNeedsAnalysis | null> => {
+        if (!productImage.base64) return null;
         if (options.resetBeforeAnalyze) {
             setStylePrompt('');
             setSelectedMatchTargets(new Set(DEFAULT_MATCH_TARGET_IDS));
@@ -239,12 +238,16 @@ const OutfitExtractionTab: React.FC<OutfitExtractionTabProps> = ({ isActive = tr
         try {
             const imageInputs = toApiImages([productImage, ...referenceImages]);
             const targetCatalog = MATCH_TARGETS.map(target => `${target.id}: ${target.label}`).join(', ');
+            const userStyle = stylePrompt.trim();
             const prompt = `
 You are a senior ecommerce fashion stylist.
 
 Analyze Image 1 as the user's core product. Images 2+ are optional visual references for desired style, color mood, outfit direction, or market taste.
 
-Decide which matching items should be generated to complete a useful outfit around Image 1.
+The user has provided this style instruction. Treat it as the primary direction and do not invent a different style:
+"${userStyle}"
+
+Decide which matching items should be generated to complete a useful outfit around Image 1 and the user's style instruction.
 
 Available target ids:
 ${targetCatalog}
@@ -264,26 +267,27 @@ Rules:
 Return ONLY valid JSON:
 {
   "recommendedTargetIds": ["shoes", "bag", "bottom"],
-  "styleSummary": "short Chinese style summary",
+  "styleSummary": "short Chinese summary of the user's provided style direction, do not add a new invented style",
   "reason": "short Chinese reason for these choices"
 }
 `.trim();
             const text = await generateText(imageInputs, prompt, 'gemini-3.1-flash-lite-preview');
-            if (analysisAbortRef.current !== controller || controller.signal.aborted) return;
+            if (analysisAbortRef.current !== controller || controller.signal.aborted) return null;
             const analysis = parseMatchNeedsAnalysis(text);
             if (analysis.recommendedTargetIds.length > 0) {
                 setSelectedMatchTargets(new Set(analysis.recommendedTargetIds));
             }
-            setStylePrompt(analysis.styleSummary || '');
             setMatchAnalysisNotice(
                 analysis.recommendedTargetIds.length > 0
-                    ? `${analysis.styleSummary || 'AI 已完成搭配分析'}：${analysis.reason || `推荐生成 ${analysis.recommendedTargetIds.length} 类搭配单品`}`
-                    : 'AI 未能明确推荐搭配类型，可手动选择搭配类型继续生成。'
+                    ? `${analysis.styleSummary || userStyle || '已完成搭配分析'}：${analysis.reason || `推荐生成 ${analysis.recommendedTargetIds.length} 类搭配单品`}`
+                    : '未能明确推荐搭配类型，将按当前手动选择的搭配类型继续生成。'
             );
+            return analysis;
         } catch (analysisError) {
             if (!isAbortError(analysisError)) {
-                setMatchAnalysisNotice('搭配分析失败，可手动选择搭配类型继续生成。');
+                setMatchAnalysisNotice('搭配分析失败，将按当前手动选择的搭配类型继续生成。');
             }
+            return null;
         } finally {
             if (analysisAbortRef.current === controller) analysisAbortRef.current = null;
             setIsAnalyzingMatchNeeds(false);
@@ -308,7 +312,8 @@ Return ONLY valid JSON:
             setIsProcessing(false);
 
             if (activeWorkflow === 'match') {
-                await analyzeMatchNeeds(uploaded, matchReferenceImages, { resetBeforeAnalyze: true });
+                setSelectedMatchTargets(new Set(DEFAULT_MATCH_TARGET_IDS));
+                setMatchAnalysisNotice('请先输入搭配风格，点击生成后 AI 会先分析再生成。');
                 return;
             }
 
@@ -397,9 +402,7 @@ Return ONLY valid JSON:
             setMatchItems([]);
             setOutfitPreview(null);
             setSelectedResultIds(new Set());
-            if (sourceImage) {
-                await analyzeMatchNeeds(sourceImage, nextReferences, { resetBeforeAnalyze: true });
-            }
+            setMatchAnalysisNotice('参考图已更新。请确认或输入搭配风格，点击生成后 AI 会先分析再生成。');
         } catch {
             setError('参考图处理失败，请重试');
         }
@@ -413,9 +416,7 @@ Return ONLY valid JSON:
         setMatchItems([]);
         setOutfitPreview(null);
         setSelectedResultIds(new Set());
-        if (sourceImage) {
-            await analyzeMatchNeeds(sourceImage, nextReferences, { resetBeforeAnalyze: true });
-        }
+        setMatchAnalysisNotice('参考图已更新。请确认或输入搭配风格，点击生成后 AI 会先分析再生成。');
     };
 
     const removeImage = () => {
@@ -448,7 +449,8 @@ Return ONLY valid JSON:
             setSelectedRatio(AspectRatio.PORTRAIT_3_4);
             analysisAbortRef.current?.abort();
             setIsAnalyzing(false);
-            if (sourceImage) void analyzeMatchNeeds(sourceImage, matchReferenceImages, { resetBeforeAnalyze: true });
+            setIsAnalyzingMatchNeeds(false);
+            if (sourceImage) setMatchAnalysisNotice('请先输入搭配风格，点击生成后 AI 会先分析再生成。');
         } else {
             analysisAbortRef.current?.abort();
             setIsAnalyzingMatchNeeds(false);
@@ -776,6 +778,7 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
 
     const handleCancel = () => {
         abortRef.current?.abort();
+        analysisAbortRef.current?.abort();
         setIsProcessing(false);
     };
 
@@ -805,10 +808,19 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
     const getSelectedMatchTargets = (): MatchTarget[] =>
         MATCH_TARGETS.filter(target => selectedMatchTargets.has(target.id));
 
-    const getEffectiveStyle = () => stylePrompt.trim() || DEFAULT_MATCH_STYLE;
+    const getEffectiveStyle = () => stylePrompt.trim();
 
     const buildMatchingItemPrompt = (target: MatchTarget): string => {
         const style = getEffectiveStyle();
+        const targetOnlyRule = target.id === 'jewelry'
+            ? 'Generate a single jewelry product or one coherent jewelry set only, such as one necklace, one bracelet, one pair of earrings, or one coordinated jewelry set. Do not include shoes, clothing, hands, neck, face, display busts, jewelry boxes, trays, or styling props.'
+            : target.id === 'hat'
+                ? 'Generate one hat only. Do not include head, hair, face, neck, body, clothing, hands, mannequin head, stand, or styling props.'
+                : target.id === 'shoes'
+                    ? 'Generate one pair of shoes only. Do not include legs, socks, pants, floor, shoe box, hands, or styling props.'
+                    : target.id === 'watch'
+                        ? 'Generate one wristwatch only. Do not include wrist, hand, arm, jewelry, box, cushion, display stand, or styling props.'
+                        : `Generate one ${target.englishName} only. Do not include the source product, a complete outfit, body parts, display props, or any other fashion item.`;
         return `[ROLE: Senior ecommerce fashion stylist and product image generator]
 [TASK: Generate one standalone matching fashion item from the product reference]
 [MATCH TARGET: ${target.label} / ${target.englishName}]
@@ -830,13 +842,20 @@ raw cutout, in-place mask, copied crop, jagged edge, broken edge, leftover body,
 
 [OUTPUT]
 - Generate ONLY one ${target.englishName}.
+- TARGET ISOLATION LOCK: ${targetOnlyRule}
+- The source product and all reference-image products are NOT part of the output. They are style references only and must not be visible.
+- Output a clean standalone product packshot, not a styling board, not a flat-lay outfit, not a model photo, not a lifestyle scene.
 - Pure white background (#FFFFFF), clean catalog product image, centered with natural margins.
+- Every pixel that is not the target ${target.englishName} must be pure #FFFFFF.
 - No model, no person, no mannequin, no hanger, no extra props, no text, no watermark, no logo overlay.
+- No other clothing, no shoes unless the target is shoes, no bag unless the target is bag, no hat unless the target is hat, no jewelry unless the target is jewelry or watch.
+- No floor, tabletop, wall, studio sweep, gradient, colored shadow, display stand, box, tray, bust, hand, wrist, neck, head, legs, feet, or partial body fragments.
 - Prefer clean luxury/minimal or refined street-luxury design language over obvious slogan graphics.
 - Preserve realistic construction, material texture, edges, hardware, seams, stitching, and scale for the target category.
+- Keep edges clean and complete; use only a very subtle self-shadow if needed to describe product depth, with no cast shadow or environmental shadow.
 
 [NEGATIVE]
-duplicate of source product, same product as reference, copied source, copied typography, copied text, copied slogan, copied number, repeated number, repeated word, logo imitation, fake logo, brand text, patch text, graphic text transfer, matching-set print repetition, cheap slogan design, full outfit, model, person, mannequin, hanger, multiple items, collage, text, watermark, logo overlay, colored background, gray background, beige background, tabletop, floor, wall, props, blurry, distorted shape, broken edges, unrealistic material`;
+duplicate of source product, source product visible, reference product visible, same product as reference, copied source, copied typography, copied text, copied slogan, copied number, repeated number, repeated word, logo imitation, fake logo, brand text, patch text, graphic text transfer, matching-set print repetition, cheap slogan design, full outfit, styling board, flat-lay outfit, model, person, body, head, face, hair, neck, torso, arm, hand, wrist, leg, foot, mannequin, hanger, display bust, display stand, box, tray, floor shadow, cast shadow, multiple unrelated items, extra garments, extra accessories, collage, text, watermark, logo overlay, colored background, gray background, beige background, textured background, tabletop, floor, wall, studio sweep, props, clutter, blurry, distorted shape, broken edges, unrealistic material`;
     };
 
     const buildOutfitPreviewPrompt = (targets: MatchTarget[], generatedItems: ExtractedItem[] = []): string => {
@@ -1003,13 +1022,12 @@ flat lay, outfit board, product layout, product grid, items arranged on floor, t
     };
 
     const handleGenerateMatch = async () => {
-        const targets = getSelectedMatchTargets();
         if (!sourceImage) {
             setError('请先上传一张产品图片');
             return;
         }
-        if (targets.length === 0) {
-            setError('请至少选择一个搭配类型');
+        if (!stylePrompt.trim()) {
+            setError('请先输入搭配风格，再点击生成。');
             return;
         }
 
@@ -1017,24 +1035,37 @@ flat lay, outfit board, product layout, product grid, items arranged on floor, t
         setError(null);
         setSelectedResultIds(new Set());
 
-        const initialItems: ExtractedItem[] = targets.map(target => ({
-            id: target.id,
-            label: target.label,
-            imageUrl: null,
-            status: 'processing',
-        }));
-        setMatchItems(initialItems);
-        setOutfitPreview({
-            id: 'outfit-preview',
-            label: '模特上身预览',
-            imageUrl: null,
-            status: 'processing',
-        });
-
         const controller = new AbortController();
         abortRef.current = controller;
 
         try {
+            const analysis = await analyzeMatchNeeds(sourceImage, matchReferenceImages);
+            if (controller.signal.aborted) return;
+
+            const analyzedTargets = analysis?.recommendedTargetIds
+                .map(id => MATCH_TARGETS.find(target => target.id === id))
+                .filter((target): target is MatchTarget => Boolean(target)) || [];
+            const targets = analyzedTargets.length > 0 ? analyzedTargets : getSelectedMatchTargets();
+
+            if (targets.length === 0) {
+                setError('请至少选择一个搭配类型。');
+                return;
+            }
+
+            const initialItems: ExtractedItem[] = targets.map(target => ({
+                id: target.id,
+                label: target.label,
+                imageUrl: null,
+                status: 'processing',
+            }));
+            setMatchItems(initialItems);
+            setOutfitPreview({
+                id: 'outfit-preview',
+                label: '模特上身预览',
+                imageUrl: null,
+                status: 'processing',
+            });
+
             const generatedItems = await Promise.all(targets.map(target => runMatchForTarget(target, controller.signal)));
             if (!controller.signal.aborted) {
                 await runOutfitPreview(targets, controller.signal, generatedItems);
@@ -1137,7 +1168,7 @@ flat lay, outfit board, product layout, product grid, items arranged on floor, t
     const totalSelected = getExtractionTargets().length;
     const canExtract = sourceImage && totalSelected > 0 && !isProcessing;
     const selectedMatchTargetList = getSelectedMatchTargets();
-    const canGenerateMatch = sourceImage && selectedMatchTargetList.length > 0 && !isProcessing;
+    const canGenerateMatch = sourceImage && stylePrompt.trim().length > 0 && !isProcessing;
 
     const displayItems = items;
     const displayDoneCount = displayItems.filter(i => i.status === 'done').length;
@@ -1519,7 +1550,7 @@ flat lay, outfit board, product layout, product grid, items arranged on floor, t
                                         ))}
                                     </div>
                                     <p className="mt-2 text-[10px] text-pastel-muted">
-                                        未填写时默认使用“{DEFAULT_MATCH_STYLE}”。
+                                        请先填写风格或点击下方标签，点击生成后 AI 会先分析产品与风格，再开始生成。
                                     </p>
                                 </div>
 
