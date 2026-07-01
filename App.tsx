@@ -4,6 +4,7 @@ import { SunIcon, MoonIcon, SettingsIcon } from './components/Icons';
 import { Bell, BookOpen, Cloud, History, Megaphone, X } from 'lucide-react';
 import { gemini } from './lib/gemini';
 import { SystemNoticeDialog } from './components/SystemNoticeDialog';
+import { storageService } from './services/storageService';
 
 const ChatStudio = lazy(() => import('./components/ChatStudio').then((module) => ({ default: module.ChatStudio })));
 import { UnifiedSettingsModal } from './components/UnifiedSettingsModal';
@@ -140,6 +141,7 @@ const App: React.FC = () => {
   // Theme Initialization
   useEffect(() => {
     setMounted(true);
+    storageService.startAutoExpirationCleanup();
     // Check localStorage or system preference
     const savedTheme = localStorage.getItem('theme');
     
@@ -160,6 +162,7 @@ const App: React.FC = () => {
     window.addEventListener('api-settings-updated', handleApiUpdate);
 
     return () => {
+      storageService.stopAutoExpirationCleanup();
       window.removeEventListener('open-history', handleOpenHistory);
       window.removeEventListener('api-settings-updated', handleApiUpdate);
     };
