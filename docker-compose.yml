@@ -1,10 +1,10 @@
-version: '3.8'
-
 services:
   xcai-studio:
-    build: .
+    build:
+      context: .
+      args:
+        GEMINI_API_KEY: ${GEMINI_API_KEY:-${VITE_GEMINI_API_KEY:-}}
+        VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
     ports:
       - "8080:80"
-    environment:
-      - VITE_GEMINI_API_KEY=${VITE_GEMINI_API_KEY}
     restart: always

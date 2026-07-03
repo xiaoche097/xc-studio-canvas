@@ -3996,7 +3996,7 @@ You MUST process the input through these 8 distinct phases:
 ## PHASE 3: POST-PROCESSING 🎨
 6. **[Polishing]**: Smooth out edges, blend product into background seamlessly.
 7. **[Dynamic Range]**: Optimize contrast and saturation. Ensure "pop" without over-saturation.
-8. **[Color Correction]**: Apply the final color grade to match the reference image's mood EXACTLY.
+8. **[Color Accuracy]**: Match the reference image's mood while preserving neutral white balance, accurate product colors, and natural skin tones. Do not introduce a red/magenta cast.
 
 ---
 
@@ -4010,6 +4010,7 @@ You MUST process the input through these 8 distinct phases:
 - **Structure**: CLONE the layout of Image ${productCount + 1} pixel-perfectly.
 - **Content**: REPLACE the object in Image ${productCount + 1} with the Product from Images 1-${productCount}.
 - **Context**: ${customPrompt ? `Force Scene Setting: "${customPrompt}"` : 'Keep original background.'}
+- **Color Guard**: Preserve the product's original hue/material color and keep whites/greys neutral. Skin, fabric, and background must not become warmer, redder, pinker, or more magenta than the style reference requires. Avoid red skin cast, oversaturated reds, orange-pink tint, and global warm color drift.
 - **Quality**: ${QUALITY_BOOSTERS.PRODUCT}
 
 **OUTPUT**:
