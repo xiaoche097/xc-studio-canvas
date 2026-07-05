@@ -905,7 +905,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             上传
                         </button>
                     )}
-                    {isWorking && <div className="bg-[#2c2c2e]/90 backdrop-blur-md p-1.5 rounded-full border border-white/10"><Loader2 className="animate-spin w-3 h-3 text-cyan-400" /></div>}
+                    {isWorking && !isImageNode && !isVideoNode && <div className="bg-[#2c2c2e]/90 backdrop-blur-md p-1.5 rounded-full border border-white/10"><Loader2 className="animate-spin w-3 h-3 text-cyan-400" /></div>}
                     <div className={`px-2 py-1 flex items-center gap-2`}>
                         {isEditingTitle ? (
                             <input className="bg-transparent border-none outline-none text-slate-400 text-[10px] font-bold uppercase tracking-wider w-24 text-right select-text" value={tempTitle} onChange={(e) => setTempTitle(e.target.value)} onBlur={handleTitleSave} onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()} onMouseDown={e => e.stopPropagation()} autoFocus />
@@ -1007,8 +1007,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                 title={hasContent ? '单击选择，双击放大查看' : undefined}
             >
                 {isPreparingImageUpload && (
-                    <div className="absolute inset-0 z-40 flex items-start justify-start bg-gradient-to-br from-slate-600/80 to-blue-950/80 p-4 backdrop-blur-sm">
-                        <div className="flex items-center gap-2 rounded-lg bg-white/12 px-3 py-1.5 text-[12px] font-bold text-white shadow-lg">
+                    <div className="absolute inset-0 z-40 flex items-center justify-center bg-gradient-to-br from-slate-600/80 to-blue-950/80 p-4 backdrop-blur-sm">
+                        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/12 px-4 py-2 text-[12px] font-bold text-white shadow-lg">
                             <Loader2 size={14} className="animate-spin" />
                             上传中，请稍后
                         </div>
@@ -1135,6 +1135,19 @@ const NodeComponent: React.FC<NodeProps> = ({
                         {generationMode === 'CUT' && !node.data.croppedFrame && hasInputs && inputAssets?.some(a => a.src) && (<div className="absolute top-4 right-4 w-24 aspect-video bg-black/80 rounded-lg border border-purple-500/30 border-dashed shadow-xl overflow-hidden z-20 hover:scale-150 transition-transform origin-top-right flex flex-col items-center justify-center group/preview opacity-0 group-hover:opacity-100 transition-opacity duration-300"><div className="absolute inset-0 bg-purple-500/10 z-10"></div>{(() => { const asset = inputAssets!.find(a => a.src); if (asset?.type === 'video') { return <SecureVideo src={asset.src} className="w-full h-full object-cover opacity-60 bg-zinc-900" muted autoPlay />; } else { return <img src={asset?.src} className="w-full h-full object-cover opacity-60 bg-zinc-900" />; } })()}<span className="absolute z-20 text-[8px] font-bold text-purple-200 bg-black/50 px-1 rounded">分镜参考</span></div>)}
                     </>
                 )}
+                {isWorking && (isImageNode || isVideoNode) && (
+                    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]">
+                        <div className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-300/25 bg-[#111615]/85 px-5 py-4 text-center shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
+                            <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-300/25">
+                                <Loader2 size={22} className="animate-spin" />
+                            </div>
+                            <div>
+                                <p className="text-[13px] font-black text-emerald-100">{hasContent ? '重新生成中...' : '生成中...'}</p>
+                                <p className="mt-1 text-[10px] font-medium text-emerald-100/55">{hasContent ? '正在替换为新的结果' : '结果会显示在这里'}</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {node.type === NodeType.VIDEO_GENERATOR && generationMode === 'CUT' && (videoBlobUrl || node.data.videoUri) &&
                     <SceneDirectorOverlay
                         visible={true}
@@ -1254,7 +1267,9 @@ const NodeComponent: React.FC<NodeProps> = ({
                 : '描述你想要生成的内容，使用 @ 可快速引用上传的文件，按 / 呼出指令';
         const effectivePromptPlaceholder = isImageNode && node.data.stylePresetId
             ? `填写补充说明，当前预设：${node.data.stylePresetName || '已选择'}`
-            : promptPlaceholder;
+            : hasGeneratedMedia && (isImageNode || isVideoNode)
+                ? '修改提示词后点击「重新生成」'
+                : promptPlaceholder;
         let models: { l: string, v: string, badge?: string, ratios?: string[] }[] = [];
         if (node.type === NodeType.VIDEO_GENERATOR) {
             models = VIDEO_MODEL_CONFIGS;
@@ -1347,8 +1362,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                             </button>
                         </div>
                     )}
-                    {!hasGeneratedMedia && (
-                        <div className="relative group/input bg-black/10 rounded-[16px]">
+                    {(!hasGeneratedMedia || isImageNode || isVideoNode) && (
+                        <div className={`relative group/input rounded-[16px] ${hasGeneratedMedia ? 'bg-black/20 ring-1 ring-white/5' : 'bg-black/10'}`}>
                             <textarea className="w-full bg-transparent text-xs text-slate-200 placeholder-slate-500/60 p-3 focus:outline-none resize-none custom-scrollbar font-medium leading-relaxed select-text" style={{ height: `${Math.min(inputHeight, 200)}px` }} placeholder={effectivePromptPlaceholder} value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} onBlur={() => { setIsInputFocused(false); commitPrompt(); }} onKeyDown={handleCmdEnter} onFocus={() => setIsInputFocused(true)} onMouseDown={e => e.stopPropagation()} readOnly={isWorking} />
                             <div className="absolute bottom-0 left-0 w-full h-3 cursor-row-resize flex items-center justify-center opacity-0 group-hover/input:opacity-100 transition-opacity" onMouseDown={handleInputResizeStart}><div className="w-8 h-1 rounded-full bg-white/10 group-hover/input:bg-white/20" /></div>
                         </div>
@@ -1463,7 +1478,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 </button>
                             </div>
                         ) : (
-                            <button onClick={handleActionClick} disabled={isWorking} className={`relative flex items-center gap-2 px-4 py-1.5 rounded-[12px] font-bold text-[10px] tracking-wide transition-all duration-300 ${isWorking ? 'bg-white/5 text-slate-500 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:shadow-lg hover:shadow-emerald-400/20 hover:scale-105 active:scale-95'}`}>{isWorking ? <Loader2 className="animate-spin" size={12} /> : <Wand2 size={12} />}<span>{isWorking ? '生成中...' : '生成'}</span></button>
+                            <button onClick={handleActionClick} disabled={isWorking} className={`relative flex items-center gap-2 px-4 py-1.5 rounded-[12px] font-bold text-[10px] tracking-wide transition-all duration-300 ${isWorking ? 'bg-white/5 text-slate-500 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:shadow-lg hover:shadow-emerald-400/20 hover:scale-105 active:scale-95'}`}>{isWorking ? <Loader2 className="animate-spin" size={12} /> : hasGeneratedMedia ? <RefreshCw size={12} /> : <Wand2 size={12} />}<span>{isWorking ? (hasGeneratedMedia ? '重新生成中...' : '生成中...') : (hasGeneratedMedia ? '重新生成' : '生成')}</span></button>
                         )}
                     </div>
                 </div>
