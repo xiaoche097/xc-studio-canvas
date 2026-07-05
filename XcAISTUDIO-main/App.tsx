@@ -770,6 +770,17 @@ export const App = () => {
         setSelectedNodeIds([]);
     }, [saveHistory]);
 
+    const deleteConnection = useCallback((from: string, to: string) => {
+        saveHistory();
+        setConnections(previous => previous.filter(connection => connection.from !== from || connection.to !== to));
+        setNodes(previous => previous.map(node => (
+            node.id === to
+                ? { ...node, inputs: node.inputs.filter(inputId => inputId !== from) }
+                : node
+        )));
+        setContextMenu(null);
+    }, [saveHistory]);
+
     const addNode = useCallback((type: NodeType, x?: number, y?: number, initialData?: any) => {
         if (type === NodeType.IMAGE_EDITOR) {
             setIsSketchEditorOpen(true);
@@ -2107,7 +2118,19 @@ export const App = () => {
                             return (
                                 <g key={`${conn.from}-${conn.to}`} className="pointer-events-auto group/line">
                                     <path d={d} stroke="url(#gradient)" strokeWidth="3" fill="none" strokeOpacity="0.5" className="transition-colors duration-300 group-hover/line:stroke-white group-hover/line:stroke-opacity-40" />
-                                    <path d={d} stroke="transparent" strokeWidth="15" fill="none" style={{ cursor: 'pointer' }} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: `${conn.from}-${conn.to}` }); setContextMenuTarget({ type: 'connection', from: conn.from, to: conn.to }); }} />
+                                    <path
+                                        d={d}
+                                        stroke="transparent"
+                                        strokeWidth="15"
+                                        fill="none"
+                                        style={{ cursor: 'pointer' }}
+                                        onDoubleClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            deleteConnection(conn.from, conn.to);
+                                        }}
+                                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: `${conn.from}-${conn.to}` }); setContextMenuTarget({ type: 'connection', from: conn.from, to: conn.to }); }}
+                                    />
                                 </g>
                             );
                         })}
@@ -2364,7 +2387,7 @@ export const App = () => {
                             </>
                         )}
                         {contextMenuTarget?.type === 'connection' && (
-                            <button className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 rounded-lg flex items-center gap-2 transition-colors" onClick={() => { setConnections(prev => prev.filter(c => c.from !== contextMenuTarget.from || c.to !== contextMenuTarget.to)); setNodes(prev => prev.map(n => n.id === contextMenuTarget.to ? { ...n, inputs: n.inputs.filter(i => i !== contextMenuTarget.from) } : n)); setContextMenu(null); }}> <Unplug size={12} /> 删除连接线 </button>
+                            <button className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 rounded-lg flex items-center gap-2 transition-colors" onClick={() => deleteConnection(contextMenuTarget.from, contextMenuTarget.to)}> <Unplug size={12} /> 删除连接线 </button>
                         )}
                     </div>
                 )}
