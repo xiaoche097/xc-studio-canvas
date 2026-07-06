@@ -26,6 +26,7 @@ import { resolveRuntimeModelId } from '../utils/apiHelpers';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
 // 可用模型列表 - 只保留常用的三个模型
@@ -133,7 +134,7 @@ const SettingsTab: React.FC = () => {
 
   // ========== 柏拉图 API 配置 ==========
   const [platoApiKey, setPlatoApiKey] = useState('');
-  const [platoBaseUrl, setPlatoBaseUrl] = useState('https://api.bltcy.ai');
+  const [platoBaseUrl, setPlatoBaseUrl] = useState(DEFAULT_PLATO_BASE_URL);
   const [isPlatoKeyVisible, setIsPlatoKeyVisible] = useState(false);
   const [platoStatus, setPlatoStatus] = useState<'idle' | 'success' | 'empty'>('idle');
   const [platoEnabled, setPlatoEnabled] = useState(false);
@@ -175,10 +176,9 @@ const SettingsTab: React.FC = () => {
 
     // 柏拉图 API 配置
     const savedPlatoKey = localStorage.getItem('plato_api_key');
-    const savedPlatoUrl = localStorage.getItem('plato_base_url');
     const savedPlatoEnabled = localStorage.getItem('plato_enabled');
 
-    if (savedPlatoUrl) setPlatoBaseUrl(savedPlatoUrl);
+    setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL);
     if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
     setPlatoEnabled(savedPlatoEnabled === 'true'); // Default to false
     setPlatoStatus(savedPlatoKey ? 'success' : 'empty');
@@ -270,7 +270,7 @@ const SettingsTab: React.FC = () => {
       return;
     }
     localStorage.setItem('plato_api_key', platoApiKey.trim());
-    localStorage.setItem('plato_base_url', platoBaseUrl.trim() || 'https://api.bltcy.ai');
+    localStorage.setItem('plato_base_url', DEFAULT_PLATO_BASE_URL);
     localStorage.setItem('plato_enabled', String(platoEnabled));
     setPlatoStatus('success');
   };
@@ -299,7 +299,7 @@ const SettingsTab: React.FC = () => {
       }
 
       const result = await sendToYunwuApi(
-        platoBaseUrl.trim() || 'https://api.bltcy.ai',
+        DEFAULT_PLATO_BASE_URL,
         firstKey,
         testModel,
         'Say OK',
@@ -482,7 +482,7 @@ const SettingsTab: React.FC = () => {
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {platoStatus === 'success' && platoEnabled
-                    ? `Base URL: ${platoBaseUrl || 'https://api.bltcy.ai'}`
+                    ? `Base URL: ${DEFAULT_PLATO_BASE_URL}`
                     : yunwuStatus === 'success' && yunwuEnabled
                       ? `Base URL: ${yunwuBaseUrl || DEFAULT_BASE_URL}`
                       : nativeStatus === 'success' && nativeEnabled
@@ -765,30 +765,18 @@ const SettingsTab: React.FC = () => {
                       </label>
                       <div className="flex flex-wrap gap-2 mb-2">
                         <button
-                          onClick={() => setPlatoBaseUrl('https://api.bltcy.ai')}
-                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === 'https://api.bltcy.ai' ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
+                          onClick={() => setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL)}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === DEFAULT_PLATO_BASE_URL ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
                         >
                           主站节点
-                        </button>
-                        <button
-                          onClick={() => setPlatoBaseUrl('https://api.gptbest.vip')}
-                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === 'https://api.gptbest.vip' ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
-                        >
-                          美国节点
-                        </button>
-                        <button
-                          onClick={() => setPlatoBaseUrl('https://hk-api.gptbest.vip')}
-                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === 'https://hk-api.gptbest.vip' ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
-                        >
-                          香港节点
                         </button>
                       </div>
                       <div className="relative">
                         <input
                           type="text"
                           value={platoBaseUrl}
-                          onChange={(e) => setPlatoBaseUrl(e.target.value)}
-                          placeholder="https://api.bltcy.ai"
+                          readOnly
+                          placeholder={DEFAULT_PLATO_BASE_URL}
                           className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none shadow-sm transition-all font-mono text-sm"
                         />
                       </div>

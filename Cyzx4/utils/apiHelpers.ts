@@ -12,6 +12,7 @@ export const MAX_UPLOAD_IMAGES = 10;
 export const LEGACY_JIJING_BASE_URL = "https://api.jijing.ai";
 export const DEFAULT_NO1_IMAGE_BASE_URL = "https://api.rcouyi.com";
 export const DEFAULT_RIGHT_BASE_URL = "https://www.right.codes/draw";
+export const DEFAULT_PLATO_BASE_URL = "https://api.apilio.ai";
 export const NO1_IMAGE_NODES = [
     { name: "DCDN主站", url: "https://api.rcouyi.com" },
     { name: "美国芝加哥OVH线路", url: "https://us.rcouyi.com" },
@@ -369,7 +370,6 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
 
     // 1. Plato API (柏拉图)
     const platoKey = localStorage.getItem("plato_api_key");
-    const platoBaseUrl = localStorage.getItem("plato_base_url");
     const platoEnabled = localStorage.getItem("plato_enabled") !== "false";
 
     if (platoKey && platoEnabled) {
@@ -394,7 +394,7 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
 
         return {
             apiKey: activeKey,
-            baseUrl: platoBaseUrl || "https://api.bltcy.ai",
+            baseUrl: DEFAULT_PLATO_BASE_URL,
             isYunwu: true, // 柏拉图也使用标准的 OpenAI/Gemini 兼容中转格式，这里复用 isYunwu 逻辑
             isPlato: true,
             isJijing: false,
