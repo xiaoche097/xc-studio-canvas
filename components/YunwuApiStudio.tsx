@@ -27,6 +27,7 @@ import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
 // 可用模型列表 - 只保留常用的三个模型
@@ -203,10 +204,8 @@ const YunwuApiStudio: React.FC<YunwuApiStudioProps> = ({ onBack }) => {
         // Plato 优先加载逻辑
         const platoEnabled = localStorage.getItem('plato_enabled') === 'true';
         const platoKey = localStorage.getItem('plato_api_key');
-        const platoUrl = localStorage.getItem('plato_base_url');
-
-        if (platoEnabled && platoKey && platoUrl) {
-            setBaseUrl(platoUrl);
+        if (platoEnabled && platoKey) {
+            setBaseUrl(DEFAULT_PLATO_BASE_URL);
             setApiKey(platoKey);
             setIsPlatoConfig(true);
             setConfigStatus('saved');

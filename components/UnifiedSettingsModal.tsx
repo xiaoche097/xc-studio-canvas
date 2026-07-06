@@ -36,6 +36,7 @@ interface UnifiedSettingsModalProps {
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const DEFAULT_RIGHT_BASE_URL = 'https://www.right.codes/draw';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
@@ -158,7 +159,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [yunwuEnabled, setYunwuEnabled] = useState(true);
   
   const [platoApiKey, setPlatoApiKey] = useState('');
-  const [platoBaseUrl, setPlatoBaseUrl] = useState('https://api.bltcy.ai');
+  const [platoBaseUrl, setPlatoBaseUrl] = useState(DEFAULT_PLATO_BASE_URL);
   const [isPlatoKeyVisible, setIsPlatoKeyVisible] = useState(false);
   const [platoEnabled, setPlatoEnabled] = useState(false);
 
@@ -261,11 +262,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setYunwuEnabled(savedYunwuEnabled !== 'false');
 
     const savedPlatoKey = localStorage.getItem('plato_api_key');
-    const savedPlatoUrl = localStorage.getItem('plato_base_url');
     const savedPlatoEnabled = localStorage.getItem('plato_enabled');
     if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
     lastAutoPlatoKeyRef.current = savedPlatoKey || '';
-    if (savedPlatoUrl) setPlatoBaseUrl(savedPlatoUrl);
+    setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL);
     setPlatoEnabled(savedPlatoEnabled === 'true');
 
     const savedJijingKey = localStorage.getItem('jijing_api_key');
@@ -365,7 +365,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('yunwu_enabled', String(yunwuEnabled));
     
     localStorage.setItem('plato_api_key', platoApiKey.trim());
-    localStorage.setItem('plato_base_url', platoBaseUrl.trim() || 'https://api.bltcy.ai');
+    localStorage.setItem('plato_base_url', DEFAULT_PLATO_BASE_URL);
     localStorage.setItem('plato_enabled', String(platoEnabled));
 
     localStorage.setItem('jijing_api_key', jijingApiKey.trim());
@@ -404,7 +404,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setPlatoTestStatus('testing');
     setPlatoTestMessage('正在测试...');
     try {
-      const res = await sendTestRequest(platoBaseUrl || 'https://api.bltcy.ai', key, 'gemini-3.1-flash-lite-preview', 'Say OK');
+      const res = await sendTestRequest(DEFAULT_PLATO_BASE_URL, key, 'gemini-3.1-flash-lite-preview', 'Say OK');
       setPlatoTestStatus(res.text ? 'success' : 'error');
       setPlatoTestMessage(res.text ? '✅ 连接成功' : '❌ 无响应');
     } catch (e: any) {
@@ -828,13 +828,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
                           <div className="flex flex-wrap gap-2 mb-2">
-                            {['https://api.bltcy.ai', 'https://api.gptbest.vip', 'https://hk-api.gptbest.vip'].map(url => (
+                            {[DEFAULT_PLATO_BASE_URL].map(url => (
                               <button
                                 key={url}
                                 onClick={() => setPlatoBaseUrl(url)}
                               className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${platoBaseUrl === url ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                               >
-                                {url.includes('bltcy') ? '主站节点' : url.includes('hk') ? '香港节点' : '美国节点'}
+                                主站节点
                               </button>
                             ))}
                           </div>

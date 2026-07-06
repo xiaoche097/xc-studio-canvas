@@ -1761,14 +1761,83 @@ export const App = () => {
 
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); setSelectedNodeIds(nodesRef.current.map(n => n.id)); return; }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') { const lastSelected = selectedNodeIds[selectedNodeIds.length - 1]; if (lastSelected) { const nodeToCopy = nodesRef.current.find(n => n.id === lastSelected); if (nodeToCopy) { e.preventDefault(); setClipboard(JSON.parse(JSON.stringify(nodeToCopy))); } } return; }
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') { if (clipboard) { e.preventDefault(); saveHistory(); const newNode: AppNode = { ...clipboard, id: `n-${Date.now()}-${Math.floor(Math.random() * 1000)}`, x: clipboard.x + 50, y: clipboard.y + 50, status: NodeStatus.IDLE, inputs: [] }; setNodes(prev => [...prev, newNode]); setSelectedNodeIds([newNode.id]); } return; }
             if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedGroupId) { saveHistory(); setGroups(prev => prev.filter(g => g.id !== selectedGroupId)); setSelectedGroupId(null); return; } if (selectedNodeIds.length > 0) { deleteNodes(selectedNodeIds); } }
         };
         const handleKeyDownSpace = (e: KeyboardEvent) => { if (e.code === 'Space' && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') { document.body.classList.add('cursor-grab-override'); } };
         const handleKeyUpSpace = (e: KeyboardEvent) => { if (e.code === 'Space') { document.body.classList.remove('cursor-grab-override'); } };
         window.addEventListener('keydown', handleKeyDown); window.addEventListener('keydown', handleKeyDownSpace); window.addEventListener('keyup', handleKeyUpSpace);
         return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keydown', handleKeyDownSpace); window.removeEventListener('keyup', handleKeyUpSpace); };
-    }, [selectedWorkflowId, selectedNodeIds, selectedGroupId, deleteNodes, undo, redo, saveHistory, clipboard]);
+    }, [selectedWorkflowId, selectedNodeIds, selectedGroupId, deleteNodes, undo, redo, saveHistory]);
+
+    useEffect(() => {
+        const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = event => resolve(event.target?.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+
+        const handlePaste = async (event: ClipboardEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
+
+            const imageFiles = Array.from(event.clipboardData?.items || [])
+                .filter(item => item.type.startsWith('image/'))
+                .map(item => item.getAsFile())
+                .filter((file): file is File => Boolean(file));
+
+            if (imageFiles.length > 0) {
+                event.preventDefault();
+                const currentScale = scaleRef.current || 1;
+                const currentPan = panRef.current;
+                const rect = canvasRef.current?.getBoundingClientRect();
+                const viewportCenterX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+                const viewportCenterY = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+                const startX = (viewportCenterX - currentPan.x) / currentScale - 210;
+                const startY = (viewportCenterY - currentPan.y) / currentScale - 180;
+
+                try {
+                    const images = await Promise.all(imageFiles.map(file => readFileAsDataUrl(file)));
+                    images.forEach((src, index) => {
+                        const col = index % 3;
+                        const row = Math.floor(index / 3);
+                        const nodeId = addNode(
+                            NodeType.IMAGE_GENERATOR,
+                            startX + col * 460,
+                            startY + row * 450,
+                            {
+                                image: src,
+                                prompt: imageFiles[index]?.name || 'Clipboard image',
+                                status: NodeStatus.SUCCESS
+                            }
+                        );
+                        if (nodeId && index === images.length - 1) setSelectedNodeIds([nodeId]);
+                    });
+                } catch (error) {
+                    console.error('Failed to paste image from clipboard', error);
+                }
+                return;
+            }
+
+            if (clipboard) {
+                event.preventDefault();
+                saveHistory();
+                const newNode: AppNode = {
+                    ...clipboard,
+                    id: `n-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    x: clipboard.x + 50,
+                    y: clipboard.y + 50,
+                    status: NodeStatus.IDLE,
+                    inputs: []
+                };
+                setNodes(prev => [...prev, newNode]);
+                setSelectedNodeIds([newNode.id]);
+            }
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [addNode, clipboard, saveHistory]);
 
     const handleCanvasDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
     const handleCanvasDrop = (e: React.DragEvent) => {

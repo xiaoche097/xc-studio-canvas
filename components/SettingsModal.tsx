@@ -11,6 +11,7 @@ type TabType = 'api' | 'agent' | 'about';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 const DEFAULT_RIGHT_BASE_URL = 'https://www.right.codes/draw';
+const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -104,7 +105,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
   const [platoConfig, setPlatoConfig] = useState({
     enabled: false,
     apiKey: '',
-    baseUrl: ''
+    baseUrl: DEFAULT_PLATO_BASE_URL
   });
 
   const [jijingConfig, setJijingConfig] = useState({
@@ -141,9 +142,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
       // Load Plato
       const pKey = localStorage.getItem('plato_api_key') || '';
-      const pUrl = localStorage.getItem('plato_base_url') || '';
       const pEnabled = localStorage.getItem('plato_enabled') === 'true';
-      setPlatoConfig({ enabled: pEnabled, apiKey: pKey, baseUrl: pUrl });
+      setPlatoConfig({ enabled: pEnabled, apiKey: pKey, baseUrl: DEFAULT_PLATO_BASE_URL });
 
       // Load Jijing
       const jKey = localStorage.getItem('jijing_api_key') || '';
@@ -170,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     localStorage.setItem('yunwu_enabled', String(yunwuConfig.enabled));
 
     localStorage.setItem('plato_api_key', platoConfig.apiKey);
-    localStorage.setItem('plato_base_url', platoConfig.baseUrl);
+    localStorage.setItem('plato_base_url', DEFAULT_PLATO_BASE_URL);
     localStorage.setItem('plato_enabled', String(platoConfig.enabled));
 
     localStorage.setItem('jijing_api_key', jijingConfig.apiKey);
@@ -193,7 +193,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
         activeUrl = jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL;
     } else if (platoConfig.enabled && platoConfig.apiKey) {
         activeKey = platoConfig.apiKey;
-        activeUrl = platoConfig.baseUrl;
+        activeUrl = DEFAULT_PLATO_BASE_URL;
     } else if (yunwuConfig.enabled && yunwuConfig.apiKey) {
         activeKey = yunwuConfig.apiKey;
         activeUrl = yunwuConfig.baseUrl;
@@ -214,7 +214,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     
     if (type === 'gemini') { key = geminiConfig.apiKey; url = geminiConfig.baseUrl; }
     if (type === 'yunwu') { key = yunwuConfig.apiKey; url = yunwuConfig.baseUrl; }
-    if (type === 'plato') { key = platoConfig.apiKey; url = platoConfig.baseUrl; }
+    if (type === 'plato') { key = platoConfig.apiKey; url = DEFAULT_PLATO_BASE_URL; }
     if (type === 'jijing') { key = jijingConfig.apiKey; url = jijingConfig.baseUrl; }
     if (type === 'right') { key = rightConfig.apiKey; url = rightConfig.baseUrl; }
 
@@ -434,8 +434,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                                 <ConfigInput 
                                   label="Base URL"
                                   value={platoConfig.baseUrl}
-                                  onChange={(v) => setPlatoConfig(c => ({ ...c, baseUrl: v }))}
-                                  placeholder="https://api.plato-ai.com/v1"
+                                  onChange={() => setPlatoConfig(c => ({ ...c, baseUrl: DEFAULT_PLATO_BASE_URL }))}
+                                  placeholder={DEFAULT_PLATO_BASE_URL}
                                   icon={<Globe size={16} />}
                                 />
                                 <ConfigInput 
