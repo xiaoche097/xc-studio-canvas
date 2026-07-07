@@ -42,6 +42,8 @@ interface NodeProps {
     isResizing?: boolean;
     isConnecting?: boolean;
     canvasScale?: number;
+    dragOffset?: { x: number; y: number };
+    suppressNodeChrome?: boolean;
 }
 
 type TextQuickActionId = 'write' | 'upload' | 'text-to-video' | 'image-to-prompt';
@@ -235,7 +237,10 @@ const arePropsEqual = (prev: NodeProps, next: NodeProps) => {
         renderQualityChanged ||
         selectedScaleChanged ||
         prev.isGroupDragging !== next.isGroupDragging ||
-        prev.isConnecting !== next.isConnecting) {
+        prev.isConnecting !== next.isConnecting ||
+        prev.suppressNodeChrome !== next.suppressNodeChrome ||
+        prev.dragOffset?.x !== next.dragOffset?.x ||
+        prev.dragOffset?.y !== next.dragOffset?.y) {
         return false;
     }
     if (prev.node !== next.node) return false;
@@ -430,7 +435,7 @@ const getFittedImageNodeSize = (imageWidth: number, imageHeight: number, current
 };
 
 const NodeComponent: React.FC<NodeProps> = ({
-    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1
+    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1, dragOffset, suppressNodeChrome
 }) => {
     const isWorking = node.status === NodeStatus.WORKING;
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -447,6 +452,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
     const generationMode = node.data.generationMode || 'DEFAULT';
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const replaceImageInputRef = useRef<HTMLInputElement>(null);
     const textDocumentInputRef = useRef<HTMLInputElement>(null);
     const textEditorRef = useRef<HTMLTextAreaElement>(null);
     const [localPrompt, setLocalPrompt] = useState(node.data.prompt || '');
@@ -633,6 +639,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                 {
                     image: prepared.dataUrl,
                     images: undefined,
+                    croppedFrame: undefined,
                     aspectRatio: detectedRatio,
                 },
                 nextSize
@@ -645,6 +652,11 @@ const NodeComponent: React.FC<NodeProps> = ({
         } finally {
             setIsPreparingImageUpload(false);
         }
+    };
+
+    const triggerReplaceImage = () => {
+        window.setTimeout(() => replaceImageInputRef.current?.click(), 0);
+        setIsImageMoreOpen(false);
     };
     const handleUploadVideoReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -815,15 +827,15 @@ const NodeComponent: React.FC<NodeProps> = ({
                     <SunMedium size={13} />打光
                 </button>
                 <div className="relative">
-                    <button className={imageToolButtonClass} title="更多图片工具" onClick={() => setIsImageMoreOpen(open => !open)}>
+                    <button className={`${imageToolButtonClass} ${isImageMoreOpen ? 'bg-white/10 text-white' : ''}`} title="更多图片工具" onClick={() => setIsImageMoreOpen(open => !open)}>
                         <MoreHorizontal size={13} />更多
                     </button>
                     {isImageMoreOpen && (
-                        <div className="absolute left-0 top-full z-[260] mt-2 min-w-32 rounded-xl border border-white/10 bg-[#252527]/98 p-1.5 shadow-2xl backdrop-blur-2xl">
-                            <button className={`${imageToolButtonClass} w-full justify-start`} onClick={() => { onCrop?.(node.id, node.data.image!); setIsImageMoreOpen(false); }}>
+                        <div className="absolute left-0 top-full z-[500] mt-2 min-w-[140px] rounded-2xl border border-white/15 bg-[#101114]/95 p-2 shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-black/40 backdrop-blur-2xl">
+                            <button className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-100 transition-colors hover:bg-cyan-400/15 hover:text-cyan-100" onClick={() => { onCrop?.(node.id, node.data.image!); setIsImageMoreOpen(false); }}>
                                 <CropIcon size={13} />裁剪图片
                             </button>
-                            <button className={`${imageToolButtonClass} w-full justify-start`} onClick={() => { fileInputRef.current?.click(); setIsImageMoreOpen(false); }}>
+                            <button className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-100 transition-colors hover:bg-emerald-400/15 hover:text-emerald-100" onClick={triggerReplaceImage}>
                                 <Replace size={13} />替换图片
                             </button>
                         </div>
@@ -855,6 +867,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     );
 
     const renderTopBar = () => {
+        if (suppressNodeChrome) return null;
         const showTopBar = isSelected || isHovered || isEmptyCreativeNode;
         return (
             <div className={`absolute -top-10 left-0 w-full flex items-center justify-between px-1 transition-all duration-300 ${showTopBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
@@ -1091,16 +1104,30 @@ const NodeComponent: React.FC<NodeProps> = ({
                 ) : (
                     <>
                         {node.data.image ?
-                            <img
-                                ref={mediaRef as any}
-                                src={node.data.imagePreview || node.data.image}
-                                className={`w-full h-full object-cover bg-zinc-900 ${isSelected && canvasScale >= 0.65 ? 'transition-transform duration-300 group-hover/media:scale-[1.02]' : ''}`}
-                                draggable={false}
-                                loading="lazy"
-                                decoding="async"
-                                style={{ filter: showImageGrid && canvasScale >= 0.65 ? 'blur(8px)' : 'none' }}
-                                onContextMenu={(e) => onMediaContextMenu?.(e, node.id, 'image', node.data.image!)}
-                            />
+                            <>
+                                <img
+                                    ref={mediaRef as any}
+                                    src={node.data.imagePreview || node.data.image}
+                                    className={`w-full h-full object-cover bg-zinc-900 ${isSelected && canvasScale >= 0.65 ? 'transition-transform duration-300 group-hover/media:scale-[1.02]' : ''}`}
+                                    draggable={false}
+                                    loading="lazy"
+                                    decoding="async"
+                                    style={{ filter: showImageGrid && canvasScale >= 0.65 ? 'blur(8px)' : 'none' }}
+                                    onContextMenu={(e) => onMediaContextMenu?.(e, node.id, 'image', node.data.image!)}
+                                />
+                                <input type="file" ref={replaceImageInputRef} className="hidden" accept="image/*" onChange={handleUploadImage} />
+                                {!suppressNodeChrome && (isSelected || isHovered) && (
+                                    <button
+                                        type="button"
+                                        className="absolute right-3 top-3 z-[90] flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-black/70 px-3 text-[12px] font-bold text-white shadow-2xl backdrop-blur-md transition-all hover:border-emerald-300/35 hover:bg-black/85 hover:text-emerald-100"
+                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); triggerReplaceImage(); }}
+                                    >
+                                        <Replace size={13} />
+                                        替换
+                                    </button>
+                                )}
+                            </>
                             :
                             <SecureVideo
                                 videoRef={mediaRef} // Pass Ref to Video
@@ -1258,6 +1285,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     };
 
     const renderBottomPanel = () => {
+        if (suppressNodeChrome) return null;
         const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode);
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
         const promptPlaceholder = node.type === NodeType.AUDIO_GENERATOR
@@ -1493,21 +1521,22 @@ const NodeComponent: React.FC<NodeProps> = ({
             className={`absolute group ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'} ${isSelected || isEmptyCreativeNode ? 'ring-1 ring-emerald-400/80 shadow-[0_0_0_1px_rgba(45,212,191,0.12),0_0_42px_-14px_rgba(16,185,129,0.7)] z-30' : 'ring-1 ring-white/10 hover:ring-white/20 z-10'}`}
             style={{
                 left: node.x, top: node.y, width: nodeWidth, height: nodeHeight,
+                transform: dragOffset ? `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0)` : undefined,
                 background: isSelected || isEmptyCreativeNode ? 'rgba(28, 28, 30, 0.88)' : 'rgba(28, 28, 30, 0.6)',
                 transition: enableExpensiveEffects ? 'all 0.3s cubic-bezier(0.32, 0.72, 0, 1)' : 'none',
                 backdropFilter: enableExpensiveEffects ? 'blur(18px)' : 'none',
                 boxShadow: isInteracting ? 'none' : undefined,
-                willChange: isInteracting ? 'left, top, width, height' : 'auto'
+                willChange: isInteracting || dragOffset ? 'transform' : 'auto'
             }}
             onMouseDown={(e) => onNodeMouseDown(e, node.id)} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} onContextMenu={(e) => onNodeContextMenu(e, node.id)}
         >
-            {renderImageSelectionToolbar()}
+            {!suppressNodeChrome && renderImageSelectionToolbar()}
             {renderTopBar()}
-            <div className={`absolute -left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-cyan-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'input'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'input')} title="Input"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
-            <div className={`absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-purple-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'output'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'output')} title="Output"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>
+            {!suppressNodeChrome && <div className={`absolute -left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-cyan-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'input'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'input')} title="Input"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>}
+            {!suppressNodeChrome && <div className={`absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-purple-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'output'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'output')} title="Output"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>}
             <div className={`w-full h-full flex flex-col relative overflow-hidden bg-zinc-900 ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'}`}><div className="flex-1 min-h-0 relative bg-zinc-900">{renderMediaContent()}</div></div>
             {renderBottomPanel()}
-            <div className="absolute -bottom-3 -right-3 w-6 h-6 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100 z-50" onMouseDown={(e) => onResizeMouseDown(e, node.id, nodeWidth, nodeHeight)}><div className="w-1.5 h-1.5 rounded-full bg-current" /></div>
+            {!suppressNodeChrome && <div className="absolute -bottom-3 -right-3 w-6 h-6 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100 z-50" onMouseDown={(e) => onResizeMouseDown(e, node.id, nodeWidth, nodeHeight)}><div className="w-1.5 h-1.5 rounded-full bg-current" /></div>}
         </div>
     );
 };
