@@ -39,6 +39,17 @@ const PREVIEW_MAX_EDGE = 640;
 const GROUP_PADDING_X = 44;
 const GROUP_PADDING_TOP = 72;
 const GROUP_PADDING_BOTTOM = 250;
+const IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+
+const getClosestAspectRatio = (width: number, height: number) => {
+    if (!width || !height) return '1:1';
+    const target = width / height;
+    return IMAGE_ASPECT_RATIOS.reduce((closest, ratio) => {
+        const [ratioW, ratioH] = ratio.split(':').map(Number);
+        const [closestW, closestH] = closest.split(':').map(Number);
+        return Math.abs((ratioW / ratioH) - target) < Math.abs((closestW / closestH) - target) ? ratio : closest;
+    }, IMAGE_ASPECT_RATIOS[0]);
+};
 
 const getImageSourceFingerprint = (src?: string) => {
     if (!src) return '';
@@ -309,6 +320,7 @@ export const App = () => {
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
     const [draggingNodeParentGroupId, setDraggingNodeParentGroupId] = useState<string | null>(null);
     const [draggingGroup, setDraggingGroup] = useState<any>(null);
+    const [dragPreview, setDragPreview] = useState<{ nodeIds: string[]; dx: number; dy: number } | null>(null);
     const [resizingGroupId, setResizingGroupId] = useState<string | null>(null);
     const [activeGroupNodeIds, setActiveGroupNodeIds] = useState<string[]>([]);
     const [connectionStart, setConnectionStart] = useState<{ id: string, x: number, y: number } | null>(null);
@@ -346,6 +358,7 @@ export const App = () => {
     const historyRef = useRef(history);
     const historyIndexRef = useRef(historyIndex);
     const connectionStartRef = useRef(connectionStart);
+    const dragPreviewRef = useRef<{ nodeIds: string[]; dx: number; dy: number } | null>(null);
     const lastMousePosRef = useRef({ x: 0, y: 0 });
     const rafRef = useRef<number | null>(null); // For RAF Throttling
     const persistenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -372,6 +385,7 @@ export const App = () => {
         mouseStartY: number,
         parentGroupId?: string | null,
         siblingNodeIds: string[],
+        draggedNodeStartById: Map<string, { startX: number, startY: number }>,
         nodeWidth: number,
         nodeHeight: number
     } | null>(null);
@@ -392,7 +406,8 @@ export const App = () => {
         startY: number,
         mouseStartX: number,
         mouseStartY: number,
-        childNodes: { id: string, startX: number, startY: number }[]
+        childNodes: { id: string, startX: number, startY: number }[],
+        childNodeStartById: Map<string, { startX: number, startY: number }>
     } | null>(null);
 
     useEffect(() => {
@@ -400,6 +415,10 @@ export const App = () => {
         historyRef.current = history; historyIndexRef.current = historyIndex; connectionStartRef.current = connectionStart;
         scaleRef.current = scale; panRef.current = pan; interactionModeRef.current = interactionMode;
     }, [nodes, connections, groups, history, historyIndex, connectionStart, scale, pan, interactionMode]);
+
+    useEffect(() => {
+        dragPreviewRef.current = dragPreview;
+    }, [dragPreview]);
 
     useEffect(() => {
         const handleResize = () => setViewportSize({ width: window.innerWidth, height: window.innerHeight });
@@ -549,6 +568,47 @@ export const App = () => {
     }, []);
 
     const nodeById = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
+
+    const groupMembershipByNodeId = useMemo(() => {
+        const membership = new Map<string, { group: Group, nodeIds: string[] }>();
+        groups.forEach(group => {
+            const nodeIds = getGroupNodeIds(group, nodes);
+            nodeIds.forEach(nodeId => {
+                if (!membership.has(nodeId)) membership.set(nodeId, { group, nodeIds });
+            });
+        });
+        return membership;
+    }, [groups, nodes, getGroupNodeIds]);
+
+    const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
+    const activeGroupNodeIdSet = useMemo(() => new Set(activeGroupNodeIds), [activeGroupNodeIds]);
+    const dragPreviewNodeIdSet = useMemo(
+        () => new Set(dragPreview?.nodeIds || []),
+        [dragPreview]
+    );
+
+    const nodeInputAssetsById = useMemo(() => {
+        const assetsById = new Map<string, {
+            id: string;
+            type: 'image' | 'video' | 'audio';
+            src: string;
+        }[]>();
+
+        nodes.forEach(node => {
+            const inputAssets = node.inputs
+                .map(inputId => nodeById.get(inputId))
+                .filter(inputNode => inputNode && (inputNode.data.image || inputNode.data.videoUri || inputNode.data.croppedFrame || inputNode.data.audioUri))
+                .slice(0, 15)
+                .map(inputNode => ({
+                    id: inputNode!.id,
+                    type: (inputNode!.data.croppedFrame || inputNode!.data.image) ? 'image' as const : inputNode!.data.videoUri ? 'video' as const : 'audio' as const,
+                    src: inputNode!.data.croppedFrame || inputNode!.data.imagePreview || inputNode!.data.image || inputNode!.data.videoUri || inputNode!.data.audioUri!
+                }));
+            assetsById.set(node.id, inputAssets);
+        });
+
+        return assetsById;
+    }, [nodes, nodeById]);
 
     const visibleNodeIds = useMemo(() => {
         const currentScale = Math.max(scale, 0.01);
@@ -749,6 +809,25 @@ export const App = () => {
             console.warn("History save failed:", e);
         }
     }, []);
+
+    const createWorkflowGroupFromNodeIds = useCallback((nodeIds: string[]) => {
+        const uniqueNodeIds = Array.from(new Set(nodeIds));
+        if (uniqueNodeIds.length === 0) return;
+
+        const selectedIdSet = new Set(uniqueNodeIds);
+        const memberNodes = nodesRef.current.filter(node => selectedIdSet.has(node.id));
+        const fitted = getGroupBoundsForNodes(memberNodes);
+        if (!fitted) return;
+
+        saveHistory();
+        setGroups(previous => [...previous, {
+            id: `g-${Date.now()}`,
+            title: '新建工作流',
+            ...fitted,
+            nodeIds: memberNodes.map(node => node.id),
+        }]);
+        setSelectedGroupId(null);
+    }, [getGroupBoundsForNodes, saveHistory]);
 
     const undo = useCallback(() => {
         const idx = historyIndexRef.current; if (idx > 0) { const prev = historyRef.current[idx - 1]; setNodes(prev.nodes); setConnections(prev.connections); setGroups(prev.groups); setHistoryIndex(idx - 1); }
@@ -1113,13 +1192,13 @@ export const App = () => {
             if (selectionRect) { setSelectionRect((prev: any) => prev ? ({ ...prev, currentX: clientX, currentY: clientY }) : null); return; }
 
             if (dragGroupRef.current) {
-                const { id, startX, startY, mouseStartX, mouseStartY, childNodes } = dragGroupRef.current;
+                const { id, startX, startY, mouseStartX, mouseStartY, childNodes, childNodeStartById } = dragGroupRef.current;
                 const dx = (clientX - mouseStartX) / scale;
                 const dy = (clientY - mouseStartY) / scale;
                 setGroups(prev => prev.map(g => g.id === id ? { ...g, x: startX + dx, y: startY + dy } : g));
                 if (childNodes.length > 0) {
                     setNodes(prev => prev.map(n => {
-                        const child = childNodes.find(c => c.id === n.id);
+                        const child = childNodeStartById.get(n.id);
                         return child ? { ...n, x: child.startX + dx, y: child.startY + dy } : n;
                     }));
                 }
@@ -1134,11 +1213,12 @@ export const App = () => {
             }
 
             if (draggingNodeId && dragNodeRef.current && dragNodeRef.current.id === draggingNodeId) {
-                const { startX, startY, mouseStartX, mouseStartY, nodeWidth, nodeHeight } = dragNodeRef.current;
+                const { startX, startY, mouseStartX, mouseStartY, nodeWidth, nodeHeight, draggedNodeStartById } = dragNodeRef.current;
                 let dx = (clientX - mouseStartX) / scale;
                 let dy = (clientY - mouseStartY) / scale;
                 let proposedX = startX + dx;
                 let proposedY = startY + dy;
+                const isDraggingSelection = draggedNodeStartById.size > 1;
 
                 // Snap Logic
                 const SNAP = SNAP_THRESHOLD / scale;
@@ -1146,31 +1226,41 @@ export const App = () => {
                 const myT = proposedY; const myM = proposedY + nodeHeight / 2; const myB = proposedY + nodeHeight;
                 let snappedX = false; let snappedY = false;
 
-                nodesRef.current.forEach(other => {
-                    if (other.id === draggingNodeId) return;
-                    const otherBounds = getNodeBounds(other);
-                    if (!snappedX) {
-                        if (Math.abs(myL - otherBounds.x) < SNAP) { proposedX = otherBounds.x; snappedX = true; }
-                        else if (Math.abs(myL - otherBounds.r) < SNAP) { proposedX = otherBounds.r; snappedX = true; }
-                        else if (Math.abs(myR - otherBounds.x) < SNAP) { proposedX = otherBounds.x - nodeWidth; snappedX = true; }
-                        else if (Math.abs(myR - otherBounds.r) < SNAP) { proposedX = otherBounds.r - nodeWidth; snappedX = true; }
-                        else if (Math.abs(myC - (otherBounds.x + otherBounds.width / 2)) < SNAP) { proposedX = (otherBounds.x + otherBounds.width / 2) - nodeWidth / 2; snappedX = true; }
-                    }
-                    if (!snappedY) {
-                        if (Math.abs(myT - otherBounds.y) < SNAP) { proposedY = otherBounds.y; snappedY = true; }
-                        else if (Math.abs(myT - otherBounds.b) < SNAP) { proposedY = otherBounds.b; snappedY = true; }
-                        else if (Math.abs(myB - otherBounds.y) < SNAP) { proposedY = otherBounds.y - nodeHeight; snappedY = true; }
-                        else if (Math.abs(myB - otherBounds.b) < SNAP) { proposedY = otherBounds.b - nodeHeight; snappedY = true; }
-                        else if (Math.abs(myM - (otherBounds.y + otherBounds.height / 2)) < SNAP) { proposedY = (otherBounds.y + otherBounds.height / 2) - nodeHeight / 2; snappedY = true; }
-                    }
-                });
+                if (!isDraggingSelection && nodesRef.current.length <= 80) {
+                    nodesRef.current.forEach(other => {
+                        if (other.id === draggingNodeId) return;
+                        const otherBounds = getNodeBounds(other);
+                        if (!snappedX) {
+                            if (Math.abs(myL - otherBounds.x) < SNAP) { proposedX = otherBounds.x; snappedX = true; }
+                            else if (Math.abs(myL - otherBounds.r) < SNAP) { proposedX = otherBounds.r; snappedX = true; }
+                            else if (Math.abs(myR - otherBounds.x) < SNAP) { proposedX = otherBounds.x - nodeWidth; snappedX = true; }
+                            else if (Math.abs(myR - otherBounds.r) < SNAP) { proposedX = otherBounds.r - nodeWidth; snappedX = true; }
+                            else if (Math.abs(myC - (otherBounds.x + otherBounds.width / 2)) < SNAP) { proposedX = (otherBounds.x + otherBounds.width / 2) - nodeWidth / 2; snappedX = true; }
+                        }
+                        if (!snappedY) {
+                            if (Math.abs(myT - otherBounds.y) < SNAP) { proposedY = otherBounds.y; snappedY = true; }
+                            else if (Math.abs(myT - otherBounds.b) < SNAP) { proposedY = otherBounds.b; snappedY = true; }
+                            else if (Math.abs(myB - otherBounds.y) < SNAP) { proposedY = otherBounds.y - nodeHeight; snappedY = true; }
+                            else if (Math.abs(myB - otherBounds.b) < SNAP) { proposedY = otherBounds.b - nodeHeight; snappedY = true; }
+                            else if (Math.abs(myM - (otherBounds.y + otherBounds.height / 2)) < SNAP) { proposedY = (otherBounds.y + otherBounds.height / 2) - nodeHeight / 2; snappedY = true; }
+                        }
+                    });
+                }
 
-                setNodes(prev => prev.map(n => n.id === draggingNodeId ? { ...n, x: proposedX, y: proposedY } : n));
+                setDragPreview({
+                    nodeIds: Array.from(draggedNodeStartById.keys()),
+                    dx: isDraggingSelection ? dx : proposedX - startX,
+                    dy: isDraggingSelection ? dy : proposedY - startY,
+                });
 
             } else if (draggingNodeId) {
                 const dx = (clientX - lastMousePosRef.current.x) / scale;
                 const dy = (clientY - lastMousePosRef.current.y) / scale;
-                setNodes(prev => prev.map(n => n.id === draggingNodeId ? { ...n, x: n.x + dx, y: n.y + dy } : n));
+                setDragPreview({
+                    nodeIds: [draggingNodeId],
+                    dx,
+                    dy,
+                });
                 lastMousePosRef.current = { x: clientX, y: clientY };
             }
 
@@ -1196,28 +1286,27 @@ export const App = () => {
                 const rect = { x: (x - pan.x) / scale, y: (y - pan.y) / scale, w: w / scale, h: h / scale };
                 const enclosed = nodesRef.current.filter(n => { const cx = n.x + (n.width || 420) / 2; const cy = n.y + 160; return cx > rect.x && cx < rect.x + rect.w && cy > rect.y && cy < rect.y + rect.h; });
                 if (enclosed.length > 0) {
-                    saveHistory();
-                    const freeNodes = enclosed.filter(n => {
-                        return !groupsRef.current.some(group => getGroupNodeIds(group).includes(n.id));
-                    });
-                    if (freeNodes.length > 0) {
-                        const fitted = getGroupBoundsForNodes(freeNodes);
-                        if (fitted) {
-                            setGroups(prev => [...prev, {
-                                id: `g-${Date.now()}`,
-                                title: '新建工作流',
-                                ...fitted,
-                                nodeIds: freeNodes.map(node => node.id),
-                            }]);
-                        }
-                    }
+                    setSelectedNodeIds(enclosed.map(node => node.id));
+                    setSelectedGroupId(null);
                 }
             }
             setSelectionRect(null);
         }
 
+        const preview = dragPreviewRef.current;
+        const dragContext = dragNodeRef.current;
+        const committedPreviewDrag = Boolean(preview && dragContext);
+        if (preview && dragContext) {
+            setNodes(prev => prev.map(node => {
+                const start = dragContext.draggedNodeStartById.get(node.id);
+                return start ? { ...node, x: start.startX + preview.dx, y: start.startY + preview.dy } : node;
+            }));
+            dragPreviewRef.current = null;
+            setDragPreview(null);
+        }
+
         // Collision logic for dropped node
-        if (draggingNodeId) {
+        if (draggingNodeId && !committedPreviewDrag) {
             const draggedNode = nodesRef.current.find(n => n.id === draggingNodeId);
             if (draggedNode) {
                 const myBounds = getNodeBounds(draggedNode);
@@ -1276,7 +1365,7 @@ export const App = () => {
 
         if (draggingNodeId || resizingNodeId || dragGroupRef.current) saveHistory();
         connectionStartRef.current = null;
-        setIsDraggingCanvas(false); setDraggingNodeId(null); setDraggingNodeParentGroupId(null); setDraggingGroup(null); setResizingGroupId(null); setActiveGroupNodeIds([]); setResizingNodeId(null); setInitialSize(null); setResizeStartPos(null); setConnectionStart(null);
+        setIsDraggingCanvas(false); setDraggingNodeId(null); setDraggingNodeParentGroupId(null); setDraggingGroup(null); setDragPreview(null); setResizingGroupId(null); setActiveGroupNodeIds([]); setResizingNodeId(null); setInitialSize(null); setResizeStartPos(null); setConnectionStart(null);
         dragNodeRef.current = null; resizeContextRef.current = null; dragGroupRef.current = null;
     }, [selectionRect, pan, scale, saveHistory, draggingNodeId, resizingNodeId]);
 
@@ -2114,11 +2203,19 @@ export const App = () => {
                                         .map(id => nodeById.get(id))
                                         .filter(Boolean)
                                         .map(node => ({ id: node!.id, startX: node!.x, startY: node!.y }));
-                                    dragGroupRef.current = { id: g.id, startX: g.x, startY: g.y, mouseStartX: e.clientX, mouseStartY: e.clientY, childNodes };
+                                    dragGroupRef.current = {
+                                        id: g.id,
+                                        startX: g.x,
+                                        startY: g.y,
+                                        mouseStartX: e.clientX,
+                                        mouseStartY: e.clientY,
+                                        childNodes,
+                                        childNodeStartById: new Map(childNodes.map(child => [child.id, { startX: child.startX, startY: child.startY }]))
+                                    };
                                     setActiveGroupNodeIds(childNodes.map(c => c.id));
                                     setDraggingGroup({ id: g.id });
                                 }}
-                                onContextMenu={e => { e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: g.id }); setContextMenuTarget({ type: 'group', id: g.id }); }}
+                                onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: g.id }); setContextMenuTarget({ type: 'group', id: g.id }); }}
                             >
                                 <div className="absolute left-5 right-5 top-3 flex h-11 items-center justify-between rounded-2xl border border-white/10 bg-[#111216]/90 px-4 shadow-xl backdrop-blur-xl">
                                     <div className="min-w-0">
@@ -2224,14 +2321,27 @@ export const App = () => {
                             onFocusNode={handleFocusNode}
                             onNodeMouseDown={(e, id) => {
                                 e.stopPropagation();
-                                if (e.shiftKey || e.metaKey || e.ctrlKey) { setSelectedNodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); } else { setSelectedNodeIds([id]); }
+                                const isModifierSelection = e.shiftKey || e.metaKey || e.ctrlKey;
+                                const nextSelectedNodeIds = isModifierSelection
+                                    ? (selectedNodeIdSet.has(id) ? selectedNodeIds.filter(item => item !== id) : [...selectedNodeIds, id])
+                                    : (selectedNodeIdSet.has(id) ? selectedNodeIds : [id]);
+                                setSelectedNodeIds(nextSelectedNodeIds);
                                 const n = nodeById.get(id);
                                 if (n) {
                                     const w = n.width || 420; const h = n.height || getApproxNodeHeight(n);
-                                    const pGroup = groups.find(group => getGroupNodeIds(group, nodes).includes(id));
-                                    let siblingNodeIds: string[] = [];
-                                    if (pGroup) siblingNodeIds = getGroupNodeIds(pGroup, nodes).filter(nodeId => nodeId !== id);
-                                    dragNodeRef.current = { id, startX: n.x, startY: n.y, mouseStartX: e.clientX, mouseStartY: e.clientY, parentGroupId: pGroup?.id, siblingNodeIds, nodeWidth: w, nodeHeight: h };
+                                    const membership = groupMembershipByNodeId.get(id);
+                                    const pGroup = membership?.group;
+                                    const siblingNodeIds = membership?.nodeIds.filter(nodeId => nodeId !== id) || [];
+                                    const draggedNodeStartById = new Map(
+                                        nextSelectedNodeIds
+                                            .map(nodeId => nodeById.get(nodeId))
+                                            .filter(Boolean)
+                                            .map(node => [node!.id, { startX: node!.x, startY: node!.y }])
+                                    );
+                                    if (!draggedNodeStartById.has(id)) {
+                                        draggedNodeStartById.set(id, { startX: n.x, startY: n.y });
+                                    }
+                                    dragNodeRef.current = { id, startX: n.x, startY: n.y, mouseStartX: e.clientX, mouseStartY: e.clientY, parentGroupId: pGroup?.id, siblingNodeIds, draggedNodeStartById, nodeWidth: w, nodeHeight: h };
                                     setDraggingNodeParentGroupId(pGroup?.id || null); setDraggingNodeId(id);
                                 }
                             }}
@@ -2254,31 +2364,31 @@ export const App = () => {
                                 connectionStartRef.current = null;
                                 setConnectionStart(null);
                             }}
-                            onNodeContextMenu={(e, id) => { e.stopPropagation(); e.preventDefault(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id }); setContextMenuTarget({ type: 'node', id }); }}
+                            onNodeContextMenu={(e, id) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                const isMultiSelectionTarget = selectedNodeIdSet.has(id) && selectedNodeIds.length > 1;
+                                setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id });
+                                setContextMenuTarget(isMultiSelectionTarget ? { type: 'selection', ids: selectedNodeIds } : { type: 'node', id });
+                            }}
                             onResizeMouseDown={(e, id, w, h) => {
                                 e.stopPropagation(); const n = nodeById.get(id);
                                 if (n) {
-                                    const pGroup = groups.find(group => getGroupNodeIds(group, nodes).includes(id));
+                                    const membership = groupMembershipByNodeId.get(id);
+                                    const pGroup = membership?.group;
                                     setDraggingNodeParentGroupId(pGroup?.id || null);
-                                    let siblingNodeIds: string[] = [];
-                                    if (pGroup) siblingNodeIds = getGroupNodeIds(pGroup, nodes).filter(nodeId => nodeId !== id);
+                                    const siblingNodeIds = membership?.nodeIds.filter(nodeId => nodeId !== id) || [];
                                     resizeContextRef.current = { nodeId: id, initialWidth: w, initialHeight: h, startX: e.clientX, startY: e.clientY, parentGroupId: pGroup?.id || null, siblingNodeIds };
                                 }
                                 setResizingNodeId(id); setInitialSize({ width: w, height: h }); setResizeStartPos({ x: e.clientX, y: e.clientY });
                             }}
-                            isSelected={selectedNodeIds.includes(node.id)}
+                            isSelected={selectedNodeIdSet.has(node.id)}
                             canvasScale={scale}
-                            inputAssets={node.inputs
-                                .map(i => nodeById.get(i))
-                                .filter(n => n && (n.data.image || n.data.videoUri || n.data.croppedFrame || n.data.audioUri))
-                                .slice(0, 15)
-                                .map(n => ({
-                                    id: n!.id,
-                                    type: (n!.data.croppedFrame || n!.data.image) ? 'image' as const : n!.data.videoUri ? 'video' as const : 'audio' as const,
-                                    src: n!.data.croppedFrame || n!.data.imagePreview || n!.data.image || n!.data.videoUri || n!.data.audioUri!
-                                }))}
+                            inputAssets={nodeInputAssetsById.get(node.id)}
                             onInputReorder={(nodeId, newOrder) => { const targetNode = nodeById.get(nodeId); if (targetNode) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
-                            isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIds.includes(node.id)}
+                            dragOffset={dragPreviewNodeIdSet.has(node.id) && dragPreview ? { x: dragPreview.dx, y: dragPreview.dy } : undefined}
+                            suppressNodeChrome={selectedNodeIds.length > 1 && selectedNodeIdSet.has(node.id)}
+                            isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIdSet.has(node.id)}
                         />
                     ))}
 
@@ -2301,6 +2411,31 @@ export const App = () => {
                                 </button>
                                 {(() => { const targetNode = nodes.find(n => n.id === contextMenu.id); if (targetNode) { const isVideo = targetNode.type === NodeType.VIDEO_GENERATOR || targetNode.type === NodeType.VIDEO_ANALYZER; const isImage = targetNode.type === NodeType.IMAGE_GENERATOR || targetNode.type === NodeType.IMAGE_EDITOR; if (isVideo || isImage) { return (<button className="w-full text-left px-3 py-2 text-xs font-medium text-slate-300 hover:bg-purple-500/20 hover:text-purple-400 rounded-lg flex items-center gap-2 transition-colors" onClick={() => { replacementTargetRef.current = contextMenu.id; if (isVideo) replaceVideoInputRef.current?.click(); else replaceImageInputRef.current?.click(); setContextMenu(null); }}> <RefreshCw size={12} /> 替换素材 </button>); } } return null; })()}
                                 <button className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 rounded-lg flex items-center gap-2 transition-colors mt-1" onClick={() => { deleteNodes([contextMenuTarget.id]); setContextMenu(null); }}><Trash2 size={12} /> 删除节点</button>
+                            </>
+                        )}
+                        {contextMenuTarget?.type === 'selection' && (
+                            <>
+                                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                                    已选中 {contextMenuTarget.ids.length} 个节点
+                                </div>
+                                <button
+                                    className="w-full text-left px-3 py-2 text-xs font-medium text-cyan-300 hover:bg-cyan-500/15 rounded-lg flex items-center gap-2 transition-colors"
+                                    onClick={() => {
+                                        createWorkflowGroupFromNodeIds(contextMenuTarget.ids);
+                                        setContextMenu(null);
+                                    }}
+                                >
+                                    <WorkflowIcon size={12} /> 组成工作流
+                                </button>
+                                <button
+                                    className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/20 rounded-lg flex items-center gap-2 transition-colors mt-1"
+                                    onClick={() => {
+                                        deleteNodes(contextMenuTarget.ids);
+                                        setContextMenu(null);
+                                    }}
+                                >
+                                    <Trash2 size={12} /> 删除选中节点
+                                </button>
                             </>
                         )}
                         {contextMenuTarget?.type === 'reference-create' && (
@@ -2461,7 +2596,87 @@ export const App = () => {
                     </div>
                 )}
 
-                {croppingNodeId && imageToCrop && <ImageCropper imageSrc={imageToCrop} onCancel={() => { setCroppingNodeId(null); setImageToCrop(null); }} onConfirm={(b) => { handleNodeUpdate(croppingNodeId, { croppedFrame: b }); setCroppingNodeId(null); setImageToCrop(null); }} />}
+                {selectedNodeIds.length > 1 && !contextMenu && (
+                    <div className="fixed top-24 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/10 bg-[#1c1c1e]/90 p-1.5 shadow-2xl backdrop-blur-2xl">
+                        <div className="px-3 text-[11px] font-bold text-zinc-400">
+                            已选中 {selectedNodeIds.length} 个节点
+                        </div>
+                        <button
+                            type="button"
+                            onMouseDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }}
+                            onClick={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                createWorkflowGroupFromNodeIds(selectedNodeIds);
+                            }}
+                            className="flex h-8 items-center gap-1.5 rounded-xl bg-cyan-400/15 px-3 text-[11px] font-bold text-cyan-200 transition-all hover:bg-cyan-400/25 active:scale-95"
+                        >
+                            <WorkflowIcon size={13} /> 组成工作流
+                        </button>
+                        <button
+                            type="button"
+                            onMouseDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }}
+                            onClick={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                deleteNodes(selectedNodeIds);
+                            }}
+                            className="flex h-8 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-red-300 transition-all hover:bg-red-500/20 active:scale-95"
+                        >
+                            <Trash2 size={13} /> 删除
+                        </button>
+                    </div>
+                )}
+
+                {croppingNodeId && imageToCrop && (
+                    <ImageCropper
+                        imageSrc={imageToCrop}
+                        onCancel={() => {
+                            setCroppingNodeId(null);
+                            setImageToCrop(null);
+                        }}
+                        onConfirm={(croppedImage) => {
+                            const targetNode = nodesRef.current.find(node => node.id === croppingNodeId);
+                            const image = new Image();
+                            image.onload = () => {
+                                const width = targetNode?.width || 420;
+                                const nextHeight = Math.max(240, Math.min(720, width * (image.naturalHeight / Math.max(1, image.naturalWidth))));
+                                handleNodeUpdate(
+                                    croppingNodeId,
+                                    {
+                                        image: croppedImage,
+                                        images: undefined,
+                                        croppedFrame: undefined,
+                                        imagePreview: undefined,
+                                        imagePreviewSource: undefined,
+                                        aspectRatio: getClosestAspectRatio(image.naturalWidth, image.naturalHeight),
+                                    },
+                                    { height: nextHeight }
+                                );
+                                setCroppingNodeId(null);
+                                setImageToCrop(null);
+                            };
+                            image.onerror = () => {
+                                handleNodeUpdate(croppingNodeId, {
+                                    image: croppedImage,
+                                    images: undefined,
+                                    croppedFrame: undefined,
+                                    imagePreview: undefined,
+                                    imagePreviewSource: undefined,
+                                });
+                                setCroppingNodeId(null);
+                                setImageToCrop(null);
+                            };
+                            image.src = croppedImage;
+                        }}
+                    />
+                )}
                 <ExpandedView media={expandedMedia} onClose={() => setExpandedMedia(null)} />
                 {isSketchEditorOpen && <SketchEditor onClose={() => setIsSketchEditorOpen(false)} onGenerate={handleSketchResult} />}
                 <SmartSequenceDock
