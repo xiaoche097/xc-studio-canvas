@@ -1295,6 +1295,7 @@ ${forcedPrompt}`;
 [TASK: In-place replace the person in Image 1 with the exact model from Images 3-4, using Image 2 only as pose geometry]
 [IMAGE MAPPING]
 1. Image 1 is the TARGET SCENE original and base canvas. Preserve its background, wall color, wall texture, floor, crop, camera perspective, subject scale, lighting direction, cast shadows, contact shadows, color temperature, contrast, and photographic mood. Replace only the visible person region. Do NOT repaint or recolor the background.
+   The face lighting in the output must inherit Image 1's existing light/shadow map at the corresponding head position. Do NOT add beauty lighting, extra fill light, rim light, new catchlights, cheek/forehead/nose highlights, decorative dappled shadows, or dramatic facial shadows unless those exact effects already exist in Image 1.
 2. Image 2 is a black-and-white pose lineart/silhouette extracted from the target scene. Use it ONLY for pose geometry, body outline, head angle, shoulder slope, torso lean, arm/hand/leg placement, crop, camera distance, and subject placement. It has no valid face, identity, clothing, color, or texture.
 3. Images 3 and 4 are duplicated MY MODEL anchors. Preserve this exact person, face, hair, skin tone, body proportions, complete outfit, garment details, shoes, accessories, and styling.
 
@@ -1302,8 +1303,8 @@ ${forcedPrompt}`;
 - Do NOT copy Image 2's person identity, face, body shape, clothing, shoes, accessories, or styling.
 - Do NOT change Images 3 and 4's outfit color, fabric, pattern, silhouette, seams, trims, bag, jewelry, or shoes.
 - The final image must contain one person only: Images 3 and 4's model realistically integrated into Image 1's original background.
-- Match Image 2's pose landmarks and Image 1's lighting on the face and clothing, but keep Images 3 and 4's identity unchanged.
-- Avoid source catalog pose retention, background repainting, wall color changes, flat lighting, wrong shadow direction, missing contact shadows, red skin cast, oversaturated reds, plastic skin, waxy skin, collage, pasted cutout, and mismatched shadows.
+- Match Image 2's pose landmarks and Image 1's exact lighting on the face and clothing, but keep Images 3 and 4's identity unchanged.
+- Avoid source catalog pose retention, background repainting, wall color changes, flat lighting, beauty dish lighting, studio portrait lighting, added face light, wrong shadow direction, added facial highlights, invented dappled facial shadows, missing contact shadows, red skin cast, oversaturated reds, plastic skin, waxy skin, collage, pasted cutout, and mismatched shadows.
 
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
@@ -1748,16 +1749,18 @@ ${forcedPrompt}`;
         **BACKGROUND AND LIGHTING LOCK**:
         - Keep Image 1's wall color, plaster texture, floor, shadow pattern, background crop, camera angle, and scene composition unchanged.
         - Do NOT repaint Image 1's background, change the wall color, smooth the wall texture, move the cast shadows, remove the palm/leaf shadow pattern, or make a new similar-looking scene.
+        - FACE LIGHTING MUST BE SCENE-EXACT: inherit Image 1's existing facial light/shadow layout at the corresponding head position. Do NOT add beauty lighting, extra fill light, rim light, new catchlights, cheek/forehead/nose highlights, decorative dappled shadows, or dramatic facial shadows unless those exact effects are already visible on Image 1's person.
 
         **POSE, SCENE AND LIGHTING TRANSFER**:
         - Replace only Image 1's person region with Images 3 and 4's model and outfit, fitted into Image 2's pose geometry.
         - Copy visible pose landmarks from Image 2: head tilt, chin angle, shoulder slope, torso lean, hip placement, arm bend, hand placement, leg stance, body crop, subject scale, and left/right placement.
         - Copy visible lighting landmarks from Image 1: face shadow side, neck shadow, arm shadow, garment highlight direction, wall cast shadows, palm/leaf shadow pattern, contact shadow, contrast level, and warm/cool balance.
+        - Match facial illumination by luminance zones, not by generic beautification: shadow side, highlight side, nose/eye-socket/neck shadows, skin exposure, contrast, edge softness, and color temperature must follow Image 1. If Image 1's face lighting is plain, keep it plain.
         - Adapt Images 3 and 4's outfit naturally to the new pose while preserving garment identity and all visible details.
         - The output must look like a real fashion photograph, not a pasted cutout.
 
         **FAILURE BLOCKLIST**:
-        - No second person, collage, split screen, face drift, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, background repainting, wall color changed, wall texture changed, lighting not copied, outfit change, copied target clothing, red skin cast, oversaturated reds, plastic skin, waxy skin, CGI, mismatched shadows, wrong shadow direction, missing wall shadows, missing contact shadow, pasted cutout, or floating subject.
+        - No second person, collage, split screen, face drift, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, background repainting, wall color changed, wall texture changed, lighting not copied, beauty dish lighting, studio portrait lighting, artificial fill light, added face light, added facial highlight, invented dappled facial shadow, decorative face shadow, outfit change, copied target clothing, red skin cast, oversaturated reds, plastic skin, waxy skin, CGI, mismatched shadows, wrong shadow direction, missing wall shadows, missing contact shadow, pasted cutout, or floating subject.
 
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
@@ -2205,7 +2208,9 @@ ${forcedPrompt}`;
                 ? { temperature: 0.25 }
                 : workflowHint === 'model-original-paste-back'
                   ? { temperature: 0.15 }
-                  : {}),
+                  : workflowHint === 'model-transfer'
+                    ? { temperature: 0.15 }
+                    : {}),
               imageConfig: {
                 aspectRatio: aspectRatio,
                 aspect_ratio: aspectRatio,
