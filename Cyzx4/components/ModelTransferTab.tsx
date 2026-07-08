@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -22,6 +22,7 @@ import { applyColorCorrection, ColorCorrectionMode, extractEdges } from '../util
 import { convertImageDataUrlFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 type UploadKind = 'model' | 'scene' | 'color';
 
@@ -120,8 +121,10 @@ ${options.agentBrief}
 - Re-stage Images 3 and 4's model into Image 1's person region using Image 2's pose geometry as if photographed in the same real shoot.
 - COPY the target pose from Image 2's lineart/silhouette: head tilt, chin angle, shoulder slope, torso lean, hip position, arm bend, hand placement, leg stance, body crop, subject scale, and left/right placement. Do not default to the source model's straight catalog pose.
 - COPY the target scene lighting from Image 1: hard/soft light quality, key-light direction, shadow side of the face, nose/neck shadow, arm shadow, garment highlight placement, wall cast shadows, palm/leaf shadow pattern, contact shadow, contrast level, and warm/cool balance.
+- FACE LIGHTING MUST BE SCENE-EXACT: preserve the same facial light/shadow map that exists on Image 1's target-scene person at the corresponding head position. Do not add new beauty light, fill light, rim light, catchlight, cheek highlight, forehead highlight, nose highlight, dappled shadow, leaf shadow, dramatic shadow, studio glow, or cinematic relighting unless it is already visible in Image 1 at that face area.
+- Do not invent extra facial shadows or decorative light patterns. If Image 1 has flat soft light on the face, keep it flat and soft. If Image 1 has hard sun/shadow on the face, copy only that existing direction, shape, density, and edge softness.
 - Adapt Images 3 and 4's outfit naturally to the new body geometry while preserving garment identity. The clothes must look physically worn, not pasted.
-- Make the face realistically lit by the same light as Image 1 while still preserving Images 3 and 4's identity.
+- Make the face realistically lit by Image 1's exact existing light field while still preserving Images 3 and 4's identity.
 
 # COLOR AND REALISM
 - Use realistic editorial fashion photography, natural skin texture, believable fabric response, accurate environmental shadows, and no synthetic smoothing.
@@ -131,7 +134,7 @@ ${options.agentBrief}
 ${options.extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-different person, identity drift, face changed, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, head tilt missing, shoulder slope missing, arm placement changed, hand placement changed, body lean missing, camera crop changed, background repainted, wall color changed, wall texture changed, missing wall cast shadows, shadow pattern changed, lighting not copied, flat studio lighting, wrong shadow direction, missing facial shadow, pasted cutout, floating subject, no contact shadow, hairstyle changed, skin tone changed, body shape changed, clothing changed, copied target clothing, copied target accessories, wrong garment color, wrong garment pattern, missing bag, missing shoes, missing jewelry, two people, duplicate person, collage, split screen, mismatched shadows, mismatched lighting, red skin cast, oversaturated red, plastic skin, waxy skin, doll-like face, CGI, 3d render, over-smoothed skin, distorted hands, broken limbs, bad anatomy, text, watermark, logo, blurry face.
+different person, identity drift, face changed, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, head tilt missing, shoulder slope missing, arm placement changed, hand placement changed, body lean missing, camera crop changed, background repainted, wall color changed, wall texture changed, missing wall cast shadows, shadow pattern changed, lighting not copied, flat studio lighting, beauty dish lighting, studio portrait lighting, artificial fill light, added face light, added facial highlight, new cheek highlight, new forehead highlight, new nose highlight, extra catchlight, invented dappled face shadow, decorative facial shadow, dramatic facial shadow, wrong shadow direction, missing facial shadow, pasted cutout, floating subject, no contact shadow, hairstyle changed, skin tone changed, body shape changed, clothing changed, copied target clothing, copied target accessories, wrong garment color, wrong garment pattern, missing bag, missing shoes, missing jewelry, two people, duplicate person, collage, split screen, mismatched shadows, mismatched lighting, red skin cast, oversaturated red, plastic skin, waxy skin, doll-like face, CGI, 3d render, over-smoothed skin, distorted hands, broken limbs, bad anatomy, text, watermark, logo, blurry face.
 `.trim();
 
 const getResultAspectClass = (ratio: AspectRatio) => {
@@ -148,18 +151,21 @@ const UploadCard: React.FC<{
   desc: string;
   icon: React.ReactNode;
   image: UploadedImage | null;
+  isActive: boolean;
+  pasteHint: string;
   onUpload: (files: File[]) => void;
   onRemove: () => void;
-}> = ({ title, desc, icon, image, onUpload, onRemove }) => {
+  onActivate: () => void;
+}> = ({ title, desc, icon, image, isActive, pasteHint, onUpload, onRemove, onActivate }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleFiles = (files?: FileList | null) => {
-    if (files) onUpload(Array.from(files));
+  const handleFiles = (files?: FileList | File[] | null) => {
+    if (files) onUpload(Array.from(files).filter((item) => item.type.startsWith('image/')));
   };
 
   return (
-    <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
+    <section className={`rounded-2xl border bg-white p-5 shadow-sm transition-all ${isActive ? 'border-orange-200 ring-2 ring-orange-100' : 'border-pastel-border'}`}>
       <div className="mb-3 flex items-start gap-2">
         <div className="mt-0.5 text-pastel-highlight">{icon}</div>
         <div>
@@ -169,19 +175,38 @@ const UploadCard: React.FC<{
       </div>
 
       <div
-        onClick={() => inputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onClick={() => {
+          onActivate();
+          inputRef.current?.click();
+        }}
+        onMouseEnter={onActivate}
+        onMouseMove={onActivate}
+        onPointerEnter={onActivate}
+        onPointerMove={onActivate}
+        onFocus={onActivate}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onActivate();
+            inputRef.current?.click();
+          }
+        }}
         onDragOver={(event) => {
           event.preventDefault();
+          onActivate();
           setIsDragging(true);
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={(event) => {
           event.preventDefault();
           setIsDragging(false);
+          onActivate();
           handleFiles(event.dataTransfer.files);
         }}
-        className={`min-h-[14rem] cursor-pointer rounded-xl border-2 border-dashed p-3 transition-all ${
-          isDragging ? 'border-pastel-highlight bg-orange-50/60' : 'border-pastel-border bg-pastel-bg/30 hover:border-orange-200'
+        className={`min-h-[14rem] cursor-pointer rounded-xl border-2 border-dashed p-3 outline-none transition-all ${
+          isDragging || isActive ? 'border-pastel-highlight bg-orange-50/60' : 'border-pastel-border bg-pastel-bg/30 hover:border-orange-200'
         }`}
       >
         <input
@@ -212,6 +237,7 @@ const UploadCard: React.FC<{
         ) : (
           <div className="flex min-h-[12rem] flex-col items-center justify-center text-center">
             <Upload className="mb-2 h-8 w-8 text-pastel-muted" />
+            <p className="mb-1 text-[10px] font-bold text-orange-500">{pasteHint}</p>
             <p className="text-xs font-bold text-pastel-text">拖拽图片到这里</p>
             <p className="mt-1 text-[10px] text-pastel-muted">或点击选择文件，支持 JPG / PNG / WebP</p>
           </div>
@@ -225,6 +251,7 @@ const ModelTransferTab: React.FC = () => {
   const [sourceModel, setSourceModel] = useState<UploadedImage | null>(null);
   const [targetScene, setTargetScene] = useState<UploadedImage | null>(null);
   const [colorReference, setColorReference] = useState<UploadedImage | null>(null);
+  const [activeUploadKind, setActiveUploadKind] = useState<UploadKind | null>(null);
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-image-preview');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
@@ -239,6 +266,7 @@ const ModelTransferTab: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [results, setResults] = useState<ResultItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const hoveredUploadKindRef = useRef<UploadKind | null>(null);
   const {
     cancelMessage,
     startGenerationTask,
@@ -269,6 +297,25 @@ const ModelTransferTab: React.FC = () => {
     });
     setError('');
   };
+
+  const activateUploadKind = useCallback((kind: UploadKind) => {
+    hoveredUploadKindRef.current = kind;
+    setActiveUploadKind(kind);
+  }, []);
+
+  const handlePastedImages = useCallback((files: File[]) => {
+    if (!files.some((item) => item.type.startsWith('image/'))) return;
+    const targetKind = hoveredUploadKindRef.current ?? activeUploadKind ?? (!sourceModel ? 'model' : !targetScene ? 'scene' : 'model');
+    if (targetKind === 'model') {
+      setSingleImage(files, setSourceModel);
+    } else if (targetKind === 'scene') {
+      setSingleImage(files, setTargetScene);
+    } else {
+      setSingleImage(files, setColorReference);
+    }
+  }, [activeUploadKind, sourceModel, targetScene]);
+
+  useImagePaste(handlePastedImages, !isGenerating);
 
   const removeImage = (kind: UploadKind) => {
     const clear = (setter: React.Dispatch<React.SetStateAction<UploadedImage | null>>) => {
@@ -478,16 +525,22 @@ const ModelTransferTab: React.FC = () => {
               desc="最高权重来源：保留人物身份、脸、发型、身材、服装、配饰与造型。"
               icon={<UserRound className="h-4 w-4" />}
               image={sourceModel}
+              isActive={activeUploadKind === 'model'}
+              pasteHint={activeUploadKind === 'model' ? 'Ctrl+V 粘贴到我的模特图' : '点击后可 Ctrl+V 粘贴'}
               onUpload={(files) => setSingleImage(files, setSourceModel)}
               onRemove={() => removeImage('model')}
+              onActivate={() => activateUploadKind('model')}
             />
             <UploadCard
               title="目标场景图"
               desc="只提取场景、动作、镜头、构图、光影、阴影和色温，不复制其中模特的脸和衣服。"
               icon={<ImageIcon className="h-4 w-4" />}
               image={targetScene}
+              isActive={activeUploadKind === 'scene'}
+              pasteHint={activeUploadKind === 'scene' ? 'Ctrl+V 粘贴到目标场景图' : '点击后可 Ctrl+V 粘贴'}
               onUpload={(files) => setSingleImage(files, setTargetScene)}
               onRemove={() => removeImage('scene')}
+              onActivate={() => activateUploadKind('scene')}
             />
 
             <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
