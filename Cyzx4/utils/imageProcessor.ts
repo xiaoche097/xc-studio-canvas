@@ -138,6 +138,44 @@ const loadCanvasImage = (src: string): Promise<HTMLImageElement> => new Promise(
     img.src = src;
 });
 
+export type NormalizedCropRect = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
+export const cropImageRegion = async (
+    source: string,
+    rect: NormalizedCropRect,
+    outputMime = 'image/jpeg',
+    quality = 0.94
+): Promise<string> => {
+    const image = await loadCanvasImage(source);
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+    const sx = clamp(rect.x, 0, 0.98) * sourceWidth;
+    const sy = clamp(rect.y, 0, 0.98) * sourceHeight;
+    const sw = clamp(rect.width, 0.02, 1 - rect.x) * sourceWidth;
+    const sh = clamp(rect.height, 0.02, 1 - rect.y) * sourceHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(256, Math.round(sw));
+    canvas.height = Math.max(256, Math.round(sh));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas is not available for image crop.');
+    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL(outputMime, quality);
+};
+
+export const createModelHeadIdentityCrop = (source: string): Promise<string> => {
+    return cropImageRegion(source, {
+        x: 0.23,
+        y: 0.02,
+        width: 0.54,
+        height: 0.52,
+    });
+};
+
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 
 const getRgbStats = (data: Uint8ClampedArray, neutralPreferred = false) => {

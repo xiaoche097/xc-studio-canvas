@@ -18,7 +18,7 @@ import {
 import { generateImageToImage, generateText, compressImage } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
-import { applyColorCorrection, ColorCorrectionMode, extractEdges } from '../utils/imageProcessor';
+import { applyColorCorrection, ColorCorrectionMode, createModelHeadIdentityCrop, extractEdges } from '../utils/imageProcessor';
 import { convertImageDataUrlFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
@@ -66,15 +66,17 @@ const dataUrlToApiImage = (dataUrl: string) => {
 };
 
 const buildFallbackBrief = () => `
-Source model lock:
-- Preserve the source model's exact face shape, eyes, nose, lips, eyebrows, hair style, hair color, skin tone, body proportions, age impression, outfit, garment color, fabric, pattern, accessories, and styling.
+Source model face identity lock:
+- Preserve ONLY the source model's facial identity: face shape, eyes, nose, lips, eyebrows, facial feature spacing, expression character, hairline/visible hair identity, complexion, age impression, and recognizable person likeness.
+- Do NOT transfer the source model's outfit, garment color, fabric, pattern, bag, jewelry, shoes, accessories, pose, silhouette, or styling.
 
 Target scene transfer:
-- Use the target scene only for pose, gesture, body angle, camera height, lens distance, crop, framing, background/location, wall/floor/material details, light direction, highlight/shadow layout, color temperature, contrast, and realistic skin/fabric light response.
+- Preserve the target scene image as the base: target clothing, garment color, garment structure, bag, accessories, pose, gesture, angle, proportions, camera height, lens distance, crop, framing, background/location, wall/floor/material details, light direction, highlight/shadow layout, color temperature, contrast, and realistic face/fabric light response.
 
 Forbidden:
-- Do not copy the target scene person's identity, face, clothing, accessories, body shape, or garment details.
-- Do not create two people, collage, split screen, face drift, outfit change, red skin cast, plastic skin, waxy skin, or CGI look.
+- Do not copy the target scene person's identity or face.
+- Do not replace or blend the target clothing with the source clothing. Do not copy the source outfit, source bag, source shoes, source jewelry, source garment texture, or source styling.
+- Do not create two people, collage, split screen, face drift, target outfit change, red skin cast, plastic skin, waxy skin, or CGI look.
 `.trim();
 
 const buildAgentPrompt = (extraNotes: string) => `
@@ -83,12 +85,12 @@ You are a senior fashion photography transfer director.
 Analyze Image 1 and Image 2, then write a concise production brief for an image generation model.
 
 IMAGE MAPPING:
-- Image 1 = source model. It is the highest-priority identity, face, hair, body, outfit, garment, accessory, and styling source.
-- Image 2 = target scene. It is ONLY the pose, action, camera, crop, scene, lighting, shadow, and color-temperature source.
+- Image 1 = source model. It is ONLY the facial identity / head likeness source.
+- Image 2 = target scene. It is the base image source for everything except the target person's face: clothing, accessories, pose, action, camera, crop, scene, lighting, shadow, and color temperature.
 
 Return plain English only with these sections:
-1. Source model identity and outfit locks
-2. Target scene pose, camera, background, and lighting transfer
+1. Source model face identity locks
+2. Target scene clothing, pose, camera, background, and lighting preservation
 3. Absolute forbidden changes
 
 User notes:
@@ -103,38 +105,42 @@ const buildTransferPrompt = (options: {
 Create ONE photorealistic commercial fashion image for model transfer output #${options.outputNumber}.
 
 # IMAGE ROUTING
-- Image 1 is the TARGET SCENE original and the base canvas. Preserve its background/location, wall color, wall texture, floor, camera perspective, crop, subject scale, light direction, cast-shadow geometry, contact shadows, highlight placement, facial lighting layout, color temperature, contrast, and natural photographic atmosphere. Replace only the visible person region. Do NOT repaint, redesign, recolor, blur, or simplify the background.
-- Image 2 is a black-and-white lineart/silhouette extracted from the target scene. It is POSE GEOMETRY ONLY: copy body outline, head angle, shoulder slope, torso lean, arm/hand placement, leg stance, crop, camera distance, and subject placement. It contains no usable identity, face, hair, skin, clothing, color, or texture.
-- Images 3 and 4 are duplicated MY MODEL anchors. They are the highest-weight sources for person identity, face, facial structure, hair, skin tone, body proportions, outfit, garment color, garment fabric, garment pattern, garment construction, accessories, styling, and overall subject identity.
+- Images 1 and 2 are duplicated SOURCE FACE CLOSE-UP anchors. They have the highest priority for the new facial identity / head likeness: face shape, facial structure, eyes, nose, lips, eyebrows, facial feature spacing, expression character, hairline/visible hair identity, complexion, age impression, and recognizable person likeness.
+- Image 3 is the TARGET SCENE original and the base canvas. Preserve its background/location, wall color, wall texture, floor, camera perspective, crop, subject scale, light direction, cast-shadow geometry, contact shadows, highlight placement, facial lighting layout, color temperature, contrast, natural photographic atmosphere, target outfit, target garment color, target garment construction, target bag, target shoes, target jewelry, target accessories, and target pose. Replace only the target person's face/head identity. Do NOT repaint, redesign, recolor, blur, simplify the background, or change the outfit.
+- Image 4 is a black-and-white lineart/silhouette extracted from the target scene. It is POSE GEOMETRY ONLY: copy outline, head angle, shoulder slope, torso lean, arm/hand placement, leg stance, crop, camera distance, and subject placement. It contains no usable identity, face, hair, clothing, color, or texture.
+- Image 5 is the SOURCE MODEL context image. Use it only to reinforce the same source facial identity when needed. It must NOT provide clothing, outfit, garment, bag, shoes, jewelry, accessories, pose, silhouette, or styling.
 
 # DIRECTOR AGENT BRIEF
 ${options.agentBrief}
 
-# NON-NEGOTIABLE MODEL IDENTITY LOCK
-- The final person must look like the exact same person as Images 3 and 4.
-- Preserve Images 3 and 4's face shape, eyes, nose, lips, eyebrows, expression character, hairstyle, hair color, skin tone, neck, shoulders, body proportions, age impression, and model identity.
-- Preserve Images 3 and 4's complete outfit and styling: garment silhouette, color, fabric, pattern, seams, neckline, waist details, hem, shoes, bag, jewelry, and visible accessories.
-- Do not borrow Image 2's face, person identity, body shape, clothing, shoes, accessories, or styling.
+# NON-NEGOTIABLE FACE IDENTITY TRANSPLANT LOCK
+- The final face/head must look like the exact same person as Images 1 and 2.
+- Preserve Images 1 and 2's face shape, eyes, nose, lips, eyebrows, facial feature spacing, expression character, hairline/visible hair identity, complexion, age impression, and recognizable person identity.
+- SOURCE FACE CLOSE-UP PRIORITY: Images 1 and 2 outrank Image 3's original target face. If the generated result still resembles the target-scene face more than Images 1 and 2, treat it as failed and regenerate internally with stronger source-face identity.
+- Transfer ONLY the source model's facial identity onto the target-scene person. This is a face/head identity replacement, not an outfit transfer and not a full-body model swap.
+- Do NOT preserve Image 5's outfit, garment silhouette, garment color, fabric, pattern, seams, neckline, waist details, hem, shoes, bag, jewelry, accessories, pose, silhouette, or styling.
+- Do not borrow Image 3's original target face or identity, but keep Image 3's target clothing, bag, shoes, accessories, pose, and scene.
 
 # TARGET SCENE, POSE AND LIGHTING TRANSFER
-- Perform an in-place replacement inside Image 1: keep the wall color, texture, shadow pattern, floor, crop, camera angle, and background placement from Image 1 unchanged.
-- Re-stage Images 3 and 4's model into Image 1's person region using Image 2's pose geometry as if photographed in the same real shoot.
-- COPY the target pose from Image 2's lineart/silhouette: head tilt, chin angle, shoulder slope, torso lean, hip position, arm bend, hand placement, leg stance, body crop, subject scale, and left/right placement. Do not default to the source model's straight catalog pose.
-- COPY the target scene lighting from Image 1: hard/soft light quality, key-light direction, shadow side of the face, nose/neck shadow, arm shadow, garment highlight placement, wall cast shadows, palm/leaf shadow pattern, contact shadow, contrast level, and warm/cool balance.
-- FACE LIGHTING MUST BE SCENE-EXACT: preserve the same facial light/shadow map that exists on Image 1's target-scene person at the corresponding head position. Do not add new beauty light, fill light, rim light, catchlight, cheek highlight, forehead highlight, nose highlight, dappled shadow, leaf shadow, dramatic shadow, studio glow, or cinematic relighting unless it is already visible in Image 1 at that face area.
-- Do not invent extra facial shadows or decorative light patterns. If Image 1 has flat soft light on the face, keep it flat and soft. If Image 1 has hard sun/shadow on the face, copy only that existing direction, shape, density, and edge softness.
-- Adapt Images 3 and 4's outfit naturally to the new body geometry while preserving garment identity. The clothes must look physically worn, not pasted.
-- Make the face realistically lit by Image 1's exact existing light field while still preserving Images 3 and 4's identity.
+- Perform an in-place face/head identity replacement inside Image 3: keep the target clothing, bag, shoes, accessories, hands, arms, proportions, pose, wall color, texture, shadow pattern, floor, crop, camera angle, and background placement from Image 3 unchanged.
+- Rebuild only the target person's face/head likeness using Images 1 and 2, fitted naturally onto Image 3's existing pose, clothing, and lighting as if photographed in the same real shoot.
+- COPY the target pose from Image 4's lineart/silhouette: head tilt, chin angle, shoulder slope, torso lean, hip position, arm bend, hand placement, leg stance, body crop, subject scale, and left/right placement. Do not default to the source model's straight catalog pose.
+- COPY the target scene lighting from Image 3: hard/soft light quality, key-light direction, shadow side of the face, nose/neck shadow, arm shadow, garment highlight placement, existing wall cast shadows, contact shadow, contrast level, and warm/cool balance.
+- FACE LIGHTING MUST BE SCENE-EXACT: preserve the same facial light/shadow map that exists on Image 3's target-scene person at the corresponding head position. Do not add new beauty light, fill light, rim light, catchlight, cheek highlight, forehead highlight, nose highlight, dappled shadow, leaf shadow, dramatic shadow, studio glow, or cinematic relighting unless it is already visible in Image 3 at that face area.
+- Do not invent extra facial shadows or decorative light patterns. If Image 3 has flat soft light on the face, keep it flat and soft. If Image 3 has hard sun/shadow on the face, copy only that existing direction, shape, density, and edge softness.
+- Keep Image 3's target outfit physically intact. The target clothes must not become the source context image's clothes, colors, textures, patterns, or accessories.
+- Make the face realistically lit by Image 3's exact existing light field while still preserving Images 1 and 2's identity.
+- UNCHANGED TARGET REJECTION RULE: returning Image 3 unchanged, or preserving Image 3's original target face, is a failed result.
 
 # COLOR AND REALISM
-- Use realistic editorial fashion photography, natural skin texture, believable fabric response, accurate environmental shadows, and no synthetic smoothing.
-- Avoid the common Gemini red cast. Keep skin neutral and healthy, preserve the intended warm/cool balance from Image 1, and do not over-saturate reds.
+- Use realistic editorial fashion photography, natural face detail, believable fabric response, accurate environmental shadows, and no synthetic smoothing.
+- Avoid the common Gemini red cast. Keep complexion neutral and healthy, preserve the intended warm/cool balance from Image 1, and do not over-saturate reds.
 
 # USER NOTES
 ${options.extraNotes || 'No extra notes.'}
 
 # NEGATIVE
-different person, identity drift, face changed, target-scene face copied, source catalog pose retained, straight front pose, pose not copied, head tilt missing, shoulder slope missing, arm placement changed, hand placement changed, body lean missing, camera crop changed, background repainted, wall color changed, wall texture changed, missing wall cast shadows, shadow pattern changed, lighting not copied, flat studio lighting, beauty dish lighting, studio portrait lighting, artificial fill light, added face light, added facial highlight, new cheek highlight, new forehead highlight, new nose highlight, extra catchlight, invented dappled face shadow, decorative facial shadow, dramatic facial shadow, wrong shadow direction, missing facial shadow, pasted cutout, floating subject, no contact shadow, hairstyle changed, skin tone changed, body shape changed, clothing changed, copied target clothing, copied target accessories, wrong garment color, wrong garment pattern, missing bag, missing shoes, missing jewelry, two people, duplicate person, collage, split screen, mismatched shadows, mismatched lighting, red skin cast, oversaturated red, plastic skin, waxy skin, doll-like face, CGI, 3d render, over-smoothed skin, distorted hands, broken limbs, bad anatomy, text, watermark, logo, blurry face.
+different source person, identity drift, source face changed, source facial features lost, target-scene face copied, target identity retained, source catalog pose copied, source silhouette copied, source outfit copied, source garment copied, source dress copied, source shirt copied, source bag copied, source shoes copied, source jewelry copied, source accessories copied, source styling copied, target outfit changed, target clothing changed, target bag changed, target shoes changed, target jewelry changed, target accessories changed, wrong target garment color, wrong target garment pattern, wrong target fabric, missing target bag, missing target shoes, missing target jewelry, pose not copied, head tilt missing, shoulder slope missing, arm placement changed, hand placement changed, lean missing, camera crop changed, background repainted, wall color changed, wall texture changed, missing wall cast shadows, shadow pattern changed, lighting not copied, flat studio lighting, beauty dish lighting, artificial fill light, added face light, added facial highlight, new cheek highlight, new forehead highlight, new nose highlight, extra catchlight, invented dappled face shadow, decorative facial shadow, dramatic facial shadow, added leaf shadow, added palm shadow, added foliage shadow, plant shadow, tree branch shadow, tropical leaf pattern, wrong shadow direction, missing facial shadow, pasted cutout, floating subject, no contact shadow, complexion changed, two people, duplicate person, collage, split screen, mismatched shadows, mismatched lighting, red cast, oversaturated red, plastic texture, waxy face, doll-like face, CGI, 3d render, over-smoothed face, distorted hands, broken limbs, bad anatomy, text, watermark, logo, blurry face.
 `.trim();
 
 const getResultAspectClass = (ratio: AspectRatio) => {
@@ -356,9 +362,10 @@ const ModelTransferTab: React.FC = () => {
     });
     setStatusMessage('正在提取目标场景姿态线稿，避免复制目标人脸...');
     const poseLineartAnchor = dataUrlToApiImage(await extractEdges(getDataUrl(targetScene)));
+    const sourceFaceAnchor = dataUrlToApiImage(await createModelHeadIdentityCrop(getDataUrl(sourceModel)));
     const sceneAnchor = toApiImage(targetScene);
     const modelAnchor = toApiImage(sourceModel);
-    const [rawImage] = await generateImageToImage([sceneAnchor, poseLineartAnchor, modelAnchor, modelAnchor], prompt, {
+    const [rawImage] = await generateImageToImage([sourceFaceAnchor, sourceFaceAnchor, sceneAnchor, poseLineartAnchor, modelAnchor], prompt, {
       aspectRatio,
       resolution,
       modelId: selectedModel,
