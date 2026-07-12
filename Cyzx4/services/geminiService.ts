@@ -1157,6 +1157,7 @@ export const generateImageToImage = async (
     vtonReport?: string; // NEW: Pass detailed analysis from Pass 1
     sampleCount?: number; // NEW: Multi-image support
     signal?: AbortSignal;
+    onStatus?: (status: 'submitting' | 'polling' | 'processing') => void;
   } = {}
 ): Promise<string[]> => {
   const { 
@@ -1168,9 +1169,11 @@ export const generateImageToImage = async (
     aspectRatio = '1:1', 
     resolution = '2K',
     sampleCount = 1,
-    signal
+    signal,
+    onStatus
   } = options;
   throwIfAborted(signal);
+  onStatus?.('submitting');
   const retryLimit = 3;
   let lastError: any = null;
   const MODEL_FALLBACKS: Record<string, string> = {
@@ -1547,6 +1550,7 @@ ${forcedPrompt}`;
             const taskStatus = getRightCodeTaskStatus(data);
             if (taskId && isRightCodeTaskPending(taskStatus)) {
               console.warn(`[${openAiImageProviderLabel}] Async task ${taskId} is ${taskStatus}; polling result...`);
+              onStatus?.('polling');
               return await pollRightCodeImageTask(config, taskId, signal);
             }
             console.warn(`[${openAiImageProviderLabel}] Response did not contain a recognized image payload:`, data);
