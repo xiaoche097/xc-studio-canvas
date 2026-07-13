@@ -27,14 +27,14 @@ const DollFactoryApp: React.FC = () => {
         </div>
 
         <nav className="flex-1 p-4 flex flex-col overflow-y-auto custom-scrollbar">
-          <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 hidden md:block">玩偶工厂</div>
+          <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 hidden md:block">精修工作台</div>
           
           <div className="space-y-2 flex-1">
             <NavButton
               active={activeTab === 'main-adjust'}
               onClick={() => setActiveTab('main-adjust')}
               icon={<UserCircle2 className="w-5 h-5" />}
-              label="玩偶主图调整"
+              label="主图精修工具"
             />
             <NavButton
               active={activeTab === 'main-retouch'}
@@ -74,7 +74,7 @@ const DollFactoryApp: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
           <h1 className="text-xl font-medium text-pastel-text">
-            {activeTab === 'main-adjust' && "玩偶主图调整"}
+            {activeTab === 'main-adjust' && "主图精修工具"}
             {activeTab === 'main-retouch' && "参考图精修"}
             {activeTab === 'batch-retouch' && "批量精修"}
             {activeTab === 'design-optimize' && "玩偶设计优化"}

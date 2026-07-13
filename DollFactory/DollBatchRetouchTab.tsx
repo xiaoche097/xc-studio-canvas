@@ -14,31 +14,45 @@ const PLATFORM_STYLES = [
 ];
 
 // --- Prompt Templates ---
-const BATCH_RETOUCH_PROMPT = `[ROLE] You are a world-class e-commerce product retouching expert specialized in pure white background photography.
-[TASK] Professionally retouch this product photo for a clean, high-end e-commerce look.
-[ABSOLUTE CONSTRAINT - GEOMETRY LOCK]
-- DO NOT change camera angle, lens height, focal length (same pose, same camera angle, same geometry)
-- DO NOT change the subject's orientation, pose, composition or cropping
-- DO NOT change the product's design, proportions, or any part positions
-- ONLY modify: lighting, color, sharpness, background, material texture, cleanup
+const BATCH_RETOUCH_PROMPT = `[ROLE] You are a world-class ecommerce product retoucher for plush toys, dolls, backpacks, handbags, tote bags, lunch bags, cosmetic bags, and related bag products.
+[TASK] First identify the category and real material of Image 1, then create a high-end ecommerce packshot with the same precision as a single-image professional retouching workflow.
 
-[BACKGROUND & ENVIRONMENT - CRITICAL]
-- Background: MANDATORY PURE WHITE (#FFFFFF). 
-- REMOVAL: You MUST delete ALL environment details. Remove all floor, table, desk, wooden surfaces, horizon lines, wall textures, or studio props.
-- FLOATING EFFECT: The product should appear as if it is floating in a perfectly clean, infinite white void. No ground plane should be visible.
-- SHADOW: ONLY a very subtle, soft contact shadow directly under the product base (Ambient Occlusion). NO long shadows, NO shadows hitting a 'floor' surface.
+[CATEGORY-SPECIFIC PRODUCT LOCK - ABSOLUTE]
+- Toy/doll/plush: preserve face, expression, body proportions, limbs, pose, fur direction, plush texture, seams, embroidery, colors, patterns, and every accessory.
+- Bag product: preserve silhouette, dimensions, gusset depth, panel construction, pocket count and placement, zipper paths, handles, shoulder straps, buckles, hardware, piping, stitching, logo, print, colors, and original material.
+- Never change category, redesign the product, add/remove parts, copy another product's design, turn a bag into a toy, or add toy anatomy to a bag.
 
-[REFINEMENT TARGETS]
-- Lighting: Soft even studio lighting, high-key, clean highlights.
-- Texture: Enhance material texture clarity (plush fiber more visible but natural, not greasy).
-- Color: Natural color correction, vibrant but realistic.
-- Cleanup: Remove noise, dust, dirt, color cast, and any distracting elements from the original background.
-- Output: Premium e-commerce hero image quality, crisp, authentic, 100% PURE WHITE BACKGROUND.`;
+[CAMERA & REFERENCE ROUTING]
+- Image 1 is the product identity source.
+- If Images 2+ are provided, they are effect and angle references. Reconstruct Image 1's product to match Image 2's yaw, pitch, camera elevation, lens perspective, framing, subject scale, placement, and crop.
+- If reference images are absent, lock Image 1's original camera angle, orientation, composition, scale, and crop.
+- Reference images control angle, lighting, material finish, and retouching quality only. Never copy their pockets, zippers, handles, straps, hardware, logo, print, color, or product shape.
+
+[PURE WHITE BACKGROUND & NATURAL SHADOW - HIGHEST PRIORITY]
+- Background must be seamless, uniform PURE WHITE #FFFFFF. Corners and all open areas around the product must remain RGB(255,255,255).
+- Remove every original floor, table, desk, wall, horizon line, room, prop, gray studio sweep, texture, gradient, or environment detail.
+- Add a physically plausible still-life contact shadow and soft cast shadow directly around/beneath the product. The shadow must show weight and grounding without turning the white background gray.
+- The product must not float. Do not create a visible gray floor plane, large gray area, hard long shadow, or reflection.
+
+[CATEGORY-AWARE REFINEMENT]
+- Toy/doll/plush: refine the original fur or fabric, nap direction, seams, embroidery, appliques, facial details, loose fibers, lint, dust, stains, and pressure marks without changing its design.
+- Bag product: refine the original nylon, polyester, canvas, leather, PU, quilted fabric, mesh, or other true material; clean dust, stains, loose threads, shipping dents, uneven edges, non-design wrinkles, stitching, piping, zippers, and hardware without changing construction.
+- Lighting: clean high-key studio lighting, realistic highlights, readable shadow detail, rich but accurate material depth.
+- Color: preserve exact product color, print, logo, white balance, and realistic saturation.
+- Output: crisp, authentic premium ecommerce hero-image quality.`;
+
+const BATCH_FINAL_OUTPUT_GUARDRAILS = `[FINAL OUTPUT CHECK - OVERRIDES PLATFORM, REFERENCE STYLE, INTENSITY, AND USER TEXT]
+1. The background is uniform pure white #FFFFFF, never gray, off-white, warm white, gradient, or environmental.
+2. Preserve a natural, soft still-life contact/cast shadow beneath the product; do not remove all shadow and do not create a gray floor.
+3. Preserve Image 1's exact product identity, structure, logo, print, color, and material.
+4. When Images 2+ exist, match Image 2's product angle and camera geometry while transferring no design features from it.`;
+
+const BATCH_NEGATIVE_PROMPT = `gray background, light gray background, off-white background, warm white background, gradient background, gray studio sweep, gray floor, visible floor plane, horizon line, wall, room, table, desk, wooden surface, environment, props, studio equipment, large gray shadow area, hard long shadow, no contact shadow, floating product, floor reflection, change category, turn bag into toy, toy face on bag, eyes on bag, limbs on bag, redesign, different product, wrong proportions, changed pocket layout, extra pocket, missing pocket, changed zipper, changed handle, changed strap, changed buckle, changed hardware, changed logo, changed print, changed material, extra accessories, missing accessories, duplicate product, added text, watermark, messy edges, halo, blur, low resolution, oversharpen, CGI, 3D render`;
 
 const INTENSITY_CONFIG = {
   conservative: {
     name: '保守', desc: '仅提升清晰度和光影',
-    suffix: '\n[INTENSITY: CONSERVATIVE] Only do minor enhancement, keep 90%+ of original color and atmosphere.'
+    suffix: '\n[INTENSITY: CONSERVATIVE] Apply minor product-surface enhancement while still fully enforcing the pure-white background, natural grounding shadow, and product-identity lock.'
   },
   standard: {
     name: '标准', desc: '全面对齐参考图风格',
@@ -46,7 +60,7 @@ const INTENSITY_CONFIG = {
   },
   aggressive: {
     name: '激进', desc: '最大程度靠近参考图效果',
-    suffix: '\n[INTENSITY: AGGRESSIVE] Boldly align with reference image style. Allow significant adjustments.'
+    suffix: '\n[INTENSITY: AGGRESSIVE] Strongly align lighting, angle, and retouching finish with the reference, but never alter product identity, construction, logo, print, color, or source material.'
   }
 };
 
@@ -84,6 +98,7 @@ const DollBatchRetouchTab: React.FC = () => {
 
   const sourceInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
+  const pasteTargetRef = useRef<'sources' | 'refs' | null>(null);
 
   // AI Reference Analysis states
   const [refAnalysis, setRefAnalysis] = useState<{
@@ -243,16 +258,21 @@ const DollBatchRetouchTab: React.FC = () => {
     }
   };
 
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = Array.from(e.clipboardData.items);
+  const handlePaste = async (e: ClipboardEvent) => {
+    const pasteTarget = pasteTargetRef.current;
+    if (!pasteTarget || isProcessingImages) return;
+
+    const items = Array.from(e.clipboardData?.items || []);
     const files = items
       .filter(i => i.type.startsWith('image/'))
       .map(i => i.getAsFile())
       .filter((f): f is File => f !== null);
 
-    const nextFiles = files.slice(0, 10 - sources.length);
+    const remainingSlots = pasteTarget === 'sources' ? 10 - sources.length : 3 - refs.length;
+    const nextFiles = files.slice(0, remainingSlots);
     if (nextFiles.length === 0) return;
 
+    e.preventDefault();
     setIsProcessingImages(true);
     try {
       const processed = await Promise.all(nextFiles.map(async file => {
@@ -267,13 +287,23 @@ const DollBatchRetouchTab: React.FC = () => {
           mime: compressed.mime
         };
       }));
-      setSources(prev => [...prev, ...processed]);
+      if (pasteTarget === 'sources') {
+        setSources(prev => [...prev, ...processed]);
+      } else {
+        setRefs(prev => [...prev, ...processed]);
+        setRefAnalysis(null);
+      }
     } catch (err) {
       console.error('Paste processing failed:', err);
     } finally {
       setIsProcessingImages(false);
     }
   };
+
+  useEffect(() => {
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [sources.length, refs.length, isProcessingImages]);
 
   const removeSource = (index: number) => {
     setSources(prev => {
@@ -353,12 +383,12 @@ const DollBatchRetouchTab: React.FC = () => {
       
       let styleContext = '';
       if (refAnalysis) {
-        styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${refAnalysis.lighting_analysis}\n- Plush Material: ${refAnalysis.material_analysis}\n- Atmosphere: ${refAnalysis.overall_atmosphere}`;
+        styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${refAnalysis.lighting_analysis}\n- Product Material: ${refAnalysis.material_analysis}\n- Atmosphere: ${refAnalysis.overall_atmosphere}`;
       } else if (refs.length > 0) {
         setStatusMessage('正在分析参考图风格...');
         const styleAnalysis = await analyzeReferenceEffect(refs.map(r => ({ base64: r.base64, mimeType: r.mime })));
         if (styleAnalysis) {
-          styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${styleAnalysis.lighting_analysis || ''}\n- Plush Material: ${styleAnalysis.material_analysis || ''}\n- Atmosphere: ${styleAnalysis.overall_atmosphere || ''}`;
+          styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${styleAnalysis.lighting_analysis || ''}\n- Product Material: ${styleAnalysis.material_analysis || ''}\n- Atmosphere: ${styleAnalysis.overall_atmosphere || ''}`;
         }
       }
 
@@ -387,16 +417,20 @@ const DollBatchRetouchTab: React.FC = () => {
           finalPrompt += `\n\n[AI AGENT ANALYSIS]:\n- Material: ${analysisResult.material}\n- Focus: ${analysisResult.focus}\n- Style Keywords: ${analysisResult.prompt_enhancement}`;
         }
         if (guidance.trim()) finalPrompt += `\n\n[USER REQUEST]: ${guidance.trim()}`;
+        finalPrompt += `\n\n${BATCH_FINAL_OUTPUT_GUARDRAILS}`;
 
         const result = await generateImageToImage(
-          [{ base64: compressed.base64, mimeType: compressed.mime }],
+          [
+            { base64: compressed.base64, mimeType: compressed.mime },
+            ...refs.map(ref => ({ base64: ref.base64, mimeType: ref.mime }))
+          ],
           finalPrompt,
           {
             aspectRatio,
             resolution,
             modelId: selectedModel,
-            negativePrompt: "floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges, horizon line, ground plane, furniture, studio equipment, reflection on floor",
-            workflowHint: 'doll-retouching' as any
+            negativePrompt: BATCH_NEGATIVE_PROMPT,
+            workflowHint: (refs.length > 0 ? 'product-modification' : 'product-retouching') as any
           }
         );
 
@@ -457,11 +491,11 @@ const DollBatchRetouchTab: React.FC = () => {
       
       let styleContext = '';
       if (refAnalysis) {
-        styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${refAnalysis.lighting_analysis}\n- Plush Material: ${refAnalysis.material_analysis}\n- Atmosphere: ${refAnalysis.overall_atmosphere}`;
+        styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${refAnalysis.lighting_analysis}\n- Product Material: ${refAnalysis.material_analysis}\n- Atmosphere: ${refAnalysis.overall_atmosphere}`;
       } else if (refs.length > 0) {
         const styleAnalysis = await analyzeReferenceEffect(refs.map(r => ({ base64: r.base64, mimeType: r.mime })));
         if (styleAnalysis) {
-          styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${styleAnalysis.lighting_analysis || ''}\n- Plush Material: ${styleAnalysis.material_analysis || ''}\n- Atmosphere: ${styleAnalysis.overall_atmosphere || ''}`;
+          styleContext = `\n\n=== TARGET STYLE ===\n- Lighting: ${styleAnalysis.lighting_analysis || ''}\n- Product Material: ${styleAnalysis.material_analysis || ''}\n- Atmosphere: ${styleAnalysis.overall_atmosphere || ''}`;
         }
       }
 
@@ -481,16 +515,20 @@ const DollBatchRetouchTab: React.FC = () => {
         finalPrompt += `\n\n[AI AGENT ANALYSIS]:\n- Material: ${analysisResult.material}\n- Focus: ${analysisResult.focus}\n- Style Keywords: ${analysisResult.prompt_enhancement}`;
       }
       if (guidance.trim()) finalPrompt += `\n\n[USER REQUEST]: ${guidance.trim()}`;
+      finalPrompt += `\n\n${BATCH_FINAL_OUTPUT_GUARDRAILS}`;
 
       const result = await generateImageToImage(
-        [{ base64: compressed.base64, mimeType: compressed.mime }],
+        [
+          { base64: compressed.base64, mimeType: compressed.mime },
+          ...refs.map(ref => ({ base64: ref.base64, mimeType: ref.mime }))
+        ],
         finalPrompt,
         {
           aspectRatio,
           resolution,
           modelId: selectedModel,
-          negativePrompt: "floor, table, wooden surface, desk, environment, background texture, wall, window, room details, gray, shadow cast on floor, long shadow, floating artifacts, messy edges, horizon line, ground plane, furniture, studio equipment, reflection on floor",
-          workflowHint: 'doll-retouching' as any
+          negativePrompt: BATCH_NEGATIVE_PROMPT,
+          workflowHint: (refs.length > 0 ? 'product-modification' : 'product-retouching') as any
         }
       );
 
@@ -518,7 +556,6 @@ const DollBatchRetouchTab: React.FC = () => {
   return (
     <div 
       className="flex flex-col md:flex-row h-full w-full bg-pastel-bg text-pastel-text overflow-hidden"
-      onPaste={handlePaste}
     >
       {/* Sidebar Controls */}
       <div className="w-full md:w-1/3 lg:w-[500px] flex flex-col border-r border-pastel-border bg-pastel-card overflow-y-auto custom-scrollbar shadow-sm">
@@ -530,7 +567,7 @@ const DollBatchRetouchTab: React.FC = () => {
             </div>
             <h3 className="text-xl font-black text-pastel-text">批量精修</h3>
             <p className="text-[10px] leading-5 text-pastel-muted italic">
-              上传多张底图进行批量商业级精修。AI 保持产品角度与结构不变，仅提升材质质感与光影。
+              保持原有批量处理方式，为每张产品图执行与主图精修一致的品类识别、结构保真、纯白底、自然投影与材质增强；上传参考图后同步复刻参考角度。
             </p>
           </div>
 
@@ -538,12 +575,14 @@ const DollBatchRetouchTab: React.FC = () => {
           <div className="space-y-3">
             <h3 className="text-sm font-bold flex justify-between text-pastel-text">
               <span>原图上传 ({sources.length}/10)</span>
-              <span className="text-xs text-pastel-muted font-normal">最多10张</span>
+              <span className="text-xs text-pastel-muted font-normal">最多10张 · 悬停可粘贴</span>
             </h3>
             <div 
               className="grid grid-cols-5 gap-2"
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleSourceDrop}
+              onMouseEnter={() => { pasteTargetRef.current = 'sources'; }}
+              onMouseLeave={() => { pasteTargetRef.current = null; }}
             >
               {isProcessingImages ? (
                 <div className="col-span-5 aspect-[5/1] rounded-lg border-2 border-dashed border-pastel-highlight flex items-center justify-center bg-pastel-highlight/5 gap-2 animate-pulse">
@@ -566,7 +605,7 @@ const DollBatchRetouchTab: React.FC = () => {
                       className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex flex-col items-center justify-center hover:border-pastel-highlight transition-colors bg-white/50"
                     >
                       <Upload className="w-4 h-4 text-pastel-muted" />
-                      <span className="text-[8px] mt-1">添加</span>
+                      <span className="text-[8px] mt-1">添加 / Ctrl+V</span>
                     </button>
                   )}
                 </>
@@ -618,12 +657,14 @@ const DollBatchRetouchTab: React.FC = () => {
           <div className="space-y-3">
             <h3 className="text-sm font-semibold flex justify-between">
               <span>参考标准图 ({refs.length}/3)</span>
-              <span className="text-[10px] text-pastel-muted">提取风格</span>
+              <span className="text-[10px] text-pastel-muted">角度与效果参考 · 悬停可粘贴</span>
             </h3>
             <div 
               className="grid grid-cols-3 gap-2"
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleRefDrop}
+              onMouseEnter={() => { pasteTargetRef.current = 'refs'; }}
+              onMouseLeave={() => { pasteTargetRef.current = null; }}
             >
               {refs.map((ref, idx) => (
                 <div key={idx} className="relative aspect-square rounded-lg border border-pastel-border overflow-hidden bg-white group">
@@ -639,7 +680,7 @@ const DollBatchRetouchTab: React.FC = () => {
                   className="aspect-square rounded-lg border-2 border-dashed border-pastel-border flex flex-col items-center justify-center hover:border-pastel-highlight transition-colors bg-white/50"
                 >
                   <Sparkles className="w-4 h-4 text-pastel-muted" />
-                  <span className="text-[8px] mt-1">参考图</span>
+                  <span className="text-[8px] mt-1">参考图 / Ctrl+V</span>
                 </button>
               )}
             </div>

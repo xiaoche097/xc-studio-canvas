@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Download, Loader2, Sparkles, Upload, Zap, Image as ImageIcon, Cpu, Edit2, X, Maximize2 } from 'lucide-react';
 import { compressImage, getErrorMessage } from '../Cyzx4/utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../Cyzx4/types';
@@ -7,6 +7,24 @@ import { saveGeneratedProject } from '../services/projectHistoryService';
 import { convertImageDataUrlsFormat, getImageDownloadExtension, OutputImageFormat } from './utils/imageFormat';
 
 // --- Multi-Angle Ecommerce Prompts ---
+const PRODUCT_CATEGORY_ROUTING = `**产品类型识别（必须先执行）**：判断 Image 1 是玩偶/毛绒产品，还是背包、手提包、托特包、午餐包、化妆包等包类产品。
+- 玩偶/毛绒产品：保持原有玩偶精修标准，锁定五官、身体比例、姿势、绒毛质感、缝线、刺绣、颜色、图案与配件。
+- 包类产品：锁定包型轮廓、长宽厚比例、裁片结构、口袋数量与位置、拉链走向、提手、肩带、卡扣、五金、包边、车线、Logo、印花、颜色与原始材质。
+- 严禁改变产品品类、改款、增减结构，严禁把包变成玩偶或给包添加五官、四肢等玩偶特征。`;
+
+const PURE_WHITE_PACKSHOT_RULES = `**纯白底输出（最高优先级，不得被任何参考图覆盖）**：
+- 最终背景必须是均匀、无缝的纯白色 #FFFFFF；画面四角和产品周围必须保持 RGB(255,255,255)。
+- 禁止灰色、浅灰色、米白色、暖白色、渐变背景、灰色摄影棚、灰色地面、墙面分界线、环境场景或大面积灰雾。
+- 产品下方必须保留符合静物摄影规律的自然接触阴影与柔和投影，用于表现落地感、重量和空间关系；阴影应贴近产品、方向合理、边缘柔和、透明度自然，不能形成灰色背景或大面积灰底。
+- 使用干净柔和的商业棚拍布光，保留真实高光、暗部层次与材质细节，产品不能悬浮。`;
+
+const REFERENCE_ANGLE_RULES = `**参考效果图角度复刻（最高优先级）**：
+- Image 1 是待精修产品，只提供产品身份、结构、颜色、Logo、印花、材质和配件。
+- Images 2+ 是参考效果图。必须复刻参考效果图中的产品朝向、水平旋转角、俯仰角、相机高度、镜头透视、构图位置、主体大小和裁切范围。
+- 参考图只控制角度、构图、布光和精修效果，绝不能把参考图产品的款式、口袋、拉链、肩带、五金、Logo、印花或颜色复制到 Image 1。
+- 若多张参考图角度不一致，以 Image 2 为主要目标角度，其余参考图只补充光影和材质效果。
+- 不得保留 Image 1 的原始角度来规避视角重建；输出角度与参考效果图明显不一致即视为失败。`;
+
 const ANGLE_TEMPLATES = {
   A: {
     name: '左前 45°',
@@ -14,7 +32,8 @@ const ANGLE_TEMPLATES = {
     prompt: `你现在是一名顶级的电商 3D 产品修图师。
 **核心指令：执行视角大回转。**
 **视角转换**：请忽略参考图的原始角度。无论参考图朝向何方，请在空间中将其 3D 重建并旋转至【左前方 45 度视角（3/4 front-left）】。
-**身份与材质保真**：必须 100% 保持 Image 1 中玩偶的 IP 身份（五官比例、颜色、绒毛质感、所有配件）。
+${PRODUCT_CATEGORY_ROUTING}
+**身份与材质保真**：必须 100% 保持 Image 1 中产品的身份、结构、颜色、材质、图案与全部细节。
 **输出要求**：纯白背景 (#FFFFFF)，电商棚拍级锐度，自然贴地阴影。`
   },
   B: {
@@ -23,7 +42,8 @@ const ANGLE_TEMPLATES = {
     prompt: `你现在是一名顶级的电商 3D 产品修图师。
 **核心指令：强制回正视角。**
 **视角转换**：请忽略参考图的原始偏转角度。请在空间中将其 3D 重建并强制转动至【正前方平视视角（Front View）】。
-**身份与材质保真**：必须 100% 保持 Image 1 中玩偶的 IP 身份（五官比例、颜色、绒毛质感、所有配件）。
+${PRODUCT_CATEGORY_ROUTING}
+**身份与材质保真**：必须 100% 保持 Image 1 中产品的身份、结构、颜色、材质、图案与全部细节。
 **输出要求**：纯白背景 (#FFFFFF)，电商棚拍级锐度，自然贴地阴影。`
   },
   C: {
@@ -31,8 +51,9 @@ const ANGLE_TEMPLATES = {
     label: '3/4 front-right',
     prompt: `你现在是一名顶级的电商 3D 产品修图师。
 **核心指令：执行视角大回转。**
-**视角转换**：请忽略参考图的原始角度。无论参考图朝向何方，请在空间中将其 3D 重建并旋转至【右前方 45 度视角（3/4 front-right）】。需看到玩偶右侧更多细节。
-**身份与材质保真**：必须 100% 保持 Image 1 中玩偶的 IP 身份（五官比例、颜色、绒毛质感、所有配件）。
+**视角转换**：请忽略参考图的原始角度。无论参考图朝向何方，请在空间中将其 3D 重建并旋转至【右前方 45 度视角（3/4 front-right）】。需看到产品右侧更多细节。
+${PRODUCT_CATEGORY_ROUTING}
+**身份与材质保真**：必须 100% 保持 Image 1 中产品的身份、结构、颜色、材质、图案与全部细节。
 **输出要求**：纯白背景 (#FFFFFF)，电商棚拍级锐度，自然贴地阴影。`
   },
   D: {
@@ -41,7 +62,8 @@ const ANGLE_TEMPLATES = {
     prompt: `你现在是一名顶级的电商 3D 产品修图师。
 **核心指令：视角 90 度转动。**
 **视角转换**：请基于 Image 1 的 identity 重构一个【正侧面视角（Side Profile）】的渲染。
-**身份与材质保真**：必须 100% 保持 Image 1 中玩偶的 IP 身份（五官比例、颜色、绒毛质感、所有配件）。
+${PRODUCT_CATEGORY_ROUTING}
+**身份与材质保真**：必须 100% 保持 Image 1 中产品的身份、结构、颜色、材质、图案与全部细节。
 **输出要求**：纯白背景 (#FFFFFF)，电商棚拍级锐度。`
   },
   E: {
@@ -49,8 +71,9 @@ const ANGLE_TEMPLATES = {
     label: 'back view',
     prompt: `你现在是一名顶级的电商 3D 产品修图师。
 **核心指令：视角 180 度大转弯。**
-**视角转换**：请基于 Image 1 的 identity 重构一个【正背面视角（Back View）】的渲染。需合理推导出玩偶背部的结构。
-**身份与材质保真**：必须高度统一绒毛颜色与材质感。
+**视角转换**：请基于 Image 1 的 identity 重构一个【正背面视角（Back View）】的渲染。仅可保守推导被遮挡的背部结构，不得凭空增加口袋、肩带、五金、配件或身体部件。
+${PRODUCT_CATEGORY_ROUTING}
+**身份与材质保真**：必须高度统一产品颜色、材质、结构与工艺细节。
 **输出要求**：纯白背景 (#FFFFFF)，电商棚拍级锐度。`
   },
   F: {
@@ -58,13 +81,15 @@ const ANGLE_TEMPLATES = {
     label: 'details',
     prompt: `你现在是一名资深的电商产品微距摄影师。
 **核心指令：局部高清精修。**
-**一致性要求**：保持参考图 100% 的比例与位置，仅对绒毛细节、缝线、刺绣进行超高清清晰度增强与去瑕疵。
+${PRODUCT_CATEGORY_ROUTING}
+**一致性要求**：保持参考图 100% 的比例与位置；玩偶仅增强绒毛、缝线、刺绣等细节，包类仅增强面料纹理、皮革、车线、包边、拉链和五金等真实细节并去除瑕疵。
 **输出要求**：纯白背景 (#FFFFFF)。`
   },
   G: {
     name: '微调-左',
     label: 'slight left (5°-20°)',
     prompt: `在 Image 1 的基础上，执行极细微的向左旋转修正（约 5°-20°）。
+${PRODUCT_CATEGORY_ROUTING}
 保持 100% 身份一致性，仅做透视修正与电商级精修。
 输出：纯白背景 (#FFFFFF)。`
   },
@@ -72,24 +97,29 @@ const ANGLE_TEMPLATES = {
     name: '微调-右',
     label: 'slight right (5°-20°)',
     prompt: `在 Image 1 的基础上，执行极细微的向右旋转修正（约 5°-20°）。
+${PRODUCT_CATEGORY_ROUTING}
 保持 100% 身份一致性，仅做透视修正与电商级精修。
 输出：纯白背景 (#FFFFFF)。`
   },
   RETOUCH: {
     name: '主图精修',
     label: 'Retouch & Lock',
-    prompt: `以参考图为唯一依据进行产品精修：严格保持相机角度、镜头高度、焦距透视、主体朝向、姿势、构图与裁切范围完全一致（camera/view locked, do not change viewpoint, do not change pose, do not change framing, same camera angle, same perspective, same focal length, same framing, no rotation, no viewpoint change），不要改变玩偶外形设计与比例，不要移动任何部件位置。
+    prompt: `以参考图为唯一依据进行产品精修：严格保持相机角度、镜头高度、焦距透视、主体朝向、姿势、构图与裁切范围完全一致（camera/view locked, do not change viewpoint, do not change pose, do not change framing, same camera angle, same perspective, same focal length, same framing, no rotation, no viewpoint change），不要改变产品外形设计与比例，不要移动任何部件位置。
+${PRODUCT_CATEGORY_ROUTING}
 输出为电商白底主图 packshot：纯白无缝背景（seamless pure white background），背景干净无纹理无渐变。
-对玩偶做商业级精修与质感升级：面料为高级短毛绒（short-pile velboa / crystal velboa / minky short pile / microfiber microfleece），绒毛短而致密、柔软饱满、表面细腻均匀，轻微毛向与少量逆毛带来自然明暗层次（subtle nap marks, gentle brushed pile, soft tonal variation），边缘微微蓬松但整洁不炸毛。车缝线/拼接更平整干净，轮廓清晰但不过度锐化；刺绣/贴布/五官细节更清楚、边缘干净。清理瑕疵：灰尘、毛屑、线头、脏点、折痕压痕。
-棚拍柔光：soft even studio lighting, high-key, clean highlights, soft natural shadow directly under the toy, sharp focus, high resolution, professional e-commerce retouching, vibrant but realistic colors, rich contrast.`,
-    negativePrompt: `change of angle, different viewpoint, rotation, tilted camera, zoomed out, zoomed in, crop change, top-down, bird’s-eye view, worm’s-eye view, perspective distortion, fisheye, wide-angle distortion, rearranged parts, redesign, deformed, wrong proportions, extra objects, background texture, gradient background, shadow too strong, harsh light, overexposed, underexposed, haze, dull colors, desaturated, washed out, grayish, muddy colors, noisy, grainy, blurry, low resolution, oversharpen, watermark, text, logo.`
+玩偶/毛绒产品继续使用原精修标准：增强真实短毛绒或原始绒毛材质，整理毛向、缝线、刺绣、贴布与五官细节，清理灰尘、毛屑、线头、脏点和压痕，不改变玩偶设计。
+包类产品使用包袋精修标准：忠实增强原始尼龙、帆布、涤纶、皮革、PU、绗缝或其他真实材质；整理包身形态、裁片边缘、车线、包边、拉链与五金，清理灰尘、污点、线头、运输挤压和非设计性褶皱，但保留真实结构褶皱，不改变包型与款式。
+棚拍柔光：soft even studio lighting, high-key, clean highlights, soft natural shadow directly under the product, sharp focus, high resolution, professional e-commerce retouching, vibrant but realistic colors, rich contrast.`,
+    negativePrompt: `change of category, toy features added to bag, eyes on bag, limbs on bag, different product, changed angle, different viewpoint, rotation, tilted camera, zoomed out, zoomed in, crop change, perspective distortion, rearranged parts, redesign, deformed, wrong proportions, changed pocket layout, extra pocket, missing pocket, changed zipper, changed handle, changed strap, changed hardware, changed logo, changed print, changed material, extra objects, background texture, gradient background, shadow too strong, harsh light, overexposed, underexposed, haze, dull colors, desaturated, washed out, muddy colors, noisy, grainy, blurry, low resolution, oversharpen, watermark, added text.`
   }
 };
 
-const GLOBAL_NEGATIVE_PROMPT = `change design, redesign, altered structure, mismatch, inaccurate details, different product, wrong proportions, wrong color, color shift, hue shift, changed texture, plastic look, glossy, over-smooth, over-sharpen, extra accessories, missing accessories, added patterns, added text, logo, watermark, label, tag, sticker, background props, hands, people, multiple products, duplicated product, cropped, cut off, out of frame, floating, harsh shadow, strong shadow, gray background, gradient background, messy edges, white outline, halo, jagged edges, blur, low resolution, noise, jpeg artifacts, cartoon, illustration, anime, 3D render, CGI`;
+const GLOBAL_NEGATIVE_PROMPT = `change category, turn bag into toy, toy face on bag, eyes on bag, limbs on bag, change design, redesign, altered structure, mismatch, inaccurate details, different product, wrong proportions, wrong color, color shift, hue shift, changed texture, changed material, plastic look, glossy, over-smooth, over-sharpen, changed pocket layout, extra pocket, missing pocket, changed zipper, changed handle, changed strap, changed buckle, changed hardware, extra accessories, missing accessories, added patterns, changed logo, added text, watermark, label, tag, sticker, background props, hands, people, multiple products, duplicated product, cropped, cut off, out of frame, floating, harsh shadow, strong shadow, gray background, gradient background, messy edges, white outline, halo, jagged edges, blur, low resolution, noise, jpeg artifacts, cartoon, illustration, anime, 3D render, CGI`;
 
 
 const DollMainAdjustTab: React.FC = () => {
+  type PasteTarget = { kind: 'source' } | { kind: 'reference'; index?: number };
+
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [guidance, setGuidance] = useState('');
@@ -108,6 +138,7 @@ const DollMainAdjustTab: React.FC = () => {
   // Reference Images (Up to 3)
   const [refFiles, setRefFiles] = useState<File[]>([]);
   const [refUrls, setRefUrls] = useState<string[]>([]);
+  const pasteTargetRef = useRef<PasteTarget | null>(null);
 
   // Editor states
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -172,6 +203,40 @@ const DollMainAdjustTab: React.FC = () => {
      });
   };
 
+  const replaceRefFile = (index: number, file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    setRefFiles(prev => prev.map((item, i) => i === index ? file : item));
+    setRefUrls(prev => {
+      const next = [...prev];
+      if (next[index]?.startsWith('blob:')) URL.revokeObjectURL(next[index]);
+      next[index] = URL.createObjectURL(file);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const handleClipboardPaste = (event: ClipboardEvent) => {
+      const target = pasteTargetRef.current;
+      if (!target) return;
+
+      const imageItem = Array.from(event.clipboardData?.items || []).find(item => item.type.startsWith('image/'));
+      const imageFile = imageItem?.getAsFile();
+      if (!imageFile) return;
+
+      event.preventDefault();
+      if (target.kind === 'source') {
+        setSourceFromFile(imageFile);
+      } else if (typeof target.index === 'number' && target.index < refFiles.length) {
+        replaceRefFile(target.index, imageFile);
+      } else {
+        addRefFile(imageFile);
+      }
+    };
+
+    window.addEventListener('paste', handleClipboardPaste);
+    return () => window.removeEventListener('paste', handleClipboardPaste);
+  }, [sourceUrl, refFiles.length]);
+
   const handleRefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files || []).forEach(file => addRefFile(file));
     e.target.value = '';
@@ -206,12 +271,12 @@ const DollMainAdjustTab: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!sourceFile) {
-      alert('请上传玩偶原图');
+      alert('请上传产品原图');
       return;
     }
 
     setIsGenerating(true);
-    setStatusMessage('正在分析玩偶原图结构属性，调整生成参数...');
+    setStatusMessage('正在识别产品类型与结构属性，调整精修参数...');
 
     try {
       // Import here to avoid early hydration issues if any
@@ -227,8 +292,8 @@ const DollMainAdjustTab: React.FC = () => {
          refInputImages.push({ base64: compressedRef.base64, mimeType: compressedRef.mime });
       }
 
-      let prompt = `[DOLL MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nOptimizing the main display image for a toy/doll.\n\n=== STRICT INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Enhance lighting, details and background to make it look professional for e-commerce, retaining the core features of the doll.'}\n=== END STRICT INSTRUCTIONS ===`;
-      let negativePrompt = 'deformed anatomy, totally different doll, distorted shape, extra limbs, bad lighting, text, watermark, extra objects, additional dolls, new props, change layout';
+      let prompt = `[ECOMMERCE PRODUCT MAIN IMAGE ENHANCEMENT - HIGH PRIORITY COMMAND]\nFirst identify whether Image 1 is a toy/doll/plush product or a bag product such as a backpack, handbag, tote bag, lunch bag, or cosmetic bag.\n\n${PRODUCT_CATEGORY_ROUTING}\n\n=== STRICT USER INSTRUCTIONS (PRIORITIZE ABOVE ALL) ===\n${guidance || 'Perform professional ecommerce retouching: improve lighting, clarity, material detail, shape presentation, and background cleanliness while preserving the exact product identity, structure, color, print, logo, and accessories.'}\n=== END STRICT USER INSTRUCTIONS ===`;
+      let negativePrompt = GLOBAL_NEGATIVE_PROMPT;
 
       // Use Professional Angle Prompts if selected
       if (selectedAngle && (ANGLE_TEMPLATES as any)[selectedAngle]) {
@@ -255,7 +320,8 @@ const DollMainAdjustTab: React.FC = () => {
             color: ['Red', 'Yellow', 'Blue'][i % 3] 
           })),
           guidance,
-          selectedAngle ? (ANGLE_TEMPLATES as any)[selectedAngle].name : undefined
+          selectedAngle ? (ANGLE_TEMPLATES as any)[selectedAngle].name : undefined,
+          'doll-or-bag'
         );
         
         if (analysis && analysis.engineered_prompt) {
@@ -288,10 +354,13 @@ const DollMainAdjustTab: React.FC = () => {
              console.log("Agent Reasoning:", analysis.reasoning);
            }
         }
-      } else if (refInputImages.length > 0) {
-        // Fallback for global reference without specific boxes
-        prompt += `\nCRITICAL: You have been provided ${refFiles.length} additional input image(s) acting as STYLE/EFFECT REFERENCES. Please seamlessly blend their visual features globally onto the main doll.`;
       }
+
+      // These final constraints must survive prompt replacement by the vision pre-analysis.
+      if (refInputImages.length > 0) {
+        prompt += `\n\n${REFERENCE_ANGLE_RULES}`;
+      }
+      prompt += `\n\n${PURE_WHITE_PACKSHOT_RULES}`;
       
       setStatusMessage(`正在为您并行生成 ${variantCount} 组精修方案 (约 30-60s)...`);
       
@@ -304,7 +373,7 @@ const DollMainAdjustTab: React.FC = () => {
             resolution: resolution,
             modelId: selectedModel,
             negativePrompt,
-            workflowHint: (selectedAngle === 'RETOUCH' ? 'doll-retouching' : 'doll-modification') as any,
+            workflowHint: (selectedAngle === 'RETOUCH' ? 'product-retouching' : 'product-modification') as any,
             sampleCount: 1 
           }
         )
@@ -357,16 +426,16 @@ const DollMainAdjustTab: React.FC = () => {
               <Sparkles className="h-4 w-4" />
               <span className="text-xs font-black uppercase tracking-[0.22em]">Doll Adjustment</span>
             </div>
-            <h3 className="text-xl font-black tracking-tight text-pastel-text">玩偶主图调整</h3>
+            <h3 className="text-xl font-black tracking-tight text-pastel-text">主图精修工具</h3>
             <p className="text-[10px] leading-5 text-pastel-muted italic">
-              上传基础的玩偶草图或原片，AI 结合提示词为您生成精美、专业的商业展示主图。
+              上传玩偶或包类产品原图，AI 自动识别品类并生成结构保真的专业电商主图。
             </p>
           </div>
 
           {/* 原图上传 */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-pastel-text flex items-center justify-between">
-              <span>基础玩偶原图</span>
+              <span>产品原图</span>
               <span className="text-[10px] font-normal text-pastel-muted">必须上传</span>
             </h3>
             {sourceUrl ? (
@@ -374,6 +443,8 @@ const DollMainAdjustTab: React.FC = () => {
                 className="relative group w-full aspect-square rounded-[24px] border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleSourceDrop}
+                onMouseEnter={() => { pasteTargetRef.current = { kind: 'source' }; }}
+                onMouseLeave={() => { pasteTargetRef.current = null; }}
               >
                 <div className="relative w-full h-full p-3 flex items-center justify-center">
                   <div 
@@ -428,6 +499,8 @@ const DollMainAdjustTab: React.FC = () => {
               <label 
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleSourceDrop}
+                onMouseEnter={() => { pasteTargetRef.current = { kind: 'source' }; }}
+                onMouseLeave={() => { pasteTargetRef.current = null; }}
                 className="relative flex flex-col items-center justify-center w-full aspect-square rounded-2xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
               >
                 <input type="file" className="hidden" onChange={handleSourceChange} accept="image/*" />
@@ -435,6 +508,7 @@ const DollMainAdjustTab: React.FC = () => {
                   <ImageIcon className="w-6 h-6" />
                 </div>
                 <span className="text-sm font-bold text-pastel-text">点击或拖拽原图到此处</span>
+                <span className="mt-1 text-[10px] text-pastel-muted">鼠标停在这里可 Ctrl+V 粘贴</span>
               </label>
             )}
           </div>
@@ -475,6 +549,9 @@ const DollMainAdjustTab: React.FC = () => {
                   <div 
                     key={i}
                     className="relative group w-full aspect-square rounded-xl border border-pastel-border shadow-sm overflow-hidden bg-white flex items-center justify-center p-1"
+                    onMouseEnter={() => { pasteTargetRef.current = { kind: 'reference', index: i }; }}
+                    onMouseLeave={() => { pasteTargetRef.current = null; }}
+                    title="鼠标停在此处按 Ctrl+V 可替换这张参考图"
                   >
                     <img src={url} alt={`reference-${i}`} className="max-w-full max-h-full object-contain" />
                     
@@ -495,12 +572,15 @@ const DollMainAdjustTab: React.FC = () => {
                {refFiles.length < 3 && (
                  <label 
                    className="relative flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed border-pastel-border bg-pastel-bg hover:bg-pastel-highlight/5 hover:border-pastel-highlight transition-all cursor-pointer group"
+                   onMouseEnter={() => { pasteTargetRef.current = { kind: 'reference' }; }}
+                   onMouseLeave={() => { pasteTargetRef.current = null; }}
                  >
                    <input type="file" className="hidden" onChange={handleRefChange} accept="image/*" multiple />
                    <div className="w-6 h-6 mb-1 bg-white shadow-sm rounded-md flex items-center justify-center text-pastel-muted group-hover:text-pastel-highlight transition-colors">
                      <ImageIcon className="w-3 h-3" />
                    </div>
                    <span className="text-[9px] font-bold text-pastel-text opacity-70">上传参考</span>
+                   <span className="mt-0.5 text-[8px] text-pastel-muted">或 Ctrl+V</span>
                  </label>
                )}
             </div>
@@ -540,16 +620,35 @@ const DollMainAdjustTab: React.FC = () => {
              </select>
           </div>
 
-          <div className="space-y-2">
-             <h3 className="text-xs font-bold text-pastel-muted mb-2">输出格式</h3>
-             <select
-               value={outputFormat}
-               onChange={(e) => setOutputFormat(e.target.value as OutputImageFormat)}
-               className="w-full bg-white border border-pastel-border rounded-xl py-2.5 px-3 text-xs font-bold outline-none transition-all"
-             >
-               <option value="jpg">JPG</option>
-               <option value="png">PNG</option>
-             </select>
+          <div className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm">
+             <div className="mb-3 flex items-center gap-2">
+               <Download className="h-4 w-4 text-pastel-highlight" />
+               <h3 className="text-sm font-black text-pastel-text">输出格式</h3>
+               <span className="rounded-full bg-orange-50 px-2 py-1 text-[9px] font-bold text-orange-400">下载与历史保存格式</span>
+             </div>
+             <div className="grid grid-cols-2 gap-2">
+               {([
+                 { value: 'jpg', label: 'JPG', description: '默认' },
+                 { value: 'png', label: 'PNG', description: '高清' }
+               ] as const).map((format) => {
+                 const active = outputFormat === format.value;
+                 return (
+                   <button
+                     key={format.value}
+                     type="button"
+                     onClick={() => setOutputFormat(format.value as OutputImageFormat)}
+                     aria-pressed={active}
+                     className={`flex min-h-14 flex-col items-center justify-center rounded-xl border text-center transition-all ${active
+                       ? 'border-pastel-highlight bg-orange-50/70 text-pastel-highlight shadow-sm'
+                       : 'border-pastel-border bg-white text-pastel-muted hover:border-orange-200 hover:bg-orange-50/30'
+                     }`}
+                   >
+                     <span className="text-xs font-black">{format.label}</span>
+                     <span className={`mt-0.5 text-[9px] font-medium ${active ? 'text-orange-300' : 'text-slate-300'}`}>{format.description}</span>
+                   </button>
+                 );
+               })}
+             </div>
           </div>
 
           {/* 变体数量选择 */}
@@ -574,7 +673,7 @@ const DollMainAdjustTab: React.FC = () => {
               rows={3}
               value={guidance}
               onChange={(e) => setGuidance(e.target.value)}
-              placeholder="例如：将玩偶材质改为参考图1的丝绒感，或者参考图2的配色方案进行局部调整（高权重指令）..."
+              placeholder="例如：清理包身褶皱并增强尼龙纹理，保持口袋、拉链、肩带、Logo 和印花不变；或按原标准精修玩偶绒毛与缝线（高权重指令）..."
               className="w-full bg-white border border-pastel-border rounded-xl py-3 px-4 text-xs focus:ring-2 focus:ring-pastel-highlight/20 outline-none placeholder-gray-400 resize-none transition-all"
             />
           </div>
@@ -608,7 +707,7 @@ const DollMainAdjustTab: React.FC = () => {
             className="w-full py-4 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 disabled:opacity-50 transition-all hover:brightness-105 active:scale-[0.98]"
           >
             {isGenerating ? (
-              <><Loader2 className="h-5 w-5 animate-spin" /> 正在生成玩偶主图...</>
+              <><Loader2 className="h-5 w-5 animate-spin" /> 正在生成精修主图...</>
             ) : (
               <><Zap className="h-5 w-5" /> 立即生成</>
             )}
@@ -635,7 +734,7 @@ const DollMainAdjustTab: React.FC = () => {
                <Zap className="w-10 h-10 text-pastel-border" />
              </div>
              <p className="text-lg font-black text-pastel-text">等待生成</p>
-             <p className="text-xs mt-2 opacity-70">请在左侧上传玩偶底图并点击生成</p>
+             <p className="text-xs mt-2 opacity-70">请在左侧上传玩偶或包类产品原图并点击生成</p>
           </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-4">
@@ -659,7 +758,7 @@ const DollMainAdjustTab: React.FC = () => {
                </div>
                
                <button
-                 onClick={() => downloadImage(resultImages[selectedResultIndex], `doll-adjust-${Date.now()}.${getImageDownloadExtension(resultImages[selectedResultIndex], outputFormat)}`)}
+                 onClick={() => downloadImage(resultImages[selectedResultIndex], `product-retouch-${Date.now()}.${getImageDownloadExtension(resultImages[selectedResultIndex], outputFormat)}`)}
                  className="flex items-center justify-center gap-2 rounded-xl border border-pastel-highlight/20 bg-pastel-highlight/10 px-4 py-2 text-xs font-bold text-pastel-highlight hover:bg-pastel-highlight/15 shadow-sm"
                >
                  <Download className="h-3.5 w-3.5" /> 下载当前变体
@@ -699,7 +798,7 @@ const DollMainAdjustTab: React.FC = () => {
            onClose={() => setIsEditorOpen(false)}
            onApplyCrop={(base64) => {
               setSourceUrl(base64);
-              setSourceFile(dataURLtoFile(base64, 'cropped_doll.png'));
+              setSourceFile(dataURLtoFile(base64, 'cropped_product.png'));
            }}
            onApplyBoxes={(boxes) => {
               setEditorBoxes(boxes);

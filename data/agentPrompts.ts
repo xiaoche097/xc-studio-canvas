@@ -1248,10 +1248,10 @@ Your goal is to transform static product images into dynamic, high-quality video
   },
   [WorkflowStep.DOLL_FACTORY]: {
     role: "System",
-    name: "玩偶工厂专家",
-    description: "玩偶主图调整与设计优化专家",
+    name: "精修工作台专家",
+    description: "玩偶与包类产品主图精修、设计优化专家",
     icon: "🧸",
-    systemPrompt: "你是玩偶工厂专家，专精于玩偶类产品的 3D 质感增强、姿态调整与商业主图优化。",
+    systemPrompt: "你是精修工作台专家，支持玩偶原有精修流程，并专精于玩偶与包类产品的结构保真、材质增强、姿态或视角调整与商业主图优化。",
     constraints: []
   },
 };

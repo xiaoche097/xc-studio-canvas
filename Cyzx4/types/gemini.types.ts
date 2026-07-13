@@ -193,6 +193,8 @@ export type WorkflowHint =
   | 'clothing-modification' 
   | 'doll-modification' 
   | 'doll-retouching'
+  | 'product-modification'
+  | 'product-retouching'
   | 'listing-optimization'
   | 'face-lock'
   | 'lighting-replication'
