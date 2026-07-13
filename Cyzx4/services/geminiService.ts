@@ -73,9 +73,16 @@ export const analyzeDollModification = async (
   refImages: { base64: string; mimeType: string }[],
   boxes: Array<{ x: number; y: number; w: number; h: number; color: string }>,
   userGuidance: string,
-  targetAngle?: string
+  targetAngle?: string,
+  productScope: 'doll' | 'doll-or-bag' = 'doll'
 ) => {
   const ai = getAiClient();
+  const subjectRules = productScope === 'doll-or-bag'
+    ? `First classify Image 1 as either (A) toy/doll/plush product or (B) bag product such as a backpack, handbag, tote, lunch bag, cosmetic bag, or related bag.
+   - For toys/dolls, preserve face, body proportions, limbs, pose, fur/plush texture, seams, embroidery, colors, patterns, and accessories.
+   - For bags, preserve silhouette, proportions, panel construction, pocket count and placement, zipper paths, handles, shoulder straps, buckles, hardware, piping, stitching, logo, print, colors, and source material.
+   - Never change the product category, turn a bag into a toy, add toy anatomy to a bag, or redesign the product.`
+    : `Treat Image 1 as a toy/doll/plush product. Preserve its identity, face, body proportions, limbs, pose, fur/plush texture, seams, embroidery, colors, patterns, and accessories.`;
   
   // Convert abstract percentages to human-readable spatial descriptions
   const describePosition = (x: number, y: number, w: number, h: number): string => {
@@ -99,6 +106,7 @@ export const analyzeDollModification = async (
 **YOUR TASK**: Analyze the source image (Image 1) and the user's modification request. Generate a PRECISE, SPATIALLY-CONSTRAINED prompt for the image generator.
 
 **CRITICAL RULES**:
+0. **PRODUCT CATEGORY & IDENTITY**: ${subjectRules}
 1. **MODIFICATION MODE**:
    - **Surgical (Boxes provided)**: ONLY the areas inside the boxes should be modified. EVERYTHING else is "FROZEN".
    - **Global (No boxes provided)**: You may refine the entire image (lighting, texture, quality). HOWEVER, ${
@@ -106,11 +114,15 @@ export const analyzeDollModification = async (
        ? `since the user has requested a perspective change to "${targetAngle}", you must reconstruct and rotate the main subject/model accordingly to match this angle. Maintain the same identity, proportions, and scale of the model from Image 1, but rebuild the pose/angle to show the "${targetAngle}".`
        : `you must maintain 100% of the original objects' positions, counts, poses, and basic shapes from Image 1. DO NOT add or remove objects.`
    }
-2. **STRICT REFERENCE ALIGNMENT**: Extract visual attributes (texture, lighting, color depth, material feel) from the REFERENCE IMAGES (Images 2+). Apply these attributes to the modified areas or the entire image.
+2. **STRICT REFERENCE ALIGNMENT**: Extract both camera geometry and visual attributes from the REFERENCE IMAGES (Images 2+).
+   - When reference images are present, their product orientation is a HARD TARGET: match yaw/horizontal rotation, pitch, camera elevation, lens perspective, framing, subject scale, placement, and crop.
+   - Image 2 is the primary angle reference if multiple reference images disagree. Later references supplement lighting, shadow, material finish, and retouching quality.
+   - Reconstruct Image 1's product into the reference angle, but NEVER copy the reference product's design, pockets, zippers, handles, straps, hardware, logo, print, color, or category.
+   - Returning Image 1 at its original angle when it differs from Image 2 is a CRITICAL FAILURE.
    - **CLOTHING MODIFICATION**: If the reference images are garments and you are modifying the clothing, you MUST explicitly identify and enforce the target garment's: Fit (e.g., slim fit, oversized), Length (e.g., crop top, midi length), Neckline (e.g., V-neck, crew neck), and Cuffs/Sleeves.
 3. **COLOR CONSISTENCY (CRITICAL)**: Maintain strict color consistency with Image 1. You MUST match the exact color tone, skin hue, lighting atmosphere, and white balance of the source image. Do not apply "neutral" correction if it deviates from the original's artistic intent or warm/cool bias. Ensure the modified areas blend seamlessly with the original color profile.
-4. **NO NEW OBJECTS**: Absolutely NO hallucination of additional dolls, props, or background details not present in Image 1.
-5. **LAYOUT PRESERVATION**: The final image must be a 1:1 structural match to Image 1. If Image 1 has a doll on the left, the final image must have that same doll on the left, just refined.
+4. **NO NEW OBJECTS**: Absolutely NO hallucination of additional products, compartments, straps, hardware, toy body parts, props, or background details not present in Image 1.
+5. **LAYOUT PRESERVATION**: The final image must be a 1:1 structural match to Image 1. Preserve the same product count, placement, scale, and orientation unless the requested perspective operation explicitly requires a rotation.
 6. **ENGINEERED PROMPT FORMAT**: The prompt must be a detailed description of the ENTIRE FINAL IMAGE, but it must use language like "Keeping everything else identical to Image 1, modify ONLY the [area] to look like [reference description]".
 
 **SOURCE IMAGE**: Image 1.
@@ -122,7 +134,9 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
 **USER GUIDANCE (HIGH WEIGHT COMMAND)**: "${userGuidance || 'Enhance the selected regions based on reference images.'}"
 
 **TARGET PERSPECTIVE**: ${
-  targetAngle === '主图精修'
+  refImages.length > 0
+    ? `MANDATORY REFERENCE-ANGLE REPLICATION - use Image 2 as the primary target for product orientation, camera height, pitch, yaw, perspective, framing, subject scale, and crop. ${targetAngle ? `The selected preset "${targetAngle}" is secondary to the actual reference-image geometry.` : ''}`
+    : targetAngle === '主图精修'
     ? 'STRICT PERSPECTIVE LOCK - maintain exact same camera angle.'
     : targetAngle
       ? boxes.length > 0
@@ -130,6 +144,12 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
         : `Reconstruct and rotate the entire main subject/model in the image to ${targetAngle} view.`
       : 'Keep current perspective.'
 }
+
+**MANDATORY OUTPUT BACKGROUND & SHADOW**:
+- Use a seamless, uniform PURE WHITE #FFFFFF background. Corners and all open areas around the product must be RGB(255,255,255).
+- No gray, light gray, off-white, warm-white, gradient, gray studio sweep, visible floor/wall boundary, environment, or gray haze.
+- Add a physically plausible still-life contact shadow and a soft cast shadow directly around/beneath the product. The shadow must ground the product without turning the background into gray.
+- Preserve clean studio highlights, realistic material depth, and natural tonal contrast. The product must not float.
 
 **OUTPUT (Strict JSON)**:
 {
@@ -174,20 +194,20 @@ export const analyzeReferenceEffect = async (
 ) => {
   const ai = getAiClient();
   const analysisPrompt = `
-**ROLE**: Top-tier E-commerce Photography Visual Analyst & Plush Toy Material Director.
+**ROLE**: Top-tier E-commerce Photography Visual Analyst and Product Material Director for plush toys, dolls, backpacks, handbags, tote bags, lunch bags, cosmetic bags, and related bag products.
 
-**TASK**: Analyze the provided target reference image(s) and extract the precise e-commerce retouching standards. Specifically focus on two key dimensions:
+**TASK**: First identify the product category and real material in the reference image(s), then extract precise ecommerce retouching standards. Focus on these dimensions:
 1. **光影光感 (Lighting & Light Feel)**: Identify light sources, light soft/hard quality, highlight layout, shadow falloff, contact shadow (ambient occlusion) style, and contrast level.
-2. **毛绒质感 (Plush Material & Fabric Texture)**: Identify fabric type (e.g., short-pile velboa, crystal velvet, dense fleece, long fur), pile/nap direction, fiber thickness, glossiness/sheen (matte, velvet sheen, satin, glossy), edge fluffiness, and neatness.
+2. **产品材质 (Product Material & Surface Texture)**: For toys/dolls, identify plush fabric, pile/nap direction, fiber thickness, sheen, edge fluffiness, seams, and embroidery. For bags, identify nylon, polyester, canvas, leather, PU, quilted fabric, mesh, piping, stitching, zipper and hardware finish, surface grain, stiffness, and sheen. Never describe a bag as plush unless it is visibly made from plush fabric.
 3. **画面色调氛围 (Overall Atmosphere)**: Identify color tone, color temperature, background styling, and retouching atmosphere.
 
 **OUTPUT FORMAT (MANDATORY JSON)**:
 Your response must be a valid JSON object matching the following structure. Do NOT include markdown code blocks other than the JSON itself. Provide high-quality Chinese descriptions for the analysis fields, and professional English keywords for "extracted_style" to guide image generation models:
 {
   "lighting_analysis": "用一段极精炼的中文，分析参考图的光影分布与光感（例如：柔和棚拍双侧漫反射光，明暗过渡平滑，带有自然微弱的贴地投影）",
-  "material_analysis": "用一段极精炼的中文，分析玩偶面料材质与毛绒细微质感（例如：高密短水晶超柔绒，毛绒短而致密细腻，带微弱温润哑光，边缘圆润无炸毛）",
+  "material_analysis": "用一段极精炼的中文，先判断产品类别，再分析其真实材质与工艺细节。玩偶分析绒毛、缝线和刺绣；包类分析尼龙/帆布/皮革/PU等面料、织纹、挺括度、车线、包边、拉链和五金",
   "overall_atmosphere": "用一段极精炼的中文，分析整体画面的色彩温度、调性与背景氛围（例如：高饱和度透亮色彩，纯净极简无缝暖白背景，高端商业棚拍画质）",
-  "extracted_style": "A professional English keyword block combining all lighting, material texture, and e-commerce standards for image-to-image models (e.g., 'professional studio high-key lighting, soft ambient occlusion shadow, high-density premium short-pile velboa plush texture, extremely neat fabric edges, warm white background, vivid realistic colors, sharp macro details')"
+  "extracted_style": "A professional English keyword block combining lighting, the correctly identified real product material, surface/craft details, and ecommerce retouching standards. Do not introduce plush texture to a non-plush bag."
 }
 `;
 
@@ -1927,6 +1947,22 @@ ${forcedPrompt}`;
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
+              : options.workflowHint === 'product-modification'
+                ? `
+        **ROLE**: Precision Ecommerce Product Modification Expert for plush toys, dolls, backpacks, handbags, tote bags, lunch bags, cosmetic bags, and related bag products.
+        **TASK**: First identify the category of the product in Image 1, then execute the requested retouching or spatial modification without changing that category or redesigning the product.
+        **CATEGORY-SPECIFIC FIDELITY RULES**:
+        1. For a toy/doll: preserve its face, expression, body proportions, limbs, pose, fur direction, plush texture, seams, embroidery, colors, patterns, and every accessory exactly unless explicitly targeted.
+        2. For a bag: preserve its silhouette, dimensions, panel construction, pocket count and placement, zipper paths, handles, shoulder straps, buckles, hardware, piping, seams, logo, print, color, and material exactly unless explicitly targeted.
+        3. Never convert a bag into a plush toy, add toy anatomy to a bag, or convert a doll into a bag.
+        **CRITICAL SPATIAL RULES**:
+        1. Modify only the regions or attributes requested by the user.
+        2. Everything not explicitly targeted must remain identical to Image 1.
+        3. Honor every FROZEN ZONES instruction as absolutely immutable.
+        4. Preserve the original camera, layout, and background unless the selected operation explicitly requests a viewpoint or background change.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
               : options.workflowHint === 'listing-optimization'
                 ? `
         **ROLE**: Senior Amazon A+ Content Visual Strategist & High-Conversion Layout Designer.
@@ -2007,6 +2043,22 @@ ${forcedPrompt}`;
         2. **SURFACE REMOVAL**: You MUST identify and REMOVE any table, floor, or surface the product is sitting on. The product should appear as if it is floating in a clean studio void.
         3. **GEOMETRY LOCK**: Maintain 100% of the product's structure, pose, and proportions from Image 1. HOWEVER, do NOT keep the environment/background from Image 1.
         4. **SHADOW**: Only a very soft, minimal ambient occlusion shadow under the product. No long or directional shadows.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+                  : workflowHint === 'product-retouching'
+                    ? `
+        **ROLE**: Senior Ecommerce Product Retouching Specialist for plush toys, dolls, backpacks, handbags, tote bags, lunch bags, cosmetic bags, and related bag products.
+        **TASK**: First identify the product category in Image 1, then perform high-fidelity product retouching on a pure white background.
+        **CATEGORY-SPECIFIC RETOUCHING**:
+        1. For a toy/doll: retain the original plush-toy workflow. Preserve its face, expression, proportions, pose, fur direction, plush material, seams, embroidery, colors, patterns, and accessories while cleaning lint, loose threads, dust, stains, creases, and uneven fur.
+        2. For a bag: preserve its exact silhouette, proportions, gusset depth, panel construction, pocket layout, zipper paths, handles, straps, buckles, hardware, piping, stitching, logo, print, color, and source material. Clean dust, stains, loose threads, dents, accidental wrinkles, uneven edges, and lighting defects without inventing compartments or hardware.
+        3. Never change the product category, redesign the product, replace its material, alter its print, or add/remove product parts.
+        **OUTPUT PROTOCOL**:
+        1. Use a perfectly pure white background (#FFFFFF), with no texture or gradient.
+        2. Remove the original table, floor, or surrounding environment.
+        3. Lock product structure, pose/orientation, camera angle, crop, and proportions to Image 1.
+        4. Keep a natural still-life contact shadow plus a soft, physically plausible cast shadow around/beneath the product. The shadow must ground the product without creating a gray floor or gray background.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

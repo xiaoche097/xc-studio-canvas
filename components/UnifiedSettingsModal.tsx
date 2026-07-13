@@ -1290,7 +1290,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     '先开启要使用的服务：柏拉图、Google Gemini 原生 API 或云雾。',
                     '柏拉图和云雾只需要选择站点节点，再填写 API Key；节点地址会在后台保留。',
                     '输入或修改 Key 后会自动检测连接状态，也可以点击“测试连接”手动重试。',
-                    '确认连接成功后点击“保存配置”，模特工厂、AI 创意视频、玩偶工厂和创意中心会共用这套配置。'
+                    '确认连接成功后点击“保存配置”，模特工厂、AI 创意视频、精修工作台和创意中心会共用这套配置。'
                   ].map((item, index) => (
                     <div key={item} className="flex gap-4 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/5 p-4">
                       <div className="w-7 h-7 rounded-full bg-brand-orange text-white flex items-center justify-center text-xs font-black shrink-0">
