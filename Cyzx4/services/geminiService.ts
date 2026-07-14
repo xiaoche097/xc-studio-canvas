@@ -6,6 +6,7 @@ import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTU
 import {
   getApiConfig,
   getImageApiConfig,
+  getImageAiClient,
   getAiClient,
   getActiveApiInfo,
   resolveRuntimeModelId,
@@ -64,6 +65,18 @@ export const GLOBAL_SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
+
+const getImageGenerationContext = (
+  modelId: string,
+  aspectRatio: string = '1:1',
+  resolution: string = '1K'
+) => {
+  const { ai, config } = getImageAiClient();
+  const model = config.isXiaoche
+    ? resolveXiaocheImageModel(modelId, aspectRatio, resolution)
+    : resolveRuntimeModelId(modelId, config);
+  return { ai, config, model };
+};
 
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
@@ -632,7 +645,7 @@ export const generateMarketingImage = async (
   modelReferenceImage?: { base64: string; mimeType: string }, // Model Face
   modelId: string = 'gemini-3.1-flash-image-preview',
 ) => {
-  const ai = getAiClient();
+  const { ai, model } = getImageGenerationContext(modelId, aspectRatio, resolution);
   try {
     const parts: any[] = [];
 
@@ -716,7 +729,7 @@ export const generateMarketingImage = async (
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: resolveRuntimeModelId(modelId),
+        model,
         contents: {
           parts: parts,
         },
@@ -2886,7 +2899,7 @@ export const generateSeatCoverFit = async (
   signal?: AbortSignal
 ) => {
   throwIfAborted(signal);
-  const ai = getAiClient();
+  const { ai, model: imageModel } = getImageGenerationContext(modelId, aspectRatio, resolution);
   try {
     const parts: any[] = [];
 
@@ -3318,7 +3331,7 @@ Generate a **NEW photorealistic image** that:
 
     const response = await executeWithTimeout(
       ai.models.generateContent({
-        model: resolveRuntimeModelId(modelName),
+        model: imageModel,
         contents: { parts: parts },
         config: {
           imageConfig: {
@@ -3391,7 +3404,11 @@ export const inpaintImage = async (
   referenceImages: { base64: string; mimeType: string }[] = []
 ) => {
   const forcedPrompt = prompt; // Inpainting doesn't typically change AR, but we'll keep it for consistency
-  const ai = getAiClient();
+  const { ai, model } = getImageGenerationContext(
+    "gemini-3.1-flash-image-preview",
+    '1:1',
+    options.resolution || '1K'
+  );
   try {
     const parts: any[] = [
       {
@@ -3439,7 +3456,7 @@ export const inpaintImage = async (
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+      model,
       contents: {
         parts: parts,
       },
@@ -3500,7 +3517,11 @@ export const editGeneratedImage = async (
   const forcedPrompt = (aspectRatio && aspectRatio !== '1:1') || resolutionHint 
     ? `[OUTPUT: ${aspectRatio}, ${resolution} QUALITY] (${arHint}) ${resolutionHint}, ${prompt} ${aspectRatio !== '1:1' ? `--ar ${aspectRatio}` : ''}` 
     : prompt;
-  const ai = getAiClient();
+  const { ai, model } = getImageGenerationContext(
+    "gemini-3.1-flash-image-preview",
+    aspectRatio,
+    resolution
+  );
   try {
     const parts: any[] = [
       {
@@ -3536,7 +3557,7 @@ export const editGeneratedImage = async (
     parts.push({ text: enhancedEditPrompt });
 
     const response = await executeWithTimeout(ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+      model,
       contents: {
         parts: parts,
       },
@@ -3580,14 +3601,14 @@ export const generateOutpainting = async (
   maskBase64: string,
   prompt?: string,
 ) => {
-  const ai = getAiClient();
+  const { ai, model } = getImageGenerationContext("gemini-2.5-pro-image");
   try {
     const description =
       prompt ||
       "Extend the scene naturally, matching the existing lighting and environment.";
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro-image",
+      model,
       contents: {
         parts: [
           {
@@ -4042,8 +4063,8 @@ export const generateStyleReplication = async (
     signal?: AbortSignal;
   } = {}
 ): Promise<string[]> => {
-  const ai = getAiClient();
   const { aspectRatio = "1:1", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", retouch = false, signal } = options;
+  const { ai, config: imageApiConfig } = getImageGenerationContext(model, aspectRatio, resolution);
   throwIfAborted(signal);
 
   // Build the prompt for style replication
@@ -4131,6 +4152,9 @@ You MUST process the input through these 8 distinct phases:
   // Helper to run generation
   const runGeneration = async (modelName: string) => {
     console.log(`[StyleReplication] Attempting generation with model: ${modelName}, Resolution: ${resolution}, Aspect: ${aspectRatio}`);
+    const runtimeModel = imageApiConfig.isXiaoche
+      ? resolveXiaocheImageModel(modelName, aspectRatio, resolution)
+      : resolveRuntimeModelId(modelName, imageApiConfig);
 
     const config: any = {
       temperature: 0.2,
@@ -4143,7 +4167,7 @@ You MUST process the input through these 8 distinct phases:
     };
 
     return await executeWithTimeout(ai.models.generateContent({
-      model: resolveRuntimeModelId(modelName),
+      model: runtimeModel,
       contents: [{ role: "user", parts }],
       config: config,
     }), { timeoutMs: 300000, signal });
@@ -4227,10 +4251,10 @@ export const generateProductSwap = async (
   } = {}
 ): Promise<string[]> => {
   throwIfAborted(options.signal);
-  const ai = getAiClient();
   const aspectRatio = options.aspectRatio || AspectRatio.LANDSCAPE_4_3;
   const resolution = options.resolution || "2K";
   const model = options.model || "gemini-3.1-flash-image-preview";
+  const { ai, config: imageApiConfig } = getImageGenerationContext(model, aspectRatio, resolution);
   const productCount = productImages.length;
 
   // ============ PROMPT ENGINE (Nano Banana Golden Formula) ============
@@ -4351,6 +4375,9 @@ Professional commercial photography quality. The result must be indistinguishabl
   // Helper to run generation
   const runGeneration = async (modelName: string) => {
     console.log(`[ProductSwap] Generating with model: ${modelName}, Resolution: ${resolution}, Aspect: ${aspectRatio}`);
+    const runtimeModel = imageApiConfig.isXiaoche
+      ? resolveXiaocheImageModel(modelName, aspectRatio, resolution)
+      : resolveRuntimeModelId(modelName, imageApiConfig);
 
     const config: any = {
       temperature: 0.15, // Lower temp for more faithful reproduction
@@ -4368,7 +4395,7 @@ Professional commercial photography quality. The result must be indistinguishabl
     };
 
     return await executeWithTimeout(ai.models.generateContent({
-      model: resolveRuntimeModelId(modelName),
+      model: runtimeModel,
       contents: [{ role: "user", parts }],
       config: config,
     }), { timeoutMs: 300000, signal: options.signal });
@@ -4563,7 +4590,11 @@ export const generateColorMap = async (
   mimeType: string,
   aspectRatio: AspectRatio = AspectRatio.SQUARE
 ) => {
-  const ai = getAiClient();
+  const { ai, model } = getImageGenerationContext(
+    "gemini-3.1-flash-image-preview",
+    aspectRatio,
+    '2K'
+  );
   const prompt = `
   【任务】生成专业级平面色彩构成分析图
   
@@ -4597,7 +4628,7 @@ export const generateColorMap = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+      model,
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -4631,7 +4662,11 @@ export const generateLineArt = async (
   mimeType: string,
   aspectRatio: AspectRatio = AspectRatio.SQUARE
 ) => {
-  const ai = getAiClient();
+  const { ai, model } = getImageGenerationContext(
+    "gemini-3.1-flash-image-preview",
+    aspectRatio,
+    '2K'
+  );
   const prompt = `
   【任务】将输入图像解析为专业级矢量线稿
   
@@ -4657,7 +4692,7 @@ export const generateLineArt = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+      model,
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -4694,8 +4729,6 @@ export const generateHDUpscale = async (
   upscaleFactor: number = 2,
   aspectRatio: AspectRatio = AspectRatio.SQUARE
 ) => {
-  const ai = getAiClient();
-
   const parts: any[] = [];
 
   // PHASE 1: IDENTITY REFERENCE (The Blueprint)
@@ -4715,6 +4748,11 @@ export const generateHDUpscale = async (
   // PHASE 3: UPSCALING PROTOCOL
   const scaleMap = { 2: "2K", 4: "4K", 8: "4K" }; 
   const targetRes = (scaleMap as any)[upscaleFactor] || "2K";
+  const { ai, model } = getImageGenerationContext(
+    "gemini-3.1-flash-image-preview",
+    aspectRatio,
+    targetRes
+  );
 
   const systemPrompt = `
   # ROLE: Professional Image Super-Resolution & Reconstruction Expert (Hyper-Fidelity Mode)
@@ -4746,7 +4784,7 @@ export const generateHDUpscale = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+      model,
       contents: { parts: parts },
       config: {
         temperature: 0.15, // Extremely low for maximum fidelity

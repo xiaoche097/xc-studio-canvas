@@ -683,6 +683,34 @@ export const getAiClient = (): GoogleGenAI => {
 };
 
 /**
+ * Image-only client selection. Xiaoche intentionally has higher priority here,
+ * while getAiClient() keeps using the normal text/analysis provider order.
+ */
+export const getImageAiClient = (): {
+    ai: GoogleGenAI;
+    config: ApiConfig & { keyCount: number; currentIndex: number };
+} => {
+    const config = getImageApiConfig();
+    const ai = config.isRight
+        ? createRightCodeChatClient(config)
+        : config.isYunwu && config.baseUrl
+            ? new GoogleGenAI({
+                apiKey: config.apiKey,
+                httpOptions: {
+                    baseUrl: config.baseUrl,
+                    headers: { Authorization: `Bearer ${config.apiKey}` }
+                },
+                apiVersion: config.apiVersion as any
+            })
+            : new GoogleGenAI({
+                apiKey: config.apiKey,
+                apiVersion: config.apiVersion as any
+            });
+
+    return { ai, config };
+};
+
+/**
  * 获取当前激活的API信息（用于调试）
  */
 export const getActiveApiInfo = (): { type: 'xiaoche' | 'right' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
