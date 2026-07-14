@@ -1,234 +1,221 @@
-import React, { useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Grid2X2, Menu, X } from 'lucide-react';
+import CreativeHub from './components/CreativeHub';
+import { CREATIVE_FEATURES, FEATURE_CATEGORIES, getFeatureByMode } from './featureRegistry';
 import { AppMode } from './types';
-import { PlanningAgentTab } from './components/PlanningAgentTab';
-import HDUpscaleTab from './components/HDUpscaleTab';
-import AspectRatioTab from './components/AspectRatioTab';
-import StyleReplicateTab from './components/StyleReplicateTab';
-import SceneGenerationTab from './components/SceneGenerationTab';
-import ImageCleanTab from './components/ImageCleanTab';
-import FusionTab from './components/FusionTab';
-import InpaintingTab from './components/InpaintingTab';
-import ProductSwapTab from './components/ProductSwapTab';
-import OutfitExtractionTab from './components/OutfitExtractionTab';
-import ModelPoseFissionTab from './components/ModelPoseFissionTab';
-import ModelTransferTab from './components/ModelTransferTab';
-import ModelOriginalPasteBackTab from './components/ModelOriginalPasteBackTab';
-import { Activity, Aperture, Camera, FileText, Film, Wand2, Layers, Palette, ArrowLeftRight, Sparkles, Paintbrush, Store, Zap, Scissors, UserCircle2 } from 'lucide-react';
 
-const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AppMode>(AppMode.FUSION);
-  const [sharedImage, setSharedImage] = useState<string | null>(null);
+interface CreativeCenterAppProps {
+  onBack?: () => void;
+}
 
-  const handleImageGenerated = (url: string) => {
-    setSharedImage(url);
+const FeatureLoading: React.FC = () => (
+  <div className="flex h-full min-h-[18rem] items-center justify-center bg-pastel-bg">
+    <div className="flex items-center gap-3 rounded-2xl border border-pastel-border bg-pastel-card px-5 py-4 text-sm font-bold text-pastel-muted shadow-lg">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-pastel-highlight border-t-transparent" />
+      正在加载创意工具…
+    </div>
+  </div>
+);
+
+const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
+  const [activeMode, setActiveMode] = useState<AppMode | null>(null);
+  const [visitedModes, setVisitedModes] = useState<Set<AppMode>>(() => new Set());
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  const activeFeature = useMemo(() => getFeatureByMode(activeMode), [activeMode]);
+
+  const handleBackToStudio = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+    window.location.href = '/';
   };
 
+  const openFeature = (mode: AppMode) => {
+    setVisitedModes((current) => {
+      if (current.has(mode)) return current;
+      const next = new Set(current);
+      next.add(mode);
+      return next;
+    });
+    setActiveMode(mode);
+    setIsMobileSidebarOpen(false);
+  };
+
+  const openHub = () => {
+    setActiveMode(null);
+    setIsMobileSidebarOpen(false);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isMobileSidebarOpen) setIsMobileSidebarOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileSidebarOpen]);
+
+  if (activeMode === null) {
+    return <CreativeHub onOpenFeature={openFeature} onBack={handleBackToStudio} />;
+  }
+
   return (
-    <div className="flex h-screen bg-pastel-bg text-pastel-text overflow-hidden font-sans">
-      {/* Sidebar Navigation */}
-      <aside className="w-20 md:w-64 bg-pastel-card border-r border-pastel-border flex flex-col flex-shrink-0 z-20 shadow-sm">
-        <div className="h-16 flex items-center justify-center md:justify-start md:px-6 border-b border-pastel-border">
+    <div className="relative flex h-screen overflow-hidden bg-pastel-bg text-pastel-text">
+      {isMobileSidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-[70] bg-black/45 backdrop-blur-sm lg:hidden"
+          aria-label="关闭功能导航"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        onMouseEnter={() => setIsSidebarExpanded(true)}
+        onMouseLeave={() => setIsSidebarExpanded(false)}
+        onFocusCapture={() => setIsSidebarExpanded(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setIsSidebarExpanded(false);
+          }
+        }}
+        className={`fixed inset-y-0 left-0 z-[80] flex w-[18rem] flex-col overflow-hidden border-r border-pastel-border bg-pastel-card shadow-2xl transition-[width,transform,box-shadow] duration-300 ease-out lg:absolute lg:z-40 lg:translate-x-0 ${
+          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } ${
+          isSidebarExpanded
+            ? 'lg:w-[17rem] lg:shadow-[8px_0_18px_rgba(50,35,25,0.07)] dark:lg:shadow-[8px_0_18px_rgba(0,0,0,0.2)]'
+            : 'lg:w-[4.75rem] lg:shadow-none'
+        }`}
+        aria-label="创意中心功能导航"
+      >
+        <div className={`flex min-h-16 items-center justify-between border-b border-pastel-border px-3 transition-[padding] duration-300 ${isSidebarExpanded ? '' : 'lg:justify-center lg:px-2'}`}>
           <button
-            onClick={() => window.location.href = '/'}
-            className="bg-pastel-highlight text-white px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-sm hover:bg-orange-600 transition-colors w-10/12 md:w-auto justify-center"
+            type="button"
+            onClick={openHub}
+            className={`flex min-h-11 items-center gap-3 overflow-hidden rounded-xl px-3 text-sm font-black text-pastel-text transition-all duration-300 hover:bg-pastel-pink hover:text-pastel-highlight ${
+              isSidebarExpanded ? 'w-full justify-start' : 'lg:w-11 lg:justify-center lg:px-0'
+            }`}
+            title="返回创意中心"
           >
-            <span>←</span>
-            <span className="hidden md:inline">Back to Studio</span>
+            <Grid2X2 className="h-5 w-5 shrink-0 text-pastel-highlight" />
+            <span className={`whitespace-nowrap transition-all duration-200 ${isSidebarExpanded ? 'lg:max-w-40 lg:opacity-100' : 'lg:max-w-0 lg:opacity-0'}`}>创意中心</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-pastel-muted transition hover:bg-pastel-bg lg:hidden"
+            aria-label="关闭导航"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
-          <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 hidden md:block">工作台</div>
-
-          <NavButton
-            active={activeTab === AppMode.FUSION}
-            onClick={() => setActiveTab(AppMode.FUSION)}
-            icon={<Layers className="w-5 h-5" />}
-            label="图像生成"
-          />
-          <NavButton
-            active={activeTab === AppMode.PRODUCT_SWAP}
-            onClick={() => setActiveTab(AppMode.PRODUCT_SWAP)}
-            icon={<ArrowLeftRight className="w-5 h-5" />}
-            label="产品替换"
-          />
-          <NavButton
-            active={activeTab === AppMode.PLANNING}
-            onClick={() => setActiveTab(AppMode.PLANNING)}
-            icon={<Camera className="w-5 h-5" />}
-            label="视觉策划"
-          />
-          <NavButton
-            active={activeTab === AppMode.INPAINTING}
-            onClick={() => setActiveTab(AppMode.INPAINTING)}
-            icon={<Paintbrush className="w-5 h-5" />}
-            label="局部替换"
-          />
-          <NavButton
-            active={activeTab === AppMode.RETOUCHING}
-            onClick={() => setActiveTab(AppMode.RETOUCHING)}
-            icon={<Wand2 className="w-5 h-5" />}
-            label="高清放大"
-          />
-
-          <div className="h-4"></div>
-          <div className="text-xs font-bold text-pastel-muted uppercase tracking-wider px-3 mb-2 hidden md:block">营销生成</div>
-
-          <NavButton
-            active={activeTab === AppMode.COPYWRITING}
-            onClick={() => setActiveTab(AppMode.COPYWRITING)}
-            icon={<Palette className="w-5 h-5" />}
-            label="风格复刻"
-          />
-          <NavButton
-            active={activeTab === AppMode.SCENE_GENERATION}
-            onClick={() => setActiveTab(AppMode.SCENE_GENERATION)}
-            icon={<Store className="w-5 h-5" />}
-            label="场景图生成"
-          />
-          <NavButton
-            active={activeTab === AppMode.IMAGE_CLEAN}
-            onClick={() => setActiveTab(AppMode.IMAGE_CLEAN)}
-            icon={<Sparkles className="w-5 h-5" />}
-            label="主图生成"
-          />
-          <NavButton
-            active={activeTab === AppMode.MODEL_TRANSFER}
-            onClick={() => setActiveTab(AppMode.MODEL_TRANSFER)}
-            icon={<UserCircle2 className="w-5 h-5" />}
-            label="模特迁移"
-          />
-          <NavButton
-            active={activeTab === AppMode.MODEL_POSE_FISSION}
-            onClick={() => setActiveTab(AppMode.MODEL_POSE_FISSION)}
-            icon={<UserCircle2 className="w-5 h-5" />}
-            label="模特姿势裂变"
-          />
-          <NavButton
-            active={activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK}
-            onClick={() => setActiveTab(AppMode.MODEL_ORIGINAL_PASTE_BACK)}
-            icon={<UserCircle2 className="w-5 h-5" />}
-            label="模特原图贴回"
-          />
-          <NavButton
-            active={activeTab === AppMode.OUTFIT_EXTRACTION}
-            onClick={() => setActiveTab(AppMode.OUTFIT_EXTRACTION)}
-            icon={<Scissors className="w-5 h-5" />}
-            label="搭配提取"
-          />
-          <NavButton
-            active={activeTab === AppMode.RATIO_QUERY}
-            onClick={() => setActiveTab(AppMode.RATIO_QUERY)}
-            icon={<Activity className="w-5 h-5" />}
-            label="比例查询"
-          />
+        <nav className="custom-scrollbar flex-1 overflow-x-hidden overflow-y-auto p-2.5">
+          {FEATURE_CATEGORIES.map((category) => {
+            const features = CREATIVE_FEATURES.filter((feature) => feature.category === category.id);
+            return (
+              <div key={category.id} className="mb-5 last:mb-0">
+                <div
+                  className={`mb-1.5 flex h-4 items-center px-3 text-[0.62rem] font-black tracking-[0.18em] text-pastel-muted transition-[padding] duration-300 ${
+                    isSidebarExpanded ? '' : 'lg:justify-center lg:px-0'
+                  }`}
+                >
+                  <span className={`whitespace-nowrap transition-all duration-200 ${isSidebarExpanded ? 'lg:max-w-40 lg:opacity-100' : 'lg:max-w-0 lg:opacity-0'}`}>{category.label}</span>
+                  <span className={`hidden transition-opacity duration-200 lg:inline ${isSidebarExpanded ? 'opacity-0' : 'opacity-100'}`}>·</span>
+                </div>
+                <div className="space-y-1">
+                  {features.map((feature) => {
+                    const Icon = feature.icon;
+                    const active = feature.mode === activeMode;
+                    return (
+                      <button
+                        key={feature.mode}
+                        type="button"
+                        onClick={() => openFeature(feature.mode)}
+                        className={`group flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-bold transition ${
+                          active
+                            ? 'bg-pastel-pink text-pastel-highlight shadow-sm'
+                            : 'text-pastel-muted hover:bg-pastel-bg hover:text-pastel-text'
+                        } ${isSidebarExpanded ? 'justify-start' : 'lg:justify-center lg:px-0'}`}
+                        title={feature.title}
+                        aria-current={active ? 'page' : undefined}
+                      >
+                        <Icon className="h-[1.15rem] w-[1.15rem] shrink-0" strokeWidth={active ? 2.2 : 1.8} />
+                        <span className={`whitespace-nowrap transition-all duration-200 ${isSidebarExpanded ? 'lg:max-w-48 lg:opacity-100' : 'lg:max-w-0 lg:overflow-hidden lg:opacity-0'}`}>{feature.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </nav>
 
-
+        <div className="border-t border-pastel-border p-2.5">
+          <button
+            type="button"
+            onClick={handleBackToStudio}
+            className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-bold text-pastel-muted transition hover:bg-pastel-bg hover:text-pastel-highlight ${
+              isSidebarExpanded ? 'justify-start' : 'lg:justify-center lg:px-0'
+            }`}
+            title="返回工作室"
+          >
+            <ChevronLeft className="h-5 w-5 shrink-0" />
+            <span className={`whitespace-nowrap transition-all duration-200 ${isSidebarExpanded ? 'lg:max-w-40 lg:opacity-100' : 'lg:max-w-0 lg:overflow-hidden lg:opacity-0'}`}>返回工作室</span>
+          </button>
+        </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <header className="h-16 bg-pastel-card/80 backdrop-blur-md border-b border-pastel-border flex items-center px-6 justify-between flex-shrink-0">
-          <h1 className="text-xl font-medium text-pastel-text">
-            {activeTab === AppMode.PLANNING && "视觉策划 (Visual Planning)"}
-            {activeTab === AppMode.PRODUCT_SWAP && "产品替换 (Product Swap)"}
-            {activeTab === AppMode.FUSION && "图像生成 (Image Generation)"}
-            {activeTab === AppMode.INPAINTING && "局部替换 (Inpainting)"}
-            {activeTab === AppMode.RETOUCHING && "高清放大 (HD Upscale)"}
-            {activeTab === AppMode.COPYWRITING && "风格复刻 (Style Replication)"}
-            {activeTab === AppMode.SCENE_GENERATION && "场景图生成 (Scene Generation)"}
-            {activeTab === AppMode.IMAGE_CLEAN && "主图生成 (Hero Image)"}
-            {activeTab === AppMode.MODEL_TRANSFER && "模特迁移 (Model Transfer)"}
-            {activeTab === AppMode.MODEL_POSE_FISSION && "模特姿势裂变 (Model Pose Fission)"}
-            {activeTab === AppMode.OUTFIT_EXTRACTION && "搭配提取 (Outfit Extraction)"}
-            {activeTab === AppMode.RATIO_QUERY && "比例查询 (Aspect Ratio Query)"}
-            {activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK && "模特原图贴回 (Model Original Paste Back)"}
-          </h1>
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden lg:ml-[4.75rem]">
+        <header className="flex min-h-16 shrink-0 items-center gap-3 border-b border-pastel-border bg-pastel-card/90 px-3 backdrop-blur-md sm:px-5">
+          <button
+            type="button"
+            onClick={() => setIsMobileSidebarOpen(true)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-pastel-border bg-pastel-card text-pastel-text transition hover:border-pastel-highlight hover:text-pastel-highlight lg:hidden"
+            aria-label="打开功能导航"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={openHub}
+            className="hidden min-h-11 items-center gap-1 text-sm font-bold text-pastel-muted transition hover:text-pastel-highlight sm:flex"
+          >
+            创意中心
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-black text-pastel-text sm:text-lg">{activeFeature?.title}</h1>
+            <p className="hidden truncate text-xs text-pastel-muted md:block">{activeFeature?.description}</p>
+          </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-0 relative">
-          <div className="h-full w-full">
-            {activeTab === AppMode.PLANNING && <PlanningAgentTab onImageGenerated={handleImageGenerated} />}
-
-            {/* Persist ProductSwapTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.PRODUCT_SWAP ? 'block' : 'none', height: '100%' }}>
-              <ProductSwapTab isActive={activeTab === AppMode.PRODUCT_SWAP} />
-            </div>
-
-            {/* Persist FusionTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.FUSION ? 'block' : 'none', height: '100%' }}>
-              <FusionTab isActive={activeTab === AppMode.FUSION} />
-            </div>
-
-            {/* Persist InpaintingTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.INPAINTING ? 'block' : 'none', height: '100%' }}>
-              <InpaintingTab isActive={activeTab === AppMode.INPAINTING} />
-            </div>
-
-            {/* Persist HDUpscaleTab state (Replacing EditorTab) */}
-            <div style={{ display: activeTab === AppMode.RETOUCHING ? 'block' : 'none', height: '100%' }}>
-              <HDUpscaleTab />
-            </div>
-
-            {/* Persist StyleReplicateTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.COPYWRITING ? 'block' : 'none', height: '100%' }}>
-              <StyleReplicateTab isActive={activeTab === AppMode.COPYWRITING} />
-            </div>
-
-            {/* Persist SceneGenerationTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.SCENE_GENERATION ? 'block' : 'none', height: '100%' }}>
-              <SceneGenerationTab isActive={activeTab === AppMode.SCENE_GENERATION} />
-            </div>
-
-            {/* Persist ImageCleanTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.IMAGE_CLEAN ? 'block' : 'none', height: '100%' }}>
-              <ImageCleanTab isActive={activeTab === AppMode.IMAGE_CLEAN} />
-            </div>
-
-            <div style={{ display: activeTab === AppMode.MODEL_TRANSFER ? 'block' : 'none', height: '100%' }}>
-              <ModelTransferTab />
-            </div>
-
-            <div style={{ display: activeTab === AppMode.MODEL_POSE_FISSION ? 'block' : 'none', height: '100%' }}>
-              <ModelPoseFissionTab isActive={activeTab === AppMode.MODEL_POSE_FISSION} />
-            </div>
-
-            <div style={{ display: activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK ? 'block' : 'none', height: '100%' }}>
-              <ModelOriginalPasteBackTab isActive={activeTab === AppMode.MODEL_ORIGINAL_PASTE_BACK} />
-            </div>
-
-            {/* Persist OutfitExtractionTab state by hiding instead of unmounting */}
-            <div style={{ display: activeTab === AppMode.OUTFIT_EXTRACTION ? 'block' : 'none', height: '100%' }}>
-              <OutfitExtractionTab isActive={activeTab === AppMode.OUTFIT_EXTRACTION} />
-            </div>
-            {activeTab === AppMode.RATIO_QUERY && <AspectRatioTab />}
-          </div>
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          {CREATIVE_FEATURES.filter((feature) => visitedModes.has(feature.mode)).map((feature) => {
+            const FeatureComponent = feature.component;
+            const active = feature.mode === activeMode;
+            return (
+              <div
+                key={feature.mode}
+                className="h-full w-full"
+                style={{ display: active ? 'block' : 'none' }}
+                aria-hidden={!active}
+              >
+                <Suspense fallback={<FeatureLoading />}>
+                  <FeatureComponent
+                    isActive={active}
+                    onImageGenerated={() => undefined}
+                  />
+                </Suspense>
+              </div>
+            );
+          })}
         </div>
       </main>
     </div>
   );
 };
-
-const NavButton: React.FC<{
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  highlight?: boolean;
-}> = ({ active, onClick, icon, label, highlight }) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${active
-      ? 'bg-pastel-pink text-pastel-text shadow-sm font-medium'
-      : 'text-pastel-muted hover:bg-pastel-bg hover:text-pastel-highlight'
-      } ${highlight && !active ? 'text-pastel-highlight' : ''}`}
-  >
-    <div className={`${active ? 'text-pastel-text' : 'group-hover:text-pastel-highlight'} transition-colors`}>
-      {icon}
-    </div>
-    <span className="hidden md:block font-medium text-sm">{label}</span>
-  </button>
-);
 
 export default App;

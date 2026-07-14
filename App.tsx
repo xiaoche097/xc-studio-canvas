@@ -241,7 +241,7 @@ const App: React.FC = () => {
     if (view === 'creative') {
       return (
         <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
-          <CreativeCenterApp />
+          <CreativeCenterApp onBack={() => setView('home')} />
         </div>
       );
     }

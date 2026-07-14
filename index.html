@@ -154,6 +154,52 @@
         background-color 0.5s ease,
         color 0.5s ease;
     }
+
+    .creative-card {
+      opacity: 0;
+      animation: creativeCardReveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .creative-orb {
+      position: absolute;
+      border-radius: 999px;
+      pointer-events: none;
+      filter: blur(1px);
+    }
+
+    .creative-orb-one {
+      width: min(42rem, 72vw);
+      height: min(42rem, 72vw);
+      right: -14rem;
+      top: -25rem;
+      border: 1px solid rgba(222, 129, 64, 0.32);
+      background: radial-gradient(circle at 35% 60%, rgba(255,255,255,.72), rgba(244,175,122,.24) 55%, transparent 72%);
+      box-shadow: 0 0 0 4rem rgba(255,255,255,.18), 0 0 0 4.08rem rgba(221,131,70,.13);
+    }
+
+    .creative-orb-two {
+      width: 20rem;
+      height: 20rem;
+      left: -9rem;
+      bottom: -14rem;
+      background: radial-gradient(circle at 60% 35%, rgba(239,120,42,.23), rgba(255,255,255,.1) 60%, transparent 72%);
+    }
+
+    .dark .creative-orb-one {
+      border-color: rgba(203, 111, 52, 0.2);
+      background: radial-gradient(circle at 35% 60%, rgba(128,71,38,.22), rgba(72,39,24,.12) 55%, transparent 72%);
+      box-shadow: 0 0 0 4rem rgba(85,45,26,.08), 0 0 0 4.08rem rgba(203,111,52,.1);
+    }
+
+    @keyframes creativeCardReveal {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .creative-card { opacity: 1; animation: none; }
+      .creative-card img { transition: none !important; }
+    }
   </style>
 
   <!-- NOTE: index.css is not present in this project; styles are inlined/tailwind-cdn -->
