@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Layers3,
   Loader2,
+  Maximize2,
   PanelLeftOpen,
   Play,
   Plus,
@@ -60,11 +61,27 @@ interface ProductVideoTabProps { isActive?: boolean }
 const MAX_IMAGES = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-const VIDEO_VERSIONS = [
+const STANDARD_VIDEO_VERSIONS = [
   { id: 'seedance-2.0', label: '标准版', hint: 'Seedance 2.0' },
   { id: 'veo-3.1-fast-generate-preview', label: '极速版', hint: 'Veo 3.1 Fast' },
   { id: 'veo-3.1-generate-preview', label: '高质量版', hint: 'Veo 3.1 Pro' },
 ] as const;
+
+const XIAOCHE_VIDEO_VERSIONS = [
+  { id: 'seedance-2.0', label: '标准版', hint: 'Seedance 2.0' },
+  { id: 'xiaoche-omni-flash', label: '全能版', hint: 'Omni Flash' },
+  { id: 'xiaoche-veo-3.1-lite', label: '轻量版', hint: 'Veo 3.1 Lite' },
+  { id: 'xiaoche-veo-3.1-fast', label: '极速版', hint: 'Veo 3.1 Fast' },
+  { id: 'xiaoche-veo-3.1-quality', label: '高质量版', hint: 'Veo 3.1 Quality' },
+] as const;
+
+const isXiaocheVideoEnabled = () => typeof window !== 'undefined'
+  && Boolean(localStorage.getItem('xiaoche_api_key'))
+  && localStorage.getItem('xiaoche_enabled') === 'true';
+
+const getDefaultVideoModel = () => isXiaocheVideoEnabled()
+  ? 'xiaoche-veo-3.1-fast'
+  : 'seedance-2.0';
 
 const createTask = (): VideoTask => ({
   id: crypto.randomUUID(),
@@ -72,7 +89,7 @@ const createTask = (): VideoTask => ({
   status: 'editing',
   videos: [],
   workspace: {
-    mode: 'create', images: [], requirements: '', model: 'seedance-2.0', aspectRatio: '9:16', duration: 15, count: 1,
+    mode: 'create', images: [], requirements: '', model: getDefaultVideoModel(), aspectRatio: '9:16', duration: 15, count: 1,
     stage: 1, schemes: [], selectedSchemeIds: [], keyframes: [], agentStatus: '输入准备 Agent · 等待素材', agentLog: ['已创建视频制作任务'],
   },
 });
@@ -106,7 +123,7 @@ const ProductVideoTab: React.FC<ProductVideoTabProps> = ({ isActive = true }) =>
   const [mode, setMode] = useState<CreationMode>('create');
   const [images, setImages] = useState<ProductAsset[]>([]);
   const [requirements, setRequirements] = useState('');
-  const [model, setModel] = useState<string>('seedance-2.0');
+  const [model, setModel] = useState<string>(getDefaultVideoModel);
   const [aspectRatio, setAspectRatio] = useState('9:16');
   const [duration, setDuration] = useState(15);
   const [count, setCount] = useState(1);
@@ -119,7 +136,16 @@ const ProductVideoTab: React.FC<ProductVideoTabProps> = ({ isActive = true }) =>
   const [videos, setVideos] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keyframePreview, setKeyframePreview] = useState<{ url: string; title: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const xiaocheVideoEnabled = isXiaocheVideoEnabled();
+  const videoVersions = xiaocheVideoEnabled ? XIAOCHE_VIDEO_VERSIONS : STANDARD_VIDEO_VERSIONS;
+
+  useEffect(() => {
+    if (!videoVersions.some((item) => item.id === model)) {
+      setModel(videoVersions[0].id);
+    }
+  }, [model, videoVersions]);
 
   const updateTask = useCallback((patch: Partial<VideoTask>) => {
     setTasks((current) => current.map((task) => task.id === activeTaskId ? { ...task, ...patch } : task));
@@ -184,6 +210,38 @@ const ProductVideoTab: React.FC<ProductVideoTabProps> = ({ isActive = true }) =>
   }, [images, updateTask]);
 
   useImagePaste((files) => void processFiles(files), isActive && !busy);
+
+  const handleImageDrop = useCallback((event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) void processFiles(files);
+  }, [busy, processFiles]);
+
+  const downloadKeyframe = useCallback(async (url: string, title: string) => {
+    const filename = `${title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]+/g, '-') || 'storyboard'}-${Date.now()}.png`;
+    let downloadUrl = url;
+    let objectUrl: string | null = null;
+
+    try {
+      if (!url.startsWith('data:')) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Download failed (${response.status})`);
+        objectUrl = URL.createObjectURL(await response.blob());
+        downloadUrl = objectUrl;
+      }
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }, []);
 
   const newTask = () => {
     if (busy) return;
@@ -337,16 +395,20 @@ No Markdown. No generic duplicate concepts.`);
               <div className="mt-4 grid grid-cols-2 rounded-xl bg-pastel-bg p-1"><button type="button" onClick={() => setMode('create')} className={`min-h-11 rounded-lg text-sm font-bold ${mode === 'create' ? 'bg-pastel-card shadow-sm' : 'text-pastel-muted'}`}><Layers3 className="mr-1 inline h-4 w-4" />创作模式</button><button type="button" onClick={() => setMode('replicate')} className={`min-h-11 rounded-lg text-sm font-bold ${mode === 'replicate' ? 'bg-pastel-card shadow-sm' : 'text-pastel-muted'}`}><Video className="mr-1 inline h-4 w-4" />复刻模式</button></div>
             </section>
 
-            <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
+            <section
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleImageDrop}
+              className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"
+            >
               <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600"><ImageIcon className="h-5 w-5" /></span><div><h2 className="font-black">参考图</h2><p className="text-xs text-pastel-muted">上传 1–3 张产品或场景图</p></div></div><span className="text-xs text-pastel-muted">{images.length}/3</span></div>
-              {images.length === 0 ? <button type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void processFiles(Array.from(event.dataTransfer.files)); }} className="flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed border-pastel-border"><Upload className="h-6 w-6 text-pastel-highlight" /><span className="mt-3 text-sm font-bold">拖拽或点击选择文件</span><span className="mt-1 text-xs text-pastel-muted">JPG、JPEG、PNG、WEBP</span></button> : <div className="flex flex-wrap gap-2">{images.map((image, index) => <div key={image.id} className="group relative h-20 w-20 overflow-hidden rounded-xl border border-pastel-border bg-white"><img src={image.preview} alt={`参考图 ${index + 1}`} className="h-full w-full object-cover" /><button type="button" onClick={() => setImages((current) => current.filter((item) => item.id !== image.id))} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg bg-black/55 text-white"><X className="h-4 w-4" /></button></div>)}{images.length < MAX_IMAGES && <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-pastel-border"><Plus className="h-5 w-5" /></button>}</div>}
+              {images.length === 0 ? <button type="button" onClick={() => fileInputRef.current?.click()} className="flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed border-pastel-border"><Upload className="h-6 w-6 text-pastel-highlight" /><span className="mt-3 text-sm font-bold">拖拽、粘贴或点击选择文件</span><span className="mt-1 text-xs text-pastel-muted">JPG、JPEG、PNG、WEBP</span></button> : <div className="flex flex-wrap gap-2">{images.map((image, index) => <div key={image.id} className="group relative h-20 w-20 overflow-hidden rounded-xl border border-pastel-border bg-white"><img src={image.preview} alt={`参考图 ${index + 1}`} className="h-full w-full object-cover" /><button type="button" onClick={() => setImages((current) => current.filter((item) => item.id !== image.id))} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg bg-black/55 text-white"><X className="h-4 w-4" /></button></div>)}{images.length < MAX_IMAGES && <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-pastel-border" aria-label="继续添加参考图"><Plus className="h-5 w-5" /></button>}</div>}
               <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => { void processFiles(Array.from(event.target.files || [])); event.target.value = ''; }} />
               <div className="mt-3 rounded-xl border border-pastel-border bg-pastel-bg/50 px-3 py-2 text-xs leading-5 text-pastel-muted">支持格式：JPG、JPEG、PNG、WEBP<br />图片大小不超过 10MB</div>
             </section>
 
             <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"><h2 className="font-black">你的要求</h2><p className="mt-1 text-xs text-pastel-muted">填写产品卖点、适用场景、画面风格与展示重点</p><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} className="mt-3 min-h-36 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg p-3 text-sm outline-none focus:border-pastel-highlight" placeholder="例如：突出产品核心卖点，展示使用场景，风格清新自然，产品画面占比约 60%" /></section>
 
-            <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"><h2 className="font-black">视频参数</h2><div className="mt-4 grid grid-cols-2 gap-3"><label className="col-span-2 text-xs font-bold">版本<select value={model} onChange={(event) => setModel(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold">{VIDEO_VERSIONS.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.hint}</option>)}</select></label><label className="text-xs font-bold">画面比例<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option>9:16</option><option>16:9</option><option>1:1</option></select></label><label className="text-xs font-bold">批量数量<select value={count} onChange={(event) => setCount(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={1}>1 条</option><option value={2}>2 条</option><option value={3}>3 条</option><option value={4}>4 条</option></select></label><label className="col-span-2 text-xs font-bold">秒数<select value={duration} onChange={(event) => setDuration(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={5}>5 秒</option><option value={8}>8 秒</option><option value={10}>10 秒</option><option value={15}>15 秒</option></select></label></div></section>
+            <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"><h2 className="font-black">视频参数</h2><div className="mt-4 grid grid-cols-2 gap-3"><label className="col-span-2 text-xs font-bold">版本<select value={model} onChange={(event) => setModel(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold">{videoVersions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.hint}</option>)}</select></label><label className="text-xs font-bold">画面比例<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option>9:16</option><option>16:9</option><option>1:1</option></select></label><label className="text-xs font-bold">批量数量<select value={count} onChange={(event) => setCount(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={1}>1 条</option><option value={2}>2 条</option><option value={3}>3 条</option><option value={4}>4 条</option></select></label><label className="col-span-2 text-xs font-bold">秒数<select value={duration} onChange={(event) => setDuration(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={5}>5 秒</option><option value={8}>8 秒</option><option value={10}>10 秒</option><option value={15}>15 秒</option></select></label></div></section>
             <button type="button" onClick={generatePlan} disabled={!images.length || !requirements.trim() || busy} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] px-4 text-base font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{busy && stage !== 4 ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}下一步：生成方案</button>
           </div>
 
@@ -362,11 +424,20 @@ No Markdown. No generic duplicate concepts.`);
 
             {stage === 2 && <div className="mt-5 flex flex-1 flex-col"><div className="rounded-xl border border-pastel-border bg-pastel-bg/40 p-3 text-xs text-pastel-muted">创意方案可多选 · 共 {schemes.length} 条 · 已选 {selectedSchemeIds.length} 条</div><div className="mt-3 space-y-3">{schemes.map((scheme, index) => { const selected = selectedSchemeIds.includes(scheme.id); return <button key={scheme.id} type="button" onClick={() => setSelectedSchemeIds((current) => selected ? current.filter((id) => id !== scheme.id) : [...current, scheme.id])} className={`w-full rounded-2xl border p-4 text-left transition ${selected ? 'border-[#172238] bg-blue-50/40 ring-2 ring-blue-100' : 'border-pastel-border hover:border-blue-300'}`}><div className="flex items-start gap-3"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? 'bg-[#172238] text-white' : 'bg-pastel-bg text-pastel-muted'}`}>{index + 1}</span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-3"><h3 className="font-black">{scheme.title}</h3><span className={`flex h-6 w-6 items-center justify-center rounded-md border ${selected ? 'border-[#172238] bg-[#172238] text-white' : 'border-pastel-border'}`}>{selected && <CheckCircle2 className="h-4 w-4" />}</span></div><p className="mt-2 text-sm leading-6 text-pastel-muted">{scheme.summary}</p><p className="mt-2 text-xs font-bold text-blue-600">策略：{scheme.strategy}</p><p className="mt-2 line-clamp-2 text-xs text-pastel-muted">{scheme.scenes.map((scene) => scene.visual).join(' · ')}</p></div></div></button>; })}</div><button type="button" onClick={() => void generateKeyframes()} disabled={!selectedSchemeIds.length || busy} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] text-base font-black text-white disabled:opacity-40"><Clapperboard className="h-5 w-5" />下一步：Agent 生成宫格关键帧</button></div>}
 
-            {stage === 3 && <div className="mt-5 flex flex-1 flex-col">{busy ? <div className="flex flex-1 flex-col items-center justify-center text-center"><Loader2 className="h-12 w-12 animate-spin text-pastel-highlight" /><p className="mt-5 font-black">Agent 正在制作并审查关键帧</p><p className="mt-2 max-w-md text-sm text-pastel-muted">分镜导演负责生成，质量审查 Agent 会检查产品一致性；不通过时自动修正一次</p></div> : <><div className="space-y-4">{keyframes.map((keyframe) => { const scheme = schemes.find((item) => item.id === keyframe.schemeId); return <article key={keyframe.schemeId} className="overflow-hidden rounded-2xl border border-pastel-border"><div className="flex items-center justify-between border-b border-pastel-border px-4 py-3"><div><h3 className="font-black">{scheme?.title}</h3><p className="text-xs text-pastel-muted">素材组 1 · 宫格关键帧</p></div><span className={`rounded-full px-3 py-1 text-xs font-black ${keyframe.qaPassed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{keyframe.qaPassed ? '质检通过' : '建议复核'}</span></div><div className="bg-[#10192b] p-4"><img src={keyframe.imageUrl} alt={`${scheme?.title} 宫格关键帧`} className="mx-auto max-h-[42rem] w-full object-contain" /></div><p className="border-t border-pastel-border px-4 py-3 text-xs text-pastel-muted">质量审查：{keyframe.qaNotes}</p></article>; })}</div><button type="button" onClick={() => void generateFinalVideo()} disabled={!keyframes.length} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] text-base font-black text-white disabled:opacity-40"><Film className="h-5 w-5" />开始生成产品视频</button></>}</div>}
+            {stage === 3 && <div className="mt-5 flex flex-1 flex-col">{busy ? <div className="flex flex-1 flex-col items-center justify-center text-center"><Loader2 className="h-12 w-12 animate-spin text-pastel-highlight" /><p className="mt-5 font-black">Agent 正在制作并审查关键帧</p><p className="mt-2 max-w-md text-sm text-pastel-muted">分镜导演负责生成，质量审查 Agent 会检查产品一致性；不通过时自动修正一次</p></div> : <><div className="space-y-4">{keyframes.map((keyframe, index) => { const scheme = schemes.find((item) => item.id === keyframe.schemeId); const title = scheme?.title || `分镜图 ${index + 1}`; return <article key={keyframe.schemeId} className="overflow-hidden rounded-2xl border border-pastel-border"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-pastel-border px-4 py-3"><div><h3 className="font-black">{title}</h3><p className="text-xs text-pastel-muted">素材组 1 · 宫格关键帧</p></div><div className="flex items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-black ${keyframe.qaPassed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{keyframe.qaPassed ? '质检通过' : '建议复核'}</span><button type="button" onClick={() => setKeyframePreview({ url: keyframe.imageUrl, title })} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-pastel-border text-pastel-muted transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600" aria-label={`放大查看 ${title}`}><Maximize2 className="h-4 w-4" /></button><button type="button" onClick={() => void downloadKeyframe(keyframe.imageUrl, title)} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-[#172238] text-white transition hover:bg-[#243554]" aria-label={`下载 ${title}`}><Download className="h-4 w-4" /></button></div></div><button type="button" onClick={() => setKeyframePreview({ url: keyframe.imageUrl, title })} className="group relative block w-full bg-[#10192b] p-4" aria-label={`放大查看 ${title}`}><img src={keyframe.imageUrl} alt={`${title} 宫格关键帧`} className="mx-auto max-h-[42rem] w-full object-contain transition duration-300 group-hover:scale-[1.01]" /><span className="pointer-events-none absolute bottom-7 right-7 flex items-center gap-2 rounded-full bg-black/65 px-3 py-2 text-xs font-black text-white opacity-0 backdrop-blur transition group-hover:opacity-100"><Maximize2 className="h-4 w-4" />点击放大</span></button><p className="border-t border-pastel-border px-4 py-3 text-xs text-pastel-muted">质量审查：{keyframe.qaNotes}</p></article>; })}</div><button type="button" onClick={() => void generateFinalVideo()} disabled={!keyframes.length} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] text-base font-black text-white disabled:opacity-40"><Film className="h-5 w-5" />开始生成产品视频</button></>}</div>}
 
             {stage === 4 && <div className="mt-5 flex flex-1 flex-col">{busy ? <div className="flex flex-1 flex-col items-center justify-center text-center"><Loader2 className="h-12 w-12 animate-spin text-pastel-highlight" /><p className="mt-5 font-black">视频制作 Agent 正在生成成片</p><p className="mt-2 text-sm text-pastel-muted">已锁定通过质检的关键帧、产品身份与镜头顺序</p></div> : videos.length ? <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">{videos.map((uri, index) => <article key={uri} className="overflow-hidden rounded-2xl border border-pastel-border bg-black"><video src={uri} controls playsInline className="aspect-video w-full object-contain" /><div className="flex items-center justify-between bg-pastel-card p-3"><span className="text-sm font-black">产品视频 {index + 1}</span><a href={uri} download className="flex h-11 items-center gap-2 rounded-xl bg-[#172238] px-4 text-xs font-black text-white"><Download className="h-4 w-4" />下载</a></div></article>)}</div> : <div className="flex flex-1 flex-col items-center justify-center text-center text-pastel-muted"><Play className="h-12 w-12" /><p className="mt-4">Agent 流程已暂停，可返回关键帧阶段重试</p><button type="button" onClick={() => setStage(3)} className="mt-4 min-h-11 rounded-xl border border-pastel-border px-4 font-bold">返回关键帧</button></div>}</div>}
           </section>
         </div>
+
+        {keyframePreview && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#07101f]/92 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-label={`${keyframePreview.title} 放大预览`} onClick={() => setKeyframePreview(null)}>
+            <div className="flex max-h-full w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#10192b] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+              <div className="flex min-h-14 items-center justify-between gap-3 border-b border-white/10 px-4 text-white sm:px-5"><div className="min-w-0"><h3 className="truncate text-sm font-black sm:text-base">{keyframePreview.title}</h3><p className="text-xs text-white/55">宫格关键帧 · 原图预览</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => void downloadKeyframe(keyframePreview.url, keyframePreview.title)} className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-3 text-xs font-black text-white hover:bg-orange-600 sm:px-4"><Download className="h-4 w-4" /><span className="hidden sm:inline">下载原图</span></button><button type="button" onClick={() => setKeyframePreview(null)} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-white/15 text-white hover:bg-white/10" aria-label="关闭预览"><X className="h-5 w-5" /></button></div></div>
+              <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5"><img src={keyframePreview.url} alt={`${keyframePreview.title} 原图`} className="mx-auto max-h-[calc(100vh-8rem)] max-w-full object-contain" /></div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

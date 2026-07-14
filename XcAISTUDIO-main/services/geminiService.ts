@@ -2,13 +2,13 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type, Modality, Part, FunctionDeclaration } from "@google/genai";
 import { SmartSequenceItem, VideoGenerationMode } from "../types";
-import { generateContentWithAnalysisFallback, getApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
+import { generateContentWithAnalysisFallback, getApiConfig, getVideoApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
+import { getXiaocheVideoImageLimit, resolveXiaocheVideoModel } from "../../Cyzx4/utils/xiaocheModels";
 import { generateSeedanceVideo, generateWanVideo } from "./externalVideoProviders";
 
 // --- Initialization ---
 
-const getClient = () => {
-    const config = getApiConfig();
+const getClient = (config = getApiConfig()) => {
     if (!config.apiKey) {
         throw new Error("API Key is missing. Please select a paid API key via the Google AI Studio button.");
     }
@@ -41,6 +41,109 @@ const getErrorMessage = (error: any): string => {
 };
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const extractXiaocheVideoUrls = (value: unknown): string[] => {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+    const urls = new Set<string>();
+    const videoTagPattern = /<video[^>]+src=["']([^"']+)["']/gi;
+    const directUrlPattern = /https?:\/\/[^\s"'<>\\]+/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = videoTagPattern.exec(serialized))) {
+        if (match[1]) urls.add(match[1].replace(/&amp;/g, '&'));
+    }
+    while ((match = directUrlPattern.exec(serialized))) {
+        const url = match[0].replace(/[),.;]+$/, '').replace(/&amp;/g, '&');
+        if (/\.mp4(?:\?|$)|\/cache\/|\/media\//i.test(url)) urls.add(url);
+    }
+
+    if (value && typeof value === 'object' && 'url' in value) {
+        const directUrl = (value as { url?: unknown }).url;
+        if (typeof directUrl === 'string' && directUrl) urls.add(directUrl);
+    }
+    return Array.from(urls);
+};
+
+const generateXiaocheVideo = async (
+    prompt: string,
+    model: string,
+    apiKey: string,
+    baseUrl: string,
+    images: string[]
+): Promise<string> => {
+    const content: Array<Record<string, unknown>> = [{ type: 'text', text: prompt }];
+    images.forEach((url) => content.push({ type: 'image_url', image_url: { url } }));
+
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content }],
+            stream: true,
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Xiaoche video API ${response.status}: ${await response.text()}`);
+    }
+    if (!response.body) throw new Error('Xiaoche video API returned an empty stream.');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const urls = new Set<string>();
+    let buffer = '';
+    let streamedText = '';
+
+    const consumeEvent = (eventBlock: string) => {
+        for (const line of eventBlock.split(/\r?\n/)) {
+            if (!line.startsWith('data:')) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === '[DONE]') continue;
+
+            let payload: any;
+            try {
+                payload = JSON.parse(data);
+            } catch {
+                streamedText += data;
+                extractXiaocheVideoUrls(data).forEach((url) => urls.add(url));
+                continue;
+            }
+
+            if (payload?.error) {
+                throw new Error(payload.error.message || payload.error.detail || JSON.stringify(payload.error));
+            }
+            const chunkText = payload?.choices?.[0]?.delta?.content
+                || payload?.choices?.[0]?.delta?.reasoning_content
+                || payload?.choices?.[0]?.message?.content
+                || payload?.result
+                || '';
+            if (typeof chunkText === 'string') streamedText += chunkText;
+            extractXiaocheVideoUrls(payload).forEach((url) => urls.add(url));
+            extractXiaocheVideoUrls(chunkText).forEach((url) => urls.add(url));
+        }
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = blocks.pop() || '';
+        blocks.forEach(consumeEvent);
+        if (done) break;
+    }
+    if (buffer.trim()) consumeEvent(buffer);
+
+    extractXiaocheVideoUrls(streamedText).forEach((url) => urls.add(url));
+    const [videoUrl] = Array.from(urls);
+    if (!videoUrl) {
+        throw new Error(`Xiaoche completed without a video URL. Response: ${streamedText.slice(-500)}`);
+    }
+    return videoUrl;
+};
 
 async function retryWithBackoff<T>(
     operation: () => Promise<T>,
@@ -449,14 +552,16 @@ export const generateVideo = async (
     const qualitySuffix = ", cinematic lighting, highly detailed, photorealistic, 4k, smooth motion, professional color grading";
     const enhancedPrompt = prompt + qualitySuffix;
 
+    const xiaocheEnabled = Boolean(localStorage.getItem('xiaoche_api_key')) && localStorage.getItem('xiaoche_enabled') === 'true';
+
     if (model.startsWith('seedance')) {
         return generateSeedanceVideo(enhancedPrompt, model, options, inputImageBase64, referenceImages, referenceVideos, referenceAudios);
     }
-    if (model.startsWith('wan')) {
+    if (model.startsWith('wan') && !xiaocheEnabled) {
         return generateWanVideo(enhancedPrompt, options, inputImageBase64);
     }
 
-    const ai = getClient();
+    const apiConfig = getVideoApiConfig();
 
     // --- Model Selection & Resolution ---
     const requestedResolution = options.resolution || '1080p';
@@ -467,6 +572,44 @@ export const generateVideo = async (
                 ? '1080p'
                 : '720p';
     const aspectRatio = options.aspectRatio === '9:16' ? '9:16' : '16:9';
+    const xiaocheImageLimit = getXiaocheVideoImageLimit(
+        model,
+        options.generationMode === 'FIRST_LAST_FRAME'
+    );
+    const xiaocheImages = Array.from(new Set([
+        inputImageBase64,
+        ...(referenceImages || []),
+    ].filter((image): image is string => Boolean(image)))).slice(0, xiaocheImageLimit);
+    const runtimeModel = apiConfig.isXiaoche
+        ? resolveXiaocheVideoModel(model, aspectRatio, xiaocheImages.length)
+        : resolveRuntimeModelId(model, apiConfig);
+
+    console.info(`[Video Provider] ${apiConfig.isXiaoche ? 'Xiaoche' : 'Default'} · ${model} -> ${runtimeModel}`);
+
+    if (apiConfig.isXiaoche) {
+        if (!apiConfig.baseUrl) throw new Error('Xiaoche video base URL is missing.');
+        const requestedCount = options.count || 1;
+        const results = await Promise.allSettled(
+            Array.from({ length: requestedCount }, () => retryWithBackoff(() => generateXiaocheVideo(
+                enhancedPrompt,
+                runtimeModel,
+                apiConfig.apiKey,
+                apiConfig.baseUrl!,
+                xiaocheImages
+            ), 2, 3000))
+        );
+        const uris = results
+            .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+            .map((result) => result.value);
+
+        if (uris.length === 0) {
+            const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+            throw firstFailure?.reason || new Error('Xiaoche video generation failed without a result.');
+        }
+        return { uri: uris[0], uris, isFallbackImage: false };
+    }
+
+    const ai = getClient(apiConfig);
 
     // --- Google Veo Path ---
 
@@ -517,7 +660,7 @@ export const generateVideo = async (
         referenceImages &&
         referenceImages.length > 0 &&
         options.generationMode !== 'FIRST_LAST_FRAME' &&
-        model.includes('veo-3.1')
+        (model.includes('veo-3.1') || runtimeModel.startsWith('veo_3_1'))
     ) {
         // Some Veo models support referenceImages config
         // Converting references
@@ -538,7 +681,7 @@ export const generateVideo = async (
         for (let i = 0; i < count; i++) {
             operations.push(retryWithBackoff(async () => {
                 let op = await ai.models.generateVideos({
-                    model: model,
+                    model: runtimeModel,
                     ...inputs,
                     config: config
                 });
@@ -562,7 +705,6 @@ export const generateVideo = async (
             if (res.status === 'fulfilled') {
                 const vid = res.value.response?.generatedVideos?.[0]?.video;
                 if (vid?.uri) {
-                    const apiConfig = getApiConfig();
                     const needsGoogleKey = !apiConfig.isYunwu && /googleapis\.com|googleusercontent\.com/.test(vid.uri);
                     const separator = vid.uri.includes('?') ? '&' : '?';
                     const fullUri = needsGoogleKey

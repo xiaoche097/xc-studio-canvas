@@ -532,6 +532,9 @@ export const getApiConfig = (
 /** Image generation can opt into image-only relays without hijacking text/analysis calls. */
 export const getImageApiConfig = (forceIndex?: number) => getApiConfig(forceIndex, true);
 
+/** Video generation uses the same media relay priority as image generation. */
+export const getVideoApiConfig = (forceIndex?: number) => getApiConfig(forceIndex, true);
+
 /**
  * 获取AI客户端实例
  */

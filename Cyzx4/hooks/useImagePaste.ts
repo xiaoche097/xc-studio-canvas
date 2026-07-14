@@ -36,22 +36,27 @@ export const useImagePaste = (onFilesPasted: (files: File[]) => void, isActive: 
       }
     }
 
-    const items = event.clipboardData?.items;
-    if (!items) return;
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
 
-    const files: File[] = [];
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          files.push(file);
-        }
-      }
+    // Browsers expose pasted screenshots through `items`, while copied files
+    // (especially from Windows Explorer) may only be available through `files`.
+    const filesByIdentity = new Map<string, File>();
+    const addImageFile = (file: File | null) => {
+      if (!file || !file.type.startsWith('image/')) return;
+      const identity = `${file.name}:${file.size}:${file.lastModified}:${file.type}`;
+      filesByIdentity.set(identity, file);
+    };
+
+    for (const item of clipboardData.items) {
+      if (item.type.startsWith('image/')) addImageFile(item.getAsFile());
     }
+    for (const file of clipboardData.files) addImageFile(file);
+
+    const files = Array.from(filesByIdentity.values());
 
     if (files.length > 0) {
-      // Prevent double handling if needed
-      // event.preventDefault(); 
+      event.preventDefault();
       onFilesPasted(files);
     }
   }, [onFilesPasted, isActive]);
