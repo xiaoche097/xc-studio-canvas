@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, Maximize2, Calculator, Image as ImageIcon, Ruler } from 'lucide-react';
+import { useImagePaste } from '../hooks/useImagePaste';
 
 interface RatioData {
   ratio: string;
@@ -12,7 +13,11 @@ interface RatioData {
   resolutionK: string;
 }
 
-const AspectRatioTab: React.FC = () => {
+interface AspectRatioTabProps {
+  isActive?: boolean;
+}
+
+const AspectRatioTab: React.FC<AspectRatioTabProps> = ({ isActive = true }) => {
   const [data, setData] = useState<RatioData | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,16 +82,7 @@ const AspectRatioTab: React.FC = () => {
     return `${width / common}:${height / common}`;
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
-    let file: File | undefined;
-    
-    if ('files' in e.target && e.target.files) {
-      file = e.target.files[0];
-    } else if ('dataTransfer' in e && e.dataTransfer.files) {
-      file = e.dataTransfer.files[0];
-    }
-
-    if (!file) return;
+  const analyzeFile = React.useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
       setError('请上传有效的图片文件');
       return;
@@ -95,10 +91,23 @@ const AspectRatioTab: React.FC = () => {
     setIsAnalyzing(true);
     setError(null);
 
+    const handleAnalysisError = () => {
+      setError('分析图片时出错');
+      setIsAnalyzing(false);
+    };
+
     try {
       const reader = new FileReader();
+      reader.onerror = handleAnalysisError;
       reader.onload = (event) => {
+        const result = event.target?.result;
+        if (typeof result !== 'string') {
+          handleAnalysisError();
+          return;
+        }
+
         const img = new Image();
+        img.onerror = handleAnalysisError;
         img.onload = () => {
           const w = img.width;
           const h = img.height;
@@ -114,19 +123,37 @@ const AspectRatioTab: React.FC = () => {
             pixelWidth: w,
             pixelHeight: h,
             resolutionK: getKResolution(w, h),
-            fileSize: file!.size,
-            previewUrl: event.target?.result as string
+            fileSize: file.size,
+            previewUrl: result
           });
           setIsAnalyzing(false);
         };
-        img.src = event.target?.result as string;
+        img.src = result;
       };
       reader.readAsDataURL(file);
-    } catch (err) {
-      setError('分析图片时出错');
-      setIsAnalyzing(false);
+    } catch {
+      handleAnalysisError();
     }
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
+    let file: File | undefined;
+
+    if ('files' in e.target && e.target.files) {
+      file = e.target.files[0];
+    } else if ('dataTransfer' in e && e.dataTransfer.files) {
+      file = e.dataTransfer.files[0];
+    }
+
+    if (file) analyzeFile(file);
   };
+
+  const handlePastedFiles = React.useCallback((files: File[]) => {
+    const image = files.find((file) => file.type.startsWith('image/'));
+    if (image) analyzeFile(image);
+  }, [analyzeFile]);
+
+  useImagePaste(handlePastedFiles, isActive);
 
   const copyToClipboard = (text: string) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -160,7 +187,7 @@ const AspectRatioTab: React.FC = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-8 animate-fade-in">
+    <div className="no-scrollbar h-full min-h-0 max-w-5xl mx-auto overflow-y-auto overflow-x-hidden p-6 pb-12 space-y-8 animate-fade-in">
       <div className="flex items-center gap-3 mb-2">
         <div className="bg-pastel-pink p-2 rounded-lg">
           <Calculator className="w-6 h-6 text-pastel-highlight" />
@@ -190,7 +217,7 @@ const AspectRatioTab: React.FC = () => {
           
           <div className="text-center space-y-2 z-10">
             <p className="text-xl font-medium text-pastel-text">点击或拖拽图片进行比例分析</p>
-            <p className="text-sm text-pastel-muted">支持 JPG, PNG, WEBP 格式</p>
+            <p className="text-sm text-pastel-muted">支持 JPG、PNG、WEBP，也可 Ctrl+V 粘贴图片</p>
           </div>
 
           <input 

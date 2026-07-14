@@ -15,7 +15,9 @@ export enum AppMode {
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)
   STORYBOARD = 'STORYBOARD', // 分镜创作 (Storyboard)
-  SCENE_GENERATION = 'SCENE_GENERATION' // 场景图生成
+  SCENE_GENERATION = 'SCENE_GENERATION', // 场景图生成
+  WHITE_BG_RETOUCH = 'WHITE_BG_RETOUCH', // 通用白底图精修
+  PRODUCT_VIDEO = 'PRODUCT_VIDEO' // AI 生成产品视频
 }
 
 export enum AspectRatio {

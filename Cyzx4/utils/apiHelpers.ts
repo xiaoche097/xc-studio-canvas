@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { DEFAULT_XIAOCHE_BASE_URL } from "./xiaocheModels";
 
 // ==================== 常量定义 ====================
 export const API_TIMEOUT_MS = 90000; // 90秒超时
@@ -32,6 +33,7 @@ export interface ApiConfig {
     isPlato: boolean;
     isJijing?: boolean;
     isRight?: boolean;
+    isXiaoche?: boolean;
     apiVersion?: string;
     providerRetryCount?: number;
 }
@@ -42,7 +44,7 @@ export interface GenerateContentParams {
     config?: any;
 }
 
-type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRight'>;
+type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRight' | 'isXiaoche'>;
 
 const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
     const normalizedPreferred = !preferredUrl || preferredUrl === LEGACY_JIJING_BASE_URL
@@ -72,6 +74,9 @@ export const resolveRuntimeModelId = (
     config?: RuntimeModelConfig
 ): string => {
     const runtimeConfig = config || {
+        isXiaoche:
+            Boolean(localStorage.getItem("xiaoche_api_key")) &&
+            localStorage.getItem("xiaoche_enabled") === "true",
         isYunwu:
             Boolean(localStorage.getItem("yunwu_api_key")) &&
             localStorage.getItem("yunwu_enabled") !== "false" &&
@@ -86,6 +91,10 @@ export const resolveRuntimeModelId = (
             !(
                 Boolean(localStorage.getItem("right_api_key")) &&
                 localStorage.getItem("right_enabled") !== "false"
+            ) &&
+            !(
+                Boolean(localStorage.getItem("xiaoche_api_key")) &&
+                localStorage.getItem("xiaoche_enabled") === "true"
             ),
         isPlato:
             (
@@ -287,7 +296,53 @@ export const throwIfAborted = (signal?: AbortSignal) => {
  * 获取 API 配置（优先级：Plato > Yunwu > Native > Env）
  * @param forceIndex 强制使用的 Key 索引（用于自动重试）
  */
-export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: number, currentIndex: number } => {
+export const getApiConfig = (
+    forceIndex?: number,
+    includeImageOnlyProviders = false
+): ApiConfig & { keyCount: number, currentIndex: number } => {
+    // Xiaoche relay: explicit opt-in and independent storage keys keep all existing providers unchanged.
+    const xiaocheKey = localStorage.getItem("xiaoche_api_key");
+    const xiaocheBaseUrl = localStorage.getItem("xiaoche_base_url");
+    const xiaocheEnabled = localStorage.getItem("xiaoche_enabled") === "true";
+
+    if (includeImageOnlyProviders && xiaocheKey && xiaocheEnabled) {
+        const keys = xiaocheKey.split(/[,\n]/).map(k => k.trim()).filter(Boolean);
+        if (keys.length === 0) {
+            throw new Error("Xiaoche relay API Key is empty. Please check Settings.");
+        }
+        const keyCount = keys.length;
+        let currentIndex = 0;
+        if (keyCount > 1) {
+            if (forceIndex !== undefined) {
+                currentIndex = forceIndex % keyCount;
+            } else {
+                const lastIndexKey = "xiaoche_api_key_last_index";
+                const lastIndex = parseInt(localStorage.getItem(lastIndexKey) || "-1");
+                currentIndex = (lastIndex + 1) % keyCount;
+                localStorage.setItem(lastIndexKey, currentIndex.toString());
+            }
+        }
+
+        const configuredBaseUrl = (xiaocheBaseUrl || DEFAULT_XIAOCHE_BASE_URL).replace(/\/+$/, '');
+        // Flow2API exposes OpenAI routes under /v1, but Gemini generateContent at /models or /v1beta/models.
+        // The Google SDK receives the protocol root so it does not request the nonexistent /v1/models/... path.
+        const geminiProtocolBaseUrl = configuredBaseUrl.replace(/\/v1$/i, '');
+
+        return {
+            apiKey: keys[currentIndex],
+            baseUrl: geminiProtocolBaseUrl,
+            isYunwu: true,
+            isPlato: false,
+            isJijing: false,
+            isRight: false,
+            isXiaoche: true,
+            // Flow2API provides the unversioned Gemini compatibility route at /models/:generateContent.
+            apiVersion: '',
+            keyCount,
+            currentIndex,
+        };
+    }
+
     // Right Code API
     const rightKey = localStorage.getItem("right_api_key");
     const rightBaseUrl = localStorage.getItem("right_base_url");
@@ -471,8 +526,11 @@ export const getApiConfig = (forceIndex?: number): ApiConfig & { keyCount: numbe
         };
     }
 
-    throw new Error("No active API configuration found. Please enable Right Code, No.1 Image, Plato, Yunwu or Native API in Settings.");
+    throw new Error("No active API configuration found. Please enable Xiaoche, Right Code, No.1 Image, Plato, Yunwu or Native API in Settings.");
 };
+
+/** Image generation can opt into image-only relays without hijacking text/analysis calls. */
+export const getImageApiConfig = (forceIndex?: number) => getApiConfig(forceIndex, true);
 
 /**
  * 获取AI客户端实例
@@ -625,11 +683,42 @@ export const getAiClient = (): GoogleGenAI => {
 };
 
 /**
+ * Image-only client selection. Xiaoche intentionally has higher priority here,
+ * while getAiClient() keeps using the normal text/analysis provider order.
+ */
+export const getImageAiClient = (): {
+    ai: GoogleGenAI;
+    config: ApiConfig & { keyCount: number; currentIndex: number };
+} => {
+    const config = getImageApiConfig();
+    const ai = config.isRight
+        ? createRightCodeChatClient(config)
+        : config.isYunwu && config.baseUrl
+            ? new GoogleGenAI({
+                apiKey: config.apiKey,
+                httpOptions: {
+                    baseUrl: config.baseUrl,
+                    headers: { Authorization: `Bearer ${config.apiKey}` }
+                },
+                apiVersion: config.apiVersion as any
+            })
+            : new GoogleGenAI({
+                apiKey: config.apiKey,
+                apiVersion: config.apiVersion as any
+            });
+
+    return { ai, config };
+};
+
+/**
  * 获取当前激活的API信息（用于调试）
  */
-export const getActiveApiInfo = (): { type: 'right' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+export const getActiveApiInfo = (): { type: 'xiaoche' | 'right' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
-        const config = getApiConfig();
+        const config = getImageApiConfig();
+        if (config.isXiaoche) {
+            return { type: 'xiaoche', baseUrl: config.baseUrl };
+        }
         if (localStorage.getItem("right_api_key") && (localStorage.getItem("right_enabled") !== "false")) {
             return { type: 'right', baseUrl: config.baseUrl };
         }
