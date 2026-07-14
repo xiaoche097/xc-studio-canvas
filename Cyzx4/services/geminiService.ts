@@ -5,6 +5,7 @@ import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTU
 // 导入工具函数和类型定义
 import {
   getApiConfig,
+  getImageApiConfig,
   getAiClient,
   getActiveApiInfo,
   resolveRuntimeModelId,
@@ -19,6 +20,7 @@ import {
   floatTo16BitPCM,
   API_TIMEOUT_MS
 } from "../utils/apiHelpers";
+import { resolveXiaocheImageModel } from "../utils/xiaocheModels";
 
 import type {
   GeminiResponse,
@@ -1202,7 +1204,7 @@ export const generateImageToImage = async (
   };
   
   // Get initial config to know how many keys we have
-  const initialConfig = getApiConfig();
+  const initialConfig = getImageApiConfig();
   const maxRetries = initialConfig.isJijing
     ? Math.min(initialConfig.keyCount, 4)
     : Math.min(initialConfig.keyCount, 3); // Max retry across 3 keys or total keys
@@ -1263,7 +1265,7 @@ export const generateImageToImage = async (
     : '';
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const config = getApiConfig(initialConfig.currentIndex + attempt);
+    const config = getImageApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
       apiKey: config.apiKey,
       httpOptions: config.isYunwu ? { 
@@ -2259,9 +2261,12 @@ ${forcedPrompt}`;
       `);
 
       const sendGeminiRequest = async (modelName: string) => {
+        const runtimeModel = config.isXiaoche
+          ? resolveXiaocheImageModel(modelName, aspectRatio, resolution)
+          : resolveRuntimeModelId(modelName, config);
         return await executeWithTimeout(
           ai.models.generateContent({
-            model: resolveRuntimeModelId(modelName),
+            model: runtimeModel,
             contents: { parts: parts },
             // EXTREME REDUNDANCY: Inject aspect ratio into every possible field name and location
             // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
@@ -2422,7 +2427,7 @@ export const generateInpainting = async (
   const retryLimit = 3;
   let lastError: any = null;
 
-  const initialConfig = getApiConfig();
+  const initialConfig = getImageApiConfig();
   const maxRetries = Math.min(initialConfig.keyCount, 3);
 
   let targetModel = options.modelId || "gemini-3.1-flash-image-preview";
@@ -2448,7 +2453,7 @@ export const generateInpainting = async (
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-vip';
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const config = getApiConfig(initialConfig.currentIndex + attempt);
+    const config = getImageApiConfig(initialConfig.currentIndex + attempt);
     const ai = new GoogleGenAI({
       apiKey: config.apiKey,
       httpOptions: config.isYunwu ? { 
@@ -2642,7 +2647,9 @@ export const generateInpainting = async (
 
       const response = await executeWithTimeout(
         ai.models.generateContent({
-          model: resolveRuntimeModelId(targetModel),
+          model: config.isXiaoche
+            ? resolveXiaocheImageModel(targetModel, options.aspectRatio || '1:1', String(options.resolution || '1K'))
+            : resolveRuntimeModelId(targetModel, config),
           contents: { parts: parts },
           config: {
             imageConfig: {

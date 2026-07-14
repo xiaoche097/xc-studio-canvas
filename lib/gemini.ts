@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getApiConfig, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
+import { getApiConfig, getImageApiConfig, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
+import { resolveXiaocheImageModel } from "../Cyzx4/utils/xiaocheModels";
 
 const toOpenAiContent = (text: string, images: string[] = []) => {
   const content: any[] = [];
@@ -187,7 +188,7 @@ class GeminiClient {
   }
 
   async generateImage(prompt: string, referenceImages: string[] = [], options: { aspectRatio?: string; resolution?: string; model?: string } = {}): Promise<string> {
-    const config = getApiConfig();
+    const config = getImageApiConfig();
     const activeKey = config.apiKey;
     const baseUrl = (config.baseUrl || "https://generativelanguage.googleapis.com").replace(/\/$/, "");
 
@@ -220,7 +221,10 @@ class GeminiClient {
 
     // Model Routing logic
     // Default to gpt-image-2 as requested for quality
-    const imageModel = resolveRuntimeModelId(options.model || "gpt-image-2", config);
+    const requestedImageModel = options.model || "gpt-image-2";
+    const imageModel = config.isXiaoche
+      ? resolveXiaocheImageModel(requestedImageModel, options.aspectRatio || '1:1', options.resolution || '1K')
+      : resolveRuntimeModelId(requestedImageModel, config);
 
     if (config.isRight) {
       const openAiImageSize = (() => {

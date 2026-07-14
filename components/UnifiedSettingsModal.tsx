@@ -28,6 +28,12 @@ import {
 import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
 import { storageService, CacheStats } from '../services/storageService';
 import { deleteFromStorage } from '../XcAISTUDIO-main/services/storage';
+import {
+  DEFAULT_XIAOCHE_BASE_URL,
+  XIAOCHE_IMAGE_MODELS,
+  XIAOCHE_MODELS,
+  XIAOCHE_VIDEO_MODELS,
+} from '../Cyzx4/utils/xiaocheModels';
 
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
@@ -172,6 +178,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isRightKeyVisible, setIsRightKeyVisible] = useState(false);
   const [rightEnabled, setRightEnabled] = useState(false);
 
+  const [xiaocheApiKey, setXiaocheApiKey] = useState('');
+  const [xiaocheBaseUrl, setXiaocheBaseUrl] = useState(DEFAULT_XIAOCHE_BASE_URL);
+  const [isXiaocheKeyVisible, setIsXiaocheKeyVisible] = useState(false);
+  const [xiaocheEnabled, setXiaocheEnabled] = useState(false);
+
   const [volcengineApiKey, setVolcengineApiKey] = useState('');
   const [isVolcengineKeyVisible, setIsVolcengineKeyVisible] = useState(false);
   const [volcengineEnabled, setVolcengineEnabled] = useState(false);
@@ -188,6 +199,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
   const [rightTestStatus, setRightTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [rightTestMessage, setRightTestMessage] = useState('');
+
+  const [xiaocheTestStatus, setXiaocheTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [xiaocheTestMessage, setXiaocheTestMessage] = useState('');
   
   const [yunwuTestStatus, setYunwuTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [yunwuTestMessage, setYunwuTestMessage] = useState('');
@@ -207,11 +221,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const platoAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jijingAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rightAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const xiaocheAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAutoNativeKeyRef = useRef('');
   const lastAutoYunwuKeyRef = useRef('');
   const lastAutoPlatoKeyRef = useRef('');
   const lastAutoJijingKeyRef = useRef('');
   const lastAutoRightKeyRef = useRef('');
+  const lastAutoXiaocheKeyRef = useRef('');
 
   const formatBytes = (bytes?: number) => {
     if (!bytes || bytes <= 0) return '0 MB';
@@ -283,6 +299,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     lastAutoRightKeyRef.current = savedRightKey || '';
     if (savedRightUrl) setRightBaseUrl(savedRightUrl);
     setRightEnabled(savedRightEnabled === 'true');
+
+    const savedXiaocheKey = localStorage.getItem('xiaoche_api_key');
+    const savedXiaocheUrl = localStorage.getItem('xiaoche_base_url');
+    const savedXiaocheEnabled = localStorage.getItem('xiaoche_enabled');
+    setXiaocheApiKey(savedXiaocheKey || '');
+    lastAutoXiaocheKeyRef.current = savedXiaocheKey || '';
+    setXiaocheBaseUrl(savedXiaocheUrl || DEFAULT_XIAOCHE_BASE_URL);
+    setXiaocheEnabled(savedXiaocheEnabled === 'true');
 
     const savedVolcengineKey = localStorage.getItem('volcengine_api_key') || localStorage.getItem('seedance_api_key');
     const savedVolcengineEnabled = localStorage.getItem('seedance_enabled');
@@ -376,6 +400,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('right_base_url', rightBaseUrl.trim() || DEFAULT_RIGHT_BASE_URL);
     localStorage.setItem('right_enabled', String(rightEnabled));
 
+    localStorage.setItem('xiaoche_api_key', xiaocheApiKey.trim());
+    localStorage.setItem('xiaoche_base_url', xiaocheBaseUrl.trim() || DEFAULT_XIAOCHE_BASE_URL);
+    localStorage.setItem('xiaoche_enabled', String(xiaocheEnabled));
+    localStorage.setItem('xiaoche_supported_models', JSON.stringify(XIAOCHE_MODELS));
+
     localStorage.setItem('volcengine_api_key', volcengineApiKey.trim());
     localStorage.setItem('seedance_api_key', volcengineApiKey.trim());
     localStorage.setItem('seedance_base_url', DEFAULT_VOLCENGINE_BASE_URL);
@@ -462,6 +491,32 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     } catch (e: any) {
       setRightTestStatus('error');
       setRightTestMessage(e?.message || '连接失败');
+    }
+  };
+
+  const handleTestXiaoche = async () => {
+    const key = xiaocheApiKey.split(/[,\n]/).map(k => k.trim()).filter(Boolean)[0];
+    if (!key) {
+      setXiaocheTestStatus('error');
+      setXiaocheTestMessage('请输入 API Key');
+      return;
+    }
+    setXiaocheTestStatus('testing');
+    setXiaocheTestMessage('正在检测本地中转...');
+    try {
+      const baseUrl = (xiaocheBaseUrl || DEFAULT_XIAOCHE_BASE_URL).replace(/\/+$/, '');
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.error?.message || errorData?.message || `HTTP Error ${response.status}`);
+      }
+      setXiaocheTestStatus('success');
+      setXiaocheTestMessage('连接成功');
+    } catch (e: any) {
+      setXiaocheTestStatus('error');
+      setXiaocheTestMessage(e?.message || '连接失败，请确认本地 38000 端口服务已启动');
     }
   };
 
@@ -631,6 +686,25 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     };
   }, [rightApiKey, rightEnabled, isOpen, settingsLoaded]);
 
+  useEffect(() => {
+    if (!isOpen || !settingsLoaded || !xiaocheEnabled) return;
+    const key = xiaocheApiKey.trim();
+    if (key === lastAutoXiaocheKeyRef.current) return;
+    if (xiaocheAutoTestTimerRef.current) clearTimeout(xiaocheAutoTestTimerRef.current);
+    lastAutoXiaocheKeyRef.current = key;
+    if (!key) {
+      setXiaocheTestStatus('idle');
+      setXiaocheTestMessage('');
+      return;
+    }
+    setXiaocheTestStatus('testing');
+    setXiaocheTestMessage('输入已更新，正在自动测试...');
+    xiaocheAutoTestTimerRef.current = setTimeout(() => void handleTestXiaoche(), 900);
+    return () => {
+      if (xiaocheAutoTestTimerRef.current) clearTimeout(xiaocheAutoTestTimerRef.current);
+    };
+  }, [xiaocheApiKey, xiaocheBaseUrl, xiaocheEnabled, isOpen, settingsLoaded]);
+
   const activeTitle = activeTab === 'model' ? '模型配置' : activeTab === 'agent' ? '智能体设定' : '缓存磁盘';
   const activeSubtitle = activeTab === 'model'
     ? '配置 API 中转站与模型参数'
@@ -743,6 +817,109 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
             <div className="flex-1 overflow-y-auto p-8 lg:p-10 custom-scrollbar">
               {activeTab === 'model' ? (
                 <div className="space-y-8 max-w-4xl">
+                  {/* Xiaoche relay — independent config keys prevent cross-provider overrides. */}
+                  <div className={`p-5 sm:p-7 lg:p-8 rounded-3xl border transition-all ${xiaocheEnabled ? 'bg-white dark:bg-white/5 border-cyan-200 dark:border-cyan-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                    <div className="flex items-start justify-between gap-4 mb-6">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-3 rounded-2xl shrink-0 ${xiaocheEnabled ? 'bg-cyan-100 text-cyan-700' : 'bg-gray-200 text-gray-500'}`}>
+                          <Sparkles className="w-6 h-6" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className={`text-lg font-black ${xiaocheEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>小彻中转</h4>
+                            <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[10px] font-black text-cyan-700 border border-cyan-100">本地</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">独立配置 · {XIAOCHE_IMAGE_MODELS.length} 个生图模型 · {XIAOCHE_VIDEO_MODELS.length} 个视频模型</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={xiaocheEnabled ? '关闭小彻中转' : '开启小彻中转'}
+                        onClick={() => setXiaocheEnabled(!xiaocheEnabled)}
+                        className={`relative w-12 h-7 min-w-12 rounded-full transition-colors ${xiaocheEnabled ? 'bg-cyan-600' : 'bg-gray-300'}`}
+                      >
+                        <span className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-all ${xiaocheEnabled ? 'left-6' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {xiaocheEnabled && (
+                      <div className="space-y-5 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> Base URL</label>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              value={xiaocheBaseUrl}
+                              onChange={(e) => setXiaocheBaseUrl(e.target.value)}
+                              className="min-h-11 flex-1 min-w-0 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 text-sm font-mono outline-none focus:ring-2 focus:ring-cyan-500/20"
+                              placeholder={DEFAULT_XIAOCHE_BASE_URL}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setXiaocheBaseUrl(DEFAULT_XIAOCHE_BASE_URL)}
+                              className="min-h-11 px-4 rounded-xl border border-cyan-200 bg-cyan-50 text-cyan-700 text-xs font-bold hover:bg-cyan-100 transition-colors"
+                            >
+                              恢复默认
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
+                          <div className="relative">
+                            <textarea
+                              value={xiaocheApiKey}
+                              onChange={(e) => setXiaocheApiKey(e.target.value)}
+                              rows={3}
+                              style={{ WebkitTextSecurity: isXiaocheKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 pr-12 text-base focus:ring-2 focus:ring-cyan-500/20 outline-none font-mono resize-none"
+                              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                            />
+                            <button type="button" aria-label="显示或隐藏 API Key" onClick={() => setIsXiaocheKeyVisible(!isXiaocheKeyVisible)} className="absolute right-2 top-2 min-w-11 min-h-11 flex items-center justify-center text-gray-400">
+                              {isXiaocheKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <p className="text-xs text-gray-500">支持多个 Key（逗号或换行分隔）；配置仅保存在小彻中转专属字段中。</p>
+                        </div>
+
+                        <details className="group rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50/70 dark:bg-white/5">
+                          <summary className="min-h-11 cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3 text-sm font-bold text-gray-600 dark:text-white/70">
+                            <span>已接入模型清单（{XIAOCHE_MODELS.length}）</span>
+                            <span className="text-xs text-cyan-700 group-open:rotate-180 transition-transform">⌄</span>
+                          </summary>
+                          <div className="max-h-56 overflow-y-auto border-t border-gray-200 dark:border-white/10 p-3 custom-scrollbar">
+                            <p className="px-2 pb-2 text-[11px] font-black uppercase tracking-wider text-cyan-700">图片模型</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                              {XIAOCHE_IMAGE_MODELS.map(model => <code key={model} className="rounded-lg bg-white dark:bg-black/20 px-2.5 py-2 text-[11px] text-gray-600 dark:text-white/60 break-all">{model}</code>)}
+                            </div>
+                            <p className="px-2 pb-2 pt-4 text-[11px] font-black uppercase tracking-wider text-cyan-700">视频模型</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                              {XIAOCHE_VIDEO_MODELS.map(model => <code key={model} className="rounded-lg bg-white dark:bg-black/20 px-2.5 py-2 text-[11px] text-gray-600 dark:text-white/60 break-all">{model}</code>)}
+                            </div>
+                          </div>
+                        </details>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="min-h-5 flex-1">
+                            {xiaocheTestStatus !== 'idle' && (
+                              <span className={`text-xs font-bold break-all ${xiaocheTestStatus === 'success' ? 'text-green-600' : xiaocheTestStatus === 'testing' ? 'text-blue-600' : 'text-red-500'}`}>
+                                {xiaocheTestStatus === 'testing' ? '正在测试连接...' : xiaocheTestMessage}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleTestXiaoche}
+                            disabled={xiaocheTestStatus === 'testing'}
+                            className="min-h-11 px-5 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                          >
+                            {xiaocheTestStatus === 'testing' && <RefreshCw className="w-4 h-4 animate-spin" />}
+                            测试连接
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Volcengine Ark / Seedance Config */}
                   <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${volcengineEnabled ? 'bg-white dark:bg-white/5 border-orange-300 dark:border-orange-500/40' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
