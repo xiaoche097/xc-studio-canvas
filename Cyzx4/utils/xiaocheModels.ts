@@ -20,6 +20,7 @@ export const XIAOCHE_IMAGE_MODELS = [
 ] as const;
 
 export const XIAOCHE_VIDEO_MODELS = [
+  'omni', 'omni_portrait',
   'veo_3_1_t2v_fast_portrait',
   'veo_3_1_t2v_fast_landscape',
   'veo_3_1_t2v_fast_portrait_ultra',
@@ -34,6 +35,7 @@ export const XIAOCHE_VIDEO_MODELS = [
   ...pair('veo_3_1_t2v_lite'),
   ...timedPair('veo_3_1_t2v_lite', 4),
   ...timedPair('veo_3_1_t2v_lite', 6),
+  'veo_3_1_t2v_lite_8s_portrait', 'veo_3_1_t2v_lite_8s_landscape',
   'veo_3_1_i2v_s_fast_portrait_fl', 'veo_3_1_i2v_s_fast_fl',
   'veo_3_1_i2v_s_fast_portrait_ultra_fl', 'veo_3_1_i2v_s_fast_ultra_fl',
   'veo_3_1_i2v_s_fast_portrait_ultra_relaxed', 'veo_3_1_i2v_s_fast_ultra_relaxed',
@@ -45,9 +47,11 @@ export const XIAOCHE_VIDEO_MODELS = [
   ...pair('veo_3_1_i2v_lite'),
   ...timedPair('veo_3_1_i2v_lite', 4),
   ...timedPair('veo_3_1_i2v_lite', 6),
+  'veo_3_1_i2v_lite_8s_portrait', 'veo_3_1_i2v_lite_8s_landscape',
   ...pair('veo_3_1_interpolation_lite'),
   ...timedPair('veo_3_1_interpolation_lite', 4),
   ...timedPair('veo_3_1_interpolation_lite', 6),
+  'veo_3_1_interpolation_lite_8s_portrait', 'veo_3_1_interpolation_lite_8s_landscape',
   ...pair('veo_3_1_r2v_fast'),
   'veo_3_1_r2v_fast_portrait_ultra', 'veo_3_1_r2v_fast_landscape_ultra',
   'veo_3_1_r2v_fast_portrait_ultra_relaxed', 'veo_3_1_r2v_fast_landscape_ultra_relaxed',
@@ -99,4 +103,63 @@ export const resolveXiaocheImageModel = (
   const proAliases = new Set(['gemini-3-pro-image-preview', 'gemini-3-pro-image', 'nanobananapro', 'pro']);
   const family = proAliases.has(model) ? 'gemini-3.0-pro-image' : 'gemini-3.1-flash-image';
   return `${family}-${shape}${suffix}`;
+};
+
+export const resolveXiaocheVideoModel = (
+  model: string,
+  aspectRatio = '16:9',
+  imageCount = 0
+): string => {
+  const orientation = aspectRatio === '9:16' ? 'portrait' : 'landscape';
+  if (model === 'omni' || model === 'omni_portrait') {
+    return orientation === 'portrait' ? 'omni_portrait' : 'omni';
+  }
+  if ((XIAOCHE_VIDEO_MODELS as readonly string[]).includes(model)) return model;
+
+  const isOmni = model === 'xiaoche-omni-flash';
+  const isLite = model === 'xiaoche-veo-3.1-lite' || model.includes('_lite');
+  const isQuality = model === 'xiaoche-veo-3.1-quality' || model.includes('quality') || model.includes('pro');
+  const isFast = model === 'xiaoche-veo-3.1-fast' || model.includes('fast');
+
+  if (isOmni) return orientation === 'portrait' ? 'omni_portrait' : 'omni';
+
+  if (imageCount >= 3) {
+    return isQuality
+      ? `veo_3_1_r2v_fast_${orientation}_ultra`
+      : `veo_3_1_r2v_fast_${orientation}`;
+  }
+
+  if (imageCount > 0) {
+    if (isLite) {
+      return imageCount === 2
+        ? `veo_3_1_interpolation_lite_${orientation}`
+        : `veo_3_1_i2v_lite_${orientation}`;
+    }
+    if (isQuality) {
+      return orientation === 'portrait'
+        ? 'veo_3_1_i2v_s_fast_portrait_ultra_fl'
+        : 'veo_3_1_i2v_s_fast_ultra_fl';
+    }
+    if (isFast) {
+      return orientation === 'portrait'
+        ? 'veo_3_1_i2v_s_fast_portrait_fl'
+        : 'veo_3_1_i2v_s_fast_fl';
+    }
+    return `veo_3_1_i2v_s_${orientation}`;
+  }
+
+  if (isLite) return `veo_3_1_t2v_lite_${orientation}`;
+  if (isQuality) {
+    return orientation === 'portrait'
+      ? 'veo_3_1_t2v_fast_portrait_ultra'
+      : 'veo_3_1_t2v_fast_ultra';
+  }
+  return isFast
+    ? `veo_3_1_t2v_fast_${orientation}`
+    : `veo_3_1_t2v_${orientation}`;
+};
+
+export const getXiaocheVideoImageLimit = (model: string, firstLastFrame = false): number => {
+  const isLite = model === 'xiaoche-veo-3.1-lite' || model.includes('_lite');
+  return isLite ? (firstLastFrame ? 2 : 1) : 3;
 };
