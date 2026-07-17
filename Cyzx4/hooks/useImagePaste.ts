@@ -7,7 +7,10 @@ import { useEffect, useCallback } from 'react';
  */
 export const useImagePaste = (onFilesPasted: (files: File[]) => void, isActive: boolean = true) => {
   const handlePaste = useCallback((event: ClipboardEvent) => {
-    if (!isActive) return;
+    // Hidden workspaces stay mounted to preserve their state. A paste event
+    // reaches every window listener, so only the active, first handler may
+    // consume it.
+    if (!isActive || event.defaultPrevented) return;
 
     // Don't intercept if user is typing in a text input/textarea
     const target = event.target as HTMLElement;
@@ -48,10 +51,22 @@ export const useImagePaste = (onFilesPasted: (files: File[]) => void, isActive: 
       filesByIdentity.set(identity, file);
     };
 
+    let foundImageItem = false;
     for (const item of clipboardData.items) {
-      if (item.type.startsWith('image/')) addImageFile(item.getAsFile());
+      if (!item.type.startsWith('image/')) continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      foundImageItem = true;
+      addImageFile(file);
     }
-    for (const file of clipboardData.files) addImageFile(file);
+
+    // The same clipboard image is commonly exposed through both collections.
+    // `getAsFile()` and `files[0]` may have different generated names or
+    // timestamps, so signature-only deduplication is not reliable. Treat
+    // `files` as a browser fallback when no image item was available.
+    if (!foundImageItem) {
+      for (const file of clipboardData.files) addImageFile(file);
+    }
 
     const files = Array.from(filesByIdentity.values());
 

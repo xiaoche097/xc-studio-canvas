@@ -243,7 +243,10 @@ const ProductRepairTab: React.FC = () => {
         const item = Array.from(e.clipboardData.items).find(x => x.type.startsWith('image/'));
         if (item) {
             const file = item.getAsFile();
-            if (file) handleUpload(file, type);
+            if (file) {
+                e.preventDefault();
+                handleUpload(file, type);
+            }
         }
     };
 

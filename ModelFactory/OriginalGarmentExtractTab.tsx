@@ -110,7 +110,7 @@ const dataUrlToImageReference = (dataUrl: string) => {
   return { mimeType: match[1], base64: match[2] };
 };
 
-const OriginalGarmentExtractTab: React.FC = () => {
+const OriginalGarmentExtractTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [sourceFiles, setSourceFiles] = useState<File[]>([]);
   const [sourceUrls, setSourceUrls] = useState<string[]>([]);
   const [results, setResults] = useState<ResultItem[]>([]);
@@ -135,7 +135,7 @@ const OriginalGarmentExtractTab: React.FC = () => {
     setResults([]);
   };
 
-  useImagePaste((files) => addSourceFiles(files));
+  useImagePaste((files) => addSourceFiles(files), isActive);
 
   const handleSourceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) addSourceFiles(Array.from(event.target.files));

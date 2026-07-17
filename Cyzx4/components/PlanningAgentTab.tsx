@@ -21,9 +21,10 @@ interface Message {
 
 interface PlanningAgentTabProps {
     onImageGenerated?: (url: string) => void;
+    isActive?: boolean;
 }
 
-export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGenerated }) => {
+export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGenerated, isActive = true }) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [images, setImages] = useState<string[]>([]);
@@ -62,7 +63,7 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
             };
             reader.readAsDataURL(file);
         });
-    });
+    }, isActive);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();

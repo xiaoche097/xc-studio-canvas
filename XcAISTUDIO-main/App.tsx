@@ -1867,6 +1867,7 @@ export const App = () => {
         });
 
         const handlePaste = async (event: ClipboardEvent) => {
+            if (event.defaultPrevented) return;
             const target = event.target as HTMLElement | null;
             if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
 

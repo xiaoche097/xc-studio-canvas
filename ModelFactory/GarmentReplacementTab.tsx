@@ -50,7 +50,7 @@ const getAngleChineseName = (perspective: string): string => {
   return mapping[perspective] || perspective;
 };
 
-const GarmentReplacementTab: React.FC = () => {
+const GarmentReplacementTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   // Core Garment (up to 5 images)
   const [coreGarmentFiles, setCoreGarmentFiles] = useState<File[]>([]);
   const [coreGarmentUrls, setCoreGarmentUrls] = useState<string[]>([]);
@@ -305,7 +305,7 @@ const GarmentReplacementTab: React.FC = () => {
     else {
       addTargetFiles(validFiles);
     }
-  });
+  }, isActive);
 
   // ---- Target Handlers ----
   const addTargetFiles = (files: File[]) => {

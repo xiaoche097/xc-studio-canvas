@@ -365,13 +365,16 @@ Return ONLY valid JSON:
         const item = Array.from(e.clipboardData.items).find(x => x.type.startsWith('image/'));
         if (item) {
             const file = item.getAsFile();
-            if (file) handleUpload(file);
+            if (file) {
+                e.preventDefault();
+                handleUpload(file);
+            }
         }
     };
 
     useEffect(() => {
         const handleWindowPaste = (event: ClipboardEvent) => {
-            if (!isActive) return;
+            if (!isActive || event.defaultPrevented) return;
             if (isProcessing || sourceImage) return;
             const target = event.target as HTMLElement | null;
             const isTextInput = target?.closest('input, textarea, [contenteditable="true"]');

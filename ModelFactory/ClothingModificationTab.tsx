@@ -308,7 +308,7 @@ const ConfigPopover: React.FC<{
   );
 };
 
-const ClothingModificationTab: React.FC = () => {
+const ClothingModificationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [activeMode, setActiveMode] = useState<ModificationMode>('pattern-on-body');
   
   // Image states
@@ -398,7 +398,7 @@ const ClothingModificationTab: React.FC = () => {
     } else {
       handleUpload(1, file);
     }
-  });
+  }, isActive);
 
   const handleDownload = (imageUrl: string, index: number) => {
     const link = document.createElement('a');

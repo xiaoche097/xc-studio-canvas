@@ -44,7 +44,7 @@ const COT_STEPS = [
     { id: 7, label: "色彩与高画质调谐", desc: "商业级高清晰度织物细节最后注入...", icon: "🌈" },
 ];
 
-const ModelGenerationTab: React.FC = () => {
+const ModelGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     // Selection states
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.PORTRAIT_3_4);
     const [selectedModel, setSelectedModel] = useState<string>("gemini-3.1-flash-image-preview");
@@ -164,7 +164,7 @@ const ModelGenerationTab: React.FC = () => {
         if (files.length === 0) return;
         if (hoveredSlot === 'poses') handlePosesUpload(files);
         else handlePrimaryUpload(files);
-    });
+    }, isActive);
 
     const handleDownload = (img: string, idx: number) => {
         const link = document.createElement('a');

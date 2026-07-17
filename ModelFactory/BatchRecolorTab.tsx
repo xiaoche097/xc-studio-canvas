@@ -27,7 +27,7 @@ type ResultItem = {
   error?: string;
 };
 
-const BatchRecolorTab: React.FC = () => {
+const BatchRecolorTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [sourceFiles, setSourceFiles] = useState<File[]>([]);
   const [sourceUrls, setSourceUrls] = useState<string[]>([]);
   const MAX_SOURCES = 10;
@@ -255,7 +255,7 @@ const BatchRecolorTab: React.FC = () => {
     } else {
       handleFiles(files);
     }
-  });
+  }, isActive);
 
   const removeColor = (id: string) => {
     setColors(colors.filter(c => c.id !== id));

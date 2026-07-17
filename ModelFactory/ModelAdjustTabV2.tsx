@@ -36,7 +36,7 @@ type PreviewState = {
   subtitle?: string;
 } | null;
 
-const ModelAdjustTabV2: React.FC = () => {
+const ModelAdjustTabV2: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [poseSourceFile, setPoseSourceFile] = useState<File | null>(null);
   const [poseSourceUrl, setPoseSourceUrl] = useState<string | null>(null);
   const [poseRefFile, setPoseRefFile] = useState<File | null>(null);
@@ -160,7 +160,7 @@ const ModelAdjustTabV2: React.FC = () => {
     else {
       setSourceFromFile(file);
     }
-  });
+  }, isActive);
 
   const openPreview = (src: string | null, title: string, subtitle?: string) => {
     if (!src) {

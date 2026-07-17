@@ -195,7 +195,7 @@ const getResultMinHeightClass = (ratio: AspectRatio) => {
   return 'min-h-64';
 };
 
-const ModelTransferTab: React.FC = () => {
+const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [sourceModels, setSourceModels] = useState<UploadedImage[]>([]);
   const [targetScenes, setTargetScenes] = useState<UploadedImage[]>([]);
   const [activeUploadKind, setActiveUploadKind] = useState<UploadKind>('model');
@@ -261,7 +261,7 @@ const ModelTransferTab: React.FC = () => {
   const handlePastedImages = useCallback((files: File[]) => {
     void processFiles(files, activeUploadKindRef.current);
   }, [processFiles]);
-  useImagePaste(handlePastedImages, !isGenerating);
+  useImagePaste(handlePastedImages, isActive && !isGenerating);
 
   const removeUploadedImage = (kind: UploadKind, id: string) => {
     const setter = kind === 'model' ? setSourceModels : setTargetScenes;

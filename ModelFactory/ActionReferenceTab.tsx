@@ -37,7 +37,7 @@ type PreviewState = {
   subtitle?: string;
 } | null;
 
-const ActionReferenceTab: React.FC = () => {
+const ActionReferenceTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   // Model image (identity source)
   const [modelFile, setModelFile] = useState<File | null>(null);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
@@ -107,7 +107,7 @@ const ActionReferenceTab: React.FC = () => {
     else {
       addRefFiles(files);
     }
-  });
+  }, isActive);
 
   // ---- Reference images handlers ----
   const addRefFiles = (files: File[]) => {

@@ -27,7 +27,7 @@ CRITICAL: Map the product's identity onto this EXACT 3D orientation. The result 
 
 const ECOMMERCE_STYLE = `pure white seamless background, soft even studio lighting, minimal soft shadow directly under the toy, accurate color, sharp focus, high resolution, clean e-commerce product photography.`;
 
-const DollAngleReferenceTab: React.FC = () => {
+const DollAngleReferenceTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [productImages, setProductImages] = useState<ImageItem[]>([]);
   const [angleImages, setAngleImages] = useState<ImageItem[]>([]);
   
@@ -44,6 +44,7 @@ const DollAngleReferenceTab: React.FC = () => {
   // To handle global paste events
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
+      if (!isActive || e.defaultPrevented) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       
@@ -56,6 +57,7 @@ const DollAngleReferenceTab: React.FC = () => {
       }
       
       if (files.length > 0) {
+        e.preventDefault();
         // Decide where to put pasted files based on which list is not full, prioritizing product images
         if (productImages.length < 5) {
           handleProductFiles(files);
@@ -67,7 +69,7 @@ const DollAngleReferenceTab: React.FC = () => {
     
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [productImages.length, angleImages.length]);
+  }, [isActive, productImages.length, angleImages.length]);
 
   const createItems = async (files: File[]): Promise<ImageItem[]> => {
     const items: ImageItem[] = [];

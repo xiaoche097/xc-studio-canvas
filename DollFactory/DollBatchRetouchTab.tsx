@@ -71,7 +71,7 @@ interface RetouchResult {
   error?: string;
 }
 
-const DollBatchRetouchTab: React.FC = () => {
+const DollBatchRetouchTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [sources, setSources] = useState<{file: File, url: string, base64: string, mime: string}[]>([]);
   const [refs, setRefs] = useState<{file: File, url: string, base64: string, mime: string}[]>([]);
   const [results, setResults] = useState<RetouchResult[]>([]);
@@ -259,6 +259,7 @@ const DollBatchRetouchTab: React.FC = () => {
   };
 
   const handlePaste = async (e: ClipboardEvent) => {
+    if (!isActive || e.defaultPrevented) return;
     const pasteTarget = pasteTargetRef.current;
     if (!pasteTarget || isProcessingImages) return;
 
@@ -303,7 +304,7 @@ const DollBatchRetouchTab: React.FC = () => {
   useEffect(() => {
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [sources.length, refs.length, isProcessingImages]);
+  }, [isActive, sources.length, refs.length, isProcessingImages]);
 
   const removeSource = (index: number) => {
     setSources(prev => {

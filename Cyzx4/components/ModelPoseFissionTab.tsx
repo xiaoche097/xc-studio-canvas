@@ -1027,7 +1027,7 @@ const UploadCard: React.FC<{
 
   useEffect(() => {
     const handleGlobalPaste = (event: ClipboardEvent) => {
-      if (!pasteEnabled || !isActive) return;
+      if (!pasteEnabled || !isActive || event.defaultPrevented) return;
       const items = event.clipboardData?.items;
       if (!items) return;
       

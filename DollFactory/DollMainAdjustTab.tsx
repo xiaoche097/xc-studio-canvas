@@ -117,7 +117,7 @@ ${PRODUCT_CATEGORY_ROUTING}
 const GLOBAL_NEGATIVE_PROMPT = `change category, turn bag into toy, toy face on bag, eyes on bag, limbs on bag, change design, redesign, altered structure, mismatch, inaccurate details, different product, wrong proportions, wrong color, color shift, hue shift, changed texture, changed material, plastic look, glossy, over-smooth, over-sharpen, changed pocket layout, extra pocket, missing pocket, changed zipper, changed handle, changed strap, changed buckle, changed hardware, extra accessories, missing accessories, added patterns, changed logo, added text, watermark, label, tag, sticker, background props, hands, people, multiple products, duplicated product, cropped, cut off, out of frame, floating, harsh shadow, strong shadow, gray background, gradient background, messy edges, white outline, halo, jagged edges, blur, low resolution, noise, jpeg artifacts, cartoon, illustration, anime, 3D render, CGI`;
 
 
-const DollMainAdjustTab: React.FC = () => {
+const DollMainAdjustTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   type PasteTarget = { kind: 'source' } | { kind: 'reference'; index?: number };
 
   const [sourceFile, setSourceFile] = useState<File | null>(null);
@@ -216,6 +216,7 @@ const DollMainAdjustTab: React.FC = () => {
 
   useEffect(() => {
     const handleClipboardPaste = (event: ClipboardEvent) => {
+      if (!isActive || event.defaultPrevented) return;
       const target = pasteTargetRef.current;
       if (!target) return;
 
@@ -235,7 +236,7 @@ const DollMainAdjustTab: React.FC = () => {
 
     window.addEventListener('paste', handleClipboardPaste);
     return () => window.removeEventListener('paste', handleClipboardPaste);
-  }, [sourceUrl, refFiles.length]);
+  }, [isActive, sourceUrl, refFiles.length]);
 
   const handleRefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files || []).forEach(file => addRefFile(file));

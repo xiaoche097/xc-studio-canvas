@@ -86,19 +86,19 @@ const DollFactoryApp: React.FC = () => {
         <div className="flex-1 overflow-auto p-0 relative">
           <div className="h-full w-full">
             <div style={{ display: activeTab === 'main-adjust' ? 'block' : 'none', height: '100%' }}>
-              <DollMainAdjustTab />
+              <DollMainAdjustTab isActive={activeTab === 'main-adjust'} />
             </div>
             <div style={{ display: activeTab === 'main-retouch' ? 'block' : 'none', height: '100%' }}>
               <DollMainRetouchTab />
             </div>
             <div style={{ display: activeTab === 'batch-retouch' ? 'block' : 'none', height: '100%' }}>
-              <DollBatchRetouchTab />
+              <DollBatchRetouchTab isActive={activeTab === 'batch-retouch'} />
             </div>
             <div style={{ display: activeTab === 'design-optimize' ? 'block' : 'none', height: '100%' }}>
               <DollDesignOptimizeTab />
             </div>
             <div style={{ display: activeTab === 'angle-reference' ? 'block' : 'none', height: '100%' }}>
-              <DollAngleReferenceTab />
+              <DollAngleReferenceTab isActive={activeTab === 'angle-reference'} />
             </div>
             <div style={{ display: activeTab === 'angle-presets' ? 'block' : 'none', height: '100%' }}>
               <DollAnglePresetsTab />

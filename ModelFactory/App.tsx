@@ -126,34 +126,34 @@ const ModelFactoryApp: React.FC = () => {
         <div className="flex-1 overflow-auto p-0 relative">
           <div className="h-full w-full">
             <div style={{ display: activeTab === 'model-main-adjust' ? 'block' : 'none', height: '100%' }}>
-              <ModelMainAdjustTab />
+              <ModelMainAdjustTab isActive={activeTab === 'model-main-adjust'} />
             </div>
             <div style={{ display: activeTab === 'pose-fission' ? 'block' : 'none', height: '100%' }}>
               <PoseFissionTab />
             </div>
             <div style={{ display: activeTab === 'model-adjust' ? 'block' : 'none', height: '100%' }}>
-              <ModelAdjustTab />
+              <ModelAdjustTab isActive={activeTab === 'model-adjust'} />
             </div>
             <div style={{ display: activeTab === 'model-generation' ? 'block' : 'none', height: '100%' }}>
-              <ModelGenerationTab />
+              <ModelGenerationTab isActive={activeTab === 'model-generation'} />
             </div>
             <div style={{ display: activeTab === 'action-reference' ? 'block' : 'none', height: '100%' }}>
-              <ActionReferenceTab />
+              <ActionReferenceTab isActive={activeTab === 'action-reference'} />
             </div>
             <div style={{ display: activeTab === 'garment-replacement' ? 'block' : 'none', height: '100%' }}>
-              <GarmentReplacementTab />
+              <GarmentReplacementTab isActive={activeTab === 'garment-replacement'} />
             </div>
             <div style={{ display: activeTab === 'original-garment-extract' ? 'block' : 'none', height: '100%' }}>
-              <OriginalGarmentExtractTab />
+              <OriginalGarmentExtractTab isActive={activeTab === 'original-garment-extract'} />
             </div>
             <div style={{ display: activeTab === 'batch-recolor' ? 'block' : 'none', height: '100%' }}>
-              <BatchRecolorTab />
+              <BatchRecolorTab isActive={activeTab === 'batch-recolor'} />
             </div>
             <div style={{ display: activeTab === 'clothing-modification' ? 'block' : 'none', height: '100%' }}>
-              <ClothingModificationTab />
+              <ClothingModificationTab isActive={activeTab === 'clothing-modification'} />
             </div>
             <div style={{ display: activeTab === 'batch-props-modifier' ? 'block' : 'none', height: '100%' }}>
-              <BatchPropsModifierTab />
+              <BatchPropsModifierTab isActive={activeTab === 'batch-props-modifier'} />
             </div>
           </div>
         </div>

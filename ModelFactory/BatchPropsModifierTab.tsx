@@ -70,7 +70,7 @@ const CATEGORIES: CategoryConfig[] = [
   }
 ];
 
-const BatchPropsModifierTab: React.FC = () => {
+const BatchPropsModifierTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [sourceFiles, setSourceFiles] = useState<File[]>([]);
   const [sourceUrls, setSourceUrls] = useState<string[]>([]);
   const MAX_SOURCES = 10;
@@ -111,7 +111,7 @@ const BatchPropsModifierTab: React.FC = () => {
     if (e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files));
   };
 
-  useImagePaste(handleFiles);
+  useImagePaste(handleFiles, isActive);
 
   const removeSource = (index: number) => {
     URL.revokeObjectURL(sourceUrls[index]);
@@ -395,7 +395,10 @@ ${userGuidance ? `USER SUPPLEMENT: ${userGuidance}` : ""}
                         if (f) files.push(f);
                       }
                     }
-                    if (files.length > 0) handleRefImageUpload(files);
+                    if (files.length > 0) {
+                      e.preventDefault();
+                      handleRefImageUpload(files);
+                    }
                   }
                 }}
                 className={`relative flex flex-col items-center justify-center min-h-24 border-2 border-dashed rounded-2xl transition-all cursor-pointer ${

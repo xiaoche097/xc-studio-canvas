@@ -84,7 +84,7 @@ const ANGLE_TEMPLATES = {
 
 const GLOBAL_NEGATIVE_PROMPT = `deformed anatomy, distorted face, different person, extra limbs, bad lighting, text, watermark, plastic skin, cartoon, illustration, low resolution, blurry, messy background, colorful background, color shift, color mismatch, inconsistent lighting`;
 
-const ModelMainAdjustTab: React.FC = () => {
+const ModelMainAdjustTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [guidance, setGuidance] = useState('');
@@ -272,7 +272,7 @@ const ModelMainAdjustTab: React.FC = () => {
         return prev;
       });
     });
-  });
+  }, isActive);
 
   const handleAnalyzeGarment = async () => {
     if (coreGarmentFiles.length === 0) {
