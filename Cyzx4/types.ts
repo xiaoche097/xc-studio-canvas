@@ -17,7 +17,9 @@ export enum AppMode {
   STORYBOARD = 'STORYBOARD', // 分镜创作 (Storyboard)
   SCENE_GENERATION = 'SCENE_GENERATION', // 场景图生成
   WHITE_BG_RETOUCH = 'WHITE_BG_RETOUCH', // 通用白底图精修
-  PRODUCT_VIDEO = 'PRODUCT_VIDEO' // AI 生成产品视频
+  PRODUCT_VIDEO = 'PRODUCT_VIDEO', // AI 生成产品视频
+  SINGLE_ITEM_TRY_ON = 'SINGLE_ITEM_TRY_ON', // 单品试穿
+  ECOMMERCE_HERO = 'ECOMMERCE_HERO' // 生成电商主图
 }
 
 export enum AspectRatio {

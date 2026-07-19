@@ -1328,6 +1328,50 @@ export const generateImageToImage = async (
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'single-item-try-on') {
+          gptPrompt = `[ROLE: Senior Ecommerce Virtual Try-On Director]
+[TASK: Perform an in-place product try-on edit on the exact user person/body reference when supplied; otherwise create one commercial adult try-on image]
+[INPUT ROUTING — FOLLOW THE USER PROMPT EXACTLY]
+- When the user prompt declares Image 1 as the immutable person/body base canvas, Image 1 is the output composition and identity source of truth. All later declared product images are product references only.
+- Without a person/body base canvas, use the product-reference range declared by the user prompt.
+[ABSOLUTE PRODUCT LOCK]
+- Treat every declared product-reference image as a different view of ONE identical SKU. Reconcile the views; never blend them into a new design.
+- Preserve exact silhouette, construction, material, color, pattern, logo, hardware, gemstone count, stitching, closures and distinctive details.
+- Calibrate item size from visible human landmarks and normal real-world dimensions for its category. Never enlarge the item for visibility. Use physically correct contact, gravity, folds, occlusion, reflections and local shadows.
+[PERSON / SCENE LOCK]
+- Image 1, when declared as the base canvas, must remain the same photograph—not a recreation and not a similar-looking person.
+- Preserve exact facial identity, expression, hair, skin tone, body shape, anatomy, pose, hands, crop, camera, subject position, background, lighting, shadows, color grade, noise and all unrelated garments/accessories.
+- Do not beautify, relight, re-pose, reframe, zoom, crop, extend or redraw the person or scene. Keep original imperfections.
+- Change only the target wearing/contact region and the minimum naturally occluded pixels required to fit the product. Every unrelated region must remain visually unchanged.
+- Without a person reference, create one tasteful adult ecommerce model and a coherent commercial setting that follows the user prompt.
+[REJECT]
+No product redesign, mixed SKU, wrong wearing location, floating item, duplicate item, oversized item, altered identity, altered face, altered body, altered pose, changed hands, changed crop, background repaint, relighting, text, watermark, collage or before-and-after layout.
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
+        } else if (workflowHint === 'ecommerce-hero') {
+          gptPrompt = `[ROLE: Senior Multi-Marketplace Ecommerce Hero Image Director]
+[TASK: Create ONE platform-ready visual base image for the exact product shown in the leading product-reference images]
+[IMAGE ROUTING]
+- Follow the product and style image ranges declared in the user prompt exactly.
+- Leading product-reference images define the single SKU identity.
+- Any trailing style-reference images control only palette, light, atmosphere and prop density; never copy their products, people, text, logos or layout content.
+[PRODUCT IDENTITY — HIGHEST PRIORITY]
+- Treat all declared product-reference images as different views and details of ONE identical SKU.
+- Preserve exact silhouette, proportions, construction, material, color, finish, pattern, packaging, native label, logo and distinctive details.
+- Never average views into a new design, recolor, simplify, duplicate, replace or invent product parts.
+[COMMERCE ART DIRECTION]
+- Follow the selected marketplace visual system, aspect ratio, composition, background, lighting and approved visual style in the user plan.
+- Keep one clear product hierarchy, physically credible scale, grounded contact shadows, accurate perspective and premium commercial finish.
+- Reserve the requested calm safe zone for deterministic marketing-copy composition after generation.
+[TEXT POLICY]
+- Do not draw added marketing copy, headings, badges, price labels, platform logos or watermarks.
+- Native text and logos physically printed on the product or packaging must remain unchanged.
+[REJECT]
+No redesign, mixed SKU, extra product, illegible invented packaging, collage, comparison grid, promotional text, platform logo, watermark, distorted geometry or fake CGI plastic texture.
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
         } else if (workflowHint === 'model-transfer') {
           gptPrompt = `[ROLE: Senior Fashion Face Identity Transfer Director]
 [TASK: In-place replace only the face/head identity in Image 3 with the source identity from Images 1-2, using Image 4 only as pose geometry]
@@ -1770,6 +1814,62 @@ ${forcedPrompt}`;
             ? `
         **ROLE**: Senior fashion retoucher and AI processing expert.
         **TASK**: Re-stage the person and outfit from Image 3 into the EXACT geometric posture mapped by Image 1.
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+            : workflowHint === 'single-item-try-on'
+            ? `
+        **ROLE**: Senior Ecommerce Virtual Try-On Director.
+        **MISSION**: Perform ONE photorealistic in-place try-on edit on the exact user person/body reference when supplied.
+
+        **INPUT ROUTING — FOLLOW THE USER PROMPT EXACTLY**:
+        - When Image 1 is declared as the immutable person/body base canvas, Image 1 defines the exact output person, scene and composition. Later declared images are product references only.
+        - Without a person/body base canvas, use the product-reference range declared in the user prompt.
+
+        **PRODUCT IDENTITY LOCK — HIGHEST PRIORITY**:
+        - Reconcile all declared product references as multiple views of one identical SKU. Preserve its silhouette, construction, material, color, pattern, logo, hardware, gemstone count, stitching, closures and every distinctive detail.
+        - Never average, redesign, simplify, duplicate, recolor or mix the product with any item already worn by the person reference.
+        - Calibrate the product from visible human landmarks and category-normal real-world dimensions. Never enlarge it for visibility. Use correct gravity, drape, contact, occlusion, reflections, skin interaction and local cast shadows.
+
+        **REFERENCE LOCK**:
+        - Image 1, when declared as the base person/body canvas, must remain the same photograph—not a recreation or similar person.
+        - Preserve exact facial identity, expression, hair strands, skin tone, body shape, anatomy, pose, hands, crop, camera perspective, subject position, background, lighting, shadows, color temperature, color grade, noise and all unrelated garments/accessories.
+        - Do not beautify, relight, re-pose, reframe, zoom, crop, extend or redraw the reference. Preserve original imperfections.
+        - Change only the target wearing/contact region and the minimum naturally occluded pixels needed for a believable fit. Every unrelated region must remain visually unchanged.
+        - If no person/body image is supplied, create one tasteful adult ecommerce model and coherent commercial setting strictly from the user plan.
+
+        **FAILURE BLOCKLIST**:
+        No changed product design, mixed SKU, wrong wearing location, floating item, oversized item, duplicated accessory, altered identity, altered face, altered body, altered pose, changed hands, changed crop, scene drift, background repaint, relighting, text, watermark, collage, split screen, bad anatomy or plastic CGI texture.
+
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
+            : workflowHint === 'ecommerce-hero'
+              ? `
+        **ROLE**: Senior Multi-Marketplace Ecommerce Hero Image Director.
+        **MISSION**: Create ONE polished visual base image for the exact same SKU shown across the leading product-reference images.
+
+        **IMAGE ROUTING**:
+        - Obey the exact product-reference and style-reference image ranges in the user prompt.
+        - Leading product references define the SKU. Trailing style references affect only palette, lighting, atmosphere and prop density.
+        - Never copy a style reference's product, person, text, logo or layout content.
+
+        **PRODUCT IDENTITY LOCK — HIGHEST PRIORITY**:
+        - Reconcile all declared product-reference images as multiple views/details of one identical product. Preserve silhouette, construction, proportions, material, color, finish, pattern, native packaging, label, logo and distinctive features.
+        - Never redesign, average, recolor, simplify, duplicate, replace or mix the product with another item.
+
+        **PLATFORM AND STYLE ORDER**:
+        - Product identity and user-corrected facts come first; then marketplace layout/readability rules; then user creative requirements; then selected visual style.
+        - Match the confirmed platform visual system, background, lighting, props, product occupancy and requested copy-safe zone.
+        - Produce a complete premium commercial photograph with realistic perspective, scale, contact, reflections and shadows.
+
+        **DETERMINISTIC TEXT PIPELINE**:
+        - This stage creates the visual base only. Do not render added headlines, subheadings, badges, prices, platform logos, watermarks or decorative letter-like marks.
+        - Preserve only text and logos physically present on the source product or its packaging.
+
+        **FAILURE BLOCKLIST**:
+        No changed SKU, invented components, extra product, collage, comparison grid, promotional text, platform logo, watermark, distorted geometry, floating product, mismatched reflections or fake plastic CGI texture.
+
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
@@ -2289,6 +2389,10 @@ ${forcedPrompt}`;
                 ? { temperature: 0.25 }
                 : workflowHint === 'model-original-paste-back'
                   ? { temperature: 0.15 }
+                  : workflowHint === 'single-item-try-on'
+                    ? { temperature: 0.1 }
+                  : workflowHint === 'ecommerce-hero'
+                    ? { temperature: 0.15 }
                   : workflowHint === 'model-transfer'
                     ? { temperature: 0.05 }
                     : {}),

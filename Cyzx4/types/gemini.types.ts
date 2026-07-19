@@ -201,5 +201,7 @@ export type WorkflowHint =
   | 'reference-refinement'
   | 'structural-repair-v2'
   | 'model-transfer'
+  | 'single-item-try-on'
+  | 'ecommerce-hero'
   | 'model-modification'
   | 'model-retouching';

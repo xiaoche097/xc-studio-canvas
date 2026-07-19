@@ -16,6 +16,8 @@ import {
   Sparkles,
   Store,
   UserRoundCog,
+  Shirt,
+  LayoutTemplate,
 } from 'lucide-react';
 import { AppMode } from './types';
 
@@ -56,6 +58,8 @@ const ProductVideoTab = lazy(() => import('./components/ProductVideoTab'));
 const SceneGenerationTab = lazy(() => import('./components/SceneGenerationTab'));
 const StyleReplicateTab = lazy(() => import('./components/StyleReplicateTab'));
 const ModelTransferTab = lazy(() => import('./components/ModelTransferTab'));
+const SingleItemTryOnTab = lazy(() => import('./components/SingleItemTryOnTab'));
+const EcommerceHeroTab = lazy(() => import('./components/EcommerceHeroTab'));
 const ModelPoseFissionTab = lazy(() => import('./components/ModelPoseFissionTab'));
 const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
 const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
@@ -141,6 +145,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     component: ImageCleanTab,
   },
   {
+    mode: AppMode.ECOMMERCE_HERO,
+    title: '生成电商主图',
+    englishTitle: 'Ecommerce Hero',
+    description: '融合产品信息、目标平台与多语言文案，生成高转化电商主视觉。',
+    category: 'marketing',
+    keywords: ['生成电商主图', '电商主图', '平台主图', '多语言', '淘宝', '亚马逊', 'SHEIN'],
+    cover: './creative-covers/ecommerce-hero.webp',
+    icon: LayoutTemplate,
+    component: EcommerceHeroTab,
+  },
+  {
     mode: AppMode.SCENE_GENERATION,
     title: '场景图生成',
     englishTitle: 'Scene Builder',
@@ -161,6 +176,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/style-replica.webp',
     icon: Palette,
     component: StyleReplicateTab,
+  },
+  {
+    mode: AppMode.SINGLE_ITEM_TRY_ON,
+    title: '单品试穿',
+    englishTitle: 'Product Try-On',
+    description: '从商品多角度素材出发，生成自然可信的试戴与试穿效果。',
+    category: 'model',
+    keywords: ['试穿', '试戴', '首饰', '配饰', '服装', '鞋包', '虚拟试穿'],
+    cover: './creative-covers/single-item-try-on.webp',
+    icon: Shirt,
+    component: SingleItemTryOnTab,
   },
   {
     mode: AppMode.MODEL_TRANSFER,
