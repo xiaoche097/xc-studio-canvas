@@ -72,7 +72,7 @@ export const SCENE_BOARD_CONFIGS: Record<BoardType, SceneBoardConfig> = {
     id: 'social',
     label: '社媒买家秀',
     description: '真实生活化使用场景，适合种草与社媒传播',
-    aspectRatio: AspectRatio.PORTRAIT_3_4,
+    aspectRatio: AspectRatio.PORTRAIT_2_3,
     icon: '📱',
   },
   story: {
@@ -837,7 +837,7 @@ Return ONLY JSON:
         ...snapshot,
         analysis,
         boardType: analysis.recommendedBoard || snapshot.boardType,
-        aspectRatio: SCENE_BOARD_CONFIGS[analysis.recommendedBoard || snapshot.boardType].aspectRatio,
+        aspectRatio: snapshot.aspectRatio,
         step: snapshot.oneClick ? 'generating' : 'confirm',
         error: '',
       };
