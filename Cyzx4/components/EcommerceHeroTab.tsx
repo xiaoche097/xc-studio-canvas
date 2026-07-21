@@ -678,7 +678,7 @@ Return ONLY JSON:
   const downloadImage = (src: string, index: number) => {
     const link = document.createElement('a');
     link.href = src;
-    link.download = `生成电商主图-${index + 1}-${Date.now()}.${getImageDownloadExtension('png')}`;
+    link.download = `生成电商主图-${index + 1}-${Date.now()}.${getImageDownloadExtension(src, 'png')}`;
     link.click();
   };
 

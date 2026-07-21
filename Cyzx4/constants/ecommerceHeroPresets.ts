@@ -75,6 +75,7 @@ export const ECOMMERCE_PLATFORMS: EcommercePlatformOption[] = [
 
 export const ECOMMERCE_RATIOS = [
   { id: AspectRatio.PORTRAIT_3_4, label: '3:4 竖版' },
+  { id: AspectRatio.PORTRAIT_2_3, label: '2:3 竖版' },
   { id: AspectRatio.LANDSCAPE_4_3, label: '4:3 横版' },
   { id: AspectRatio.SQUARE, label: '1:1 方版' },
   { id: AspectRatio.PORTRAIT_4_5, label: '4:5 竖版' },
@@ -84,15 +85,75 @@ export const ECOMMERCE_RATIOS = [
   { id: AspectRatio.LANDSCAPE_21_9, label: '21:9 超宽' },
 ];
 
-export const ECOMMERCE_STYLE_PRESETS: EcommerceStylePreset[] = [
-  { id: 'clean-studio', name: '清透影棚', description: '干净背景、柔和投影、突出结构', palette: ['#f7f3ec', '#d8e6ee', '#ee7b4d'], prompt: 'airy premium studio photography, clean tonal background, soft sculpted shadow, precise material texture, restrained props' },
-  { id: 'warm-home', name: '暖居生活', description: '奶油家居、自然光、亲和转化', palette: ['#eadbc8', '#c7a27c', '#fff8ee'], prompt: 'warm cream lifestyle interior, natural window light, tasteful domestic styling, believable scale, inviting premium atmosphere' },
-  { id: 'bold-color', name: '高饱和撞色', description: '强识别色块、移动端抓眼', palette: ['#ff5b35', '#ffc83d', '#1c3fff'], prompt: 'bold controlled color blocking, high contrast commercial lighting, immediate product separation, energetic mobile-first composition' },
-  { id: 'quiet-luxury', name: '静奢质感', description: '低饱和材质、克制高级', palette: ['#b9ad9d', '#2e3133', '#eee8df'], prompt: 'quiet luxury product photography, tactile stone and fabric surfaces, controlled highlights, editorial restraint, generous negative space' },
-  { id: 'fresh-outdoor', name: '清新户外', description: '自然环境、轻快光线、真实使用感', palette: ['#b7d6c2', '#e7d4a8', '#f8faf5'], prompt: 'fresh realistic outdoor lifestyle photography, soft daylight, credible product interaction, clean natural depth, optimistic color balance' },
-  { id: 'tech-precision', name: '科技精密', description: '冷调光线、硬朗结构、参数感', palette: ['#0d1b2a', '#37b7ff', '#dce8f1'], prompt: 'precision technology product hero, cool controlled light, exact edge definition, subtle technical atmosphere, premium engineered materials' },
+export const SCENE_REALISTIC_STYLE_PRESETS: EcommerceStylePreset[] = [
+  {
+    id: 'mediterranean-wabi-sabi',
+    name: '北非地中海奶油拱洞侘寂庭院',
+    description: '奶油色抹灰、天然微风与柔润暖光、自然温润沉静',
+    palette: ['#e8d3be', '#c2a68c', '#8c7662'],
+    prompt: 'North African Mediterranean wabi-sabi patio, cream plaster archways, soft warm sunlight filtering through palm fronds, organic textured terracotta and beige surfaces, tranquil realistic luxury resort atmosphere, natural shadows, authentic photography',
+  },
+  {
+    id: 'coastal-terrace',
+    name: '滨海露台度假场景',
+    description: '蔚蓝海岸、海风日光、清爽惬意',
+    palette: ['#a3d5e8', '#f7f4ed', '#d9a779'],
+    prompt: 'coastal oceanfront terrace, natural bright Mediterranean daylight, sunlit marble balustrade, distant turquoise sea, light coastal breeze, airy relaxed holiday feel, photorealistic outdoor photography',
+  },
+  {
+    id: 'urban-stone-business',
+    name: '都市商务石砌街区',
+    description: '摩登建筑石材、干练明快日光、城市商务气息',
+    palette: ['#8c929a', '#d0d4dc', '#2a313a'],
+    prompt: 'modern urban business district, sleek stone masonry architecture, clean geometric lines, bright natural daylight with sharp crisp shadows, high-end metropolitan atmosphere, authentic street photography',
+  },
+  {
+    id: 'desert-american-highway',
+    name: '荒漠美式郊外公路场景',
+    description: '开放公路、金黄日光、美式西海岸复古自由',
+    palette: ['#d89c59', '#e8cfa6', '#4a6b82'],
+    prompt: 'American West desert highway, vast open landscape under golden hour sun, warm sand dunes and asphalt road, authentic dusty sunlight, cinematic wild freedom feel, photorealistic outdoor photography',
+  },
+  {
+    id: 'minimalist-pure',
+    name: '极简',
+    description: '纯粹建筑几何、自然漫射光、突出主体质感',
+    palette: ['#f4f4f4', '#dedede', '#a0a0a0'],
+    prompt: 'pure minimalist architectural studio space, seamless clean background, ultra soft diffused daylight, elegant negative space, subtle cast shadows, pristine realistic product presentation',
+  },
+  {
+    id: 'south-france-old-town',
+    name: '南法欧洲老城复古民居街巷',
+    description: '斑驳黄墙、鹅卵石小巷、古朴阳光与诗意',
+    palette: ['#dcb588', '#9e7b57', '#637059'],
+    prompt: 'South of France historic old town street, cobblestone alleyway, sun-dappled vintage stone facades with shutters, warm afternoon light, romantic European heritage charm, authentic travel photography',
+  },
+  {
+    id: 'european-classic-manor',
+    name: '欧式古典轻奢建筑度假庄园酒店',
+    description: '雕花连廊、绿植庭园、典雅贵气氛围',
+    palette: ['#3b4e3e', '#d2be92', '#faf6ee'],
+    prompt: 'European classical luxury manor estate hotel garden, manicured hedge lawns, intricate carved stone balustrades, soft warm sunbeams, elegant opulent atmosphere, photorealistic editorial photography',
+  },
+  {
+    id: 'american-suburban-street',
+    name: '全新美式城郊休闲街道类',
+    description: '绿荫小镇、阳光斑驳、亲和生活气息',
+    palette: ['#5c7a56', '#e0c8aa', '#8bb4d4'],
+    prompt: 'pleasant American suburban residential street, lush green trees, bright dappled sunlight on paved walkway, neat wooden fences and lawns, inviting friendly everyday lifestyle backdrop',
+  },
+  {
+    id: 'indoor-luxury-vintage-wood',
+    name: '室内轻奢木质复古场景',
+    description: '沉稳胡桃木、暖温光感、优雅怀旧质感',
+    palette: ['#593e2b', '#c49a6c', '#2c1e14'],
+    prompt: 'luxurious vintage wooden interior, rich dark walnut wood panels, soft warm golden amber indoor lighting, cozy sophisticated library or lounge feel, deep rich textures, photorealistic interior photography',
+  },
 ];
+
+export const ECOMMERCE_STYLE_PRESETS: EcommerceStylePreset[] = SCENE_REALISTIC_STYLE_PRESETS;
 
 export const languageById = (id: EcommerceLanguageId) => ECOMMERCE_LANGUAGES.find((item) => item.id === id) || ECOMMERCE_LANGUAGES[1];
 export const platformById = (id: EcommercePlatformId) => ECOMMERCE_PLATFORMS.find((item) => item.id === id) || ECOMMERCE_PLATFORMS[0];
 export const stylePresetById = (id?: string | null) => ECOMMERCE_STYLE_PRESETS.find((item) => item.id === id) || null;
+

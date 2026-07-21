@@ -1,0 +1,17 @@
+.scene-result-landscape,
+.scene-result-wide {
+  min-height: 0 !important;
+}
+
+@media (min-width: 640px) {
+  article:has(> .scene-result-landscape),
+  article:has(> .scene-result-wide) {
+    grid-column: span 2 / span 2;
+  }
+}
+
+@media (min-width: 1280px) {
+  article:has(> .scene-result-wide) {
+    grid-column: 1 / -1;
+  }
+}
