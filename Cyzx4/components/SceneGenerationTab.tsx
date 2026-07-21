@@ -125,6 +125,7 @@ export interface SceneHeroAnalysis {
   cameraDevice: string;
   shotType: string;
   sizeCategory: 'tiny' | 'small' | 'medium' | 'large' | 'wearable';
+  estimatedProductSize: string;
   imagePlans: string[];
   riskWarnings: string[];
 }
@@ -283,6 +284,7 @@ const parseSceneAnalysis = (
     cameraDevice: String(parsed.cameraDevice || 'iPhone 实拍').trim(),
     shotType: String(parsed.shotType || '中景半身').trim(),
     sizeCategory: derivedSize,
+    estimatedProductSize: userProductSize ? userProductSize : String(parsed.estimatedProductSize || '标准款式比例').trim(),
     imagePlans: imagePlans.slice(0, count),
     riskWarnings: normalizeStringList(parsed.riskWarnings),
   };
@@ -344,6 +346,7 @@ CURRENT SETTINGS
 RULES
 - Extract absolute product identity (silhouette, texture, colors, key features).
 - Recommend exact board type from: main, aplus, social, story, asset, mobile.
+- If user does NOT provide product size, infer exact realistic product size & fit dimensions in Chinese based on product images, apparel silhouette/style, category standards, and real-world proportions (e.g. "裙长约 115cm（中长款流线型）", "裤长约 100cm（修身长裤）", "常规手提包约 28x20cm"). Output this as "estimatedProductSize".
 - Plan exactly ${record.outputCount} distinct, high-converting commercial lifestyle image plans.
 - Output ONLY valid JSON:
 {
@@ -351,6 +354,7 @@ RULES
   "productName":"editable product name in Chinese",
   "productCategory":"specific category in Chinese",
   "materialColor":"materials, finish and exact colors",
+  "estimatedProductSize":"inferred realistic Chinese size/proportions if user omitted size, e.g. 裙长约110cm（中长款流线型）",
   "sellingPoints":["truthful product selling point"],
   "targetAudience":"target audience description",
   "recommendedBoard":"main|aplus|social|story|asset|mobile",
@@ -1144,7 +1148,16 @@ Return ONLY JSON:
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">场景板块</span><strong className="mt-1 block">{SCENE_BOARD_CONFIGS[activeRecord.boardType].label}</strong></div>
-          <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">产品尺寸</span><strong className="mt-1 block">{activeRecord.productSize || '未指定比例'}</strong></div>
+          <div className="rounded-xl bg-pastel-bg p-3">
+            <span className="text-pastel-muted">产品尺寸</span>
+            <strong className="mt-1 block truncate">
+              {activeRecord.productSize
+                ? activeRecord.productSize
+                : activeRecord.analysis?.estimatedProductSize
+                ? activeRecord.analysis.estimatedProductSize
+                : '智能推算全比例'}
+            </strong>
+          </div>
           <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">比例</span><strong className="mt-1 block">{activeRecord.aspectRatio}</strong></div>
           <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">输出</span><strong className="mt-1 block">{activeRecord.outputCount}张 · {activeRecord.resolution}</strong></div>
         </div>
@@ -1201,7 +1214,8 @@ Return ONLY JSON:
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-black text-pastel-muted">产品名称<input value={activeRecord.analysis.productName} onChange={(event) => patchAnalysis({ productName: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm text-pastel-text" /></label>
-          <label className="text-xs font-black text-pastel-muted">产品品类<input value={activeRecord.analysis.productCategory} onChange={(event) => patchAnalysis({ productCategory: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm text-pastel-text" /></label>
+          <label className="text-xs font-black text-pastel-muted">产品品类<input value={activeRecord.analysis.productCategory} onChange={(event) => patchAnalysis({ productCategory: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-[#fff8f3] border-[#efd9c9] px-3 text-sm text-pastel-text" /></label>
+          <label className="text-xs font-black text-pastel-muted sm:col-span-2">产品尺寸与款式比例估算（Agent推测，可修改）<input value={activeRecord.analysis.estimatedProductSize} onChange={(event) => patchAnalysis({ estimatedProductSize: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-[#fff8f3] border-[#efd9c9] px-3 text-sm text-pastel-text" placeholder="例如：裙长约 110cm（中长款流线型）" /></label>
           <div className="rounded-xl bg-pastel-bg p-4 sm:col-span-2"><span className="text-xs font-black text-pastel-muted">产品身份摘要（只读）</span><p className="mt-2 text-sm leading-6">{activeRecord.analysis.productIdentity}</p></div>
           <label className="text-xs font-black text-pastel-muted sm:col-span-2">核心卖点（每行一条）<textarea value={activeRecord.analysis.sellingPoints.join('\n')} onChange={(event) => patchAnalysis({ sellingPoints: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean).slice(0, 6) })} className="mt-1 min-h-24 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text" /></label>
         </div>
