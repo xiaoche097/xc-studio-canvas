@@ -37,6 +37,11 @@ import {
   stylePresetById,
   type EcommerceStylePreset,
 } from '../constants/ecommerceHeroPresets';
+import {
+  CROP_FRAMING_OPTIONS,
+  cropFramingById,
+  type CropFramingId,
+} from '../constants/cropFramingPresets';
 import type {
   EcommerceCustomStyle,
   EcommerceStyleAnalysis,
@@ -146,6 +151,7 @@ export interface SceneGenerationRecord {
   step: 'input' | 'analyzing' | 'confirm' | 'generating' | 'complete';
   mode: 'standard' | 'advanced';
   boardType: BoardType;
+  cropFraming: CropFramingId;
   productImages: SceneUploadedImage[];
   referenceSceneImage: SceneUploadedImage | null;
   userHint: string;
@@ -190,6 +196,7 @@ const createRecord = (): SceneGenerationRecord => ({
   step: 'input',
   mode: 'standard',
   boardType: 'social',
+  cropFraming: 'full-length',
   productImages: [],
   referenceSceneImage: null,
   userHint: '',
@@ -324,6 +331,7 @@ const styleSummary = (record: SceneGenerationRecord, customStyles: EcommerceCust
 
 const buildAnalysisPrompt = (record: SceneGenerationRecord, styleName: string, stylePrompt: string) => {
   const board = SCENE_BOARD_CONFIGS[record.boardType];
+  const cropConfig = cropFramingById(record.cropFraming);
   const refSceneText = record.referenceSceneImage
     ? `Image ${record.productImages.length + 1} is a REFERENCE SCENE & POSE IMAGE. Extract its exact background environment, lighting, composition, camera perspective, and model pose/action. Create visual plans that faithfully replicate this scene style and pose for the product.`
     : 'No reference scene image provided.';
@@ -336,6 +344,8 @@ ${refSceneText}
 
 CURRENT SETTINGS
 - Scene Board: ${board.label} (${board.description})
+- Crop Framing Category: ${cropConfig.label} (${cropConfig.description})
+- Camera & Framing Requirement: ${cropConfig.promptRule}
 - Target Ratio: ${record.aspectRatio}
 - Output Count: ${record.outputCount}
 - Product Size (User Input): ${record.productSize.trim() || 'Not specified'}
@@ -384,6 +394,7 @@ const buildGenerationPrompt = (
   styleReferenceCount: number,
 ) => {
   const board = SCENE_BOARD_CONFIGS[record.boardType];
+  const cropConfig = cropFramingById(record.cropFraming);
   const productEnd = record.productImages.length;
 
   let refSceneNote = '';
@@ -413,6 +424,7 @@ PRODUCT IDENTITY LOCK
 
 SCENE & BOARD SYSTEM
 - Board: ${board.label} (${board.description})
+- Mandatory Crop Framing: ${cropConfig.label} (${cropConfig.description}) - ${cropConfig.promptRule}
 - Strategy: ${analysis.boardVisualStrategy}
 - Background & Composition: ${analysis.backgroundComposition}
 - Image Plan: ${analysis.imagePlans[index] || analysis.imagePlans[0]}
@@ -555,7 +567,7 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
       {mutationError && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">{mutationError}</div>}
 
       <div>
-        <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-black">内置电商风格预设</h3><span className="text-xs text-pastel-muted">{ECOMMERCE_STYLE_PRESETS.length} 个预设</span></div>
+        <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-black">场景色调调性风格预设</h3><span className="text-xs text-pastel-muted">{ECOMMERCE_STYLE_PRESETS.length} 个预设</span></div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {ECOMMERCE_STYLE_PRESETS.map((style) => (
             <button key={style.id} type="button" onClick={() => { onSelectPreset(style.id); onClose(); }} className={`group min-h-44 overflow-hidden rounded-2xl border-2 text-left transition hover:-translate-y-1 ${record.selectedPresetId === style.id ? 'border-[#ed6d46] shadow-[0_10px_24px_rgba(237,109,70,0.18)]' : 'border-transparent bg-pastel-bg'}`}>
@@ -604,7 +616,7 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const [customStyles, setCustomStyles] = useState<EcommerceCustomStyle[]>([]);
   const [styleMutationError, setStyleMutationError] = useState('');
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
-  const [selectionModal, setSelectionModal] = useState<'ratio' | 'board' | null>(null);
+  const [selectionModal, setSelectionModal] = useState<'ratio' | 'board' | 'crop' | null>(null);
 
   const productInputRef = useRef<HTMLInputElement>(null);
   const refSceneInputRef = useRef<HTMLInputElement>(null);
@@ -1087,7 +1099,17 @@ Return ONLY JSON:
           <textarea value={activeRecord.userHint} disabled={isBusy} onChange={(event) => patchActive({ userHint: event.target.value, analysis: null, results: [] })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" placeholder="例如：圣诞送礼场景、亲子温馨陪伴、卧室床头柔光..." />
         </label>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <button type="button" disabled={isBusy} onClick={() => setSelectionModal('crop')} className="flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]">
+            <span className="text-[0.68rem] font-bold text-pastel-muted">裁图范围</span>
+            <div className="mt-1 flex items-center justify-between">
+              <strong className="flex items-center gap-1 text-sm font-black text-[#17243c]">
+                <span>{cropFramingById(activeRecord.cropFraming).icon}</span>
+                <span className="truncate">{cropFramingById(activeRecord.cropFraming).shortLabel}</span>
+              </strong>
+              <ChevronRight className="h-4 w-4 text-pastel-muted" />
+            </div>
+          </button>
           <button type="button" disabled={isBusy} onClick={() => setSelectionModal('ratio')} className="flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]">
             <span className="text-[0.68rem] font-bold text-pastel-muted">尺寸比例</span>
             <div className="mt-1 flex items-center justify-between">
@@ -1148,16 +1170,7 @@ Return ONLY JSON:
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">场景板块</span><strong className="mt-1 block">{SCENE_BOARD_CONFIGS[activeRecord.boardType].label}</strong></div>
-          <div className="rounded-xl bg-pastel-bg p-3">
-            <span className="text-pastel-muted">产品尺寸</span>
-            <strong className="mt-1 block truncate">
-              {activeRecord.productSize
-                ? activeRecord.productSize
-                : activeRecord.analysis?.estimatedProductSize
-                ? activeRecord.analysis.estimatedProductSize
-                : '智能推算全比例'}
-            </strong>
-          </div>
+          <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">裁图范围</span><strong className="mt-1 block truncate">{cropFramingById(activeRecord.cropFraming).shortLabel}</strong></div>
           <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">比例</span><strong className="mt-1 block">{activeRecord.aspectRatio}</strong></div>
           <div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">输出</span><strong className="mt-1 block">{activeRecord.outputCount}张 · {activeRecord.resolution}</strong></div>
         </div>
@@ -1419,6 +1432,37 @@ Return ONLY JSON:
                   <div className="mt-3">
                     <strong className="block text-base font-black text-[#17243c]">{board.label}</strong>
                     <small className="mt-1 block text-xs leading-4 text-pastel-muted">{board.description}</small>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </SelectionModal>
+      )}
+      {selectionModal === 'crop' && (
+        <SelectionModal title="选择裁图范围" onClose={() => setSelectionModal(null)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {CROP_FRAMING_OPTIONS.map((option) => {
+              const isSelected = activeRecord.cropFraming === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => {
+                    patchActive({ cropFraming: option.id });
+                    setSelectionModal(null);
+                  }}
+                  className={`relative flex min-h-36 flex-col justify-between rounded-2xl border-2 p-4 text-left transition hover:-translate-y-1 ${isSelected ? 'border-[#ed6d46] bg-[#fff8f3] shadow-md' : 'border-transparent bg-pastel-bg/60'}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-xl shadow-sm">
+                      {option.icon}
+                    </span>
+                    {isSelected && <CheckCircle2 className="h-5 w-5 text-[#ed6d46]" />}
+                  </div>
+                  <div className="mt-3">
+                    <strong className="block text-base font-black text-[#17243c]">{option.label}</strong>
+                    <small className="mt-1 block text-xs leading-5 text-pastel-muted">{option.description}</small>
                   </div>
                 </button>
               );
