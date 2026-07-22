@@ -20,6 +20,7 @@ import {
   Store,
   Trash2,
   Upload,
+  UserCircle2,
   Wand2,
   WandSparkles,
   X,
@@ -46,6 +47,8 @@ import type {
   EcommerceCustomStyle,
   EcommerceStyleAnalysis,
 } from '../types/ecommerceHero.types';
+import { ModelLibraryModal } from './ModelLibraryModal';
+import { modelLibrary, ModelItem } from '../services/modelLibrary';
 import './SceneGenerationTab.css';
 
 export type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset' | 'mobile';
@@ -163,6 +166,7 @@ export interface SceneGenerationRecord {
   oneClick: boolean;
   selectedPresetId: string | null;
   selectedCustomStyleId: string | null;
+  selectedModelPersonaId: string | null;
   analysis: SceneHeroAnalysis | null;
   results: SceneHeroResult[];
   error: string;
@@ -208,6 +212,7 @@ const createRecord = (): SceneGenerationRecord => ({
   oneClick: false,
   selectedPresetId: null,
   selectedCustomStyleId: null,
+  selectedModelPersonaId: null,
   analysis: null,
   results: [],
   error: '',
@@ -392,6 +397,7 @@ const buildGenerationPrompt = (
   styleName: string,
   stylePrompt: string,
   styleReferenceCount: number,
+  modelPersonaPrompt?: string,
 ) => {
   const board = SCENE_BOARD_CONFIGS[record.boardType];
   const cropConfig = cropFramingById(record.cropFraming);
@@ -407,6 +413,16 @@ const buildGenerationPrompt = (
     ? `- Images ${styleEnd + 1}-${styleEnd + styleReferenceCount} are visual style references for color and lighting ONLY.`
     : '- No separate style reference image provided.';
 
+  let modelPersonaNote = '';
+  if (modelPersonaPrompt) {
+    modelPersonaNote = `
+MODEL CONSISTENCY & REFERENCE LOCK:
+- Use the selected reference model as the sole standard for facial features, contour, hair, skin texture, and body proportions.
+- ${modelPersonaPrompt}
+- Prohibit face-swapping, changing facial structure, over-beautifying, or altering hair/skin identity.
+`;
+  }
+
   return `
 Create ONE premium commercial scene image, variation ${index + 1} of ${record.outputCount}.
 
@@ -421,7 +437,7 @@ PRODUCT IDENTITY LOCK
 - Material/Color: ${analysis.materialColor}
 - Size Category: ${analysis.sizeCategory} (Product physical size: ${record.productSize || 'Natural proportion'})
 - Preserve exact silhouette, details, textures, branding and construction.
-
+${modelPersonaNote}
 SCENE & BOARD SYSTEM
 - Board: ${board.label} (${board.description})
 - Mandatory Crop Framing: ${cropConfig.label} (${cropConfig.description}) - ${cropConfig.promptRule}
@@ -613,6 +629,8 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const [activeRecordId, setActiveRecordId] = useState(initialRecordRef.current.id);
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [isStyleOpen, setIsStyleOpen] = useState(false);
+  const [isModelModalOpen, setIsModelModalOpen] = useState(false);
+  const [modelPersonas, setModelPersonas] = useState<ModelItem[]>([]);
   const [customStyles, setCustomStyles] = useState<EcommerceCustomStyle[]>([]);
   const [styleMutationError, setStyleMutationError] = useState('');
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
@@ -620,6 +638,41 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
 
   const productInputRef = useRef<HTMLInputElement>(null);
   const refSceneInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    modelLibrary.list().then(setModelPersonas).catch(() => {});
+  }, []);
+
+  const handleCreateModelPersona = async (name: string, file: File) => {
+    const compressed = await compressImage(file, 2048, 0.92);
+    const model: ModelItem = {
+      id: crypto.randomUUID(),
+      name,
+      preview: `data:${compressed.mime};base64,${compressed.base64}`,
+      base64: compressed.base64,
+      mime: compressed.mime,
+      prompt: `High-Precision Model Reference: reproduce exact face contour, eyes, nose, lips, hair, and body type matching ${name}.`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await modelLibrary.save(model);
+    setModelPersonas((prev) => [model, ...prev]);
+    patchActive({ selectedModelPersonaId: model.id });
+  };
+
+  const handleRenameModelPersona = async (model: ModelItem, newName: string) => {
+    const next = { ...model, name: newName, updatedAt: Date.now() };
+    await modelLibrary.save(next);
+    setModelPersonas((prev) => prev.map((m) => (m.id === model.id ? next : m)));
+  };
+
+  const handleDeleteModelPersona = async (id: string) => {
+    await modelLibrary.remove(id);
+    setModelPersonas((prev) => prev.filter((m) => m.id !== id));
+    if (activeRecord.selectedModelPersonaId === id) {
+      patchActive({ selectedModelPersonaId: null });
+    }
+  };
 
   const {
     cancelMessage,
@@ -759,11 +812,23 @@ Return ONLY JSON:
   const generateOne = async (record: SceneGenerationRecord, result: SceneHeroResult, index: number, signal: AbortSignal) => {
     if (!record.analysis) throw new Error('缺少可用的 Agent 规划方案。');
     const style = styleSummary(record, customStyles);
-    const prompt = buildGenerationPrompt(record, record.analysis, index, style.name, style.prompt, style.references.length);
+    const selectedModel = modelPersonas.find((m) => m.id === record.selectedModelPersonaId);
+    const prompt = buildGenerationPrompt(
+      record,
+      record.analysis,
+      index,
+      style.name,
+      style.prompt,
+      style.references.length,
+      selectedModel?.prompt,
+    );
     updateResult(record.id, result.id, { status: 'submitting', prompt, error: undefined });
 
     const inputImages = [...record.productImages.map(toApiImage)];
     if (record.referenceSceneImage) inputImages.push(toApiImage(record.referenceSceneImage));
+    if (selectedModel?.base64 && selectedModel?.mime) {
+      inputImages.push({ base64: selectedModel.base64, mimeType: selectedModel.mime });
+    }
     style.references.forEach((ref) => inputImages.push(toApiImage(ref)));
 
     const [rawImage] = await generateImageToImage(
@@ -1057,6 +1122,63 @@ Return ONLY JSON:
             event.target.value = '';
           }}
         />
+      </section>
+
+      {/* Model Library Selection Section (Optional) */}
+      <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c] sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f0f4ff] text-[#3b82f6]">
+              <UserCircle2 className="h-5 w-5" />
+            </span>
+            <div>
+              <h3 className="text-sm font-black">模特库 (可选)</h3>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">固定模特面部与人体参考，保持高精度一致性生成</p>
+            </div>
+          </div>
+          {activeRecord.selectedModelPersonaId && (
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => patchActive({ selectedModelPersonaId: null })}
+              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100"
+            >
+              <X className="h-3.5 w-3.5" />
+              清除选择
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          disabled={isBusy}
+          onClick={() => setIsModelModalOpen(true)}
+          className="mt-4 flex min-h-16 w-full items-center justify-between rounded-xl border border-pastel-border bg-[#f8fbff] p-3 text-left transition hover:border-[#ed6d46]"
+        >
+          <div className="flex items-center gap-3">
+            {activeRecord.selectedModelPersonaId ? (
+              <>
+                <img
+                  src={modelPersonas.find((m) => m.id === activeRecord.selectedModelPersonaId)?.preview}
+                  alt="模特"
+                  className="h-10 w-10 rounded-lg object-cover"
+                />
+                <div>
+                  <strong className="block text-sm font-black text-[#17243c]">
+                    {modelPersonas.find((m) => m.id === activeRecord.selectedModelPersonaId)?.name}
+                  </strong>
+                  <span className="text-[0.68rem] text-pastel-muted">高精度人物一致性开启</span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <strong className="block text-sm font-black text-pastel-text">选择/管理固定模特...</strong>
+                <span className="text-[0.68rem] text-pastel-muted">包含官方图2固定模特，亦可上传自定义模特</span>
+              </div>
+            )}
+          </div>
+          <ChevronRight className="h-4 w-4 text-pastel-muted" />
+        </button>
       </section>
 
       {/* Style Library Entry - Advanced Mode Only */}
@@ -1471,6 +1593,17 @@ Return ONLY JSON:
         </SelectionModal>
       )}
       {isStyleOpen && <StyleLibraryModal record={activeRecord} customStyles={customStyles} mutationError={styleMutationError} onSelectPreset={(id) => patchActive({ selectedPresetId: id, selectedCustomStyleId: null })} onSelectCustom={(id) => patchActive({ selectedCustomStyleId: id, selectedPresetId: null })} onCreate={createCustomStyle} onRename={renameCustomStyle} onDelete={deleteCustomStyle} onClose={() => setIsStyleOpen(false)} />}
+      {isModelModalOpen && (
+        <ModelLibraryModal
+          selectedModelId={activeRecord.selectedModelPersonaId}
+          models={modelPersonas}
+          onSelectModel={(model) => patchActive({ selectedModelPersonaId: model?.id || null })}
+          onCreateModel={handleCreateModelPersona}
+          onRenameModel={handleRenameModelPersona}
+          onDeleteModel={handleDeleteModelPersona}
+          onClose={() => setIsModelModalOpen(false)}
+        />
+      )}
       {selectedPreview && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-4" onClick={() => setSelectedPreview(null)}><button type="button" onClick={() => setSelectedPreview(null)} className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white" aria-label="关闭预览"><X className="h-6 w-6" /></button><img src={selectedPreview} alt="生成场景图大图预览" className="max-h-[88vh] max-w-full rounded-xl object-contain" /></div>}
     </div>
   );

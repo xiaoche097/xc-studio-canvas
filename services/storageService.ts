@@ -61,7 +61,7 @@ class StorageService {
     private dbPromise: Promise<IDBPDatabase<SkysperDB>>;
     private autoCleanupPromise: Promise<number> | null = null;
     private expirationCleanupPromise: Promise<number> | null = null;
-    private expirationCleanupTimer: ReturnType<typeof window.setInterval> | null = null;
+    private expirationCleanupTimer: any = null;
 
     constructor() {
         this.dbPromise = openDB<SkysperDB>(DB_NAME, 1, {
