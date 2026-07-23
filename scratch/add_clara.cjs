@@ -1,6 +1,25 @@
 const fs = require('fs');
 const path = require('path');
 
+const srcPng = 'C:\\Users\\EDY\\.gemini\\antigravity-ide\\brain\\da0fa314-a84d-48b8-8768-4b8475d9747f\\media__1784786219510.png';
+const destPng = path.join(__dirname, '../public/official_model_clara.png');
+const destB64 = path.join(__dirname, '../public/official_model_clara.base64.txt');
+
+// 1. Copy image to public/
+fs.copyFileSync(srcPng, destPng);
+console.log('Copied Clara close-up image to public/official_model_clara.png');
+
+// 2. Read image & convert to base64
+const imageData = fs.readFileSync(destPng);
+const b64Clara = imageData.toString('base64');
+fs.writeFileSync(destB64, b64Clara, 'utf8');
+console.log('Saved Clara base64 to public/official_model_clara.base64.txt');
+
+// 3. Update embed_model.cjs script
+const embedScriptPath = path.join(__dirname, './embed_model.cjs');
+const embedScriptContent = `const fs = require('fs');
+const path = require('path');
+
 const gabiBase64Path = path.join(__dirname, '../public/official_model_2.base64.txt');
 const claraBase64Path = path.join(__dirname, '../public/official_model_clara.base64.txt');
 const targetPath = path.join(__dirname, '../Cyzx4/services/modelLibrary.ts');
@@ -8,7 +27,7 @@ const targetPath = path.join(__dirname, '../Cyzx4/services/modelLibrary.ts');
 const b64Gabi = fs.readFileSync(gabiBase64Path, 'utf8').trim();
 const b64Clara = fs.readFileSync(claraBase64Path, 'utf8').trim();
 
-const content = `import { openDB, type DBSchema } from 'idb';
+const content = \`import { openDB, type DBSchema } from 'idb';
 
 export interface ModelItem {
   id: string;
@@ -33,7 +52,7 @@ interface ModelLibraryDB extends DBSchema {
 const DB_NAME = 'skysper-model-library';
 const STORE_NAME = 'models';
 
-const OFFICIAL_MODEL_PROMPT = \`
+const OFFICIAL_MODEL_PROMPT = \\\`
 You will create a "High-Precision Reference Chart" based on the attached character image that can be used for AI image generation or character consistency.
 The purpose is not to create a character profile, but to produce visual material so that the same character can be stably reproduced in the future.
 
@@ -53,10 +72,10 @@ Skin should retain natural pores and texture; prohibit doll-like skin or CG feel
 Labels and Language
 ────────────────────
 Please use Chinese uniformly for the labels in the image.
-\`.trim();
+\\\`.trim();
 
-const GABI_BASE64 = '${b64Gabi}';
-const CLARA_BASE64 = '${b64Clara}';
+const GABI_BASE64 = '\${b64Gabi}';
+const CLARA_BASE64 = '\${b64Clara}';
 
 // 官方固定模特默认数据
 export const OFFICIAL_MODELS: ModelItem[] = [
@@ -113,7 +132,11 @@ export const modelLibrary = {
     await db.delete(STORE_NAME, id);
   },
 };
-`;
+\`;
 
 fs.writeFileSync(targetPath, content, 'utf8');
 console.log('Successfully generated Cyzx4/services/modelLibrary.ts with Gabi and Clara (close-up)!');
+`;
+
+fs.writeFileSync(embedScriptPath, embedScriptContent, 'utf8');
+console.log('Updated scratch/embed_model.cjs');

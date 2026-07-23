@@ -57,7 +57,7 @@ import type {
 import './EcommerceHeroTab.css';
 
 const MAX_PRODUCT_IMAGES = 8;
-const MAX_STYLE_IMAGES = 4;
+const MAX_STYLE_IMAGES = 5;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_RECORDS = 20;
 const DEFAULT_MODEL_ID: EcommerceImageModelId = 'gpt-image-2';
@@ -66,7 +66,15 @@ const IMAGE_MODEL_OPTIONS: Array<{ id: EcommerceImageModelId; label: string; des
   { id: 'gemini-3.1-flash-image-preview', label: 'Gemini Banana 2', description: '快速稳定', badge: 'Gemini' },
 ];
 const imageModelById = (id: EcommerceImageModelId) => IMAGE_MODEL_OPTIONS.find((model) => model.id === id) || IMAGE_MODEL_OPTIONS[0];
-const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg']);
+
+const isValidImageType = (file: File) => {
+  const type = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg'];
+  const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
+  return validTypes.includes(type) || validExts.some((ext) => name.endsWith(ext));
+};
 
 const STEPS: Array<{ id: EcommerceHeroRecord['step']; label: string }> = [
   { id: 'input', label: '输入' },
@@ -207,8 +215,13 @@ const styleSummary = (record: EcommerceHeroRecord, customStyles: EcommerceCustom
     name: custom.name,
     prompt: [custom.analysis.palette, custom.analysis.lighting, custom.analysis.background, custom.analysis.composition, custom.analysis.propDensity, custom.analysis.promptBlock].join('. '),
     references: custom.referenceImages.map((dataUrl, index) => {
-      const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-      return match ? { id: `${custom.id}-${index}`, name: `${custom.name}-${index + 1}`, mime: match[1], base64: match[2], preview: dataUrl } : null;
+      const parts = dataUrl.split(';base64,');
+      if (parts.length === 2) {
+        const mime = parts[0].replace(/^data:/, '') || 'image/png';
+        const base64 = parts[1].trim();
+        return { id: `${custom.id}-${index}`, name: `${custom.name}-${index + 1}`, mime, base64, preview: dataUrl };
+      }
+      return null;
     }).filter((item): item is EcommerceUploadedImage => Boolean(item)),
   };
 };
@@ -312,7 +325,7 @@ OUTPUT
 };
 
 const readUploadedFiles = async (files: File[], max: number, currentCount: number) => {
-  const imageFiles = files.filter((file) => ACCEPTED_MIME_TYPES.has(file.type));
+  const imageFiles = files.filter(isValidImageType);
   const accepted = imageFiles.filter((file) => file.size <= MAX_FILE_SIZE).slice(0, Math.max(0, max - currentCount));
   const uploaded = await Promise.all(accepted.map(async (file): Promise<EcommerceUploadedImage> => {
     const compressed = await compressImage(file, 2048, 0.92);
@@ -378,7 +391,43 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFiles = (incomingFiles: File[]) => {
+    const valid = incomingFiles.filter((file) => isValidImageType(file) && file.size <= MAX_FILE_SIZE);
+    if (!valid.length && incomingFiles.length > 0) {
+      setCreateError('请选择有效的图片文件（JPG/PNG/WEBP，单张不超过5MB）');
+      return;
+    }
+    setCreateError('');
+    setFiles((prev) => {
+      const combined = [...prev, ...valid];
+      return combined.slice(0, MAX_STYLE_IMAGES);
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
   const submit = async () => {
     if (!name.trim() || !files.length || saving) return;
     setSaving(true);
@@ -394,17 +443,98 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
       setSaving(false);
     }
   };
+
   return (
     <SelectionModal title="高级风格库" onClose={onClose}>
       <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#f0d8c9] bg-[#fff8f3] p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><p className="text-sm font-black text-[#17243c]">平台规则优先，风格负责色彩、光线和氛围</p><p className="mt-1 text-xs leading-5 text-[#718198]">可选择内置预设，也可上传1–4张参考图创建浏览器本地风格。</p></div>
-        <button type="button" onClick={() => setCreating((value) => !value)} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#ed6d46] px-4 text-xs font-black text-white"><Plus className="h-4 w-4" />创建自定义风格</button>
+        <div>
+          <p className="text-sm font-black text-[#17243c]">平台规则优先，风格负责色彩、光线和氛围</p>
+          <p className="mt-1 text-xs leading-5 text-[#718198]">可选择内置预设，也可上传1–5张参考图创建浏览器本地风格。</p>
+        </div>
+        <button type="button" onClick={() => setCreating((value) => !value)} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#ed6d46] px-4 text-xs font-black text-white hover:bg-[#d8552e]">
+          <Plus className="h-4 w-4" />创建自定义风格
+        </button>
       </div>
-      {creating && <div className="mb-6 grid gap-3 rounded-2xl border border-[#d9e5f1] bg-[#f8fbff] p-4 sm:grid-cols-[1fr_1.3fr_auto] sm:items-end"><label className="text-xs font-black text-pastel-muted">风格名称<input value={name} onChange={(event) => setName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm text-pastel-text" placeholder="例如：奶油家居自然光" /></label><label className="text-xs font-black text-pastel-muted">参考图（1–4张）<button type="button" onClick={() => inputRef.current?.click()} className="mt-1 flex min-h-11 w-full items-center justify-center rounded-xl border border-dashed border-[#b9c9dc] bg-white px-3 text-sm font-bold text-[#405773]">{files.length ? `已选择 ${files.length} 张` : '点击选择参考图'}</button><input ref={inputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => setFiles(Array.from(event.target.files || []).filter((file) => ACCEPTED_MIME_TYPES.has(file.type) && file.size <= MAX_FILE_SIZE).slice(0, MAX_STYLE_IMAGES))} /></label><button type="button" onClick={() => void submit()} disabled={!name.trim() || !files.length || saving} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#17243c] px-5 text-xs font-black text-white disabled:opacity-40">{saving && <Loader2 className="h-4 w-4 animate-spin" />}保存风格</button>{createError && <p className="text-xs font-bold text-red-600 sm:col-span-3">{createError}</p>}</div>}
+      {creating && (
+        <div className="mb-6 grid gap-3 rounded-2xl border border-[#d9e5f1] bg-[#f8fbff] p-4 sm:grid-cols-[1fr_1.3fr_auto] sm:items-end">
+          <label className="text-xs font-black text-pastel-muted">
+            风格名称
+            <input value={name} onChange={(event) => setName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm text-pastel-text" placeholder="例如：奶油家居自然光" />
+          </label>
+          <div className="text-xs font-black text-pastel-muted">
+            参考图（1–5张，点击或拖入）
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => inputRef.current?.click()}
+              className={`mt-1 flex min-h-11 w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-3 transition ${
+                isDragging
+                  ? 'border-[#ed6d46] bg-[#fff8f3]'
+                  : files.length
+                  ? 'border-[#b9c9dc] bg-white'
+                  : 'border-[#b9c9dc] bg-white hover:border-[#ed6d46]'
+              }`}
+            >
+              {files.length ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#17243c]">已选择 {files.length} / 5 张参考图</span>
+                  <span className="text-[0.68rem] text-pastel-muted">(点击或拖入追加)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs font-bold text-[#405773]">
+                  <Upload className="h-4 w-4 text-[#ed6d46]" />
+                  <span>点击选择或拖入参考图（1–5张）</span>
+                </div>
+              )}
+            </div>
+            {files.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {files.map((file, idx) => {
+                  const previewUrl = URL.createObjectURL(file);
+                  return (
+                    <div key={idx} className="relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 group">
+                      <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFiles((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500"
+                        title="移除"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+              className="hidden"
+              onChange={(event) => {
+                if (event.target.files?.length) {
+                  handleFiles(Array.from(event.target.files));
+                  event.target.value = '';
+                }
+              }}
+            />
+          </div>
+          <button type="button" onClick={() => void submit()} disabled={!name.trim() || !files.length || saving} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#17243c] px-5 text-xs font-black text-white disabled:opacity-40">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}保存风格
+          </button>
+          {createError && <p className="text-xs font-bold text-red-600 sm:col-span-3">{createError}</p>}
+        </div>
+      )}
       {mutationError && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">{mutationError}</div>}
       <div><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-black">场景色调调性风格预设</h3><span className="text-xs text-pastel-muted">{ECOMMERCE_STYLE_PRESETS.length} 个预设</span></div><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">{ECOMMERCE_STYLE_PRESETS.map((style) => <button key={style.id} type="button" onClick={() => { onSelectPreset(style.id); onClose(); }} className={`group min-h-44 overflow-hidden rounded-2xl border-2 text-left transition hover:-translate-y-1 ${record.selectedPresetId === style.id ? 'border-[#ed6d46] shadow-[0_10px_24px_rgba(237,109,70,0.18)]' : 'border-transparent bg-pastel-bg'}`}><span className="block h-24" style={{ background: `linear-gradient(135deg, ${style.palette[0]}, ${style.palette[1]} 55%, ${style.palette[2]})` }} /><span className="block p-3"><strong className="block text-xs font-black">{style.name}</strong><span className="mt-1 block text-[0.68rem] leading-4 text-pastel-muted">{style.description}</span></span></button>)}</div></div>
       <div className="mt-7"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-black">我的自定义风格</h3><span className="text-xs text-pastel-muted">保存在当前浏览器</span></div>{customStyles.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{customStyles.map((style) => <article key={style.id} className={`group overflow-hidden rounded-2xl border-2 ${record.selectedCustomStyleId === style.id ? 'border-[#ed6d46]' : 'border-pastel-border'}`}><button type="button" onClick={() => { onSelectCustom(style.id); onClose(); }} className="block w-full text-left"><img src={style.thumbnail} alt={style.name} className="h-28 w-full object-cover" /><span className="block p-3 text-xs font-black">{style.name}</span></button><div className="flex border-t border-pastel-border"><button type="button" onClick={() => void onRename(style)} className="min-h-11 flex-1 text-xs font-bold text-pastel-muted hover:text-[#ed6d46]">重命名</button><button type="button" onClick={() => void onDelete(style)} className="flex min-h-11 w-11 items-center justify-center text-pastel-muted hover:text-red-500" aria-label={`删除${style.name}`}><Trash2 className="h-4 w-4" /></button></div></article>)}</div> : <div className="flex min-h-32 items-center justify-center rounded-2xl border border-dashed border-pastel-border bg-pastel-bg text-sm text-pastel-muted">还没有自定义风格</div>}</div>
-      <button type="button" onClick={() => { onSelectPreset(null); onSelectCustom(null); onClose(); }} className="mt-6 min-h-11 rounded-xl border border-pastel-border px-4 text-xs font-black text-pastel-muted">清除风格选择</button>
+      <button type="button" onClick={() => { onSelectPreset(null); onSelectCustom(null); onClose(); }} className="mt-6 min-h-11 rounded-xl border border-pastel-border px-4 text-xs font-black text-pastel-muted hover:bg-pastel-bg">清除风格选择</button>
     </SelectionModal>
   );
 };
@@ -502,7 +632,7 @@ const EcommerceHeroTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const createCustomStyle = async (name: string, files: File[]) => {
     setStyleMutationError('');
     const { uploaded } = await readUploadedFiles(files, MAX_STYLE_IMAGES, 0);
-    if (!uploaded.length) throw new Error('请上传1–4张有效参考图。');
+    if (!uploaded.length) throw new Error('请上传1–5张有效参考图。');
     const text = await generateText(uploaded.map(toApiImage), `
 You are an ecommerce visual style analyst. Analyze these images ONLY as style references, not as product identity.
 Extract palette, lighting, background materials, composition, prop density, typography density and forbidden elements.

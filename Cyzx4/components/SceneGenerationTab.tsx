@@ -173,7 +173,7 @@ export interface SceneGenerationRecord {
 }
 
 const MAX_PRODUCT_IMAGES = 10;
-const MAX_STYLE_IMAGES = 4;
+const MAX_STYLE_IMAGES = 5;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_RECORDS = 20;
 const DEFAULT_MODEL_ID = 'gemini-3.1-flash-image-preview';
@@ -184,7 +184,15 @@ const IMAGE_MODEL_OPTIONS: Array<{ id: string; label: string; description: strin
   { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro', description: '专业细节', badge: 'Pro' },
 ];
 
-const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg']);
+
+const isValidImageType = (file: File) => {
+  const type = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg'];
+  const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
+  return validTypes.includes(type) || validExts.some((ext) => name.endsWith(ext));
+};
 
 const STEPS: Array<{ id: SceneGenerationRecord['step']; label: string }> = [
   { id: 'input', label: '1. 输入' },
@@ -328,8 +336,13 @@ const styleSummary = (record: SceneGenerationRecord, customStyles: EcommerceCust
     name: custom.name,
     prompt: [custom.analysis.palette, custom.analysis.lighting, custom.analysis.background, custom.analysis.composition, custom.analysis.propDensity, custom.analysis.promptBlock].join('. '),
     references: custom.referenceImages.map((dataUrl, index) => {
-      const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-      return match ? { id: `${custom.id}-${index}`, name: `${custom.name}-${index + 1}`, mime: match[1], base64: match[2], preview: dataUrl } : null;
+      const parts = dataUrl.split(';base64,');
+      if (parts.length === 2) {
+        const mime = parts[0].replace(/^data:/, '') || 'image/png';
+        const base64 = parts[1].trim();
+        return { id: `${custom.id}-${index}`, name: `${custom.name}-${index + 1}`, mime, base64, preview: dataUrl };
+      }
+      return null;
     }).filter((item): item is SceneUploadedImage => Boolean(item)),
   };
 };
@@ -463,7 +476,7 @@ ABSOLUTE POLICY
 };
 
 const readUploadedFiles = async (files: File[], max: number, currentCount: number) => {
-  const imageFiles = files.filter((file) => ACCEPTED_MIME_TYPES.has(file.type));
+  const imageFiles = files.filter(isValidImageType);
   const accepted = imageFiles.filter((file) => file.size <= MAX_FILE_SIZE).slice(0, Math.max(0, max - currentCount));
   const uploaded = await Promise.all(accepted.map(async (file): Promise<SceneUploadedImage> => {
     const compressed = await compressImage(file, 2048, 0.92);
@@ -532,7 +545,42 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFiles = (incomingFiles: File[]) => {
+    const valid = incomingFiles.filter((file) => isValidImageType(file) && file.size <= MAX_FILE_SIZE);
+    if (!valid.length && incomingFiles.length > 0) {
+      setCreateError('请选择有效的图片文件（JPG/PNG/WEBP，单张不超过5MB）');
+      return;
+    }
+    setCreateError('');
+    setFiles((prev) => {
+      const combined = [...prev, ...valid];
+      return combined.slice(0, MAX_STYLE_IMAGES);
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(Array.from(e.dataTransfer.files));
+    }
+  };
 
   const submit = async () => {
     if (!name.trim() || !files.length || saving) return;
@@ -555,7 +603,7 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
       <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#f0d8c9] bg-[#fff8f3] p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-black text-[#17243c]">规则与产品主体优先，风格库负责场景氛围与色调基调</p>
-          <p className="mt-1 text-xs leading-5 text-[#718198]">支持选取内置预设，亦可上传1–4张参考图自动提取风格存储在本地。</p>
+          <p className="mt-1 text-xs leading-5 text-[#718198]">支持选取内置预设，亦可上传1–5张参考图自动提取风格存储在本地。</p>
         </div>
         <button type="button" onClick={() => setCreating((value) => !value)} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#ed6d46] px-4 text-xs font-black text-white hover:bg-[#d8552e]">
           <Plus className="h-4 w-4" />创建自定义风格
@@ -567,13 +615,70 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
             风格名称
             <input value={name} onChange={(event) => setName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm text-pastel-text" placeholder="例如：暖阳暖木质调" />
           </label>
-          <label className="text-xs font-black text-pastel-muted">
-            参考图（1–4张）
-            <button type="button" onClick={() => inputRef.current?.click()} className="mt-1 flex min-h-11 w-full items-center justify-center rounded-xl border border-dashed border-[#b9c9dc] bg-white px-3 text-sm font-bold text-[#405773]">
-              {files.length ? `已选择 ${files.length} 张` : '点击选择参考图'}
-            </button>
-            <input ref={inputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => setFiles(Array.from(event.target.files || []).filter((file) => ACCEPTED_MIME_TYPES.has(file.type) && file.size <= MAX_FILE_SIZE).slice(0, MAX_STYLE_IMAGES))} />
-          </label>
+          <div className="text-xs font-black text-pastel-muted">
+            参考图（1–5张，点击或拖入）
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => inputRef.current?.click()}
+              className={`mt-1 flex min-h-11 w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-3 transition ${
+                isDragging
+                  ? 'border-[#ed6d46] bg-[#fff8f3]'
+                  : files.length
+                  ? 'border-[#b9c9dc] bg-white'
+                  : 'border-[#b9c9dc] bg-white hover:border-[#ed6d46]'
+              }`}
+            >
+              {files.length ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#17243c]">已选择 {files.length} / 5 张参考图</span>
+                  <span className="text-[0.68rem] text-pastel-muted">(点击或拖入追加)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs font-bold text-[#405773]">
+                  <Upload className="h-4 w-4 text-[#ed6d46]" />
+                  <span>点击选择或拖入参考图（1–5张）</span>
+                </div>
+              )}
+            </div>
+            {files.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {files.map((file, idx) => {
+                  const previewUrl = URL.createObjectURL(file);
+                  return (
+                    <div key={idx} className="relative h-12 w-12 overflow-hidden rounded-lg border border-slate-200 group">
+                      <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFiles((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500"
+                        title="移除"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+              className="hidden"
+              onChange={(event) => {
+                if (event.target.files?.length) {
+                  handleFiles(Array.from(event.target.files));
+                  event.target.value = '';
+                }
+              }}
+            />
+          </div>
           <button type="button" onClick={() => void submit()} disabled={!name.trim() || !files.length || saving} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#17243c] px-5 text-xs font-black text-white disabled:opacity-40">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}保存风格
           </button>
@@ -773,7 +878,7 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const createCustomStyle = async (name: string, files: File[]) => {
     setStyleMutationError('');
     const { uploaded } = await readUploadedFiles(files, MAX_STYLE_IMAGES, 0);
-    if (!uploaded.length) throw new Error('请上传1–4张有效参考图。');
+    if (!uploaded.length) throw new Error('请上传1–5张有效参考图。');
     const text = await generateText(uploaded.map(toApiImage), `
 You are an expert commercial visual style analyst. Analyze these images ONLY for style, lighting, composition and lifestyle mood.
 Return ONLY JSON:
