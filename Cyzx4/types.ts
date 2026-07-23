@@ -19,7 +19,8 @@ export enum AppMode {
   WHITE_BG_RETOUCH = 'WHITE_BG_RETOUCH', // 通用白底图精修
   PRODUCT_VIDEO = 'PRODUCT_VIDEO', // AI 生成产品视频
   SINGLE_ITEM_TRY_ON = 'SINGLE_ITEM_TRY_ON', // 单品试穿
-  ECOMMERCE_HERO = 'ECOMMERCE_HERO' // 生成电商主图
+  ECOMMERCE_HERO = 'ECOMMERCE_HERO', // 生成电商主图
+  MODEL_SCENE_FISSION = 'MODEL_SCENE_FISSION' // 模特场景图裂变
 }
 
 export enum AspectRatio {

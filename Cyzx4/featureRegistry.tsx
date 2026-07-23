@@ -61,6 +61,7 @@ const ModelTransferTab = lazy(() => import('./components/ModelTransferTab'));
 const SingleItemTryOnTab = lazy(() => import('./components/SingleItemTryOnTab'));
 const EcommerceHeroTab = lazy(() => import('./components/EcommerceHeroTab'));
 const ModelPoseFissionTab = lazy(() => import('./components/ModelPoseFissionTab'));
+const ModelSceneFissionTab = lazy(() => import('./components/ModelSceneFissionTab'));
 const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
 const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
 const HDUpscaleTab = lazy(() => import('./components/HDUpscaleTab'));
@@ -209,6 +210,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/pose-fission.webp',
     icon: Sparkles,
     component: ModelPoseFissionTab,
+  },
+  {
+    mode: AppMode.MODEL_SCENE_FISSION,
+    title: '模特场景图裂变',
+    englishTitle: 'Scene Photo Fission',
+    description: '单张图裂变生成 9 个不同机位、景别与动作姿势的高清大图。',
+    category: 'model',
+    keywords: ['模特裂变', '景别裂变', '多机位', '多姿势', '九宫格', '9图裂变'],
+    cover: './creative-covers/pose-fission.webp',
+    icon: Sparkles,
+    component: ModelSceneFissionTab,
   },
   {
     mode: AppMode.MODEL_ORIGINAL_PASTE_BACK,
