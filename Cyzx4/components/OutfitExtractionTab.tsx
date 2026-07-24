@@ -271,7 +271,7 @@ Return ONLY valid JSON:
   "reason": "short Chinese reason for these choices"
 }
 `.trim();
-            const text = await generateText(imageInputs, prompt, 'gemini-3.1-flash-lite-preview');
+            const text = await generateText(imageInputs, prompt);
             if (analysisAbortRef.current !== controller || controller.signal.aborted) return null;
             const analysis = parseMatchNeedsAnalysis(text);
             if (analysis.recommendedTargetIds.length > 0) {

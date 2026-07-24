@@ -1,5 +1,5 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { generateContentWithAnalysisFallback, getApiConfig } from "../utils/apiHelpers";
+import { generateContentWithAnalysisFallback, getApiConfig, DEFAULT_TEXT_MODEL } from "../utils/apiHelpers";
 
 /**
  * VTON Material Analyst (Pass 1 of Dual-Agent architecture)
@@ -32,7 +32,7 @@ export const analyzeVtonMaterials = async (
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: { parts },
       config: {
         safetySettings: [
@@ -105,7 +105,7 @@ export const analyzeGarmentFeatures = async (
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: {
         parts: [
           ...images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.base64 } })),
@@ -175,7 +175,7 @@ export const analyzeImagePerspective = async (
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: {
         parts: [
           { inlineData: { mimeType: image.mimeType, data: image.base64 } },

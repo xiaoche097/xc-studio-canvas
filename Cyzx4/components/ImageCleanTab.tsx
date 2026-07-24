@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { 
     Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
     Layout, Sun, Image as ImageIcon, CheckCircle2, 
@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { generateImageToImage, blobToBase64, compressImage, editGeneratedImage } from '../services/geminiService';
 import { analyzeProductForScene, SceneAnalysisResult } from '../services/sceneAnalyzer';
-import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAbortError } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAbortError, DEFAULT_TEXT_MODEL } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
@@ -677,7 +677,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
             });
 
             const response = await generateContentWithAnalysisFallback(ai, {
-                model: 'gemini-3.1-flash-lite-preview',
+                model: DEFAULT_TEXT_MODEL,
                 contents: { parts }
             }, { timeoutMs: 30000, fallbackTimeoutMs: 45000 });
             const text = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -730,7 +730,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                     const ai = getAiClient();
                     const checkPrompt = "Analyze this product photo. Does the background contain any distracting items such as clothes hangers, hooks, picture frames on the wall, stands, furniture, or complex messy background? Respond with ONLY 'yes' or 'no' in lowercase.";
                     const response = await generateContentWithAnalysisFallback(ai, {
-                        model: 'gemini-3.1-flash-lite-preview',
+                        model: DEFAULT_TEXT_MODEL,
                         contents: {
                             parts: [
                                 { inlineData: { mimeType: img.mime!, data: img.base64! } },
@@ -802,7 +802,7 @@ Use visual garment structure first. User note: ${userPrompt || 'none'}`
                 const ai = getAiClient();
                 const checkPrompt = "Analyze this image. Does it contain any humans, models, people, or persons? Respond with ONLY 'yes' or 'no' in lowercase.";
                 const response = await generateContentWithAnalysisFallback(ai, {
-                    model: 'gemini-3.1-flash-lite-preview',
+                    model: DEFAULT_TEXT_MODEL,
                     contents: {
                         parts: [
                             { inlineData: { mimeType: img.mime!, data: img.base64! } },
@@ -952,7 +952,7 @@ Rules:
 - Recommendations must be practical SHEIN/Amazon ecommerce styling, not editorial fantasy. Prefer clean complete outfits: no random extra jewelry, no changing bags, no changing shoes, no changing pants between images.
 User note: ${userPrompt || 'none'}` });
             const response = await generateContentWithAnalysisFallback(ai, {
-                model: 'gemini-3.1-flash-lite-preview',
+                model: DEFAULT_TEXT_MODEL,
                 contents: { parts }
             });
             const text = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -1006,7 +1006,7 @@ Rules:
 - If a styling item would be hidden by the crop or pose, it may be naturally hidden, but any visible styling item must match the references exactly.`
             });
             const response = await generateContentWithAnalysisFallback(ai, {
-                model: 'gemini-3.1-flash-lite-preview',
+                model: DEFAULT_TEXT_MODEL,
                 contents: { parts }
             }, { timeoutMs: 30000, fallbackTimeoutMs: 45000 });
             const raw = (response.text || '{}').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -1048,7 +1048,7 @@ Rules:
 - The model reference outfit pieces that do not conflict with the product asset MUST remain consistent.
 - If jeans/pants are visible, describe them very precisely and lock them across every output.`;
             const response = await generateContentWithAnalysisFallback(ai, {
-                model: 'gemini-3.1-flash-lite-preview',
+                model: DEFAULT_TEXT_MODEL,
                 contents: {
                     parts: [
                         { inlineData: { mimeType: image.mime, data: image.base64 } },

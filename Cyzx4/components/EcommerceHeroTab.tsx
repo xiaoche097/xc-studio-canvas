@@ -638,7 +638,7 @@ You are an ecommerce visual style analyst. Analyze these images ONLY as style re
 Extract palette, lighting, background materials, composition, prop density, typography density and forbidden elements.
 Return ONLY JSON:
 {"palette":"","lighting":"","background":"","composition":"","propDensity":"","typographyDensity":"","forbiddenElements":[""],"promptBlock":"concise English style prompt, no copied products, people, logos or text"}
-`.trim(), 'gemini-3.1-flash-lite-preview');
+`.trim());
     const analysis = parseStyleAnalysis(text);
     const now = Date.now();
     const style: EcommerceCustomStyle = { id: crypto.randomUUID(), name, createdAt: now, updatedAt: now, thumbnail: uploaded[0].preview, referenceImages: uploaded.map((item) => item.preview), analysis };
@@ -766,7 +766,7 @@ Return ONLY JSON:
     const { taskId, signal } = startGenerationTask();
     updateRecord(snapshot.id, (record) => ({ ...record, step: 'analyzing', analysis: null, results: [], error: '', createdAt: Date.now() }));
     try {
-      const text = await generateText(snapshot.productImages.map(toApiImage), buildAnalysisPrompt(snapshot, analysisStyle.name, analysisStyle.prompt), 'gemini-3.1-flash-lite-preview');
+      const text = await generateText(snapshot.productImages.map(toApiImage), buildAnalysisPrompt(snapshot, analysisStyle.name, analysisStyle.prompt));
       assertCurrentGenerationTask(taskId, signal);
       const analysis = parseHeroAnalysis(text, snapshot.outputCount, snapshot.platform, snapshot.language);
       const resolved: EcommerceHeroRecord = { ...snapshot, analysis, platform: snapshot.platform === 'smart' ? analysis.recommendedPlatform : snapshot.platform, step: snapshot.oneClick ? 'generating' : 'confirm', error: '' };

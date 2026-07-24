@@ -275,7 +275,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const analyzeIdentity = async (sources: UploadedImage[], signal: AbortSignal) => {
     setStatusMessage('Agent 正在综合多角度参考，建立统一身份档案...');
     try {
-      const text = await generateText(sources.map(toApiImage), buildAgentPrompt(sources.length, extraNotes), 'gemini-3.1-flash-lite-preview');
+      const text = await generateText(sources.map(toApiImage), buildAgentPrompt(sources.length, extraNotes));
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       return parseAgentAnalysis(text, extraNotes);
     } catch (analysisError) {

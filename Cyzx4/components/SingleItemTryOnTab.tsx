@@ -308,7 +308,6 @@ Evaluate only these requirements:
 
 Return JSON only:
 {"pass":true,"personIdentityScore":0,"poseCompositionScore":0,"sceneIntegrityScore":0,"productScaleScore":0,"corrections":["specific correction if needed"]}`,
-    'gemini-3.1-flash-lite-preview',
   );
   return parseReferenceFidelity(response);
 };
@@ -642,7 +641,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
     const { taskId, signal } = startGenerationTask();
     updateRecord(recordId, (record) => ({ ...record, step: 'analyzing', error: '', analysis: null, results: [], createdAt: Date.now() }));
     try {
-      const text = await generateText([...snapshot.productImages, ...snapshot.bodyReferences].map(toApiImage), buildAnalysisPrompt(snapshot), 'gemini-3.1-flash-lite-preview');
+      const text = await generateText([...snapshot.productImages, ...snapshot.bodyReferences].map(toApiImage), buildAnalysisPrompt(snapshot));
       assertCurrentGenerationTask(taskId, signal);
       const analysis = parseAnalysis(text, snapshot.bodyReferences.length);
       updateRecord(recordId, (record) => ({ ...record, step: 'confirm', analysis, placement: analysis.recommendedPlacement, backgroundStrategy: analysis.backgroundStrategy, error: '' }));

@@ -7,7 +7,7 @@
  * optionally provide a one-line description.
  */
 
-import { generateContentWithAnalysisFallback, getAiClient } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getAiClient, DEFAULT_TEXT_MODEL } from '../utils/apiHelpers';
 import type { SceneGenerationProductType, SceneGenerationBoardType } from './promptUtils';
 
 // ==================== Types ====================
@@ -208,7 +208,7 @@ export async function analyzeProductForScene(
   
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: 'gemini-3.1-flash-lite-preview',
+      model: DEFAULT_TEXT_MODEL,
       contents: { parts },
     });
     
@@ -374,7 +374,7 @@ export async function analyzeReferenceScene(image: { base64: string; mimeType: s
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: 'gemini-3.1-flash-lite-preview',
+      model: DEFAULT_TEXT_MODEL,
       contents: {
         parts: [
           { inlineData: { mimeType: image.mimeType, data: image.base64 } },

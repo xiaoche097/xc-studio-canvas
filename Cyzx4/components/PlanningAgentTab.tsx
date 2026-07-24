@@ -5,6 +5,7 @@ import { gemini } from '../../lib/gemini';
 import { WorkflowStep } from '../../types';
 import { AGENT_PROMPTS } from '../../data/agentPrompts';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { DEFAULT_TEXT_MODEL } from '../utils/apiHelpers';
 
 interface Message {
     id: string;
@@ -31,7 +32,7 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
     const [isTyping, setIsTyping] = useState(false);
     const [isGeneratingImage, setIsGeneratingImage] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
-    const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite-preview');
+    const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_TEXT_MODEL);
     const [selectedImageModel, setSelectedImageModel] = useState('gpt-image-2');
     const [showModelMenu, setShowModelMenu] = useState(false);
     const [showImageModelMenu, setShowImageModelMenu] = useState(false);
@@ -40,7 +41,9 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const models = [
-        { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', desc: '极速视觉策划' },
+        { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', desc: '前沿极速视觉策划' },
+        { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', desc: '生产级高智能策划' },
+        { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', desc: '轻量响应策划' },
         { id: 'gpt-5.5', name: 'GPT-5.5 Global', desc: '最强逻辑推理' },
         { id: 'claude-opus-4-7id', name: 'Claude 4 Opus', desc: '深度文案策划' }
     ];

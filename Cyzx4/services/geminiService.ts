@@ -187,7 +187,7 @@ ${boxes.length > 0 ? boxDescriptions : 'No boxes drawn. User wants GLOBAL modifi
     parts.push({ text: analysisPrompt });
 
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: { parts }
     });
 
@@ -235,7 +235,7 @@ Your response must be a valid JSON object matching the following structure. Do N
     parts.push({ text: analysisPrompt });
 
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: { parts }
     });
 
@@ -340,7 +340,7 @@ Return ONLY valid JSON, no markdown:
 
   try {
     throwIfAborted(signal);
-    const text = await generateText([image], prompt, "gemini-3.1-flash-lite-preview");
+    const text = await generateText([image], prompt);
     throwIfAborted(signal);
     const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned || "{}");
@@ -411,7 +411,7 @@ export const analyzeProductImage = async (
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: {
         parts: [
           {
@@ -616,7 +616,7 @@ Respond ONLY with valid JSON.
     parts.push({ text: analysisPrompt });
 
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
+      model: DEFAULT_TEXT_MODEL, // Use default text model for fast analysis
       contents: { parts }
     });
 
@@ -2902,7 +2902,7 @@ Just the raw text.
     parts.push({ text: userMessage });
 
     // Use gemini-3.1-flash-lite-preview for fast reasoning & text generation
-    const modelName = resolveRuntimeModelId("gemini-3.1-flash-lite-preview");
+    const modelName = resolveRuntimeModelId(DEFAULT_TEXT_MODEL);
     const response = await generateContentWithAnalysisFallback(ai, {
       model: modelName,
       contents: {
@@ -2962,7 +2962,7 @@ You must analyze the user's request to identify their core intent:
 `;
 
   try {
-    const modelName = resolveRuntimeModelId("gemini-3.1-flash-lite-preview"); // Use Flash for speed
+    const modelName = resolveRuntimeModelId(DEFAULT_TEXT_MODEL); // Use Flash for speed
     const response = await generateContentWithAnalysisFallback(ai, {
       model: modelName,
       contents: {
@@ -4594,7 +4594,7 @@ export const analyzeImageQuality = async (
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview", // Use Lite for fast analysis
+      model: DEFAULT_TEXT_MODEL, // Use default text model for fast analysis
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -4670,7 +4670,7 @@ export const analyzeStyle = async (
 
   try {
     const response = await generateContentWithAnalysisFallback(ai, {
-      model: "gemini-3.1-flash-lite-preview",
+      model: DEFAULT_TEXT_MODEL,
       contents: {
         parts: [
           { inlineData: { mimeType, data: imageBase64 } },
@@ -4923,7 +4923,7 @@ export const generateHDUpscale = async (
  */
 export const analyzeThreeViewContext = async (
   images: { base64: string; mimeType: string }[],
-  textModel: string = "gemini-3.1-flash-lite-preview"
+  textModel: string = DEFAULT_TEXT_MODEL
 ) => {
   const ai = getAiClient();
 
@@ -5088,7 +5088,7 @@ Return ONLY the final enriched English prompt. Do NOT include any preamble or ex
     const response = await generateContentWithAnalysisFallback(
       ai,
       {
-        model: "gemini-3.1-flash-lite-preview",
+        model: DEFAULT_TEXT_MODEL,
         contents: { parts }
       },
       { timeoutMs: 30000 }

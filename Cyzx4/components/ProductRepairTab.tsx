@@ -7,7 +7,7 @@ import {
     Lightbulb, User, MapPin, ListTodo, Info, Brush, Eraser
 } from 'lucide-react';
 import { generateImageToImage, compressImage } from '../services/geminiService';
-import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAbortError } from '../utils/apiHelpers';
+import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAbortError, DEFAULT_TEXT_MODEL } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
@@ -285,7 +285,7 @@ const ProductRepairTab: React.FC = () => {
                 }
             `;
             const response = await generateContentWithAnalysisFallback(ai, {
-                model: 'gemini-3.1-flash-lite-preview',
+                model: DEFAULT_TEXT_MODEL,
                 contents: {
                     parts: [
                         ...images.map(img => ({ inlineData: { mimeType: img.mime!, data: img.base64! } })),
