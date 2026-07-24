@@ -744,6 +744,16 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const productInputRef = useRef<HTMLInputElement>(null);
   const refSceneInputRef = useRef<HTMLInputElement>(null);
 
+  const [activeUploadKind, setActiveUploadKind] = useState<'product' | 'refScene'>('product');
+  const activeUploadKindRef = useRef<'product' | 'refScene'>('product');
+  const [isDraggingRefScene, setIsDraggingRefScene] = useState(false);
+  const [isDraggingProduct, setIsDraggingProduct] = useState(false);
+
+  const activateUploadKind = useCallback((kind: 'product' | 'refScene') => {
+    activeUploadKindRef.current = kind;
+    setActiveUploadKind(kind);
+  }, []);
+
   useEffect(() => {
     modelLibrary.list().then(setModelPersonas).catch(() => {});
   }, []);
@@ -837,7 +847,7 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      patchActive({ error: '单张图片不能超过 10MB。' });
+      patchActive({ error: '单张图片不能超过 5MB。' });
       return;
     }
     try {
@@ -855,9 +865,65 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
     }
   }, [isBusy, patchActive]);
 
+  const handleRefSceneDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingRefScene) setIsDraggingRefScene(true);
+  }, [isDraggingRefScene]);
+
+  const handleRefSceneDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingRefScene(false);
+  }, []);
+
+  const handleRefSceneDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingRefScene(false);
+    activateUploadKind('refScene');
+    const files = Array.from(e.dataTransfer.files || []);
+    const imageFile = files.find((f) => isValidImageType(f)) || files[0];
+    if (imageFile) void processRefSceneFile(imageFile);
+  }, [activateUploadKind, processRefSceneFile]);
+
+  const handleProductDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingProduct) setIsDraggingProduct(true);
+  }, [isDraggingProduct]);
+
+  const handleProductDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingProduct(false);
+  }, []);
+
+  const handleProductDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingProduct(false);
+    activateUploadKind('product');
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) void processProductFiles(files);
+  }, [activateUploadKind, processProductFiles]);
+
   useImagePaste((files) => {
     if (!files.length || isBusy || activeRecord.step !== 'input' || isStyleOpen) return;
-    void processProductFiles(files);
+    if (activeUploadKindRef.current === 'refScene') {
+      const imageFile = files.find((f) => isValidImageType(f)) || files[0];
+      if (imageFile) void processRefSceneFile(imageFile);
+    } else {
+      if (activeRecord.productImages.length >= MAX_PRODUCT_IMAGES && !activeRecord.referenceSceneImage && files.length === 1) {
+        const imageFile = files.find((f) => isValidImageType(f)) || files[0];
+        if (imageFile) {
+          activateUploadKind('refScene');
+          void processRefSceneFile(imageFile);
+          return;
+        }
+      }
+      void processProductFiles(files);
+    }
   }, isActive && !isBusy && activeRecord.step === 'input' && !isStyleOpen);
 
   const removeProductImage = (id: string) => updateRecord(activeRecord.id, (record) => ({ ...record, productImages: record.productImages.filter((image) => image.id !== id), analysis: null, results: [], error: '' }));
@@ -1133,12 +1199,25 @@ Return ONLY JSON:
       </section>
 
       {/* Upload Product Images */}
-      <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c] sm:p-5">
+      <section
+        onMouseEnter={() => activateUploadKind('product')}
+        onClick={() => activateUploadKind('product')}
+        className={`rounded-2xl border bg-white p-4 shadow-sm transition-all dark:bg-[#11151c] sm:p-5 ${
+          activeUploadKind === 'product' ? 'border-[#2d6bb1]/40 ring-1 ring-[#2d6bb1]/20' : 'border-pastel-border'
+        }`}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#2d6bb1]"><ImageIcon className="h-5 w-5" /></span>
             <div>
-              <h3 className="text-sm font-black">产品图</h3>
+              <h3 className="text-sm font-black flex items-center gap-2">
+                产品图
+                {activeUploadKind === 'product' && (
+                  <span className="text-[10px] bg-[#eaf3ff] text-[#2d6bb1] px-1.5 py-0.5 rounded font-bold">
+                    当前粘贴目标
+                  </span>
+                )}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-pastel-muted">同一款商品的多角度与规格细节，第一张为主身份。</p>
             </div>
           </div>
@@ -1156,8 +1235,23 @@ Return ONLY JSON:
           </div>
         )}
         {activeRecord.productImages.length < MAX_PRODUCT_IMAGES && (
-          <button type="button" disabled={isBusy} onClick={() => productInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void processProductFiles(Array.from(event.dataTransfer.files)); }} className="mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#cbd8e8] bg-[#f8fbff] px-4 text-center hover:border-[#ed6d46] disabled:opacity-50">
-            <Upload className="h-6 w-6 text-[#ed6d46]" />
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() => {
+              activateUploadKind('product');
+              productInputRef.current?.click();
+            }}
+            onDragOver={handleProductDragOver}
+            onDragLeave={handleProductDragLeave}
+            onDrop={handleProductDrop}
+            className={`mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all px-4 text-center disabled:opacity-50 ${
+              isDraggingProduct
+                ? 'border-[#2d6bb1] bg-[#eaf3ff]/50 ring-2 ring-[#2d6bb1]/30'
+                : 'border-[#cbd8e8] bg-[#f8fbff] hover:border-[#ed6d46]'
+            }`}
+          >
+            <Upload className={`h-6 w-6 ${isDraggingProduct ? 'text-[#2d6bb1] scale-110' : 'text-[#ed6d46]'} transition-transform`} />
             <span className="mt-2 text-sm font-black">拖拽、点击或Ctrl+V粘贴图片</span>
             <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤5MB</span>
           </button>
@@ -1166,14 +1260,27 @@ Return ONLY JSON:
       </section>
 
       {/* Upload Reference Scene Image (Optional) */}
-      <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c] sm:p-5">
+      <section
+        onMouseEnter={() => activateUploadKind('refScene')}
+        onClick={() => activateUploadKind('refScene')}
+        className={`rounded-2xl border bg-white p-4 shadow-sm transition-all dark:bg-[#11151c] sm:p-5 ${
+          activeUploadKind === 'refScene' ? 'border-[#ed6d46]/50 ring-1 ring-[#ed6d46]/20' : 'border-pastel-border'
+        }`}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff0e8] text-[#ed6d46]">
               <ImageIcon className="h-5 w-5" />
             </span>
             <div>
-              <h3 className="text-sm font-black">参考场景图 (可选)</h3>
+              <h3 className="text-sm font-black flex items-center gap-2">
+                参考场景图 (可选)
+                {activeUploadKind === 'refScene' && (
+                  <span className="text-[10px] bg-[#fff0e8] text-[#ed6d46] px-1.5 py-0.5 rounded font-bold">
+                    当前粘贴目标
+                  </span>
+                )}
+              </h3>
               <p className="mt-1 text-xs leading-5 text-pastel-muted">自动分析并同步构图、姿势动作与光影方案</p>
             </div>
           </div>
@@ -1191,37 +1298,55 @@ Return ONLY JSON:
         </div>
 
         {activeRecord.referenceSceneImage ? (
-          <div className="group relative mt-4 aspect-video overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg sm:h-44 sm:w-auto">
+          <div
+            onDragOver={handleRefSceneDragOver}
+            onDragLeave={handleRefSceneDragLeave}
+            onDrop={handleRefSceneDrop}
+            className={`group relative mt-4 aspect-video overflow-hidden rounded-xl border transition-all sm:h-44 sm:w-auto ${
+              isDraggingRefScene ? 'border-2 border-dashed border-[#ed6d46] bg-[#fff0e8]' : 'border-pastel-border bg-pastel-bg'
+            }`}
+          >
             <img src={activeRecord.referenceSceneImage.preview} alt="参考场景图" className="h-full w-full object-cover" />
             <span className="absolute bottom-2 left-2 rounded-lg bg-[#17243c]/90 px-2 py-1 text-xs font-black text-white backdrop-blur-sm">
               按此场景与动作复刻
             </span>
-            <button
-              type="button"
-              disabled={isBusy}
-              onClick={removeRefSceneImage}
-              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#17243c]/85 text-white shadow"
-              aria-label="移除参考图"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {isDraggingRefScene ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#ed6d46]/85 text-white backdrop-blur-xs">
+                <Upload className="h-8 w-8 animate-bounce mb-1" />
+                <span className="text-sm font-black">松开鼠标替换参考场景图</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={removeRefSceneImage}
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#17243c]/85 text-white shadow"
+                aria-label="移除参考图"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         ) : (
           <button
             type="button"
             disabled={isBusy}
-            onClick={() => refSceneInputRef.current?.click()}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              const file = event.dataTransfer.files?.[0];
-              if (file) void processRefSceneFile(file);
+            onClick={() => {
+              activateUploadKind('refScene');
+              refSceneInputRef.current?.click();
             }}
-            className="mt-4 flex min-h-28 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#cbd8e8] bg-[#f8fbff] px-4 text-center hover:border-[#ed6d46] disabled:opacity-50"
+            onDragOver={handleRefSceneDragOver}
+            onDragLeave={handleRefSceneDragLeave}
+            onDrop={handleRefSceneDrop}
+            className={`mt-4 flex min-h-28 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all px-4 text-center disabled:opacity-50 ${
+              isDraggingRefScene
+                ? 'border-[#ed6d46] bg-[#fff0e8]/50 ring-2 ring-[#ed6d46]/30'
+                : 'border-[#cbd8e8] bg-[#f8fbff] hover:border-[#ed6d46]'
+            }`}
           >
-            <WandSparkles className="h-6 w-6 text-[#ed6d46]" />
-            <span className="mt-2 text-sm font-black text-[#17243c]">上传参考图</span>
-            <span className="mt-1 text-xs text-pastel-muted">自动分析并同步构图与光影方案</span>
+            <WandSparkles className={`h-6 w-6 ${isDraggingRefScene ? 'text-[#ed6d46] scale-110' : 'text-[#ed6d46]'} transition-transform`} />
+            <span className="mt-2 text-sm font-black text-[#17243c]">拖拽、点击或Ctrl+V粘贴参考图</span>
+            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤5MB · 自动分析构图与光影</span>
           </button>
         )}
         <input
