@@ -4,6 +4,8 @@ import { QUALITY_BOOSTERS, buildNegativePrompt, enhancePrompt, SCENE_POOL, TEXTU
 
 // 导入工具函数和类型定义
 import {
+  DEFAULT_TEXT_MODEL,
+  GEMINI_TEXT_MODELS,
   getApiConfig,
   getImageApiConfig,
   getImageAiClient,
@@ -252,7 +254,7 @@ Your response must be a valid JSON object matching the following structure. Do N
 export const generateText = async (
   images: { base64: string; mimeType: string }[],
   prompt: string,
-  modelId: string = "gemini-3.1-flash-lite-preview"
+  modelId: string = DEFAULT_TEXT_MODEL
 ): Promise<string> => {
   const ai = getAiClient();
   try {

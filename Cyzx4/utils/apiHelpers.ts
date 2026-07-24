@@ -25,6 +25,32 @@ export const NO1_IMAGE_NODES = [
     { name: "美国阿什本OVH线路", url: "https://us-2.rcouyi.com" },
 ];
 
+export const GEMINI_TEXT_MODELS = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+] as const;
+
+export const DEFAULT_TEXT_MODEL = GEMINI_TEXT_MODELS[0];
+export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
+export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
+export const RIGHT_DEFAULT_IMAGE_MODEL = 'gpt-image-2-vip';
+export const YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL = 'gemini-3.5-flash';
+export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL;
+export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
+export const ANALYSIS_FALLBACK_TIMEOUT_MS = 60000;
+
+export const getOrderedTextModels = (requestedModel?: string): string[] => {
+    const primary = requestedModel || DEFAULT_TEXT_MODEL;
+    const list = [...GEMINI_TEXT_MODELS] as string[];
+    const index = list.indexOf(primary as any);
+    if (index !== -1) {
+        return [primary, ...list.filter((_, i) => i !== index)];
+    }
+    return [primary, ...list];
+};
+
 // ==================== 类型定义 ====================
 export interface ApiConfig {
     apiKey: string;
@@ -56,14 +82,6 @@ const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
         ...urls.filter(url => url !== normalizedPreferred)
     ];
 };
-
-export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
-export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
-export const RIGHT_DEFAULT_IMAGE_MODEL = 'gpt-image-2-vip';
-export const YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL = 'gemini-3.5-flash';
-export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL;
-export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
-export const ANALYSIS_FALLBACK_TIMEOUT_MS = 60000;
 
 /**
  * 云雾中转站不使用 preview 后缀的 Flash Lite 模型 ID。
@@ -150,8 +168,6 @@ const isFlashLiteAnalysisModel = (modelId: string): boolean => (
     modelId === YUNWU_GEMINI_FLASH_LITE_MODEL
 );
 
-
-
 export const shouldFallbackAnalysisModel = (error: any): boolean => {
     const message = (error?.message || error?.toString?.() || '').toLowerCase();
     const status = error?.status || error?.code;
@@ -204,64 +220,48 @@ export async function generateContentWithAnalysisFallback<TClient extends {
     } = {}
 ): Promise<any> {
     const runtimeConfig = options.config || getApiConfig();
-    const requestedModel = request.model;
-    const primaryModel = resolveRuntimeModelId(requestedModel, runtimeConfig);
-    const primaryRequest = { ...request, model: primaryModel };
+    const requestedModel = request.model || DEFAULT_TEXT_MODEL;
+    const candidateModels = getOrderedTextModels(requestedModel);
 
-    try {
-        const response = await executeWithTimeout(
-            ai.models.generateContent(primaryRequest),
-            {
-                timeoutMs: options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS,
-                timeoutMessage: `Analysis request timed out (${options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS}ms).`
+    let lastError: any = null;
+
+    for (let i = 0; i < candidateModels.length; i++) {
+        const candidateModel = candidateModels[i];
+        const primaryModel = resolveRuntimeModelId(candidateModel, runtimeConfig);
+        const primaryRequest = { ...request, model: primaryModel };
+        const timeoutMs = i === 0
+            ? (options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS)
+            : (options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS);
+
+        try {
+            const response = await executeWithTimeout(
+                ai.models.generateContent(primaryRequest),
+                {
+                    timeoutMs,
+                    timeoutMessage: `Analysis request timed out (${timeoutMs}ms) using model ${primaryModel}.`
+                }
+            );
+            if (!response?.text && isYunwuOnly(runtimeConfig)) {
+                throw new Error(`Empty response from text model ${primaryModel}.`);
             }
-        );
-        if (!response?.text && isYunwuOnly(runtimeConfig) && (primaryModel === 'gemini-3.5-flash' || primaryModel === 'gemini-3.1-flash-lite')) {
-            throw new Error('Empty response from primary analysis model.');
-        }
-        return response;
-    } catch (error) {
-        if (
-            !isYunwuOnly(runtimeConfig) ||
-            !shouldFallbackAnalysisModel(error)
-        ) {
-            throw error;
-        }
-
-        // Only fallback between gemini-3.5-flash and gemini-3.1-flash-lite (requested as gemini-3.1-flash-lite-preview)
-        let fallbackModel = '';
-        if (primaryModel === 'gemini-3.5-flash') {
-            fallbackModel = 'gemini-3.1-flash-lite-preview';
-        } else if (primaryModel === 'gemini-3.1-flash-lite') {
-            fallbackModel = 'gemini-3.5-flash';
-        } else {
-            throw error;
-        }
-
-        const resolvedFallbackModel = resolveRuntimeModelId(fallbackModel, runtimeConfig);
-
-        console.warn(
-            `[AnalysisFallback] ${primaryModel} failed, retrying with ${resolvedFallbackModel}`,
-            error
-        );
-
-        const fallbackResponse = await executeWithTimeout(
-            ai.models.generateContent({
-                ...request,
-                model: resolvedFallbackModel
-            }),
-            {
-                timeoutMs: options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS,
-                timeoutMessage: `Fallback analysis request timed out (${options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS}ms) using model ${resolvedFallbackModel}.`
+            if (i > 0) {
+                console.info(`[TextModelFallback] Requested ${requestedModel} failed, retried and succeeded with ${primaryModel}`);
             }
-        );
+            return response;
+        } catch (error) {
+            lastError = error;
+            console.warn(
+                `[TextModelFallback] Attempt ${i + 1}/${candidateModels.length} (${primaryModel}) failed:`,
+                error?.message || error
+            );
 
-        if (!fallbackResponse?.text) {
-            throw new Error(`Empty response from fallback analysis model ${resolvedFallbackModel}.`);
+            if (isAbortError(error) || !shouldFallbackAnalysisModel(error)) {
+                throw error;
+            }
         }
-
-        return fallbackResponse;
     }
+
+    throw lastError || new Error('All text analysis models failed after rotation.');
 }
 
 export interface TimeoutOptions {

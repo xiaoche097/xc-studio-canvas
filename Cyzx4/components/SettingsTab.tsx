@@ -29,12 +29,13 @@ const DEFAULT_BASE_URL = 'https://yunwu.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
-// 可用模型列表 - 只保留常用的三个模型
 const AVAILABLE_MODELS = [
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '推荐', type: 'text' },
-  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '快速响应模型', badge: '快速', type: 'text' },
+  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', description: '前沿级 Flash 多模态模型', badge: '最新首选', type: 'text' },
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: '高性能生产级 Flash 模型', badge: '热门', type: 'text' },
+  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', description: '经济高效极速模型', badge: '极速', type: 'text' },
+  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '轻量快速分析模型', badge: '基础', type: 'text' },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '强力', type: 'text' },
   { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2 (3.1 Flash)', description: '最新快速图像生成模型', badge: '推荐', type: 'image' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: '提示词润色同款模型', badge: '稳定', type: 'text' },
   { id: 'gpt-image-2', name: 'Imagen 2.0', description: '极致写实商业精修', badge: 'New', type: 'image' },
 ];
 

@@ -27,7 +27,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { generateImageToImage } from '../services/geminiService';
+import { generateImageToImage, generateText } from '../services/geminiService';
 import { compressImage, getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { applyColorCorrection } from '../utils/imageProcessor';
@@ -293,8 +293,12 @@ const createTask = (): FissionTask => ({
   },
 });
 
-const parseJson = <T,>(value: string): T =>
-  JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()) as T;
+const parseJson = <T,>(value: string): T => {
+  if (!value || typeof value !== 'string') {
+    throw new Error('创意 Agent 未返回有效文本方案，请重新生成');
+  }
+  return JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()) as T;
+};
 
 const parseSchemes = (value: string, requestedCount: number): FissionScheme[] => {
   const parsed = parseJson<Array<Record<string, unknown>>>(value);
@@ -701,7 +705,7 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
         .map((img, i) => `Image ${i + 1}: ${ROLE_LABELS[img.role].label}`)
         .join('; ');
 
-      const response = await generateImageToImage(
+      const responseText = await generateText(
         images.map((img) => ({ base64: img.base64, mimeType: img.mime })),
         `
 You are a top fashion art director specializing in commercial model pose fission and ecommerce lookbook creation.
@@ -742,7 +746,6 @@ Return ONLY a JSON array containing 3 schemes. Format:
 No extra markdown outside the JSON code block.`
       );
 
-      const responseText = Array.isArray(response) ? response[0] : response;
       const nextSchemes = parseSchemes(responseText, count);
 
       setSchemes(nextSchemes);

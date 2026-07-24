@@ -196,8 +196,12 @@ const createTask = (): FissionTask => ({
   },
 });
 
-const parseJson = <T,>(value: string): T =>
-  JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()) as T;
+const parseJson = <T,>(value: string): T => {
+  if (!value || typeof value !== 'string') {
+    throw new Error('创意 Agent 未返回有效文本方案，请重新生成');
+  }
+  return JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()) as T;
+};
 
 const parseSchemes = (value: string): FissionScheme[] => {
   const parsed = parseJson<Array<Record<string, unknown>>>(value);
