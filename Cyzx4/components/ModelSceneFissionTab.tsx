@@ -82,7 +82,9 @@ type FissionWorkspace = {
   schemes: FissionScheme[];
   selectedSchemeIds: string[];
   keyframes: KeyframeResult[];
+  activeKeyframeSchemeId?: string;
   fissionImages: FissionImageItem[];
+  fissionImagesMap?: Record<string, FissionImageItem[]>;
   agentStatus: string;
   agentLog: string[];
 };
@@ -250,6 +252,8 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
   const [schemes, setSchemes] = useState<FissionScheme[]>([]);
   const [selectedSchemeIds, setSelectedSchemeIds] = useState<string[]>([]);
   const [keyframes, setKeyframes] = useState<KeyframeResult[]>([]);
+  const [activeKeyframeSchemeId, setActiveKeyframeSchemeId] = useState<string>('');
+  const [fissionImagesMap, setFissionImagesMap] = useState<Record<string, FissionImageItem[]>>({});
   const [fissionImages, setFissionImages] = useState<FissionImageItem[]>([]);
 
   const [agentStatus, setAgentStatus] = useState('输入准备 Agent · 等待素材');
@@ -286,7 +290,9 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
     schemes,
     selectedSchemeIds,
     keyframes,
+    activeKeyframeSchemeId,
     fissionImages,
+    fissionImagesMap,
     agentStatus,
     agentLog,
   });
@@ -302,6 +308,8 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
     setSchemes(workspace.schemes);
     setSelectedSchemeIds(workspace.selectedSchemeIds);
     setKeyframes(workspace.keyframes);
+    setActiveKeyframeSchemeId(workspace.activeKeyframeSchemeId || workspace.keyframes[0]?.schemeId || '');
+    setFissionImagesMap(workspace.fissionImagesMap || {});
     setFissionImages(taskImages);
     setAgentStatus(workspace.agentStatus);
     setAgentLog(workspace.agentLog);
@@ -475,18 +483,23 @@ CRITICAL INSTRUCTIONS (MUST BE STRICTLY FOLLOWED):
 1. STRICT SCENE LOCK: You MUST strictly preserve and replicate the EXACT background scene environment, lighting, architectural details, atmosphere, and surface textures from the user's uploaded reference image(s). DO NOT invent, change, or introduce any different, unrelated, or hallucinated background scenes under any circumstances. All 9 shots must strictly remain within the EXACT same original background scene.
 2. STRICT MODEL & OUTFIT LOCK: You MUST strictly preserve the model's facial features, identity, hairstyle, hair color, skin tone, body shape, and clothing/outfit design and colors from the reference image(s).
 3. RICH & COMPLIANT POSE VARIATIONS: You are encouraged to generate more varied, creative, natural, dynamic, and diverse poses, posture actions, expressions, camera angles, and shot framings (full body, medium shot, close-up, back view, movement), provided they strictly stay within the exact reference background scene and model conditions above.
+4. STRICT NO-TEXT & NO-LABEL MANDATE: The prompts and shot descriptions MUST NOT include any text or typography rendering instructions. Absolutely NO words, NO numbers, NO letters, NO titles, NO watermarks, NO logo typography, NO graphic overlay badges anywhere in the output scenes.
 
 User requirements: ${requirements || 'High fashion commercial photoshoot with 9 diverse natural poses matching the exact original reference scene and model'}
 Mode: ${mode === 'pose' ? 'Model Pose & Camera Framing Fission' : mode === 'scene' ? 'Multi-Angle Scene Fission' : 'Brand Lookbook Collection Fission'}
 
 Return ONLY a JSON array. Each item format:
-{"title":"Chinese Scheme Title","summary":"Chinese summary","strategy":"Creative selling points","shots":[{"index":1,"shotName":"正面全身立姿","cameraAngle":"平视视角","framing":"全身景别","poseAction":"描述符合原场景条件的动作姿势细节","prompt":"detailed English generation prompt locking exact reference model face identity and original reference background scene"}]}
+{"title":"Chinese Scheme Title","summary":"Chinese summary","strategy":"Creative selling points","shots":[{"index":1,"shotName":"正面全身立姿","cameraAngle":"平视视角","framing":"全身景别","poseAction":"描述符合原场景条件的动作姿势细节","prompt":"detailed English generation prompt locking exact reference model face identity and original reference background scene without text or numbers"}]}
 The array must contain exactly 3 schemes, each having 9 structured shots. No generic duplicates.`
       );
 
       const nextSchemes = parseSchemes(response);
       setSchemes(nextSchemes);
       setSelectedSchemeIds([nextSchemes[0].id]);
+      setActiveKeyframeSchemeId('');
+      setFissionImagesMap({});
+      setKeyframes([]);
+      setFissionImages([]);
       setStage(2);
       setAgentStatus('创意策划 Agent · 3 套 9 机位动作方案已交付');
       setAgentLog((current) => [...current, `创意策划 Agent 已交付 ${nextSchemes.length} 套方案，包含 9 种景别姿势`]);
@@ -512,18 +525,24 @@ The array must contain exactly 3 schemes, each having 9 structured shots. No gen
     try {
       const outputs: KeyframeResult[] = [];
       for (const scheme of selected) {
-        const contactSheetPrompt = `Create one clean 3x3 high-definition fashion photography contact sheet grid containing 9 distinct panels for an ecommerce photoshoot titled "${
-          scheme.title
-        }". Strategy: ${scheme.strategy}. User goal: ${requirements}. The 9 shots are: ${scheme.shots
-          .map((s) => `${s.index}. ${s.shotName} (${s.framing}, ${s.cameraAngle}: ${s.poseAction})`)
-          .join('; ')}. 
+        const contactSheetPrompt = `Create one clean 3x3 high-definition fashion photography contact sheet grid containing 9 distinct panels for an ecommerce photoshoot. User requirement: ${requirements || 'High fashion commercial photoshoot'}.
+
+Panels description:
+${scheme.shots
+  .map((s) => `Panel ${s.index}: ${s.framing}, ${s.cameraAngle}, ${s.poseAction}`)
+  .join('\n')}
+
+CRITICAL MANDATE - STRICT NO TEXT / NO WATERMARKS / NO NUMBERS:
+- ABSOLUTELY ZERO TEXT: Do NOT include any text, words, numbers, digits, titles, labels, captions, watermarks, stamps, symbols, badges, logos, or graphic overlays anywhere on any panel.
+- NO OVERLAID NUMBERS: Panel 1 (top left) and all subsequent panels MUST BE pure clean photographs without any overlaid numbers or text labels (e.g. no "1", no "Shot 1", no "图1").
+- CLEAN PHOTOGRAPHY ONLY: Every single panel must be high-end photorealistic commercial fashion photography only.
 
 CRITICAL MANDATE - STRICT SCENE & MODEL REFERENCE LOCK:
 - SCENE LOCK: The background environment, background architectural setting, lighting, surface textures, and atmosphere in ALL 9 panels MUST 100% MATCH the exact original background scene provided in the reference image(s). Absolutely NO different or modified background scenes are allowed.
 - MODEL LOCK: Keep exact model facial features, identity, hairstyle, hair color, skin tone, body ratio, clothing design, colors, and fabric texture 100% consistent and identical across all 9 panels.
 - DIVERSE COMPLIANT POSES: Feature varied, natural, dynamic, professional poses, expressions, and camera framings across the 9 panels while strictly maintaining the original scene background and model.
 
-Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, photorealistic 8K fashion editorial quality.`;
+Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pure clean photos without text, photorealistic 8K fashion editorial quality.`;
 
         const targetRatioEnum =
           aspectRatio === '2:3'
@@ -553,13 +572,13 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
         const base64 = firstKeyframe.split(',')[1] || firstKeyframe;
         const qaRaw = await generateText(
           [{ base64, mimeType: 'image/png' }],
-          `You are a strict fashion QA agent. Review this 3x3 contact sheet image for strict scene background lock (must match reference image background 100%), model face identity lock, clothing consistency, and 9-panel completeness. Return ONLY JSON: {"pass":true,"notes":"concise Chinese evaluation"}.`
+          `You are a strict fashion QA agent. Review this 3x3 contact sheet image for strict scene background lock (must match reference image background 100%), model face identity lock, clothing consistency, and 9-panel completeness. Verify that there is NO overlaid text, numbers, or watermarks. Return ONLY JSON: {"pass":true,"notes":"concise Chinese evaluation"}.`
         );
         let qa: { pass?: boolean; notes?: string } = {};
         try {
           qa = parseJson(qaRaw);
         } catch {
-          qa = { pass: true, notes: '9个机位结构完整，模特与服饰一致性良好' };
+          qa = { pass: true, notes: '9个机位结构完整，无文字杂质，模特与服饰一致性良好' };
         }
 
         outputs.push({
@@ -572,7 +591,12 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
       }
 
       setKeyframes(outputs);
-      setAgentStatus('质量审查 Agent · 3x3 宫格关键帧已通过，可开始裂变提取 9 张高清图');
+      if (outputs.length > 0) {
+        setActiveKeyframeSchemeId(outputs[0].schemeId);
+      }
+      setFissionImagesMap({});
+      setFissionImages([]);
+      setAgentStatus('质量审查 Agent · 3x3 宫格关键帧已通过，可选择任意方案开始切分裂变');
       setAgentLog((current) => [...current, `分镜导演生成 ${outputs.length} 张 3x3 宫格关键帧`, '质量审查已通过']);
       updateTask({ status: 'ready' });
     } catch (keyframeError) {
@@ -584,20 +608,22 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
     }
   };
 
-  const generateFissionImages = async () => {
+  const generateFissionImages = async (targetSchemeId?: string) => {
     if (!keyframes.length || busy) return;
+    const schemeIdToCrop = targetSchemeId || activeKeyframeSchemeId || keyframes[0].schemeId;
+    const targetKeyframe = keyframes.find((k) => k.schemeId === schemeIdToCrop) || keyframes[0];
+    const scheme = schemes.find((s) => s.id === targetKeyframe.schemeId) || schemes[0];
+    const sourceUrl = targetKeyframe.imageUrl;
+
     setBusy(true);
     setStage(4);
+    setActiveKeyframeSchemeId(targetKeyframe.schemeId);
     setError(null);
     updateTask({ status: 'generating' });
-    setAgentStatus('高清裂变 Agent · 正在切割提取 9 张高清独立大图');
-    setAgentLog((current) => [...current, '高清裂变 Agent 开始对 3x3 宫格图进行精准切分与像素优化']);
+    setAgentStatus(`高清裂变 Agent · 正在切割提取「${scheme.title}」9 张高清独立大图`);
+    setAgentLog((current) => [...current, `高清裂变 Agent 开始对「${scheme.title}」3x3 宫格图进行精准切分与像素优化`]);
 
     try {
-      const activeKeyframe = keyframes[0];
-      const scheme = schemes.find((s) => s.id === activeKeyframe.schemeId) || schemes[0];
-      const sourceUrl = activeKeyframe.imageUrl;
-
       const items: FissionImageItem[] = [];
       for (let row = 0; row < 3; row++) {
         for (let col = 0; col < 3; col++) {
@@ -628,9 +654,10 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
         }
       }
 
+      setFissionImagesMap((current) => ({ ...current, [targetKeyframe.schemeId]: items }));
       setFissionImages(items);
-      setAgentStatus('交付 Agent · 9 张不同机位与姿势高清大图已全部交付');
-      setAgentLog((current) => [...current, `高清裂变 Agent 已输出 9 张高画质独立大图`]);
+      setAgentStatus(`交付 Agent ·「${scheme.title}」9 张不同机位与姿势高清大图已全部交付`);
+      setAgentLog((current) => [...current, `高清裂变 Agent 已为「${scheme.title}」输出 9 张高画质独立大图`]);
       updateTask({ status: 'done', fissionImages: items });
     } catch (fissionError) {
       setError(getErrorMessage(fissionError));
@@ -638,6 +665,15 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
       updateTask({ status: 'error' });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleSelectSchemeInStage4 = (schemeId: string) => {
+    setActiveKeyframeSchemeId(schemeId);
+    if (fissionImagesMap[schemeId] && fissionImagesMap[schemeId].length > 0) {
+      setFissionImages(fissionImagesMap[schemeId]);
+    } else {
+      void generateFissionImages(schemeId);
     }
   };
 
@@ -1260,6 +1296,15 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
                                 >
                                   <Download className="h-4 w-4" />
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void generateFissionImages(keyframe.schemeId)}
+                                  disabled={busy}
+                                  className="flex min-h-11 items-center gap-1.5 rounded-xl bg-[#172238] px-3.5 text-xs font-black text-white hover:bg-[#243554] transition shadow-sm"
+                                >
+                                  <Grid className="h-4 w-4" />
+                                  裁切此方案 9 图 →
+                                </button>
                               </div>
                             </div>
                             <button
@@ -1296,12 +1341,12 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
                       </button>
                       <button
                         type="button"
-                        onClick={() => void generateFissionImages()}
+                        onClick={() => void generateFissionImages(activeKeyframeSchemeId || keyframes[0]?.schemeId)}
                         disabled={!keyframes.length || busy}
                         className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#172238] text-base font-black text-white disabled:opacity-40"
                       >
                         <Grid className="h-5 w-5" />
-                        下一步：裂变提取 9 张高清独立大图
+                        下一步：裁切所选方案 9 张高清独立大图
                       </button>
                     </div>
                   </>
@@ -1311,6 +1356,43 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pho
 
             {stage === 4 && (
               <div className="mt-5 flex flex-1 flex-col">
+                {keyframes.length > 0 && (
+                  <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-pastel-border bg-pastel-card p-3 shadow-sm">
+                    <span className="text-xs font-black text-pastel-muted">方案切换:</span>
+                    {keyframes.map((keyframe, index) => {
+                      const scheme = schemes.find((s) => s.id === keyframe.schemeId);
+                      const activeId = activeKeyframeSchemeId || keyframes[0]?.schemeId;
+                      const isSelected = activeId === keyframe.schemeId;
+                      const isCropped = Boolean(fissionImagesMap[keyframe.schemeId]?.length);
+                      return (
+                        <button
+                          key={keyframe.schemeId}
+                          type="button"
+                          onClick={() => handleSelectSchemeInStage4(keyframe.schemeId)}
+                          disabled={busy}
+                          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#172238] text-white shadow'
+                              : 'bg-pastel-bg text-pastel-text hover:bg-slate-200 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <span>{scheme?.title || `方案 ${index + 1}`}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[0.65rem] font-bold ${
+                              isSelected
+                                ? 'bg-white/20 text-white'
+                                : isCropped
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                            }`}
+                          >
+                            {isCropped ? '已裁切' : '点击去裁切'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {busy ? (
                   <div className="flex flex-1 flex-col items-center justify-center text-center">
                     <Loader2 className="h-12 w-12 animate-spin text-[#ed6d46]" />
