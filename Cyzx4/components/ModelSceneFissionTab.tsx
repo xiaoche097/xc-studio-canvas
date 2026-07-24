@@ -126,6 +126,7 @@ const MODEL_OPTIONS = [
 
 const ASPECT_RATIO_OPTIONS = [
   { id: '3:4', label: '3:4 竖版', desc: '电商时尚主图与模特首选' },
+  { id: '2:3', label: '2:3 竖版', desc: '经典单反人像与海报比例' },
   { id: '1:1', label: '1:1 方版', desc: '经典正方形九宫格排版' },
   { id: '9:16', label: '9:16 竖屏', desc: '手机全屏展示与短视频分镜' },
   { id: '16:9', label: '16:9 横版', desc: '画册长图与横屏展示' },
@@ -183,7 +184,7 @@ const createTask = (): FissionTask => ({
     images: [],
     requirements: '',
     model: MODEL_OPTIONS[0].id,
-    aspectRatio: '3:4',
+    aspectRatio: '2:3',
     resolution: '2K',
     stage: 1,
     schemes: [],
@@ -219,7 +220,7 @@ const parseSchemes = (value: string): FissionScheme[] => {
     return {
       id: `fission-scheme-${index + 1}`,
       title: String(item.title || `9机位姿势裂变方案 ${index + 1}`),
-      summary: String(item.summary || '根据原图模特与场景特征，拆解9种差异化视角与动作姿态'),
+      summary: String(item.summary || '根据原图模特与场景特征，拆解9种差异化视角与动作姿势'),
       strategy: String(item.strategy || '涵盖全身、中景、特写、背影与动态，全方位展现造型与质感'),
       shots,
     };
@@ -238,7 +239,7 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
   const [images, setImages] = useState<FissionAsset[]>([]);
   const [requirements, setRequirements] = useState('');
   const [model, setModel] = useState<string>(MODEL_OPTIONS[0].id);
-  const [aspectRatio, setAspectRatio] = useState('3:4');
+  const [aspectRatio, setAspectRatio] = useState('2:3');
   const [resolution, setResolution] = useState('2K');
   const [stage, setStage] = useState<Stage>(1);
 
@@ -464,12 +465,18 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
         images.map((image) => ({ base64: image.base64, mimeType: image.mime })),
         `
 You are an expert fashion photographer and commercial art director.
-Analyze the uploaded model/product reference image(s) as the single source of truth for model identity and clothing style.
-Create exactly 3 differentiated photography shooting schemes. Each scheme must split into 9 distinct shots covering different camera angles, framings, and model posture actions.
-User requirements: ${requirements || 'High fashion commercial photoshoot with 9 diverse angles and natural poses'}
+Analyze the uploaded reference image(s) as the SINGLE ABSOLUTE SOURCE OF TRUTH for BOTH model identity and background scene environment.
+
+CRITICAL INSTRUCTIONS (MUST BE STRICTLY FOLLOWED):
+1. STRICT SCENE LOCK: You MUST strictly preserve and replicate the EXACT background scene environment, lighting, architectural details, atmosphere, and surface textures from the user's uploaded reference image(s). DO NOT invent, change, or introduce any different, unrelated, or hallucinated background scenes under any circumstances. All 9 shots must strictly remain within the EXACT same original background scene.
+2. STRICT MODEL & OUTFIT LOCK: You MUST strictly preserve the model's facial features, identity, hairstyle, hair color, skin tone, body shape, and clothing/outfit design and colors from the reference image(s).
+3. RICH & COMPLIANT POSE VARIATIONS: You are encouraged to generate more varied, creative, natural, dynamic, and diverse poses, posture actions, expressions, camera angles, and shot framings (full body, medium shot, close-up, back view, movement), provided they strictly stay within the exact reference background scene and model conditions above.
+
+User requirements: ${requirements || 'High fashion commercial photoshoot with 9 diverse natural poses matching the exact original reference scene and model'}
 Mode: ${mode === 'pose' ? 'Model Pose & Camera Framing Fission' : mode === 'scene' ? 'Multi-Angle Scene Fission' : 'Brand Lookbook Collection Fission'}
+
 Return ONLY a JSON array. Each item format:
-{"title":"Chinese Scheme Title","summary":"Chinese summary","strategy":"Creative selling points","shots":[{"index":1,"shotName":"正面全身立姿","cameraAngle":"平视视角","framing":"全身景别","poseAction":"描述动作姿势细节","prompt":"detailed English generation prompt locking model identity"}]}
+{"title":"Chinese Scheme Title","summary":"Chinese summary","strategy":"Creative selling points","shots":[{"index":1,"shotName":"正面全身立姿","cameraAngle":"平视视角","framing":"全身景别","poseAction":"描述符合原场景条件的动作姿势细节","prompt":"detailed English generation prompt locking exact reference model face identity and original reference background scene"}]}
 The array must contain exactly 3 schemes, each having 9 structured shots. No generic duplicates.`
       );
 
@@ -501,17 +508,35 @@ The array must contain exactly 3 schemes, each having 9 structured shots. No gen
     try {
       const outputs: KeyframeResult[] = [];
       for (const scheme of selected) {
-        const contactSheetPrompt = `Create one clean 3x3 high-definition fashion photography contact sheet grid containing 9 distinct panel panels for an ecommerce photoshoot titled "${
+        const contactSheetPrompt = `Create one clean 3x3 high-definition fashion photography contact sheet grid containing 9 distinct panels for an ecommerce photoshoot titled "${
           scheme.title
         }". Strategy: ${scheme.strategy}. User goal: ${requirements}. The 9 shots are: ${scheme.shots
           .map((s) => `${s.index}. ${s.shotName} (${s.framing}, ${s.cameraAngle}: ${s.poseAction})`)
-          .join('; ')}. Keep exact model face identity, hairstyle, hair color, skin tone, clothing design, colors and fabric texture consistent across all 9 panels. Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, photorealistic 8K fashion editorial quality.`;
+          .join('; ')}. 
+
+CRITICAL MANDATE - STRICT SCENE & MODEL REFERENCE LOCK:
+- SCENE LOCK: The background environment, background architectural setting, lighting, surface textures, and atmosphere in ALL 9 panels MUST 100% MATCH the exact original background scene provided in the reference image(s). Absolutely NO different or modified background scenes are allowed.
+- MODEL LOCK: Keep exact model facial features, identity, hairstyle, hair color, skin tone, body ratio, clothing design, colors, and fabric texture 100% consistent and identical across all 9 panels.
+- DIVERSE COMPLIANT POSES: Feature varied, natural, dynamic, professional poses, expressions, and camera framings across the 9 panels while strictly maintaining the original scene background and model.
+
+Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, photorealistic 8K fashion editorial quality.`;
+
+        const targetRatioEnum =
+          aspectRatio === '2:3'
+            ? AspectRatio.PORTRAIT_2_3
+            : aspectRatio === '9:16'
+            ? AspectRatio.PORTRAIT_9_16
+            : aspectRatio === '3:4'
+            ? AspectRatio.PORTRAIT_3_4
+            : aspectRatio === '1:1'
+            ? AspectRatio.SQUARE
+            : AspectRatio.LANDSCAPE_16_9;
 
         const [firstKeyframe] = await generateImageToImage(
           images.map((image) => ({ base64: image.base64, mimeType: image.mime })),
           contactSheetPrompt,
           {
-            aspectRatio: aspectRatio === '9:16' ? AspectRatio.PORTRAIT_9_16 : aspectRatio === '3:4' ? AspectRatio.PORTRAIT_3_4 : aspectRatio === '1:1' ? AspectRatio.SQUARE : AspectRatio.LANDSCAPE_16_9,
+            aspectRatio: targetRatioEnum,
             resolution: ImageResolution.RES_2K,
             modelId: model,
             workflowHint: 'scene-product-lock',
@@ -524,7 +549,7 @@ The array must contain exactly 3 schemes, each having 9 structured shots. No gen
         const base64 = firstKeyframe.split(',')[1] || firstKeyframe;
         const qaRaw = await generateText(
           [{ base64, mimeType: 'image/png' }],
-          `You are a strict fashion QA agent. Review this 3x3 contact sheet image for model face identity lock, clothing consistency, and 9-panel completeness. Return ONLY JSON: {"pass":true,"notes":"concise Chinese evaluation"}.`
+          `You are a strict fashion QA agent. Review this 3x3 contact sheet image for strict scene background lock (must match reference image background 100%), model face identity lock, clothing consistency, and 9-panel completeness. Return ONLY JSON: {"pass":true,"notes":"concise Chinese evaluation"}.`
         );
         let qa: { pass?: boolean; notes?: string } = {};
         try {
@@ -882,7 +907,7 @@ The array must contain exactly 3 schemes, each having 9 structured shots. No gen
                 }}
               />
               <div className="mt-3 rounded-xl border border-pastel-border bg-pastel-bg/50 px-3 py-2 text-xs leading-5 text-pastel-muted">
-                提示：第一张图片将作为模特五官面部与主服装身份锁定的最高优先级参照。
+                提示：第一张图片将作为模特面部与原景背景画面的最高优先级参照。Agent 流程将严格锁死原图场景与模特身份，生成多姿势多视角画面。
               </div>
             </section>
 
@@ -1519,7 +1544,7 @@ The array must contain exactly 3 schemes, each having 9 structured shots. No gen
         )}
         {selectionModal === 'ratio' && (
           <SelectionModal title="选择尺寸比例" onClose={() => setSelectionModal(null)}>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               {ASPECT_RATIO_OPTIONS.map((ratio) => {
                 const [w, h] = ratio.id.split(':').map(Number);
                 const scale = 50 / Math.max(w, h);
