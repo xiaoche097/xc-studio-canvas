@@ -187,11 +187,11 @@ const IMAGE_MODEL_OPTIONS: Array<{ id: string; label: string; description: strin
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg']);
 
 const isValidImageType = (file: File) => {
+  if (!file) return false;
   const type = (file.type || '').toLowerCase();
   const name = (file.name || '').toLowerCase();
-  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg'];
-  const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
-  return validTypes.includes(type) || validExts.some((ext) => name.endsWith(ext));
+  const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.jfif', '.heic', '.avif', '.bmp'];
+  return type.startsWith('image/') || validExts.some((ext) => name.endsWith(ext));
 };
 
 const STEPS: Array<{ id: SceneGenerationRecord['step']; label: string }> = [
@@ -831,7 +831,15 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   }, [activeRecord.id, activeRecord.productImages.length, isBusy, patchActive, updateRecord]);
 
   const processRefSceneFile = useCallback(async (file: File) => {
-    if (isBusy || !ACCEPTED_MIME_TYPES.has(file.type) || file.size > MAX_FILE_SIZE) return;
+    if (isBusy) return;
+    if (!isValidImageType(file)) {
+      patchActive({ error: '仅支持 JPG、PNG 或 WEBP 等图片格式的参考场景图。' });
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      patchActive({ error: '单张图片不能超过 10MB。' });
+      return;
+    }
     try {
       const compressed = await compressImage(file, 2048, 0.92);
       const uploaded: SceneUploadedImage = {
@@ -1219,7 +1227,7 @@ Return ONLY JSON:
         <input
           ref={refSceneInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/*,.jpg,.jpeg,.png,.webp,.jfif,.heic,.avif,.bmp"
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
