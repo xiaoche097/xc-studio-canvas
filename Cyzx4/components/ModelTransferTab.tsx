@@ -904,9 +904,9 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       prev.map((rec) => {
         if (rec.id !== activeRecordId) return rec;
         const exists = rec.results.some((item) => item.sceneId === sceneId);
-        const updatedResults = exists
+        const updatedResults: ResultItem[] = exists
           ? rec.results.map((item) => (item.sceneId === sceneId ? { ...item, ...patch } : item))
-          : [...rec.results, { id: `result-${sceneId}`, sceneId, sceneName: '', imageUrl: null, status: 'pending', prompt: '', ...patch }];
+          : [...rec.results, { id: `result-${sceneId}`, sceneId, sceneName: '', imageUrl: null, status: 'pending' as GenerationStatus, prompt: '', ...patch }];
         return {
           ...rec,
           results: updatedResults,
