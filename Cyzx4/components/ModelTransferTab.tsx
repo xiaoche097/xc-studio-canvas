@@ -186,36 +186,37 @@ const buildTransferPrompt = (options: {
   extraNotes: string;
   sceneNumber: number;
 }) => {
-  const anchorEnd = options.sourceCount;
-  const contextStart = anchorEnd + 1;
-  const contextEnd = anchorEnd + options.sourceCount;
-  const sceneIndex = contextEnd + 1;
   const maskText = options.hasMask
-    ? `- IMPORTANT INPAINTING INSTRUCTION: The inpainting mask highlights the target person's face/head area. COMPLETELY ERASE and REPLACE the face inside the masked region with the source model's face. Seamlessly blend skin tone, lighting highlights, and edge transitions.`
+    ? `- INPAINTING MASK INSTRUCTION: The last image provided is the INPAINTING MASK. The WHITE region in the mask covers the target person's face and head. YOU MUST COMPLETELY ERASE AND REPLACE the face inside the WHITE mask region with the source model's face (from Image 1 & Image 2). Seamlessly blend skin tone, lighting highlights, and edge transitions with the rest of the target scene.`
     : `- Replace target person's face and identity completely with the source model. Seamlessly integrate lighting.`;
 
   const outfitRules = options.transferSourceOutfit
-    ? `# SOURCE OUTFIT TRANSFER\n- Transfer the complete outfit from source images to target pose. Adapt realistic folds and shadows.`
-    : `# TARGET OUTFIT PRESERVATION\n- Keep Image ${sceneIndex}'s clothing and accessories unchanged. Perform face identity and skin tone transfer only.`;
+    ? `# SOURCE OUTFIT TRANSFER\n- Transfer the complete outfit from source model images to target pose. Adapt realistic folds and shadows.`
+    : `# TARGET OUTFIT PRESERVATION\n- Keep target scene clothing and accessories unchanged. Perform face identity and skin tone transfer only.`;
 
   return `
-Commercial fashion model face swap for scene #${options.sceneNumber}.
+# COMMERCIAL FASHION MODEL FACE SWAP & INPAINTING
 
-# IDENTITY LOCK
-- Source Images 1-${anchorEnd} lock face features, eyes, nose, mouth, hairline, hairstyle, and complexion.
-- Target Image ${sceneIndex} provides pose, background, camera lens, and lighting atmosphere.
+# INPUT IMAGES REFERENCE:
+- Image 1: Source Model Head Crop (Facial identity, eyes, nose, mouth, skin tone anchor)
+- Image 2: Full Source Model Reference
+- Image 3: Target Scene Base Image (Target person's body pose, background, camera angle, and scene atmosphere)
+${options.hasMask ? '- Image 4: Face Inpainting Mask (WHITE = replace face; BLACK = keep background)' : ''}
+
+# MANDATORY FACE REPLACEMENT RULES:
+- Lock face features, eyes, nose, mouth, hairline, hairstyle, and complexion strictly from Image 1 & Image 2.
 ${maskText}
 
 # LIGHTING & COMPOSITION INTEGRATION
 - ${options.analysis.lightingBrief}
-- Match key light direction, highlight softness, skin tone temperature, and cast shadows to Image ${sceneIndex}.
+- Match key light direction, highlight softness, skin tone temperature, and cast shadows to the Target Scene.
 ${outfitRules}
 
 # USER NOTES
 ${options.extraNotes || 'No extra notes.'}
 
 # REJECT
-blended original target face, target face leakage, mismatched skin tone, red cast, floating face, unrealistic lighting, distorted face, dual faces.
+blended original target face, target face leakage, unreplaced face, mismatched skin tone, red cast, floating face, unrealistic lighting, distorted face, dual faces.
 `.trim();
 };
 
@@ -899,9 +900,19 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   );
 
   const updateResult = (sceneId: string, patch: Partial<ResultItem>) => {
-    patchActive({
-      results: activeRecord.results.map((item) => item.sceneId === sceneId ? { ...item, ...patch } : item),
-    });
+    setRecords((prev) =>
+      prev.map((rec) => {
+        if (rec.id !== activeRecordId) return rec;
+        const exists = rec.results.some((item) => item.sceneId === sceneId);
+        const updatedResults = exists
+          ? rec.results.map((item) => (item.sceneId === sceneId ? { ...item, ...patch } : item))
+          : [...rec.results, { id: `result-${sceneId}`, sceneId, sceneName: '', imageUrl: null, status: 'pending', prompt: '', ...patch }];
+        return {
+          ...rec,
+          results: updatedResults,
+        };
+      })
+    );
   };
 
   const generatePreparedScene = async (options: {
@@ -928,7 +939,6 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       ...identityAnchors,
       ...sources.map(toApiImage),
       toApiImage(prepared.scene),
-      prepared.poseAnchor,
     ];
     if (prepared.maskAnchor) inputImages.push(prepared.maskAnchor);
 
@@ -954,7 +964,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       blend: activeRecord.colorCorrectionBlend,
     });
     const formattedImage = await convertImageDataUrlFormat(correctedImage, activeRecord.outputFormat);
-    return {
+    const finalResult: ResultItem = {
       id: `result-${prepared.scene.id}`,
       sceneId: prepared.scene.id,
       sceneName: prepared.scene.name,
@@ -962,6 +972,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       status: 'done',
       prompt,
     };
+    updateResult(prepared.scene.id, finalResult);
+    return finalResult;
   };
 
   const saveBatch = async (sources: UploadedImage[], scenes: UploadedImage[], analysis: AgentAnalysis, batchResults: ResultItem[]) => {
