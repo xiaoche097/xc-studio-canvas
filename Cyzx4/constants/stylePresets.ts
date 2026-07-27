@@ -149,6 +149,26 @@ const STYLE_PRESETS_RAW: StylePreset[] = [
         prompt: 'High-end commercial fashion editorial photography of a gorgeous professional fashion model, full body or medium shot, cinematic lighting, extremely detailed, photorealistic, premium catalog aesthetic. Wearing modern stylish outfit described in [SUBJECT], clean minimal background, professional photography style.',
         promptWithRef: 'High-fidelity commercial fashion photography using the model identity and body proportions from the reference image. The generated model MUST inherit ONLY the facial features (face shape, eyes, nose, lips, eyebrows, expression, hair style/color) and the physical body shape/proportions from the provided reference image. You MUST completely IGNORE, DISCARD, and BYPASS the clothing, outfits, accessories, jewelry, background, pose, and any other non-anatomy elements present in the reference image. Replicate the model\'s look with high precision. Place this model in the scene and outfit described in: [SUBJECT], with clothing and styling naturally adapted to the new environment under professional studio or lifestyle lighting.',
         negativePrompt: 'face changed, identity changed, cgi, 3d render, plastic skin, waxy skin, doll-like, ai-generated look, over-smoothed skin, blur, low resolution, noise, oversharpening halo, white outline, messy edges, text, watermark, logo, jewelry from reference, accessories from reference, clothing from reference, background from reference.'
+    },
+    {
+        id: 'hd-color-map',
+        name: '颜色稿提取',
+        category: '通用',
+        previewUrl: '/styles/color_preview.png',
+        description: '高清放大工作流中的专业级平面色彩构成分析图提取，智能划分色块与层级，消除光影与纹理干扰。',
+        prompt: '【任务】生成专业级平面色彩构成分析图\n\n【动态识别流程】\n第一步：智能区域划分\n根据画面内容自适应识别：\n- 主体与背景的边界\n- 不同材质/物体的分界\n- 色彩自然过渡的断点\n- 光影造成的色域变化\n\n第二步：色块提纯与填充\n- 每个识别区域 → 提取代表色 → 均匀填充\n- 保留色彩的层级关系与空间暗示\n- 相邻色块需有足够的明度/色相区分\n\n第三步：全面净化\n移除所有非色彩本质的信息：\n× 光影（高光、阴影、环境光）\n× 材质（纹理、反射、透明度）\n× 噪声（颗粒、杂色、压缩痕迹）\n\n【输出】\n边界清晰的纯色块构成图，色彩关系 = 唯一视觉语言，可直接用于配色提案或风格化创作。\n\n**CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.',
+        promptWithRef: '【任务】生成专业级平面色彩构成分析图\n\n【动态识别流程】\n第一步：智能区域划分\n根据画面内容自适应识别：\n- 主体与背景的边界\n- 不同材质/物体的分界\n- 色彩自然过渡的断点\n- 光影造成的色域变化\n\n第二步：色块提纯与填充\n- 每个识别区域 → 提取代表色 → 均匀填充\n- 保留色彩的层级关系与空间暗示\n- 相邻色块需有足够的明度/色相区分\n\n第三步：全面净化\n移除所有非色彩本质的信息：\n× 光影（高光、阴影、环境光）\n× 材质（纹理、反射、透明度）\n× 噪声（颗粒、杂色、压缩痕迹）\n\n【输出】\n边界清晰的纯色块构成图，色彩关系 = 唯一视觉语言，可直接用于配色提案或风格化创作。\n\n**CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.',
+        negativePrompt: '光影, 高光, 阴影, 环境光, 材质纹理, 反射, 透明度, 噪点, 杂色, 渐变, 模糊, 3D感'
+    },
+    {
+        id: 'hd-line-art',
+        name: '线稿提取',
+        category: '通用',
+        previewUrl: '/styles/technical_flat.png',
+        description: '高清放大工作流中的专业级矢量线稿解析，自适应识别生物、建筑、自然景观与织物结构，分层提炼纯黑白闭合线条。',
+        prompt: '【任务】将输入图像解析为专业级矢量线稿\n\n【自适应分析】\n首先识别画面主体类型，动态调整线条策略：\n- 生物类：捕捉毛发走向、皮肤褶皱、肌肉轮廓\n- 建筑/物品：强调结构边缘、材质分界、几何关系\n- 自然景观：表现植被层次、地形起伏、水纹流向\n- 织物/软质：体现垂坠感、褶皱逻辑、编织纹理\n\n【线条层级系统】\nL1 主轮廓：定义物体边界与剪影\nL2 结构线：表达体积转折、内部形态\nL3 细节线：材质特征、微观纹理走向\nL4 氛围线：暗示光影边界、空间深度（可选）\n\n【输出标准】\n✓ 纯黑白、线条闭合流畅、层次分明\n✗ 禁止：灰度填充、渐变、模糊、噪点\n\n**CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.',
+        promptWithRef: '【任务】将输入图像解析为专业级矢量线稿\n\n【自适应分析】\n首先识别画面主体类型，动态调整线条策略：\n- 生物类：捕捉毛发走向、皮肤褶皱、肌肉轮廓\n- 建筑/物品：强调结构边缘、材质分界、几何关系\n- 自然景观：表现植被层次、地形起伏、水纹流向\n- 织物/软质：体现垂坠感、褶皱逻辑、编织纹理\n\n【线条层级系统】\nL1 主轮廓：定义物体边界与剪影\nL2 结构线：表达体积转折、内部形态\nL3 细节线：材质特征、微观纹理走向\nL4 氛围线：暗示光影边界、空间深度（可选）\n\n【输出标准】\n✓ 纯黑白、线条闭合流畅、层次分明\n✗ 禁止：灰度填充、渐变、模糊、噪点\n\n**CRITICAL**: The output composition and aspect ratio MUST match the input image EXACTLY.',
+        negativePrompt: '灰度填充, 渐变, 模糊, 噪点, 杂色, 色彩, 阴影, 高光, 彩色, 灰阶, 模糊线条'
     }
 ];
 
