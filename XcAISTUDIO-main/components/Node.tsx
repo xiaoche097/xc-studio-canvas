@@ -1116,6 +1116,23 @@ const NodeComponent: React.FC<NodeProps> = ({
                                     onContextMenu={(e) => onMediaContextMenu?.(e, node.id, 'image', node.data.image!)}
                                 />
                                 <input type="file" ref={replaceImageInputRef} className="hidden" accept="image/*" onChange={handleUploadImage} />
+                                {node.data.stylePresetId && node.data.stylePresetName && (
+                                    <div
+                                        className="absolute left-3 top-3 z-[90] flex items-center gap-1.5 rounded-full border border-emerald-300/35 bg-emerald-400/20 px-3 py-1.5 text-[11px] font-bold text-emerald-100 shadow-lg backdrop-blur-md"
+                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    >
+                                        <Wand2 size={11} className="text-emerald-300" />
+                                        <span>{node.data.stylePresetName}</span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearStylePreset(); }}
+                                            className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-emerald-400/70 transition-colors hover:bg-white/15 hover:text-white"
+                                            title="清除预设"
+                                        >
+                                            <X size={10} />
+                                        </button>
+                                    </div>
+                                )}
                                 {!suppressNodeChrome && (isSelected || isHovered) && (
                                     <button
                                         type="button"
@@ -1388,6 +1405,20 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 <Settings size={16} />
                                 预设
                             </button>
+                            {node.data.stylePresetId && node.data.stylePresetName && (
+                                <div className="flex items-center gap-1.5 rounded-full border border-emerald-300/35 bg-emerald-400/20 px-2.5 py-1.5" onMouseDown={e => e.stopPropagation()}>
+                                    <Wand2 size={11} className="text-emerald-300 shrink-0" />
+                                    <span className="text-[10px] font-bold text-emerald-100 whitespace-nowrap">{node.data.stylePresetName}</span>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); clearStylePreset(); }}
+                                        className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-emerald-400/70 transition-colors hover:bg-white/15 hover:text-white shrink-0"
+                                        title="清除预设"
+                                    >
+                                        <X size={10} />
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                     {(!hasGeneratedMedia || isImageNode || isVideoNode) && (
@@ -1396,8 +1427,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <div className="absolute bottom-0 left-0 w-full h-3 cursor-row-resize flex items-center justify-center opacity-0 group-hover/input:opacity-100 transition-opacity" onMouseDown={handleInputResizeStart}><div className="w-8 h-1 rounded-full bg-white/10 group-hover/input:bg-white/20" /></div>
                         </div>
                     )}
-                    <div className="flex items-center justify-between px-2 pb-1 pt-1 relative z-20">
-                        <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between px-2 pb-1 pt-1 relative z-20 gap-1.5 flex-nowrap">
+                        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
                             {isTextNode && (
                                 <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] font-bold text-zinc-100 whitespace-nowrap">
                                     <Type size={13} />
@@ -1496,7 +1527,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             {(node.type.includes('IMAGE') || node.type === NodeType.VIDEO_GENERATOR) && (<div className="relative group/count"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Layers size={12} /><span>{node.type.includes('IMAGE') ? (node.data.imageCount || 1) : (node.data.videoCount || 1)}</span></div><div className="absolute bottom-full left-0 pb-2 w-16 opacity-0 translate-y-2 pointer-events-none group-hover/count:opacity-100 group-hover/count:translate-y-0 group-hover/count:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{(node.type.includes('IMAGE') ? IMAGE_COUNTS : VIDEO_COUNTS).map(c => (<div key={c} onClick={() => onUpdate(node.id, node.type.includes('IMAGE') ? { imageCount: c } : { videoCount: c })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${((node.type.includes('IMAGE') ? node.data.imageCount : node.data.videoCount) || 1) === c ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{c}</div>))}</div></div></div>)}
                         </div>
                         {isTextNode ? (
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 ml-auto shrink-0">
                                 <button className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300" title="文本设置">
                                     <Settings size={14} />
                                 </button>
@@ -1506,7 +1537,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 </button>
                             </div>
                         ) : (
-                            <button onClick={handleActionClick} disabled={isWorking} className={`relative flex items-center gap-2 px-4 py-1.5 rounded-[12px] font-bold text-[10px] tracking-wide transition-all duration-300 ${isWorking ? 'bg-white/5 text-slate-500 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:shadow-lg hover:shadow-emerald-400/20 hover:scale-105 active:scale-95'}`}>{isWorking ? <Loader2 className="animate-spin" size={12} /> : hasGeneratedMedia ? <RefreshCw size={12} /> : <Wand2 size={12} />}<span>{isWorking ? (hasGeneratedMedia ? '重新生成中...' : '生成中...') : (hasGeneratedMedia ? '重新生成' : '生成')}</span></button>
+                            <button onClick={handleActionClick} disabled={isWorking} className={`relative flex items-center gap-2 px-4 py-1.5 rounded-[12px] font-bold text-[10px] tracking-wide transition-all duration-300 ml-auto shrink-0 ${isWorking ? 'bg-white/5 text-slate-500 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:shadow-lg hover:shadow-emerald-400/20 hover:scale-105 active:scale-95'}`}>{isWorking ? <Loader2 className="animate-spin" size={12} /> : hasGeneratedMedia ? <RefreshCw size={12} /> : <Wand2 size={12} />}<span>{isWorking ? (hasGeneratedMedia ? '重新生成中...' : '生成中...') : (hasGeneratedMedia ? '重新生成' : '生成')}</span></button>
                         )}
                     </div>
                 </div>
