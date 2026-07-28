@@ -697,6 +697,7 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
             ? images.filter((img) => img.role === 'action')
             : images;
 
+          try {
           const cropAnalysis = await generateText(
             imagesToAnalyze.map((img) => ({ base64: img.base64, mimeType: img.mime })),
             `**ROLE**: Precision Crop Framing Copycat. You do NOT analyze fashion. You do NOT recommend. You COPY what the reference image already shows.
