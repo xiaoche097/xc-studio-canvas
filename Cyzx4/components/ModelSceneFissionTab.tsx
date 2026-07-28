@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -29,6 +29,7 @@ import { compressImage, generateImageToImage, generateText } from '../services/g
 import { useImagePaste } from '../hooks/useImagePaste';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { cropImageRegion } from '../utils/imageProcessor';
+import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { AspectRatio, ImageResolution } from '../types';
 
 type CreationMode = 'pose' | 'scene' | 'lookbook';
@@ -659,6 +660,14 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
       setAgentStatus(`交付 Agent ·「${scheme.title}」9 张不同机位与姿势高清大图已全部交付`);
       setAgentLog((current) => [...current, `高清裂变 Agent 已为「${scheme.title}」输出 9 张高画质独立大图`]);
       updateTask({ status: 'done', fissionImages: items });
+
+      void saveGeneratedProject({
+        type: 'MODEL_SCENE_FISSION',
+        generated: items.map((i) => i.imageUrl),
+        original: images.map((i) => i.preview),
+        prompt: requirements,
+        thumbnail: items[0]?.imageUrl,
+      });
     } catch (fissionError) {
       setError(getErrorMessage(fissionError));
       setAgentStatus('高清裂变 Agent · 失败，请重试');
