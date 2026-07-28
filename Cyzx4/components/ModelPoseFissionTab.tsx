@@ -279,7 +279,7 @@ const createTask = (): FissionTask => ({
     resolution: '2K',
     platform: 'independent',
     poseLibrary: 'clothing',
-    cropFraming: 'full-length',
+    cropFraming: 'auto',
     actionMode: 'random',
     selectedSpecificPoseId: '',
     customActionPrompts: '',
@@ -397,7 +397,7 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
   const [resolution, setResolution] = useState('2K');
   const [platform, setPlatform] = useState<PlatformKey>('independent');
   const [poseLibrary, setPoseLibrary] = useState<PoseLibraryKey>('clothing');
-  const [cropFraming, setCropFraming] = useState<CropFramingId>('full-length');
+  const [cropFraming, setCropFraming] = useState<CropFramingId>('auto');
   const [actionMode, setActionMode] = useState<ActionMode>('referenceImage');
   const [selectedSpecificPoseId, setSelectedSpecificPoseId] = useState<string>('');
   const [customActionPrompts, setCustomActionPrompts] = useState<string>('');
@@ -517,7 +517,7 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
     setResolution(ws.resolution || '2K');
     setPlatform(ws.platform || 'independent');
     setPoseLibrary(ws.poseLibrary || 'clothing');
-    setCropFraming(ws.cropFraming || 'full-length');
+    setCropFraming(ws.cropFraming || 'auto');
     setActionMode(ws.actionMode || 'random');
     setSelectedSpecificPoseId(ws.selectedSpecificPoseId || '');
     setCustomActionPrompts(ws.customActionPrompts || '');
@@ -685,7 +685,52 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
     try {
       const selectedLib = POSE_LIBRARIES.find((lib) => lib.key === poseLibrary) || POSE_LIBRARIES[0];
       const selectedPlat = PLATFORM_STYLES.find((p) => p.key === platform) || PLATFORM_STYLES[0];
-      const selectedCropOption = cropFramingById(cropFraming);
+      let effectiveCropFraming: CropFramingId = cropFraming;
+
+      // Auto-detect crop framing from action reference images when 'auto' is selected
+      if (cropFraming === 'auto') {
+        try {
+          setAgentStatus('???? Agent ? ?????????????');
+          setAgentLog((current) => [...current, '???? Agent ??????????????????']);
+
+          // Only analyze action reference images when action mode is referenceImage and action images exist
+          const imagesToAnalyze = actionMode === 'referenceImage' && actionCount > 0
+            ? images.filter((img) => img.role === 'action')
+            : images;
+
+          const analysisHint = actionMode === 'referenceImage' && actionCount > 0
+            ? 'The image(s) below are ACTION REFERENCE images showing the exact body pose and framing the user wants to match.'
+            : 'The image(s) below are clothing/model reference images. Analyze the garment type to determine optimal framing.';
+
+          const cropAnalysis = await generateText(
+            imagesToAnalyze.map((img) => ({ base64: img.base64, mimeType: img.mime })),
+            `You are a fashion photography framing analyst. ${analysisHint}
+
+Determine the optimal crop framing based on WHAT BODY PARTS ARE VISIBLE in the reference image(s):
+- If the image shows the ENTIRE body from head to feet, return full-length.
+- If the image shows from head to approximately mid-thigh (upper body dominant), return top.
+- If the image shows from waist down to approximately calf (shorts/mini-skirt range), return short-bottom.
+- If the image shows from waist down to ankles/feet (trousers/long skirt range), return long-bottom.
+- If the image shows from head to approximately knees, return mid-length.
+
+CRITICAL: Match the VISIBLE BODY RANGE in the reference image, not the clothing type. If the reference only shows the upper half of a person, crop should be top regardless of what clothing they wear.
+
+When uncertain, default to full-length.
+
+Return ONLY valid JSON: {"cropFraming":"<id>","reason":"brief Chinese explanation"}
+          `);
+          const parsed = JSON.parse(cropAnalysis.replace(/^`*(?:json)?\s*/i, '').replace(/\s*`*$/, '').trim());
+          if (['full-length','top','short-bottom','long-bottom','mid-length'].includes(parsed.cropFraming)) {
+            effectiveCropFraming = parsed.cropFraming;
+            setAgentLog((current) => [...current, `???? Agent: ${parsed.reason || '???????????'}`]);
+          }
+        } catch {
+          setAgentLog((current) => [...current, '???? Agent ????????????']);
+          effectiveCropFraming = 'full-length';
+        }
+      }
+
+      const selectedCropOption = cropFramingById(effectiveCropFraming);
 
       let actionInstruction = '';
       if (actionMode === 'referenceImage' && actionCount > 0) {
@@ -838,7 +883,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
       updateTask({ status: 'done', fissionImages: items });
 
       void saveGeneratedProject({
-        type: 'MODEL_POSE_FISSION' as any,
+        type: 'MODEL_POSE_FISSION',
         generated: items.map((i) => i.imageUrl),
         original: images.map((i) => i.preview),
         prompt: requirements,

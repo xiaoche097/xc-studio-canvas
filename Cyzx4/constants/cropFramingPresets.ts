@@ -1,4 +1,4 @@
-export type CropFramingId = 'top' | 'short-bottom' | 'long-bottom' | 'mid-length' | 'full-length';
+export type CropFramingId = 'auto' | 'top' | 'short-bottom' | 'long-bottom' | 'mid-length' | 'full-length';
 
 export interface CropFramingOption {
   id: CropFramingId;
@@ -10,6 +10,14 @@ export interface CropFramingOption {
 }
 
 export const CROP_FRAMING_OPTIONS: CropFramingOption[] = [
+  {
+    id: 'auto',
+    label: '自动识别（默认）',
+    shortLabel: '自动',
+    icon: '🤖',
+    description: '根据上传的参考图自动分析并匹配最合适的裁图范围，无需手动选择。',
+    promptRule: 'AUTO_DETECT',
+  },
   {
     id: 'full-length',
     label: '长衣（长款外套/连衣裙）',
