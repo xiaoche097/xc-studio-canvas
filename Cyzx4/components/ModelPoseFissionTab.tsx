@@ -689,43 +689,86 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
 
       // Auto-detect crop framing from action reference images when 'auto' is selected
       if (cropFraming === 'auto') {
-        try {
-          setAgentStatus('???? Agent ? ?????????????');
-          setAgentLog((current) => [...current, '???? Agent ??????????????????']);
+          setAgentStatus('🤖 Agent 正在分析裁图范围...');
+          setAgentLog((current) => [...current, '🤖 Agent 正在逐张分析参考图的可见身体区域...']);
 
           // Only analyze action reference images when action mode is referenceImage and action images exist
           const imagesToAnalyze = actionMode === 'referenceImage' && actionCount > 0
             ? images.filter((img) => img.role === 'action')
             : images;
 
-          const analysisHint = actionMode === 'referenceImage' && actionCount > 0
-            ? 'The image(s) below are ACTION REFERENCE images showing the exact body pose and framing the user wants to match.'
-            : 'The image(s) below are clothing/model reference images. Analyze the garment type to determine optimal framing.';
-
           const cropAnalysis = await generateText(
             imagesToAnalyze.map((img) => ({ base64: img.base64, mimeType: img.mime })),
-            `You are a fashion photography framing analyst. ${analysisHint}
+            `**ROLE**: Precision Fashion Photography Crop Analyst.
 
-Determine the optimal crop framing based on WHAT BODY PARTS ARE VISIBLE in the reference image(s):
-- If the image shows the ENTIRE body from head to feet, return full-length.
-- If the image shows from head to approximately mid-thigh (upper body dominant), return top.
-- If the image shows from waist down to approximately calf (shorts/mini-skirt range), return short-bottom.
-- If the image shows from waist down to ankles/feet (trousers/long skirt range), return long-bottom.
-- If the image shows from head to approximately knees, return mid-length.
+**TASK**: Given action reference image(s), determine the EXACT crop framing by analyzing which body parts are visible in the frame.
 
-CRITICAL: Match the VISIBLE BODY RANGE in the reference image, not the clothing type. If the reference only shows the upper half of a person, crop should be top regardless of what clothing they wear.
+---
 
-When uncertain, default to full-length.
+**STEP 1 — BODY LANDMARK CHECKLIST**
+Scan each image carefully and identify which of the following body landmarks are VISIBLE (within the frame, not cut off):
 
-Return ONLY valid JSON: {"cropFraming":"<id>","reason":"brief Chinese explanation"}
-          `);
+[HEAD]    — Top of head / hairline
+[FACE]    — Full face visible
+[CHEST]   — Shoulders / collarbone / upper chest
+[WAIST]   — Natural waistline / mid-torso
+[HIP]     — Hip bone / crotch area
+[THIGH]   — Upper thigh (above knee)
+[KNEE]    — Knee joint
+[CALF]    — Mid-calf area
+[ANKLE]   — Ankle joint
+[FEET]    — Toes / shoes
+
+---
+
+**STEP 2 — STRICT MAPPING TABLE**
+Map the visible range to the EXACT cropFraming. Use this table — NO EXCEPTIONS:
+
+| VISIBLE RANGE | cropFraming |
+|---|---|
+| HEAD → THIGH (knees NOT visible) | "top" |
+| HEAD → KNEE (calves & feet NOT visible) | "mid-length" |
+| HEAD → FEET (entire body visible) | "full-length" |
+| WAIST → CALF (head/chest NOT visible, feet NOT visible) | "short-bottom" |
+| WAIST → ANKLE/FEET (head/chest NOT visible) | "long-bottom" |
+
+---
+
+**CRITICAL DECISION RULES (follow in order)**
+1. IGNORE what clothing the person is wearing. Judge ONLY by visible body parts.
+2. If [HEAD] is visible → the framing is either "top", "mid-length", or "full-length". Determine by lowest visible landmark.
+3. If [HEAD] is NOT visible and [WAIST] is the top visible → the framing is either "short-bottom" or "long-bottom". Determine by lowest visible landmark.
+4. The KEY deciding factor is always the LOWEST visible body landmark.
+5. When the lowest visible part is at the boundary between two categories (e.g., knee is partially visible), choose the TIGHTER crop (the one showing LESS body).
+6. When multiple images are provided, analyze EACH image individually, then take the MAJORITY (consensus). If they differ equally, default to the most frequent or "full-length".
+7. DO NOT guess based on pose or aesthetics. The reference image IS the ground truth — the crop must match it EXACTLY.
+
+---
+
+**WHAT TO IGNORE**
+- Do NOT consider clothing type, garment style, or fashion category
+- Do NOT consider the pose or posture of the person
+- Do NOT consider image quality, lighting, or aesthetics
+
+---
+
+**OUTPUT FORMAT (MANDATORY — return ONLY valid JSON, no markdown code fences)**
+{
+  "cropFraming": "<one of: top | mid-length | full-length | short-bottom | long-bottom>",
+  "visibleRange": "<range like: HEAD → MID-THIGH / WAIST → ANKLE>",
+  "reason": "<one-sentence Chinese explanation>"
+}`
+          );
           const parsed = JSON.parse(cropAnalysis.replace(/^`*(?:json)?\s*/i, '').replace(/\s*`*$/, '').trim());
           if (['full-length','top','short-bottom','long-bottom','mid-length'].includes(parsed.cropFraming)) {
             effectiveCropFraming = parsed.cropFraming;
-            setAgentLog((current) => [...current, `???? Agent: ${parsed.reason || '???????????'}`]);
+            const logMsg = parsed.visibleRange
+              ? `🤖 Agent 检测到裁图范围: ${parsed.visibleRange} → ${parsed.cropFraming} (${parsed.reason || ''})`
+              : `🤖 Agent: ${parsed.reason || '已自动匹配裁图范围'}`;
+            setAgentLog((current) => [...current, logMsg]);
           }
         } catch {
-          setAgentLog((current) => [...current, '???? Agent ????????????']);
+          setAgentLog((current) => [...current, '🤖 Agent 分析裁图失败，使用默认全图']);
           effectiveCropFraming = 'full-length';
         }
       }
