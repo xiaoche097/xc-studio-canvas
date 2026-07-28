@@ -699,18 +699,23 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
 
           const cropAnalysis = await generateText(
             imagesToAnalyze.map((img) => ({ base64: img.base64, mimeType: img.mime })),
-            `**ROLE**: Precision Fashion Photography Crop Analyst.
+            `**ROLE**: Precision Crop Framing Copycat. You do NOT analyze fashion. You do NOT recommend. You COPY what the reference image already shows.
 
-**TASK**: Given action reference image(s), determine the EXACT crop framing by analyzing which body parts are visible in the frame.
+**TASK**: The user uploaded action reference images. These images define EVERYTHING — pose, angle, AND crop framing. Look at what body parts are VISIBLE in the reference frame. Report that SAME crop. Do not improve it, do not second-guess it, do not suggest what "would be better." The reference IS the answer.
 
 ---
 
-**STEP 1 — BODY LANDMARK CHECKLIST**
-Scan each image carefully and identify which of the following body landmarks are VISIBLE (within the frame, not cut off):
+**BEFORE YOU START — CORE PRINCIPLE**
+These images are the user's GROUND TRUTH. Your output MUST match the crop boundaries shown in the reference. If the reference is cropped at the thigh, you output "top". Even if the person is wearing a floor-length gown — you STILL output "top" because that's what the reference shows. The crop is about FRAME BOUNDARIES, not about clothing.
+
+---
+
+**STEP 1 — BODY PART VISIBILITY AUDIT**
+For the reference image(s), mark each body part as VISIBLE or CUT OFF:
 
 [HEAD]    — Top of head / hairline
-[FACE]    — Full face visible
-[CHEST]   — Shoulders / collarbone / upper chest
+[FACE]    — Full face
+[CHEST]   — Shoulders / collarbone
 [WAIST]   — Natural waistline / mid-torso
 [HIP]     — Hip bone / crotch area
 [THIGH]   — Upper thigh (above knee)
@@ -719,44 +724,53 @@ Scan each image carefully and identify which of the following body landmarks are
 [ANKLE]   — Ankle joint
 [FEET]    — Toes / shoes
 
----
-
-**STEP 2 — STRICT MAPPING TABLE**
-Map the visible range to the EXACT cropFraming. Use this table — NO EXCEPTIONS:
-
-| VISIBLE RANGE | cropFraming |
-|---|---|
-| HEAD → THIGH (knees NOT visible) | "top" |
-| HEAD → KNEE (calves & feet NOT visible) | "mid-length" |
-| HEAD → FEET (entire body visible) | "full-length" |
-| WAIST → CALF (head/chest NOT visible, feet NOT visible) | "short-bottom" |
-| WAIST → ANKLE/FEET (head/chest NOT visible) | "long-bottom" |
+ONLY count what is FULLY inside the frame. If a body part is partially or fully cut off by the image edge, mark it CUT OFF.
 
 ---
 
-**CRITICAL DECISION RULES (follow in order)**
-1. IGNORE what clothing the person is wearing. Judge ONLY by visible body parts.
-2. If [HEAD] is visible → the framing is either "top", "mid-length", or "full-length". Determine by lowest visible landmark.
-3. If [HEAD] is NOT visible and [WAIST] is the top visible → the framing is either "short-bottom" or "long-bottom". Determine by lowest visible landmark.
-4. The KEY deciding factor is always the LOWEST visible body landmark.
-5. When the lowest visible part is at the boundary between two categories (e.g., knee is partially visible), choose the TIGHTER crop (the one showing LESS body).
-6. When multiple images are provided, analyze EACH image individually, then take the MAJORITY (consensus). If they differ equally, default to the most frequent or "full-length".
-7. DO NOT guess based on pose or aesthetics. The reference image IS the ground truth — the crop must match it EXACTLY.
+**STEP 2 — STRICT CROP MAPPING (NO DEVIATION ALLOWED)**
+Map what you see to cropFraming using this table. Pick the BEST match:
+
+| Condition | cropFraming | Typical visual cue |
+|---|---|---|
+| HEAD visible, lowest visible is THIGH (knee CUT OFF) | "top" | Head-and-shoulders or half-body portrait |
+| HEAD visible, lowest visible is KNEE (calf CUT OFF) | "mid-length" | Three-quarter shot, stops at/near knees |
+| HEAD visible, lowest visible is ANKLE or FEET | "full-length" | Entire person from head to toes |
+| HEAD CUT OFF, top of frame is WAIST area, lowest is CALF | "short-bottom" | Waist-down crop, stops above ankle |
+| HEAD CUT OFF, top of frame is WAIST area, lowest is ANKLE/FEET | "long-bottom" | Waist-down crop, full legs visible |
 
 ---
 
-**WHAT TO IGNORE**
-- Do NOT consider clothing type, garment style, or fashion category
-- Do NOT consider the pose or posture of the person
-- Do NOT consider image quality, lighting, or aesthetics
+**STEP 3 — MANDATORY SELF-CHECK**
+Before you output, verify:
+1. "Did I identify the correct LOWEST visible body part?"
+2. "Did I ignore clothing entirely and judge ONLY by frame boundaries?"
+3. "Would MY cropFraming produce the SAME frame boundaries as what I see in the reference?"
+
+If ANY answer is NO, redo your analysis from Step 1.
 
 ---
 
-**OUTPUT FORMAT (MANDATORY — return ONLY valid JSON, no markdown code fences)**
+**FORBIDDEN BEHAVIORS**
+- ❌ Inferring crop from clothing type (e.g., "it's a dress, so full-length")
+- ❌ Defaulting to "full-length" when unsure — pick the closest match from the table
+- ❌ Recommending a crop different from what the reference shows
+- ❌ Letting pose, aesthetics, or image quality influence your decision
+
+---
+
+**MULTI-IMAGE RULE**
+If multiple reference images show DIFFERENT crops, output the TIGHTEST (most zoomed-in) crop among them. This is safer because the generation system can always zoom out but cannot zoom in after the fact.
+
+If they all show the same crop, output that one.
+
+---
+
+**OUTPUT FORMAT — return ONLY this JSON, no markdown, no extra text**
 {
-  "cropFraming": "<one of: top | mid-length | full-length | short-bottom | long-bottom>",
-  "visibleRange": "<range like: HEAD → MID-THIGH / WAIST → ANKLE>",
-  "reason": "<one-sentence Chinese explanation>"
+  "cropFraming": "top | mid-length | full-length | short-bottom | long-bottom",
+  "visibleRange": "e.g., HEAD → MID-THIGH",
+  "reason": "one-sentence Chinese explanation"
 }`
           );
           const parsed = JSON.parse(cropAnalysis.replace(/^`*(?:json)?\s*/i, '').replace(/\s*`*$/, '').trim());
