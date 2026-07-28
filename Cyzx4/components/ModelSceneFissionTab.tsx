@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -103,7 +103,7 @@ interface ModelSceneFissionTabProps {
 }
 
 const MAX_IMAGES = 3;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 30 * 1024 * 1024;
 
 const MODEL_OPTIONS = [
   {
@@ -366,7 +366,7 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
       if (!accepted.length) {
         setError(
           files.some((file) => file.size > MAX_FILE_SIZE)
-            ? '单张图片不能超过 10MB'
+            ? '单张图片不能超过 30MB'
             : `最多上传 ${MAX_IMAGES} 张模特/产品参考图`
         );
         return;
@@ -904,7 +904,7 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
                 >
                   <Upload className="h-6 w-6 text-[#ed6d46]" />
                   <span className="mt-3 text-sm font-bold">拖拽、粘贴或点击选择原图</span>
-                  <span className="mt-1 text-xs text-pastel-muted">JPG、JPEG、PNG、WEBP · 单张≤10MB</span>
+                  <span className="mt-1 text-xs text-pastel-muted">JPG、JPEG、PNG、WEBP · 单张≤30MB</span>
                 </button>
               ) : (
                 <div className="flex flex-wrap gap-2">
