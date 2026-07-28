@@ -63,6 +63,7 @@ const EcommerceHeroTab = lazy(() => import('./components/EcommerceHeroTab'));
 const ModelPoseFissionTab = lazy(() => import('./components/ModelPoseFissionTab'));
 const ModelSceneFissionTab = lazy(() => import('./components/ModelSceneFissionTab'));
 const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
+const ModelFaceSwapTab = lazy(() => import('./components/ModelFaceSwapTab'));
 const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
 const HDUpscaleTab = lazy(() => import('./components/HDUpscaleTab'));
 const AspectRatioTab = lazy(() => import('./components/AspectRatioTab'));
@@ -199,6 +200,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/model-transfer.webp',
     icon: UserRoundCog,
     component: ModelTransferTab,
+  },
+  {
+    mode: AppMode.MODEL_FACE_SWAP,
+    title: '模特换脸',
+    englishTitle: 'Face Swap',
+    description: '上传带模特图与参考人脸，支持模特库与场景深度定制，一键批量自然换脸。',
+    category: 'model',
+    keywords: ['模特换脸', '换脸', '人脸迁移', '人脸替换', '服装模特'],
+    cover: './creative-covers/model-transfer.webp',
+    icon: UserRoundCog,
+    component: ModelFaceSwapTab,
   },
   {
     mode: AppMode.MODEL_POSE_FISSION,
