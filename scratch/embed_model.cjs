@@ -3,10 +3,12 @@ const path = require('path');
 
 const gabiBase64Path = path.join(__dirname, '../public/official_model_2.base64.txt');
 const claraBase64Path = path.join(__dirname, '../public/official_model_clara.base64.txt');
+const annaBase64Path = path.join(__dirname, '../public/official_model_anna.base64.txt');
 const targetPath = path.join(__dirname, '../Cyzx4/services/modelLibrary.ts');
 
 const b64Gabi = fs.readFileSync(gabiBase64Path, 'utf8').trim();
 const b64Clara = fs.readFileSync(claraBase64Path, 'utf8').trim();
+const b64Anna = fs.readFileSync(annaBase64Path, 'utf8').trim();
 
 const content = `import { openDB, type DBSchema } from 'idb';
 
@@ -57,6 +59,7 @@ Please use Chinese uniformly for the labels in the image.
 
 const GABI_BASE64 = '${b64Gabi}';
 const CLARA_BASE64 = '${b64Clara}';
+const ANNA_BASE64 = '${b64Anna}';
 
 // 官方固定模特默认数据
 export const OFFICIAL_MODELS: ModelItem[] = [
@@ -81,6 +84,17 @@ export const OFFICIAL_MODELS: ModelItem[] = [
     prompt: OFFICIAL_MODEL_PROMPT,
     createdAt: 1700000000001,
     updatedAt: 1700000000001,
+  },
+  {
+    id: 'official-model-anna',
+    name: 'Anna',
+    isOfficial: true,
+    preview: 'data:image/jpeg;base64,' + ANNA_BASE64,
+    base64: ANNA_BASE64,
+    mime: 'image/jpeg',
+    prompt: OFFICIAL_MODEL_PROMPT,
+    createdAt: 1700000000002,
+    updatedAt: 1700000000002,
   },
 ];
 
@@ -116,4 +130,4 @@ export const modelLibrary = {
 `;
 
 fs.writeFileSync(targetPath, content, 'utf8');
-console.log('Successfully generated Cyzx4/services/modelLibrary.ts with Gabi and Clara (close-up)!');
+console.log('Successfully generated Cyzx4/services/modelLibrary.ts with Gabi, Clara, and Anna!');
