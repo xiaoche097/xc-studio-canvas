@@ -154,6 +154,7 @@ const ImageCropModal: React.FC<{
 }> = ({ target, onClose, onConfirmCrop }) => {
   const [rotation, setRotation] = useState<number>(0);
   const [selectedRatio, setSelectedRatio] = useState<string>('2:3');
+  const [imgNaturalSize, setImgNaturalSize] = useState<{ w: number; h: number } | null>(null);
 
   const [cropBox, setCropBox] = useState<{ x: number; y: number; width: number; height: number }>({
     x: 0.1,
@@ -162,7 +163,6 @@ const ImageCropModal: React.FC<{
     height: 0.8,
   });
 
-  const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragHandle, setDragHandle] = useState<string | null>(null);
@@ -172,30 +172,49 @@ const ImageCropModal: React.FC<{
     box: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
   });
 
-  useEffect(() => {
-    if (selectedRatio === 'free') return;
-    let ratioVal = 2 / 3;
-    if (selectedRatio === '1:1') ratioVal = 1;
-    else if (selectedRatio === '3:4') ratioVal = 3 / 4;
-    else if (selectedRatio === '2:3') ratioVal = 2 / 3;
-    else if (selectedRatio === '9:16') ratioVal = 9 / 16;
-    else if (selectedRatio === '16:9') ratioVal = 16 / 9;
+  const handleImageLoad = () => {
+    if (imgRef.current) {
+      const w = imgRef.current.naturalWidth || imgRef.current.width;
+      const h = imgRef.current.naturalHeight || imgRef.current.height;
+      setImgNaturalSize({ w, h });
+    }
+  };
 
-    setCropBox((prev) => {
-      let newW = prev.width;
-      let newH = newW / ratioVal;
-      if (newH > 0.9) {
-        newH = 0.9;
-        newW = newH * ratioVal;
-      }
-      return {
-        x: Math.max(0, Math.min(1 - newW, prev.x)),
-        y: Math.max(0, Math.min(1 - newH, prev.y)),
-        width: newW,
-        height: newH,
-      };
+  // 根据 selectedRatio 与 imgNaturalSize 计算精准比例裁切框
+  useEffect(() => {
+    if (!imgNaturalSize || imgNaturalSize.w <= 0 || imgNaturalSize.h <= 0) return;
+    const imgRatio = imgNaturalSize.w / imgNaturalSize.h;
+
+    if (selectedRatio === 'free') return;
+
+    let targetRatio = 2 / 3;
+    if (selectedRatio === '1:1') targetRatio = 1;
+    else if (selectedRatio === '3:4') targetRatio = 3 / 4;
+    else if (selectedRatio === '2:3') targetRatio = 2 / 3;
+    else if (selectedRatio === '9:16') targetRatio = 9 / 16;
+    else if (selectedRatio === '16:9') targetRatio = 16 / 9;
+
+    // 归一化坐标下的目标宽高比 w_norm / h_norm = targetRatio / imgRatio
+    const targetNormRatio = targetRatio / imgRatio;
+
+    let newH = 0.85;
+    let newW = newH * targetNormRatio;
+
+    if (newW > 0.85) {
+      newW = 0.85;
+      newH = newW / targetNormRatio;
+    }
+
+    const newX = (1 - newW) / 2;
+    const newY = (1 - newH) / 2;
+
+    setCropBox({
+      x: Math.max(0, newX),
+      y: Math.max(0, newY),
+      width: Math.min(1, newW),
+      height: Math.min(1, newH),
     });
-  }, [selectedRatio]);
+  }, [selectedRatio, imgNaturalSize]);
 
   const handleMouseDown = (e: React.MouseEvent, handle: string) => {
     e.stopPropagation();
@@ -211,8 +230,10 @@ const ImageCropModal: React.FC<{
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
-      if (!isDragging || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
+      if (!isDragging || !imgRef.current) return;
+      const rect = imgRef.current.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
       const deltaX = (e.clientX - startPosRef.current.x) / rect.width;
       const deltaY = (e.clientY - startPosRef.current.y) / rect.height;
 
@@ -223,27 +244,74 @@ const ImageCropModal: React.FC<{
         x = Math.max(0, Math.min(1 - width, initialBox.x + deltaX));
         y = Math.max(0, Math.min(1 - height, initialBox.y + deltaY));
       } else {
-        if (dragHandle?.includes('w')) {
-          const newX = Math.max(0, Math.min(initialBox.x + initialBox.width - 0.1, initialBox.x + deltaX));
-          width = initialBox.x + initialBox.width - newX;
-          x = newX;
-        }
-        if (dragHandle?.includes('e')) {
-          width = Math.max(0.1, Math.min(1 - initialBox.x, initialBox.width + deltaX));
-        }
-        if (dragHandle?.includes('n')) {
-          const newY = Math.max(0, Math.min(initialBox.y + initialBox.height - 0.1, initialBox.y + deltaY));
-          height = initialBox.y + initialBox.height - newY;
-          y = newY;
-        }
-        if (dragHandle?.includes('s')) {
-          height = Math.max(0.1, Math.min(1 - initialBox.y, initialBox.height + deltaY));
+        const imgRatio = imgNaturalSize ? imgNaturalSize.w / imgNaturalSize.h : 1;
+        let targetRatio: number | null = null;
+        if (selectedRatio === '1:1') targetRatio = 1;
+        else if (selectedRatio === '3:4') targetRatio = 3 / 4;
+        else if (selectedRatio === '2:3') targetRatio = 2 / 3;
+        else if (selectedRatio === '9:16') targetRatio = 9 / 16;
+        else if (selectedRatio === '16:9') targetRatio = 16 / 9;
+
+        if (targetRatio === null || selectedRatio === 'free') {
+          if (dragHandle?.includes('w')) {
+            const newX = Math.max(0, Math.min(initialBox.x + initialBox.width - 0.05, initialBox.x + deltaX));
+            width = initialBox.x + initialBox.width - newX;
+            x = newX;
+          }
+          if (dragHandle?.includes('e')) {
+            width = Math.max(0.05, Math.min(1 - initialBox.x, initialBox.width + deltaX));
+          }
+          if (dragHandle?.includes('n')) {
+            const newY = Math.max(0, Math.min(initialBox.y + initialBox.height - 0.05, initialBox.y + deltaY));
+            height = initialBox.y + initialBox.height - newY;
+            y = newY;
+          }
+          if (dragHandle?.includes('s')) {
+            height = Math.max(0.05, Math.min(1 - initialBox.y, initialBox.height + deltaY));
+          }
+        } else {
+          // 保持锁定比例 resize
+          const targetNormRatio = targetRatio / imgRatio;
+
+          if (dragHandle === 'se' || dragHandle === 'e' || dragHandle === 's') {
+            width = Math.max(0.05, Math.min(1 - initialBox.x, initialBox.width + deltaX));
+            height = width / targetNormRatio;
+            if (initialBox.y + height > 1) {
+              height = 1 - initialBox.y;
+              width = height * targetNormRatio;
+            }
+          } else if (dragHandle === 'sw' || dragHandle === 'w') {
+            width = Math.max(0.05, Math.min(initialBox.x + initialBox.width, initialBox.width - deltaX));
+            height = width / targetNormRatio;
+            if (initialBox.y + height > 1) {
+              height = 1 - initialBox.y;
+              width = height * targetNormRatio;
+            }
+            x = initialBox.x + initialBox.width - width;
+          } else if (dragHandle === 'ne' || dragHandle === 'n') {
+            width = Math.max(0.05, Math.min(1 - initialBox.x, initialBox.width + deltaX));
+            height = width / targetNormRatio;
+            if (initialBox.y + initialBox.height - height < 0) {
+              height = initialBox.y + initialBox.height;
+              width = height * targetNormRatio;
+            }
+            y = initialBox.y + initialBox.height - height;
+          } else if (dragHandle === 'nw') {
+            width = Math.max(0.05, Math.min(initialBox.x + initialBox.width, initialBox.width - deltaX));
+            height = width / targetNormRatio;
+            if (initialBox.y + initialBox.height - height < 0) {
+              height = initialBox.y + initialBox.height;
+              width = height * targetNormRatio;
+            }
+            x = initialBox.x + initialBox.width - width;
+            y = initialBox.y + initialBox.height - height;
+          }
         }
       }
 
       setCropBox({ x, y, width, height });
     },
-    [isDragging, dragHandle]
+    [isDragging, dragHandle, selectedRatio, imgNaturalSize]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -265,7 +333,19 @@ const ImageCropModal: React.FC<{
   const resetCrop = () => {
     setRotation(0);
     setSelectedRatio('2:3');
-    setCropBox({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
+    if (imgNaturalSize && imgNaturalSize.w > 0 && imgNaturalSize.h > 0) {
+      const imgRatio = imgNaturalSize.w / imgNaturalSize.h;
+      const targetNormRatio = (2 / 3) / imgRatio;
+      let newH = 0.85;
+      let newW = newH * targetNormRatio;
+      if (newW > 0.85) {
+        newW = 0.85;
+        newH = newW / targetNormRatio;
+      }
+      setCropBox({ x: (1 - newW) / 2, y: (1 - newH) / 2, width: newW, height: newH });
+    } else {
+      setCropBox({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
+    }
   };
 
   const applyCrop = () => {
@@ -274,14 +354,14 @@ const ImageCropModal: React.FC<{
     const naturalW = image.naturalWidth || image.width;
     const naturalH = image.naturalHeight || image.height;
 
-    const cropX = cropBox.x * naturalW;
-    const cropY = cropBox.y * naturalH;
-    const cropW = cropBox.width * naturalW;
-    const cropH = cropBox.height * naturalH;
+    const cropX = Math.max(0, Math.round(cropBox.x * naturalW));
+    const cropY = Math.max(0, Math.round(cropBox.y * naturalH));
+    const cropW = Math.min(naturalW - cropX, Math.round(cropBox.width * naturalW));
+    const cropH = Math.min(naturalH - cropY, Math.round(cropBox.height * naturalH));
 
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(10, Math.round(cropW));
-    canvas.height = Math.max(10, Math.round(cropH));
+    canvas.width = Math.max(10, cropW);
+    canvas.height = Math.max(10, cropH);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -365,19 +445,15 @@ const ImageCropModal: React.FC<{
         </div>
 
         <div className="flex-1 overflow-auto p-6 bg-slate-950 flex items-center justify-center min-h-[420px] select-none">
-          <div
-            ref={containerRef}
-            className="relative max-w-full max-h-[68vh] overflow-hidden rounded-xl border border-slate-800 shadow-2xl flex items-center justify-center"
-          >
+          <div className="relative inline-block max-w-full max-h-[68vh]">
             <img
               ref={imgRef}
               src={target.url}
               alt="Crop Source"
-              className="block max-w-full max-h-[68vh] object-contain transition-transform"
+              onLoad={handleImageLoad}
+              className="block max-w-full max-h-[68vh] object-contain rounded-xl shadow-2xl transition-transform select-none"
               style={{ transform: `rotate(${rotation}deg)` }}
             />
-
-            <div className="absolute inset-0 bg-black/50 pointer-events-none" />
 
             <div
               className="absolute border-2 border-orange-500 shadow-2xl cursor-move flex flex-col justify-between"
@@ -632,13 +708,17 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const savedMaskDataUrlRef = useRef<string | null>(null);
   const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null);
 
   // 导出外框主界面透明背景的彩色半透明蒙版预览图
   const syncMaskPreview = useCallback(() => {
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return;
-    setMaskPreviewUrl(maskCanvas.toDataURL('image/png'));
+    const url = maskCanvas.toDataURL('image/png');
+    savedMaskDataUrlRef.current = url;
+    setMaskPreviewUrl(url);
+    setHasMask(true);
   }, []);
 
   // 确认裁切回调，智能更新对应的图片和列表
@@ -715,6 +795,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     setSourceUrl(ws.sourceUrl);
     setHasMask(ws.hasMask);
     setMaskPreviewUrl(ws.maskPreviewUrl);
+    savedMaskDataUrlRef.current = ws.maskPreviewUrl || null;
     setRefFiles(ws.refFiles);
     setRefUrls(ws.refUrls);
     setIsBatchMode(ws.isBatchMode);
@@ -804,6 +885,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
       setGeneratedImages([]);
       setHasMask(false);
       setMaskPreviewUrl(null);
+      savedMaskDataUrlRef.current = null;
       updateCurrentTask({ cover: url });
 
       setTimeout(() => {
@@ -818,6 +900,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     setSourceUrl(null);
     setHasMask(false);
     setMaskPreviewUrl(null);
+    savedMaskDataUrlRef.current = null;
     setGeneratedImages([]);
   };
 
@@ -1001,7 +1084,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
 
   // 初始化双层 Canvas
   useEffect(() => {
-    if (!sourceUrl) return;
+    if (!sourceUrl || !showCanvasModal) return;
 
     const img = new Image();
     img.onload = () => {
@@ -1031,6 +1114,16 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
           srcCtx.clearRect(0, 0, targetWidth, targetHeight);
           srcCtx.drawImage(img, 0, 0, targetWidth, targetHeight);
         }
+
+        const maskCtx = maskCanvas.getContext('2d');
+        if (maskCtx && savedMaskDataUrlRef.current) {
+          const maskImg = new Image();
+          maskImg.onload = () => {
+            maskCtx.clearRect(0, 0, targetWidth, targetHeight);
+            maskCtx.drawImage(maskImg, 0, 0, targetWidth, targetHeight);
+          };
+          maskImg.src = savedMaskDataUrlRef.current;
+        }
       };
       
       setupCanvas();
@@ -1040,13 +1133,23 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     img.src = sourceUrl;
   }, [sourceUrl, showCanvasModal]);
 
-  // 精准计算鼠标在 Canvas 绝对本地分辨率 `[0, width] x [0, height]` 坐标系中的位置，不受任意 scale / translate3d 影响！
-  const getCanvasPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  // 精准计算鼠标/触摸在 Canvas 绝对本地分辨率 `[0, width] x [0, height]` 坐标系中的位置
+  const getCanvasPos = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = maskCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    let clientX = 0;
+    let clientY = 0;
+    if ('touches' in e && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      const me = e as React.MouseEvent<HTMLCanvasElement>;
+      clientX = me.clientX;
+      clientY = me.clientY;
+    }
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
     return { x, y };
   }, []);
 
@@ -1059,8 +1162,8 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     const isEraseMode = activeTool === 'eraser';
     ctx.globalCompositeOperation = isEraseMode ? 'destination-out' : 'source-over';
     
-    // 支持画笔多色与动态不透明度调节
-    const colorRgba = hexToRgba(brushColor, brushOpacity);
+    // 绘图采用纯色 Alpha 1.0，画面透明度由 Canvas CSS style.opacity 动态统一接管控制
+    const colorRgba = hexToRgba(brushColor, 1.0);
     ctx.fillStyle = colorRgba;
     ctx.strokeStyle = colorRgba;
     ctx.lineWidth = brushSize;
@@ -1080,8 +1183,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     ctx.fill();
 
     if (!isEraseMode) setHasMask(true);
-    syncMaskPreview();
-  }, [brushSize, brushColor, brushOpacity, activeTool, syncMaskPreview]);
+  }, [brushSize, brushColor, brushOpacity, activeTool]);
 
   // 鼠标按下
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1149,6 +1251,29 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     syncMaskPreview();
   }, [syncMaskPreview]);
 
+  // 触摸事件支持
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (isSpacePressed || activeTool === 'zoom') return;
+    setIsDrawing(true);
+    const pos = getCanvasPos(e);
+    lastDrawPointRef.current = pos;
+    drawAt(pos.x, pos.y);
+  }, [isSpacePressed, activeTool, getCanvasPos, drawAt]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    const pos = getCanvasPos(e);
+    setCursorPos(pos);
+    if (!isDrawing || isSpacePressed || activeTool === 'zoom') return;
+    drawAt(pos.x, pos.y, lastDrawPointRef.current);
+    lastDrawPointRef.current = pos;
+  }, [isDrawing, isSpacePressed, activeTool, getCanvasPos, drawAt]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsDrawing(false);
+    lastDrawPointRef.current = null;
+    syncMaskPreview();
+  }, [syncMaskPreview]);
+
   // 鼠标滚轮实时调节画笔 / 橡皮擦大小
   const handleCanvasWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1173,66 +1298,98 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     return Math.max(0, Math.round(cropPadding + cropExpand * 30));
   };
 
-  const exportMask = (expandPixels = 0): string | null => {
-    const maskCanvas = maskCanvasRef.current;
-    const srcCanvas = sourceCanvasRef.current;
-    if (!maskCanvas || !srcCanvas || !imgRef.current) return null;
-
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = imgRef.current.naturalWidth;
-    exportCanvas.height = imgRef.current.naturalHeight;
-    const ctx = exportCanvas.getContext('2d');
-    if (!ctx) return null;
-
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = imgRef.current.naturalWidth;
-    tempCanvas.height = imgRef.current.naturalHeight;
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return null;
-
-    if (expandPixels > 0) {
-      tempCtx.filter = `blur(${expandPixels}px)`;
-      tempCtx.drawImage(maskCanvas, 0, 0, imgRef.current.naturalWidth, imgRef.current.naturalHeight);
-      tempCtx.filter = 'none';
-    } else {
-      tempCtx.drawImage(maskCanvas, 0, 0, imgRef.current.naturalWidth, imgRef.current.naturalHeight);
+  const exportMask = async (sourceDataUrl: string, expandPixels = 0): Promise<string | null> => {
+    let maskSrc = savedMaskDataUrlRef.current;
+    if (maskCanvasRef.current) {
+      maskSrc = maskCanvasRef.current.toDataURL('image/png');
     }
-    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-    const data = imageData.data;
+    if (!maskSrc || !sourceDataUrl) return null;
 
-    const outData = ctx.getImageData(0, 0, exportCanvas.width, exportCanvas.height);
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] > (expandPixels > 0 ? 2 : 10)) {
-        outData.data[i] = 255;
-        outData.data[i + 1] = 255;
-        outData.data[i + 2] = 255;
-        outData.data[i + 3] = 255;
+    try {
+      const [sourceImg, maskImg] = await Promise.all([
+        loadCanvasImage(sourceDataUrl),
+        loadCanvasImage(maskSrc),
+      ]);
+
+      const naturalW = sourceImg.naturalWidth || sourceImg.width;
+      const naturalH = sourceImg.naturalHeight || sourceImg.height;
+
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = naturalW;
+      exportCanvas.height = naturalH;
+      const ctx = exportCanvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, naturalW, naturalH);
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = naturalW;
+      tempCanvas.height = naturalH;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (!tempCtx) return null;
+
+      if (expandPixels > 0) {
+        tempCtx.filter = `blur(${expandPixels}px)`;
+        tempCtx.drawImage(maskImg, 0, 0, naturalW, naturalH);
+        tempCtx.filter = 'none';
+      } else {
+        tempCtx.drawImage(maskImg, 0, 0, naturalW, naturalH);
       }
-    }
-    ctx.putImageData(outData, 0, 0);
 
-    return exportCanvas.toDataURL('image/png').split(',')[1];
+      const imageData = tempCtx.getImageData(0, 0, naturalW, naturalH);
+      const data = imageData.data;
+
+      const outData = ctx.getImageData(0, 0, naturalW, naturalH);
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] > (expandPixels > 0 ? 2 : 10)) {
+          outData.data[i] = 255;
+          outData.data[i + 1] = 255;
+          outData.data[i + 2] = 255;
+          outData.data[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(outData, 0, 0);
+
+      return exportCanvas.toDataURL('image/png').split(',')[1];
+    } catch (err) {
+      console.error('exportMask error:', err);
+      return null;
+    }
   };
 
-  const exportPaintEditMap = (): string | null => {
-    const maskCanvas = maskCanvasRef.current;
-    if (!maskCanvas || !imgRef.current) return null;
+  const exportPaintEditMap = async (sourceDataUrl: string): Promise<string | null> => {
+    let maskSrc = savedMaskDataUrlRef.current;
+    if (maskCanvasRef.current) {
+      maskSrc = maskCanvasRef.current.toDataURL('image/png');
+    }
+    if (!maskSrc || !sourceDataUrl) return null;
 
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = imgRef.current.naturalWidth;
-    exportCanvas.height = imgRef.current.naturalHeight;
-    const ctx = exportCanvas.getContext('2d');
-    if (!ctx) return null;
+    try {
+      const [sourceImg, maskImg] = await Promise.all([
+        loadCanvasImage(sourceDataUrl),
+        loadCanvasImage(maskSrc),
+      ]);
 
-    ctx.drawImage(imgRef.current, 0, 0, exportCanvas.width, exportCanvas.height);
-    ctx.globalAlpha = 0.72;
-    ctx.drawImage(maskCanvas, 0, 0, exportCanvas.width, exportCanvas.height);
-    ctx.globalAlpha = 1;
+      const naturalW = sourceImg.naturalWidth || sourceImg.width;
+      const naturalH = sourceImg.naturalHeight || sourceImg.height;
 
-    return exportCanvas.toDataURL('image/png').split(',')[1];
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = naturalW;
+      exportCanvas.height = naturalH;
+      const ctx = exportCanvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.drawImage(sourceImg, 0, 0, naturalW, naturalH);
+      ctx.globalAlpha = 0.72;
+      ctx.drawImage(maskImg, 0, 0, naturalW, naturalH);
+      ctx.globalAlpha = 1;
+
+      return exportCanvas.toDataURL('image/png').split(',')[1];
+    } catch (err) {
+      console.error('exportPaintEditMap error:', err);
+      return null;
+    }
   };
 
   const loadCanvasImage = (src: string): Promise<HTMLImageElement> => {
@@ -1473,11 +1630,11 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
 
       const maskExpandPixels = getMaskExpandPixels();
       setProgress(maskExpandPixels > 0 ? `正在导出蒙版并外扩 ${maskExpandPixels}px...` : '正在导出蒙版...');
-      const maskBase64 = exportMask(maskExpandPixels);
+      const maskBase64 = await exportMask(sourceDataUrl, maskExpandPixels);
       if (!maskBase64) {
-        throw new Error('蒙版导出失败');
+        throw new Error('蒙版不能为空，请点击【开启涂抹画板】用画笔涂抹要修改的区域');
       }
-      const editMapBase64 = exportPaintEditMap();
+      const editMapBase64 = await exportPaintEditMap(sourceDataUrl);
       assertCurrentGenerationTask(taskId, signal);
 
       let refImagesData: { base64: string; mimeType: string }[] | undefined;
@@ -1640,9 +1797,9 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
 
       const maskExpandPixels = getMaskExpandPixels();
       setProgress(maskExpandPixels > 0 ? `正在导出蒙版并外扩 ${maskExpandPixels}px...` : '正在导出蒙版...');
-      const maskBase64 = exportMask(maskExpandPixels);
-      if (!maskBase64) throw new Error('蒙版导出失败');
-      const editMapBase64 = exportPaintEditMap();
+      const maskBase64 = await exportMask(sourceDataUrl, maskExpandPixels);
+      if (!maskBase64) throw new Error('蒙版不能为空，请点击【开启涂抹画板】用画笔涂抹要修改的区域');
+      const editMapBase64 = await exportPaintEditMap(sourceDataUrl);
       assertCurrentGenerationTask(taskId, signal);
 
       let fabricRefImagesData: { base64: string; mimeType: string }[] | undefined;
@@ -2061,7 +2218,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
                     
                     {/* 红色/彩色涂抹区域实时遮罩 */}
                     {maskPreviewUrl && hasMask && (
-                      <img src={maskPreviewUrl} alt="Mask Preview Overlay" className="absolute inset-0 h-full w-full object-contain pointer-events-none opacity-90 z-10" />
+                      <img src={maskPreviewUrl} alt="Mask Preview Overlay" className="absolute inset-0 h-full w-full object-contain pointer-events-none z-10 transition-opacity duration-75" style={{ opacity: brushOpacity }} />
                     )}
 
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex flex-col items-center justify-center gap-2 opacity-90 group-hover:opacity-100 transition-all z-20">
@@ -3173,12 +3330,16 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
                 />
                 <canvas
                   ref={maskCanvasRef}
-                  className="absolute top-0 left-0 w-full h-full"
+                  className="absolute top-0 left-0 w-full h-full transition-opacity duration-75"
+                  style={{ opacity: activeTool === 'eraser' ? 1.0 : brushOpacity }}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
                   onMouseEnter={handleMouseEnter}
                   onMouseLeave={handleMouseLeave}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
                 />
 
                 {/* 涂抹画笔光圈指示器 (根据当前选择颜色与不透明度完美映射渲染) */}
