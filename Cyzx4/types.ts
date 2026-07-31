@@ -21,7 +21,8 @@ export enum AppMode {
   SINGLE_ITEM_TRY_ON = 'SINGLE_ITEM_TRY_ON', // 单品试穿
   ECOMMERCE_HERO = 'ECOMMERCE_HERO', // 生成电商主图
   MODEL_SCENE_FISSION = 'MODEL_SCENE_FISSION', // 模特场景图裂变
-  MODEL_FACE_SWAP = 'MODEL_FACE_SWAP' // 模特换脸
+  MODEL_FACE_SWAP = 'MODEL_FACE_SWAP', // 模特换脸
+  UNIVERSAL_TRY_ON = 'UNIVERSAL_TRY_ON' // 万物上身 (模特换衣 / 人台换衣 / 鞋靴试穿)
 }
 
 export enum AspectRatio {

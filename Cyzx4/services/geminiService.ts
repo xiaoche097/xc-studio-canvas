@@ -5099,5 +5099,166 @@ Return ONLY the final enriched English prompt. Do NOT include any preamble or ex
     console.warn("Prompt refinement failed, falling back to original prompt.", error.message);
     return userPrompt; // Fallback to original
   }
-
 };
+
+/**
+ * Universal Try-On (万物上身) Service
+ * Supports 3 sub-modes:
+ * - 'model': 模特换衣 (Model Clothes Change / Virtual Try-On)
+ * - 'mannequin': 人台换衣 (Mannequin / Ghost Mannequin to Model Clothes Change)
+ * - 'shoes': 鞋靴试穿 (Footwear / Shoe Try-On)
+ */
+export const generateUniversalTryOn = async (
+  productImages: { base64: string; mime: string }[],
+  modelReference: { base64: string; mime: string } | null,
+  subMode: 'model' | 'mannequin' | 'shoes' = 'model',
+  customPrompt?: string,
+  options: {
+    aspectRatio?: AspectRatio;
+    resolution?: ImageResolution;
+    count?: number;
+    model?: string;
+    signal?: AbortSignal;
+  } = {}
+): Promise<string[]> => {
+  const { aspectRatio = "3:4", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", signal } = options;
+  const { ai, config: imageApiConfig } = getImageGenerationContext(model, aspectRatio, resolution);
+  throwIfAborted(signal);
+
+  const productCount = productImages.length;
+  const hasModelRef = !!modelReference;
+
+  let modeTitle = '模特换衣试穿';
+  let modeInstruction = '';
+
+  if (subMode === 'model') {
+    modeTitle = '模特换装/虚拟试穿 (Model Virtual Try-On)';
+    modeInstruction = `
+- **GOAL**: Seamlessly transfer the clothes from Product Images (Images 1-${productCount}) onto the model figure in Image ${productCount + (hasModelRef ? 1 : 0)}.
+- **FACE & IDENTITY**: Maintain 100% face contour, eyes, nose, skin tone, hair style, and identity matching model in Image ${productCount + 1}.
+- **DYNAMIC POSE & PERSPECTIVE**: Do NOT lock or restrict the model to a rigid front standing pose. Render natural, dynamic, high-fashion angles (e.g. 3/4 angle, side profile, walking motion, lookbook posture, fashion stride) to best highlight the garment drape and cut.
+- **CLOTHING FIT**: Drape the product garment naturally on the model body with realistic fabric tension, natural folds, and true-to-life 3D volume. Preserve logos, zippers, buttons, and patterns accurately.
+`;
+  } else if (subMode === 'mannequin') {
+    modeTitle = '人台换衣/智能抠图试穿 (Mannequin Garment Isolation & Live Model Try-On)';
+    modeInstruction = `
+- **GOAL**: Automatically isolate and mat out the clothing item from the mannequin/flat-lay Product Images (Images 1-${productCount}), stripping away any mannequin head, wooden/metal stand, poles, plastic torso, or background. Render a professional live fashion model wearing the extracted garment naturally${hasModelRef ? ` matching the reference model in Image ${productCount + 1}` : ''}.
+- **MANNEQUIN MATTING & STRIPPING**: Cleanly extract the garment boundaries. Completely remove ghost mannequin neck blocks, stand bases, and rigid form structures.
+- **ELEVATION & FIT**: Convert mannequin stiffness into fluid human posture, realistic fabric drapes, natural lighting shadows, and commercial lookbook aesthetics.
+- **FABRIC FIDELITY**: Preserve exact textile texture, weave pattern, color hue, and brand details without deformation.
+`;
+  } else {
+    modeTitle = '鞋靴试穿 (Footwear & Shoe Try-On Specialist)';
+    modeInstruction = `
+- **GOAL**: Fit the footwear/shoes from Product Images (Images 1-${productCount}) accurately onto the feet/legs of the model in Image ${productCount + (hasModelRef ? 1 : 0)}.
+- **LEG & ANKLE FIT**: Align shoe angle, heel pitch, and ankle fit seamlessly with the model's posture. Ensure realistic shoe-to-ground shadows and contact points.
+- **DETAILS**: Maintain shoe silhouette, leather grain, laces, branding, and sole thickness without alteration.
+`;
+  }
+
+  const prompt = `
+# 🎭 ROLE: High-End Fashion Virtual Try-On Specialist & CGI Rendering Engine
+# 🧠 COGNITIVE PIPELINE (UNIVERSAL TRY-ON AGENT EXECUTION)
+
+You are performing a ultra-realistic virtual try-on operation: **${modeTitle}**.
+You MUST process the input through these 8 distinct phases:
+
+## PHASE 1: ANATOMICAL & GARMENT ANALYSIS 🔍
+1. **[Garment Deconstruction]**: Analyze Product Images (1-${productCount}). Extract pattern, silhouette, collar/sleeve cut, fabric texture, and exact color codes.
+2. **[Human Pose Alignment]**: ${hasModelRef ? `Analyze Image ${productCount + 1} (Model Ref). Map 3D body skeleton, joints, skin color, and light environment.` : 'Generate an ideal high-fashion model matching the product vibe.'}
+
+## PHASE 2: 3D DRESSING & LIGHTING SIMULATION 🛠️
+3. **[Mesh Warp & Draping]**: Wrap the garment/shoes around the target 3D human body mesh. Apply gravity, fabric weight, and movement folds.
+4. **[Lighting & Shadow Fusion]**: Match the exact key lights, rim lights, and contact shadows between garment and body.
+5. **[Texture & Detail Preservation]**: Render stitch lines, fabric weave, specular reflections, and metallic zippers at 8K resolution.
+
+## PHASE 3: COLOR GUARD & FINAL RENDERING 🎨
+6. **[Edge Blending]**: Seamlessly blend clothing seams with skin boundaries without haloing or blur.
+7. **[Color Guard]**: Preserve exact clothing/shoe true colors. Prevent warm/red color casts, over-saturation, or skin distortion.
+8. **[Commercial Delivery]**: Output a clean, high-conversion commercial fashion photograph.
+
+---
+
+## 🎯 MISSION
+
+${modeInstruction}
+- **CUSTOM INSTRUCTION**: ${customPrompt ? `"${customPrompt}"` : 'Ensure maximum realism and commercial polish.'}
+- **QUALITY**: ${QUALITY_BOOSTERS.PRODUCT}
+
+**OUTPUT**:
+- Generate **ONE** photo-realistic final try-on image.
+- Do NOT output text. Just the final image.
+`;
+
+  const parts: any[] = [];
+  parts.push({ text: prompt });
+
+  for (const img of productImages) {
+    parts.push({
+      inlineData: { mimeType: img.mime, data: img.base64 }
+    });
+  }
+
+  if (modelReference) {
+    parts.push({
+      inlineData: { mimeType: modelReference.mime, data: modelReference.base64 }
+    });
+  }
+
+  const runGeneration = async (modelName: string) => {
+    console.log(`[UniversalTryOn] Generating subMode=${subMode}, model=${modelName}, Aspect=${aspectRatio}, Res=${resolution}`);
+    const runtimeModel = imageApiConfig.isXiaoche
+      ? resolveXiaocheImageModel(modelName, aspectRatio, resolution)
+      : resolveRuntimeModelId(modelName, imageApiConfig);
+
+    const config: any = {
+      temperature: 0.2,
+      safetySettings: GLOBAL_SAFETY_SETTINGS,
+      imageConfig: {
+        aspectRatio: aspectRatio,
+        aspect_ratio: aspectRatio,
+        imageSize: resolution,
+      }
+    };
+
+    const response: any = await executeWithTimeout(
+      ai.models.generateContent({
+        model: runtimeModel,
+        contents: [{ role: "user", parts }],
+        config,
+      }),
+      { timeoutMs: 300000, signal }
+    );
+
+    throwIfAborted(signal);
+
+    const images: string[] = [];
+    const candidate = response?.candidates?.[0];
+    if (candidate?.content?.parts) {
+      for (const part of candidate.content.parts) {
+        if (part?.inlineData?.data) {
+          const base64Data = part.inlineData.data;
+          const mimeType = part.inlineData.mimeType || 'image/png';
+          images.push(base64Data.startsWith('data:') ? base64Data : `data:${mimeType};base64,${base64Data}`);
+        }
+      }
+    }
+    return images;
+  };
+
+  const results: string[] = [];
+  for (let i = 0; i < count; i++) {
+    throwIfAborted(signal);
+    const batchResults = await runGeneration(model);
+    if (batchResults.length > 0) {
+      results.push(...batchResults);
+    }
+  }
+
+  if (results.length === 0) {
+    throw new Error('未生成试穿图像，请检查图像格式后重试。');
+  }
+
+  return results;
+};
+

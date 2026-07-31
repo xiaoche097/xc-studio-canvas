@@ -65,6 +65,7 @@ const ModelSceneFissionTab = lazy(() => import('./components/ModelSceneFissionTa
 const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
 const ModelFaceSwapTab = lazy(() => import('./components/ModelFaceSwapTab'));
 const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
+const UniversalTryOnTab = lazy(() => import('./components/UniversalTryOnTab'));
 const HDUpscaleTab = lazy(() => import('./components/HDUpscaleTab'));
 const AspectRatioTab = lazy(() => import('./components/AspectRatioTab'));
 
@@ -178,6 +179,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/style-replica.webp',
     icon: Palette,
     component: StyleReplicateTab,
+  },
+  {
+    mode: AppMode.UNIVERSAL_TRY_ON,
+    title: '万物上身',
+    englishTitle: 'Universal Try-On',
+    description: '模特换装、人台试穿、鞋靴上脚，Agent 全流程高保真拟真拟合交付。',
+    category: 'model',
+    keywords: ['万物上身', '模特换衣', '模特试衣', '人台换衣', '鞋靴试穿', '虚拟试穿', '换装'],
+    cover: './creative-covers/single-item-try-on.webp',
+    icon: Shirt,
+    component: UniversalTryOnTab,
   },
   {
     mode: AppMode.SINGLE_ITEM_TRY_ON,
