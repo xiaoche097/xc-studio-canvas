@@ -34,11 +34,6 @@ Treat the character in the attached image as the sole standard, ensuring that th
 Particularly, do not change: Face contour, Eye shape, Eyebrow shape, Nose bridge, Lip shape, Cheeks/chin, Skin color/texture, Hairstyle/color, Body type, Clothing impression, Overall atmosphere.
 
 ────────────────────
-Pose & Camera Angle Flexibility
-────────────────────
-The model identity and facial features MUST remain 100% consistent, but camera angles (front, 3/4 view, side angle, lookbook perspective) and dynamic postures (walking, fashion stance, relaxed pose) should vary naturally to best showcase clothing drapes and cuts. Do NOT restrict the model to a single rigid front standing pose.
-
-────────────────────
 Art Style / Texture
 ────────────────────
 Natural realistic photo, smartphone photo or natural studio reference photo.

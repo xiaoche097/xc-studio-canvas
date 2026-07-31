@@ -41,7 +41,7 @@ export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
 export type ActiveUploadTarget = 'top' | 'bottom' | 'full' | 'model';
 type Stage = 1 | 2 | 3 | 4;
-type SelectionModalType = 'model' | 'ratio' | 'resolution' | 'pose' | null;
+type SelectionModalType = 'model' | 'ratio' | 'resolution' | null;
 
 interface UploadedImage {
   id?: string;
@@ -64,7 +64,6 @@ interface UniversalTask {
   productImages: UploadedImage[];
   modelReference: UploadedImage | null;
   selectedModelPersonaId?: string | null;
-  modelPose?: 'dynamic' | 'threeQuarter' | 'runway' | 'front';
   customPrompt: string;
   selectedModel: string;
   aspectRatio: AspectRatio;
@@ -94,9 +93,9 @@ const SUB_MODE_OPTIONS: Array<{
   {
     id: 'mannequin',
     title: '人台换衣',
-    subtitle: '人台服饰自动抠图并转化模特实穿',
+    subtitle: '人台服饰转化商业模特实穿',
     icon: Layers,
-    promptExample: '自动扣除人台底座与衣架，将人台上的服装精准抠出并自然迁移至模特身上，呈现高级光影质感。',
+    promptExample: '将人台上的服装转换为时尚商业街拍模特穿着，呈现高级光影质感。',
   },
   {
     id: 'shoes',
@@ -139,33 +138,6 @@ const ASPECT_RATIO_OPTIONS = [
 const RESOLUTION_OPTIONS = [
   { id: ImageResolution.RES_2K, label: '2K 高清 (推荐)', desc: '标准电商画质与快速交付' },
   { id: ImageResolution.RES_4K, label: '4K 超清', desc: '极致 8K 放大面料与缝线纹理' },
-] as const;
-
-const POSE_OPTIONS = [
-  {
-    id: 'dynamic',
-    label: '多视角 / 自然灵动姿态 (推荐)',
-    hint: '推荐',
-    desc: '不固定单一视角，生成 3/4 侧身、自然摆姿与多元化时尚大图',
-  },
-  {
-    id: 'threeQuarter',
-    label: '3/4 侧身优雅视角',
-    hint: '高级感',
-    desc: '呈现模特 3/4 侧面线条与服装立体剪裁与垂坠感',
-  },
-  {
-    id: 'runway',
-    label: '走秀 / 动态步态视角',
-    hint: '动态',
-    desc: '模特自然行走或时尚步态，展示服装飘逸与动态空间',
-  },
-  {
-    id: 'front',
-    label: '经典正面视角',
-    hint: '标准正面',
-    desc: '标准正面居中构图，清晰展示服装正面前襟与细节',
-  },
 ] as const;
 
 // Inline SVG Preset Recommendations
@@ -267,7 +239,6 @@ const createNewTask = (subMode: UniversalTryOnSubMode = 'model'): UniversalTask 
   productImages: [],
   modelReference: null,
   selectedModelPersonaId: null,
-  modelPose: 'dynamic',
   customPrompt: '',
   selectedModel: MODEL_OPTIONS[0].id,
   aspectRatio: AspectRatio.PORTRAIT_2_3,
@@ -483,25 +454,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     setError(null);
     setIsLoading(true);
 
-    if (currentTask.subMode === 'mannequin') {
-      customPromptAddon += ' [Mannequin Auto Garment Matting & Isolation]: Automatically segment and mat out the clothing item from the mannequin stand, strip away plastic/metal forms and poles, and drape cleanly on the live model figure.';
-    }
-
     const { taskId, signal } = startGenerationTask();
-
-    let posePromptInstruction = '';
-    const poseKey = currentTask.modelPose || 'dynamic';
-    if (poseKey === 'threeQuarter') {
-      posePromptInstruction = 'Render the model in a stylish 3/4 angle side profile posture with natural body angle and elegant fashion lookbook framing.';
-    } else if (poseKey === 'runway') {
-      posePromptInstruction = 'Render the model in a dynamic fashion runway walk / motion stride posture with natural movement, fluid drape, and high-fashion attitude.';
-    } else if (poseKey === 'front') {
-      posePromptInstruction = 'Render the model in a clean, centered front view standing posture.';
-    } else {
-      posePromptInstruction = 'Render the model in a natural, dynamic multi-angle lookbook pose (such as 3/4 angle, side profile, or fashion stride). Do NOT restrict or lock to a rigid front standing pose.';
-    }
-
-    customPromptAddon += ` ${posePromptInstruction}`;
 
     // Check if fixed model persona from library is selected
     let modelRef = currentTask.modelReference
@@ -512,7 +465,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
       const persona = modelPersonas.find((m) => m.id === currentTask.selectedModelPersonaId);
       if (persona?.base64 && persona?.mime) {
         modelRef = { base64: persona.base64, mime: persona.mime };
-        customPromptAddon += ` Maintain 100% facial features, skin tone, hair style, and identity matching fixed model "${persona.name}".`;
+        customPromptAddon += ` Maintain exact facial structure and identity matching fixed model "${persona.name}".`;
       }
     }
 
@@ -851,8 +804,8 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                   </span>
                   平铺 / 人台图
                 </h2>
-                {/* Sub-tabs for Clothing Type in 模特换衣 & 人台换衣 */}
-                {(currentTask.subMode === 'model' || currentTask.subMode === 'mannequin') && (
+                {/* Sub-tabs for Clothing Type in 模特换衣 */}
+                {currentTask.subMode === 'model' && (
                   <div className="flex items-center gap-1 rounded-xl bg-pastel-bg p-1">
                     <button
                       type="button"
@@ -888,16 +841,8 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 )}
               </div>
 
-              {/* Mannequin Mode Smart Matting Banner */}
-              {currentTask.subMode === 'mannequin' && (
-                <div className="flex items-center gap-2 rounded-xl bg-purple-500/10 p-2.5 text-xs font-bold text-purple-600 dark:text-purple-400">
-                  <Sparkles className="h-4 w-4 shrink-0 text-purple-500" />
-                  <span>✨ 人台智能扣图已就绪：上传人台/平铺图后，Agent 将自动扣除人台底座与衣架，精准提纯服饰轮廓进行替换。</span>
-                </div>
-              )}
-
               {/* RENDER MODE A: 换上下装 (TWO-PIECE) */}
-              {(currentTask.subMode === 'model' || currentTask.subMode === 'mannequin') && currentTask.clothingType === 'two-piece' ? (
+              {currentTask.subMode === 'model' && currentTask.clothingType === 'two-piece' ? (
                 <div className="space-y-4">
                   {/* 【上装】 BOX */}
                   <div
@@ -995,11 +940,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                                 <span className="absolute left-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
                                   #{idx + 1}
                                 </span>
-                                {currentTask.subMode === 'mannequin' && (
-                                  <span className="absolute left-1.5 top-1.5 rounded-md bg-purple-600/90 px-1.5 py-0.5 text-[0.58rem] font-bold text-white shadow-xs">
-                                    ✨ 已扣图
-                                  </span>
-                                )}
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -1301,11 +1241,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                               <span className="absolute left-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
                                 #{idx + 1}
                               </span>
-                              {currentTask.subMode === 'mannequin' && (
-                                <span className="absolute left-1.5 top-1.5 rounded-md bg-purple-600/90 px-1.5 py-0.5 text-[0.58rem] font-bold text-white shadow-xs">
-                                  ✨ 已扣图
-                                </span>
-                              )}
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1606,24 +1541,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                     <ChevronDown className="h-4 w-4 shrink-0 text-pastel-muted" />
                   </span>
                 </button>
-
-                {/* 4. 模特姿态 / 视角 Modal Button */}
-                <button
-                  type="button"
-                  onClick={() => setSelectionModal('pose')}
-                  className="col-span-2 flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]"
-                >
-                  <span className="text-[0.68rem] font-bold text-pastel-muted">模特姿态 / 视角</span>
-                  <span className="mt-1 flex items-center justify-between text-sm font-black text-pastel-text">
-                    <span className="flex items-center gap-2">
-                      {POSE_OPTIONS.find((p) => p.id === (currentTask.modelPose || 'dynamic'))?.label}
-                      <span className="rounded-full bg-[#ed6d46]/10 px-2 py-0.5 text-[0.65rem] font-bold text-[#ed6d46]">
-                        {POSE_OPTIONS.find((p) => p.id === (currentTask.modelPose || 'dynamic'))?.hint}
-                      </span>
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-pastel-muted" />
-                  </span>
-                </button>
               </div>
             </section>
 
@@ -1837,43 +1754,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 >
                   <div>
                     <span className="text-sm font-black text-pastel-text">{item.label}</span>
-                    <p className="mt-1 text-xs text-pastel-muted">{item.desc}</p>
-                  </div>
-                  {isSelected && <CheckCircle2 className="h-5 w-5 text-[#172238] dark:text-white shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-        </SelectionModal>
-      )}
-
-      {/* 4. Model Pose / Angle Selection Modal */}
-      {selectionModal === 'pose' && (
-        <SelectionModal title="选择模特姿态 / 视角" onClose={() => setSelectionModal(null)}>
-          <div className="space-y-3">
-            {POSE_OPTIONS.map((item) => {
-              const isSelected = (currentTask.modelPose || 'dynamic') === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    updateCurrentTask((t) => ({ ...t, modelPose: item.id }));
-                    setSelectionModal(null);
-                  }}
-                  className={`relative flex w-full items-center justify-between rounded-2xl border-2 p-4 text-left transition ${
-                    isSelected
-                      ? 'border-[#172238] bg-sky-50/60 shadow-md dark:bg-slate-800'
-                      : 'border-pastel-border bg-pastel-bg hover:border-slate-300'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-pastel-text">{item.label}</span>
-                      <span className="rounded-full bg-[#ed6d46]/10 px-2 py-0.5 text-[0.65rem] font-bold text-[#ed6d46]">
-                        {item.hint}
-                      </span>
-                    </div>
                     <p className="mt-1 text-xs text-pastel-muted">{item.desc}</p>
                   </div>
                   {isSelected && <CheckCircle2 className="h-5 w-5 text-[#172238] dark:text-white shrink-0" />}

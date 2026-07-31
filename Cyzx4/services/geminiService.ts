@@ -5135,16 +5135,14 @@ export const generateUniversalTryOn = async (
     modeTitle = '模特换装/虚拟试穿 (Model Virtual Try-On)';
     modeInstruction = `
 - **GOAL**: Seamlessly transfer the clothes from Product Images (Images 1-${productCount}) onto the model figure in Image ${productCount + (hasModelRef ? 1 : 0)}.
-- **FACE & IDENTITY**: Maintain 100% face contour, eyes, nose, skin tone, hair style, and identity matching model in Image ${productCount + 1}.
-- **DYNAMIC POSE & PERSPECTIVE**: Do NOT lock or restrict the model to a rigid front standing pose. Render natural, dynamic, high-fashion angles (e.g. 3/4 angle, side profile, walking motion, lookbook posture, fashion stride) to best highlight the garment drape and cut.
+- **BODY & POSE**: Keep the model's exact pose, facial features, skin tone, hair style, and body proportions untouched.
 - **CLOTHING FIT**: Drape the product garment naturally on the model body with realistic fabric tension, natural folds, and true-to-life 3D volume. Preserve logos, zippers, buttons, and patterns accurately.
 `;
   } else if (subMode === 'mannequin') {
-    modeTitle = '人台换衣/智能抠图试穿 (Mannequin Garment Isolation & Live Model Try-On)';
+    modeTitle = '人台换衣/人台生模特 (Mannequin to Live Model Try-On)';
     modeInstruction = `
-- **GOAL**: Automatically isolate and mat out the clothing item from the mannequin/flat-lay Product Images (Images 1-${productCount}), stripping away any mannequin head, wooden/metal stand, poles, plastic torso, or background. Render a professional live fashion model wearing the extracted garment naturally${hasModelRef ? ` matching the reference model in Image ${productCount + 1}` : ''}.
-- **MANNEQUIN MATTING & STRIPPING**: Cleanly extract the garment boundaries. Completely remove ghost mannequin neck blocks, stand bases, and rigid form structures.
-- **ELEVATION & FIT**: Convert mannequin stiffness into fluid human posture, realistic fabric drapes, natural lighting shadows, and commercial lookbook aesthetics.
+- **GOAL**: Take the clothing item displayed on mannequin/flat-lay from Product Images (Images 1-${productCount}) and render a professional live fashion model wearing it naturally${hasModelRef ? ` using the reference model in Image ${productCount + 1}` : ''}.
+- **ELEVATION**: Convert ghost mannequin stiffness into fluid human posture, realistic fabric drapes, natural lighting shadows, and commercial lookbook aesthetics.
 - **FABRIC FIDELITY**: Preserve exact textile texture, weave pattern, color hue, and brand details without deformation.
 `;
   } else {
