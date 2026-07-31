@@ -898,19 +898,22 @@ export function getErrorMessage(error: any): string {
         return '🚀 模型后端繁忙\n当前使用的 API 节点负载过高，建议在“高级参数”中尝试更换模型（如 Banana Pro 或 GPT Image 2）。';
     }
 
-    // API Key 相关错误
-    if (errorStatus === 403 || errorMsg.includes('403') || errorMsg.includes('permission') || errorMsg.includes('API key')) {
-        return '❌ API Key 未配置或已过期\n请到设置中检查您的 API Key 配置';
+    // 配额/余额不足错误 (高优先级：防止云雾 API 返回 403 时被误判为未配置 API Key)
+    if (
+        errorMsg.includes('quota') ||
+        errorMsg.includes('insufficient_quota') ||
+        errorMsg.includes('user quota is not enough') ||
+        errorMsg.includes('exceeded') ||
+        errorMsg.includes('balance') ||
+        errorMsg.includes('credit') ||
+        errorMsg.includes('limit')
+    ) {
+        return '💳 云雾 API 账户额度/余额已用完\n[云雾 API 返回]: "user quota is not enough" (账户余额不足/配额耗尽)。\n请登录云雾 API 控制台 (yunwu.ai) 检查并充值您的账户余额，充值后即可立即恢复使用。';
     }
 
-    // 超时错误
-    if (errorMsg.includes('timeout') || errorMsg.includes('timed out')) {
-        return '⏱️ 请求超时\n可能是网络问题或图片太大，请检查网络后重试';
-    }
-
-    // 配额/余额错误
-    if (errorMsg.includes('quota') || errorMsg.includes('exceeded') || errorMsg.includes('limit')) {
-        return '💳 API 配额已用完\n请检查您的账户余额或等待配额重置';
+    // API Key 相关错误 (403/401 且非额度问题)
+    if (errorStatus === 403 || errorStatus === 401 || errorMsg.includes('403') || errorMsg.includes('permission') || errorMsg.includes('API key') || errorMsg.includes('invalid_api_key')) {
+        return '❌ API Key 未配置或已失效\n请检查您的 API Key 是否正确填写或已被禁用。';
     }
 
     // 请求频率限制

@@ -174,7 +174,7 @@ export interface SceneGenerationRecord {
 
 const MAX_PRODUCT_IMAGES = 10;
 const MAX_STYLE_IMAGES = 5;
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_FILE_SIZE = 30 * 1024 * 1024;
 const MAX_RECORDS = 20;
 const DEFAULT_MODEL_ID = 'gemini-3.1-flash-image-preview';
 
@@ -551,7 +551,7 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
   const handleFiles = (incomingFiles: File[]) => {
     const valid = incomingFiles.filter((file) => isValidImageType(file) && file.size <= MAX_FILE_SIZE);
     if (!valid.length && incomingFiles.length > 0) {
-      setCreateError('请选择有效的图片文件（JPG/PNG/WEBP，单张不超过5MB）');
+      setCreateError('请选择有效的图片文件（JPG/PNG/WEBP，单张不超过30MB）');
       return;
     }
     setCreateError('');
@@ -1226,10 +1226,24 @@ Return ONLY JSON:
         {activeRecord.productImages.length > 0 && (
           <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-5">
             {activeRecord.productImages.map((image, index) => (
-              <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg">
-                <img src={image.preview} alt={image.name} className="h-full w-full object-cover" />
-                {index === 0 && <span className="absolute bottom-1 left-1 rounded bg-[#17243c] px-1.5 py-1 text-[0.55rem] font-black text-white">主身份</span>}
-                <button type="button" disabled={isBusy} onClick={() => removeProductImage(image.id)} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#17243c]/85 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`删除${image.name}`}><X className="h-4 w-4" /></button>
+              <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg cursor-pointer">
+                <img
+                  src={image.preview}
+                  alt={image.name}
+                  onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
+                  className="h-full w-full object-cover transition hover:scale-105"
+                  title="点击放大预览大图"
+                />
+                {index === 0 && <span className="absolute bottom-1 left-1 rounded bg-[#17243c] px-1.5 py-1 text-[0.55rem] font-black text-white pointer-events-none">主身份</span>}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
+                  className="absolute left-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#17243c]/80 text-white opacity-0 group-hover:opacity-100 transition"
+                  title="放大预览"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" disabled={isBusy} onClick={(e) => { e.stopPropagation(); removeProductImage(image.id); }} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#17243c]/85 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`删除${image.name}`}><X className="h-3.5 w-3.5" /></button>
               </div>
             ))}
           </div>
@@ -1253,10 +1267,10 @@ Return ONLY JSON:
           >
             <Upload className={`h-6 w-6 ${isDraggingProduct ? 'text-[#2d6bb1] scale-110' : 'text-[#ed6d46]'} transition-transform`} />
             <span className="mt-2 text-sm font-black">拖拽、点击或Ctrl+V粘贴图片</span>
-            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤5MB</span>
+            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤30MB</span>
           </button>
         )}
-        <input ref={productInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => { void processProductFiles(Array.from(event.target.files || [])); event.target.value = ''; }} />
+        <input ref={productInputRef} type="file" multiple accept="image/*,.jpg,.jpeg,.png,.webp,.jfif,.heic,.avif,.bmp" className="hidden" onChange={(event) => { void processProductFiles(Array.from(event.target.files || [])); event.target.value = ''; }} />
       </section>
 
       {/* Upload Reference Scene Image (Optional) */}
@@ -1302,12 +1316,18 @@ Return ONLY JSON:
             onDragOver={handleRefSceneDragOver}
             onDragLeave={handleRefSceneDragLeave}
             onDrop={handleRefSceneDrop}
-            className={`group relative mt-4 aspect-video overflow-hidden rounded-xl border transition-all sm:h-44 sm:w-auto ${
+            className={`group relative mt-4 aspect-video overflow-hidden rounded-xl border transition-all sm:h-44 sm:w-auto cursor-pointer ${
               isDraggingRefScene ? 'border-2 border-dashed border-[#ed6d46] bg-[#fff0e8]' : 'border-pastel-border bg-pastel-bg'
             }`}
           >
-            <img src={activeRecord.referenceSceneImage.preview} alt="参考场景图" className="h-full w-full object-cover" />
-            <span className="absolute bottom-2 left-2 rounded-lg bg-[#17243c]/90 px-2 py-1 text-xs font-black text-white backdrop-blur-sm">
+            <img
+              src={activeRecord.referenceSceneImage.preview}
+              alt="参考场景图"
+              onClick={() => setSelectedPreview(activeRecord.referenceSceneImage!.preview)}
+              className="h-full w-full object-cover transition hover:scale-105"
+              title="点击放大预览大图"
+            />
+            <span className="absolute bottom-2 left-2 rounded-lg bg-[#17243c]/90 px-2 py-1 text-xs font-black text-white backdrop-blur-sm pointer-events-none">
               按此场景与动作复刻
             </span>
             {isDraggingRefScene ? (
@@ -1316,15 +1336,25 @@ Return ONLY JSON:
                 <span className="text-sm font-black">松开鼠标替换参考场景图</span>
               </div>
             ) : (
-              <button
-                type="button"
-                disabled={isBusy}
-                onClick={removeRefSceneImage}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#17243c]/85 text-white shadow"
-                aria-label="移除参考图"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreview(activeRecord.referenceSceneImage!.preview)}
+                  className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#17243c]/80 text-white shadow opacity-0 group-hover:opacity-100 transition"
+                  title="放大预览"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={(e) => { e.stopPropagation(); removeRefSceneImage(); }}
+                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#17243c]/85 text-white shadow"
+                  aria-label="移除参考图"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </>
             )}
           </div>
         ) : (
@@ -1346,7 +1376,7 @@ Return ONLY JSON:
           >
             <WandSparkles className={`h-6 w-6 ${isDraggingRefScene ? 'text-[#ed6d46] scale-110' : 'text-[#ed6d46]'} transition-transform`} />
             <span className="mt-2 text-sm font-black text-[#17243c]">拖拽、点击或Ctrl+V粘贴参考图</span>
-            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤5MB · 自动分析构图与光影</span>
+            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤30MB · 自动分析构图与光影</span>
           </button>
         )}
         <input

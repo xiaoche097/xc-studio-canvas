@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   Sparkles,
   Upload,
@@ -25,8 +25,7 @@ import {
   Camera,
   Grid3x3,
   Check,
-  Eye,
-  UserCircle2,
+  Eye
 } from 'lucide-react';
 import { generateUniversalTryOn } from '../services/geminiService';
 import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
@@ -34,8 +33,6 @@ import { AspectRatio, ImageResolution } from '../types';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
-import { ModelLibraryModal } from './ModelLibraryModal';
-import { modelLibrary, ModelItem } from '../services/modelLibrary';
 
 export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
@@ -63,7 +60,6 @@ interface UniversalTask {
   fullImages: UploadedImage[];
   productImages: UploadedImage[];
   modelReference: UploadedImage | null;
-  selectedModelPersonaId?: string | null;
   customPrompt: string;
   selectedModel: string;
   aspectRatio: AspectRatio;
@@ -238,7 +234,6 @@ const createNewTask = (subMode: UniversalTryOnSubMode = 'model'): UniversalTask 
   fullImages: [],
   productImages: [],
   modelReference: null,
-  selectedModelPersonaId: null,
   customPrompt: '',
   selectedModel: MODEL_OPTIONS[0].id,
   aspectRatio: AspectRatio.PORTRAIT_2_3,
@@ -261,43 +256,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const [historyOpen, setHistoryOpen] = useState(true);
   const [selectionModal, setSelectionModal] = useState<SelectionModalType>(null);
   const [activeUploadTarget, setActiveUploadTarget] = useState<ActiveUploadTarget>('top');
-
-  // Model Library Modal States
-  const [isModelModalOpen, setIsModelModalOpen] = useState(false);
-  const [modelPersonas, setModelPersonas] = useState<ModelItem[]>([]);
-
-  useEffect(() => {
-    modelLibrary.list().then(setModelPersonas).catch(() => {});
-  }, []);
-
-  const handleCreateModelPersona = async (name: string, file: File) => {
-    const compressed = await compressImage(file, 2048, 0.92);
-    const model: ModelItem = {
-      id: crypto.randomUUID(),
-      name,
-      preview: `data:${compressed.mime};base64,${compressed.base64}`,
-      base64: compressed.base64,
-      mime: compressed.mime,
-      prompt: `High-Precision Model Reference: reproduce exact face contour, eyes, nose, lips, hair, and body type matching ${name}.`,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    await modelLibrary.save(model);
-    setModelPersonas((prev) => [model, ...prev]);
-    updateCurrentTask((t) => ({ ...t, selectedModelPersonaId: model.id }));
-  };
-
-  const handleRenameModelPersona = async (model: ModelItem, newName: string) => {
-    const next = { ...model, name: newName, updatedAt: Date.now() };
-    await modelLibrary.save(next);
-    setModelPersonas((prev) => prev.map((m) => (m.id === model.id ? next : m)));
-  };
-
-  const handleDeleteModelPersona = async (id: string) => {
-    await modelLibrary.remove(id);
-    setModelPersonas((prev) => prev.filter((m) => m.id !== id));
-    updateCurrentTask((t) => (t.selectedModelPersonaId === id ? { ...t, selectedModelPersonaId: null } : t));
-  };
 
   const currentTask = tasks.find((t) => t.id === activeTaskId) || tasks[0];
 
@@ -455,20 +413,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     setIsLoading(true);
 
     const { taskId, signal } = startGenerationTask();
-
-    // Check if fixed model persona from library is selected
-    let modelRef = currentTask.modelReference
-      ? { base64: currentTask.modelReference.base64, mime: currentTask.modelReference.mime }
-      : null;
-
-    if (!modelRef && currentTask.selectedModelPersonaId) {
-      const persona = modelPersonas.find((m) => m.id === currentTask.selectedModelPersonaId);
-      if (persona?.base64 && persona?.mime) {
-        modelRef = { base64: persona.base64, mime: persona.mime };
-        customPromptAddon += ` Maintain exact facial structure and identity matching fixed model "${persona.name}".`;
-      }
-    }
-
     const fullPrompt = `${currentTask.customPrompt} ${customPromptAddon}`.trim();
 
     updateCurrentTask((t) => ({
@@ -500,6 +444,10 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     }, 1800);
 
     try {
+      const modelRef = currentTask.modelReference
+        ? { base64: currentTask.modelReference.base64, mime: currentTask.modelReference.mime }
+        : null;
+
       const results = await generateUniversalTryOn(
         productImgs,
         modelRef,
@@ -876,7 +824,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                         <Eye className="h-3.5 w-3.5 text-orange-500" />
                         推荐示例
                       </div>
-                      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                      <div className="flex flex-wrap items-center gap-2">
                         {SVG_TOP_PRESETS.map((preset, idx) => (
                           <div key={idx} className="group relative shrink-0">
                             <img
@@ -902,7 +850,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       </div>
                     </div>
 
-                    {/* Image Dropzone & Thumbnails */}
+                    {/* Image Dropzone & Thumbnails (Matches Screenshot 2) */}
                     <div
                       onDragOver={(e) => {
                         e.preventDefault();
@@ -1026,7 +974,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                         <Eye className="h-3.5 w-3.5 text-blue-500" />
                         推荐示例
                       </div>
-                      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                      <div className="flex flex-wrap items-center gap-2">
                         {SVG_BOTTOM_PRESETS.map((preset, idx) => (
                           <div key={idx} className="group relative shrink-0">
                             <img
@@ -1177,7 +1125,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       <Eye className="h-3.5 w-3.5 text-purple-500" />
                       推荐示例
                     </div>
-                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                    <div className="flex flex-wrap items-center gap-2">
                       {SVG_FULL_PRESETS.map((preset, idx) => (
                         <div key={idx} className="group relative shrink-0">
                           <img
@@ -1403,67 +1351,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                   onChange={(e) => e.target.files && handleUploadTarget(e.target.files, 'model')}
                 />
               </div>
-            </section>
-
-            {/* MODEL LIBRARY CARD (1:1 Matched with User Screenshot) */}
-            <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c] sm:p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f0f4ff] text-[#3b82f6]">
-                    <UserCircle2 className="h-5 w-5" />
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-black text-pastel-text">模特库 (可选)</h3>
-                    <p className="mt-1 text-xs text-pastel-muted">
-                      固定模特面部与人体参考，保持高精度一致性生成
-                    </p>
-                  </div>
-                </div>
-                {currentTask.selectedModelPersonaId && (
-                  <button
-                    type="button"
-                    onClick={() => updateCurrentTask((t) => ({ ...t, selectedModelPersonaId: null }))}
-                    className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    清除选择
-                  </button>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsModelModalOpen(true)}
-                className="mt-4 flex min-h-16 w-full items-center justify-between rounded-xl border border-pastel-border bg-[#f8fbff] p-3 text-left transition hover:border-[#ed6d46] dark:bg-white/5"
-              >
-                <div className="flex items-center gap-3">
-                  {currentTask.selectedModelPersonaId ? (
-                    <>
-                      <img
-                        src={modelPersonas.find((m) => m.id === currentTask.selectedModelPersonaId)?.preview}
-                        alt="固定模特"
-                        className="h-10 w-10 rounded-lg object-cover"
-                      />
-                      <div>
-                        <strong className="block text-sm font-black text-[#17243c] dark:text-white">
-                          {modelPersonas.find((m) => m.id === currentTask.selectedModelPersonaId)?.name}
-                        </strong>
-                        <span className="text-[0.68rem] text-pastel-muted">高精度人物一致性已开启</span>
-                      </div>
-                    </>
-                  ) : (
-                    <div>
-                      <strong className="block text-sm font-black text-[#17243c] dark:text-white">
-                        选择 / 管理固定模特...
-                      </strong>
-                      <span className="text-[0.68rem] text-pastel-muted">
-                        包含官方图2固定模特，亦可上传自定义模特
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-pastel-muted" />
-              </button>
             </section>
 
             {/* Step 3 Card: 你的试穿要求 (选填) */}
@@ -1762,21 +1649,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
             })}
           </div>
         </SelectionModal>
-      )}
-
-      {/* 4. Model Library Management Modal */}
-      {isModelModalOpen && (
-        <ModelLibraryModal
-          selectedModelId={currentTask.selectedModelPersonaId || null}
-          models={modelPersonas}
-          onSelectModel={(model) =>
-            updateCurrentTask((t) => ({ ...t, selectedModelPersonaId: model?.id || null }))
-          }
-          onCreateModel={handleCreateModelPersona}
-          onRenameModel={handleRenameModelPersona}
-          onDeleteModel={handleDeleteModelPersona}
-          onClose={() => setIsModelModalOpen(false)}
-        />
       )}
 
       {/* FULLSCREEN LIGHTBOX ZOOM MODAL (Applies to ALL Images) */}
