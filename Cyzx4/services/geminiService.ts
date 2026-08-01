@@ -5118,39 +5118,60 @@ export const generateUniversalTryOn = async (
     resolution?: ImageResolution;
     count?: number;
     model?: string;
+    lockCropping?: boolean;
     signal?: AbortSignal;
   } = {}
 ): Promise<string[]> => {
-  const { aspectRatio = "3:4", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", signal } = options;
+  const { aspectRatio = "3:4", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", lockCropping = true, signal } = options;
   const { ai, config: imageApiConfig } = getImageGenerationContext(model, aspectRatio, resolution);
   throwIfAborted(signal);
 
   const productCount = productImages.length;
   const hasModelRef = !!modelReference;
+  const isCroppingLocked = hasModelRef && lockCropping;
 
   let modeTitle = '模特换衣试穿';
   let modeInstruction = '';
 
   if (subMode === 'model') {
-    modeTitle = '模特换装/虚拟试穿 (Model Virtual Try-On)';
+    modeTitle = `模特换装/虚拟试穿 (Model Virtual Try-On - ${isCroppingLocked ? 'Strict Cropping Lock' : 'Free Full Body View'})`;
     modeInstruction = `
 - **GOAL**: Seamlessly transfer the clothes from Product Images (Images 1-${productCount}) onto the model figure in Image ${productCount + (hasModelRef ? 1 : 0)}.
+${isCroppingLocked ? `
+- **CRITICAL CROPPING & VIEWPORT LOCK**:
+  1. **STRICT CROP BOUNDARY MIRRORING**: You MUST 100% mirror the exact camera distance, framing, aspect ratio, and crop boundary of Image ${productCount + 1} (Model Ref).
+  2. **NO EXTRA HEAD/LIMBS**: If Image ${productCount + 1} is cropped at the neck/chest, waist, or upper thigh (e.g. headless, torso-only, or partial view), the output image MUST maintain the EXACT SAME crop line. DO NOT invent, generate, or reveal a head, full body, or extra limbs if they were not visible in Image ${productCount + 1}!
+  3. **PARTIAL CLOTHING DISPLAY LOCK**: If a garment (top or shorts) is only partially visible in Image ${productCount + 1} due to the crop, render ONLY that exact visible portion of the new garment matching the original crop border.
+  4. **POSE & ANATOMY FREEZE**: Freeze hand positions (e.g. hands inside pockets), leg posture, waistline height, belt buckle, skin exposure area, and background environment (e.g. brick wall, crosswalk) with zero alteration.
+` : `
 - **BODY & POSE**: Keep the model's exact pose, facial features, skin tone, hair style, and body proportions untouched.
-- **CLOTHING FIT**: Drape the product garment naturally on the model body with realistic fabric tension, natural folds, and true-to-life 3D volume. Preserve logos, zippers, buttons, and patterns accurately.
+- **CLOTHING FIT**: Drape the product garment naturally on the model body with realistic fabric tension, natural folds, and true-to-life 3D volume.
+`}
 `;
   } else if (subMode === 'mannequin') {
-    modeTitle = '人台换衣/人台生模特 (Mannequin to Live Model Try-On)';
+    modeTitle = '人台换衣/人台生模特 (Mannequin to Live Model Try-On - Strict Cropping Lock)';
     modeInstruction = `
 - **GOAL**: Take the clothing item displayed on mannequin/flat-lay from Product Images (Images 1-${productCount}) and render a professional live fashion model wearing it naturally${hasModelRef ? ` using the reference model in Image ${productCount + 1}` : ''}.
 - **ELEVATION**: Convert ghost mannequin stiffness into fluid human posture, realistic fabric drapes, natural lighting shadows, and commercial lookbook aesthetics.
+${isCroppingLocked ? `
+- **CRITICAL CROPPING & VIEWPORT LOCK**:
+  1. **STRICT CROP BOUNDARY MIRRORING**: You MUST 100% mirror the exact camera distance, framing, aspect ratio, and crop boundary of Image ${productCount + 1} (Reference Image).
+  2. **NO EXTRA HEAD/LIMBS**: If Image ${productCount + 1} is cropped at the neck/chest, waist, or upper thigh (e.g. headless mannequin, torso-only, or partial view), the output image MUST maintain the EXACT SAME crop line. DO NOT invent, generate, or reveal a head, full body, or extra limbs if they were not visible in Image ${productCount + 1}!
+` : ''}
 - **FABRIC FIDELITY**: Preserve exact textile texture, weave pattern, color hue, and brand details without deformation.
 `;
   } else {
-    modeTitle = '鞋靴试穿 (Footwear & Shoe Try-On Specialist)';
+    modeTitle = '鞋靴试穿 (Footwear & Shoe Try-On Specialist - Single/Multi View 3D Agent & Crop Lock)';
     modeInstruction = `
-- **GOAL**: Fit the footwear/shoes from Product Images (Images 1-${productCount}) accurately onto the feet/legs of the model in Image ${productCount + (hasModelRef ? 1 : 0)}.
-- **LEG & ANKLE FIT**: Align shoe angle, heel pitch, and ankle fit seamlessly with the model's posture. Ensure realistic shoe-to-ground shadows and contact points.
-- **DETAILS**: Maintain shoe silhouette, leather grain, laces, branding, and sole thickness without alteration.
+- **GOAL**: Accurately fit the footwear/shoes from Product Images (Images 1-${productCount}, which may include single-angle or multi-angle 3D views like front 45°, side, quarter) onto the feet/legs of the model in Image ${productCount + (hasModelRef ? 1 : 0)}.
+${isCroppingLocked ? `
+- **CRITICAL CROPPING & VIEWPORT LOCK**:
+  1. **STRICT LEG/ANKLE CROP BOUNDARY MIRRORING**: You MUST 100% mirror the exact camera distance, close-up framing, aspect ratio, and crop boundary of Image ${productCount + 1} (Leg/Foot Reference Image).
+  2. **NO ZOOM OUT**: If Image ${productCount + 1} is an ankle/leg close-up crop, the output image MUST remain an ankle/leg close-up crop with the EXACT SAME framing. DO NOT zoom out to show full body!
+` : ''}
+- **MULTI-ANGLE FUSION**: If multiple footwear views are provided in Product Images 1-${productCount}, extract the 3D volume, sole tread depth, lace topology, and upper leather texture from all angles to construct a 100% distortion-free 3D shoe model wrapped around the model's feet.
+- **LEG & ANKLE FIT**: Align shoe pitch, heel height, and ankle joint orientation seamlessly with the model's posture. Generate natural contact shadows where sole touches ground surface.
+- **FABRIC & DETAIL LOCK**: Preserve shoe brand logos, leather gloss, metallic eyelets, stitching lines, and rubber sole texture accurately without blur.
 `;
   }
 
@@ -5163,7 +5184,7 @@ You MUST process the input through these 8 distinct phases:
 
 ## PHASE 1: ANATOMICAL & GARMENT ANALYSIS 🔍
 1. **[Garment Deconstruction]**: Analyze Product Images (1-${productCount}). Extract pattern, silhouette, collar/sleeve cut, fabric texture, and exact color codes.
-2. **[Human Pose Alignment]**: ${hasModelRef ? `Analyze Image ${productCount + 1} (Model Ref). Map 3D body skeleton, joints, skin color, and light environment.` : 'Generate an ideal high-fashion model matching the product vibe.'}
+2. **[Human Pose Alignment]**: ${hasModelRef ? `Analyze Image ${productCount + 1} (Model Ref). Map 3D body skeleton, joints, skin color, AND LOCK THE EXACT CAMERA CROPPING BOUNDARY.` : 'Generate an ideal high-fashion model matching the product vibe.'}
 
 ## PHASE 2: 3D DRESSING & LIGHTING SIMULATION 🛠️
 3. **[Mesh Warp & Draping]**: Wrap the garment/shoes around the target 3D human body mesh. Apply gravity, fabric weight, and movement folds.

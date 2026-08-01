@@ -25,7 +25,8 @@ import {
   Camera,
   Grid3x3,
   Check,
-  Eye
+  Eye,
+  Lock
 } from 'lucide-react';
 import { generateUniversalTryOn } from '../services/geminiService';
 import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
@@ -36,7 +37,7 @@ import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
-export type ActiveUploadTarget = 'top' | 'bottom' | 'full' | 'model';
+export type ActiveUploadTarget = 'top' | 'bottom' | 'full' | 'shoes' | 'model';
 type Stage = 1 | 2 | 3 | 4;
 type SelectionModalType = 'model' | 'ratio' | 'resolution' | null;
 
@@ -54,10 +55,15 @@ interface UniversalTask {
   createdAt: number;
   subMode: UniversalTryOnSubMode;
   clothingType: ClothingType;
+  shoeCategory?: string;
+  shoeAngle?: string;
+  shoeViewMode?: 'single' | 'multi';
+  lockCropping?: boolean;
   status: 'editing' | 'generating' | 'done' | 'error';
   topImages: UploadedImage[];
   bottomImages: UploadedImage[];
   fullImages: UploadedImage[];
+  shoesImages: UploadedImage[];
   productImages: UploadedImage[];
   modelReference: UploadedImage | null;
   customPrompt: string;
@@ -182,6 +188,77 @@ const SVG_FULL_PRESETS = [
   },
 ];
 
+export const SVG_SHOES_PRESETS = [
+  {
+    name: '时尚小白鞋/运动鞋',
+    preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="%23f8fafc"/><path d="M50,220 C70,160 140,150 200,160 C240,165 260,180 270,220 C275,245 250,260 220,260 L60,260 Z" fill="%23ffffff" stroke="%23334155" stroke-width="4"/><path d="M50,250 L270,250 C270,265 250,275 220,275 L60,275 Z" fill="%23e2e8f0" stroke="%23334155" stroke-width="3"/><line x1="120" y1="170" x2="135" y2="210" stroke="%23334155" stroke-width="3"/><line x1="145" y1="170" x2="160" y2="210" stroke="%23334155" stroke-width="3"/><line x1="170" y1="170" x2="185" y2="210" stroke="%23334155" stroke-width="3"/><text x="150" y="340" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="%230f172a">鞋靴 · 时尚小白鞋</text></svg>',
+  },
+  {
+    name: '高级皮质短靴/马丁靴',
+    preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="%23fafaf9"/><path d="M90,90 L160,90 C165,150 170,170 210,180 C245,190 265,210 265,240 C265,260 240,270 200,270 L85,270 Z" fill="%231c1917" stroke="%230c0a09" stroke-width="4"/><rect x="80" y="265" width="190" height="15" fill="%2344403c" rx="3"/><line x1="125" y1="100" x2="125" y2="220" stroke="%2378716c" stroke-width="2" stroke-dasharray="4 4"/><text x="150" y="340" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="%231c1917">鞋靴 · 复古马丁短靴</text></svg>',
+  },
+  {
+    name: '优雅尖头高跟鞋',
+    preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="%23fff1f2"/><path d="M60,160 C90,160 130,210 180,225 C220,235 270,240 280,240 C275,250 250,255 210,255 C160,255 110,230 80,180 Z" fill="%23f43f5e" stroke="%23be123c" stroke-width="3"/><path d="M75,175 L65,275 L80,275 L85,185 Z" fill="%23be123c"/><text x="150" y="340" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="%23be123c">鞋靴 · 尖头高跟鞋</text></svg>',
+  },
+  {
+    name: '英伦复古乐福鞋',
+    preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400"><rect width="300" height="400" fill="%23fefce8"/><path d="M70,180 C90,140 160,145 200,160 C240,170 265,190 270,225 C275,245 250,255 210,255 L70,255 Z" fill="%2378350f" stroke="%23451a03" stroke-width="4"/><rect x="150" y="170" width="35" height="15" fill="%23f59e0b" rx="3"/><rect x="65" y="255" width="210" height="12" fill="%23451a03" rx="2"/><text x="150" y="340" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="%2378350f">鞋靴 · 复古乐福鞋</text></svg>',
+  },
+];
+
+export const SHOE_CATEGORY_OPTIONS = [
+  { id: 'sneakers', label: '板鞋/运动鞋', icon: '👟', prompt: 'commercial lifestyle sneakers, clean outsole' },
+  { id: 'heels', label: '高跟鞋/单鞋', icon: '👠', prompt: 'elegant high heels, sleek ankle profile' },
+  { id: 'boots', label: '短靴/马丁靴', icon: '🥾', prompt: 'stylish leather ankle boots, structured silhouette' },
+  { id: 'loafers', label: '乐福鞋/皮鞋', icon: '👞', prompt: 'classic leather loafers, refined metallic accent' },
+  { id: 'sandals', label: '凉鞋/拖鞋', icon: '👡', prompt: 'casual summer sandals, elegant strap structure' },
+] as const;
+
+export const SHOE_ANGLE_OPTIONS = [
+  { id: 'close-up', label: '腿部/脚部特写', desc: '聚焦下半身腿部与脚部关节', prompt: 'close-up shot focusing on legs and footwear' },
+  { id: 'walking', label: '迈步动态走姿', desc: '展现真实侧身迈步动感与拉长伸展', prompt: 'full body dynamic walking pose, leg extending forward' },
+  { id: 'sitting', label: '优雅坐姿露脚', desc: '坐在椅边或阶梯，脚踝自然悬空倾斜', prompt: 'sitting elegantly on edge with ankle angled naturally' },
+  { id: 'full-body', label: '全身立姿穿搭', desc: '全身穿搭视效，突出整体比例配合', prompt: 'full length standing pose showcasing complete outfit & footwear' },
+] as const;
+
+export const MULTI_SHOES_PRESETS = [
+  {
+    name: 'Adidas 经典复古运动鞋 (多视角组)',
+    group: [
+      {
+        name: '45度透视主视角',
+        preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="%23f1f5f9"/><path d="M40,160 C60,110 130,100 200,120 C240,130 260,150 270,190 C275,215 250,230 210,230 L50,230 Z" fill="%23ffffff" stroke="%230f172a" stroke-width="4"/><path d="M40,220 L270,220 C270,235 250,245 210,245 L50,245 Z" fill="%231e293b"/><line x1="120" y1="130" x2="150" y2="185" stroke="%230f172a" stroke-width="5"/><line x1="145" y1="130" x2="175" y2="185" stroke="%230f172a" stroke-width="5"/><line x1="170" y1="130" x2="200" y2="185" stroke="%230f172a" stroke-width="5"/><text x="150" y="270" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%23475569">视角1 · 45°透视</text></svg>',
+      },
+      {
+        name: '外侧平视角度',
+        preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="%23f1f5f9"/><path d="M50,180 C80,140 140,140 200,150 C240,155 265,175 270,205 C270,220 250,230 210,230 L50,230 Z" fill="%23ffffff" stroke="%230f172a" stroke-width="4"/><path d="M50,220 L270,220 C270,230 250,240 210,240 L50,240 Z" fill="%231e293b"/><line x1="130" y1="150" x2="150" y2="200" stroke="%230f172a" stroke-width="5"/><line x1="155" y1="150" x2="175" y2="200" stroke="%230f172a" stroke-width="5"/><line x1="180" y1="150" x2="200" y2="200" stroke="%230f172a" stroke-width="5"/><text x="150" y="270" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%23475569">视角2 · 外侧正视</text></svg>',
+      },
+      {
+        name: '内侧平视角度',
+        preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="%23f1f5f9"/><path d="M250,180 C220,140 160,140 100,150 C60,155 35,175 30,205 C30,220 50,230 90,230 L250,230 Z" fill="%23ffffff" stroke="%230f172a" stroke-width="4"/><path d="M250,220 L30,220 C30,230 50,240 90,240 L250,240 Z" fill="%231e293b"/><line x1="170" y1="150" x2="150" y2="200" stroke="%230f172a" stroke-width="5"/><line x1="145" y1="150" x2="125" y2="200" stroke="%230f172a" stroke-width="5"/><line x1="120" y1="150" x2="100" y2="200" stroke="%230f172a" stroke-width="5"/><text x="150" y="270" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%23475569">视角3 · 内侧正视</text></svg>',
+      },
+    ],
+  },
+  {
+    name: '棕色复古慢跑鞋 (多视角组)',
+    group: [
+      {
+        name: '斜俯视角度',
+        preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="%23fef3c7"/><path d="M60,150 C80,100 150,90 210,110 C250,120 270,140 275,180 C275,210 250,225 210,225 L60,225 Z" fill="%23b45309" stroke="%2378350f" stroke-width="4"/><text x="150" y="270" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%2378350f">视角1 · 斜俯视</text></svg>',
+      },
+      {
+        name: '正侧面角度',
+        preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="%23fef3c7"/><path d="M50,175 C80,135 140,135 200,145 C240,150 265,170 270,200 C270,215 250,225 210,225 L50,225 Z" fill="%23d97706" stroke="%2378350f" stroke-width="4"/><text x="150" y="270" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%2378350f">视角2 · 经典侧面</text></svg>',
+      },
+      {
+        name: '侧后视角',
+        preview: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><rect width="300" height="300" fill="%23fef3c7"/><path d="M90,120 L210,120 L225,230 L75,230 Z" fill="%23b45309" stroke="%2378350f" stroke-width="4"/><text x="150" y="270" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%2378350f">视角3 · 侧后视角</text></svg>',
+      },
+    ],
+  },
+];
+
 const SelectionModal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({
   title,
   onClose,
@@ -228,10 +305,15 @@ const createNewTask = (subMode: UniversalTryOnSubMode = 'model'): UniversalTask 
   createdAt: Date.now(),
   subMode,
   clothingType: 'two-piece',
+  shoeCategory: undefined,
+  shoeAngle: undefined,
+  shoeViewMode: 'single',
+  lockCropping: true,
   status: 'editing',
   topImages: [],
   bottomImages: [],
   fullImages: [],
+  shoesImages: [],
   productImages: [],
   modelReference: null,
   customPrompt: '',
@@ -275,12 +357,14 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const topInputRef = useRef<HTMLInputElement>(null);
   const bottomInputRef = useRef<HTMLInputElement>(null);
   const fullInputRef = useRef<HTMLInputElement>(null);
+  const shoesInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
 
   // Drag states
   const [isDraggingTop, setIsDraggingTop] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
   const [isDraggingFull, setIsDraggingFull] = useState(false);
+  const [isDraggingShoes, setIsDraggingShoes] = useState(false);
   const [isDraggingModel, setIsDraggingModel] = useState(false);
 
   const updateCurrentTask = useCallback((updater: (task: UniversalTask) => UniversalTask) => {
@@ -334,6 +418,8 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
           return { ...task, bottomImages: [...task.bottomImages, ...processed].slice(0, 6) };
         } else if (target === 'full') {
           return { ...task, fullImages: [...task.fullImages, ...processed].slice(0, 6) };
+        } else if (target === 'shoes') {
+          return { ...task, shoesImages: [...(task.shoesImages || []), ...processed].slice(0, 6) };
         } else {
           return { ...task, modelReference: processed[0] };
         }
@@ -360,8 +446,12 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         return { ...task, topImages: [...task.topImages, item].slice(0, 6) };
       } else if (target === 'bottom') {
         return { ...task, bottomImages: [...task.bottomImages, item].slice(0, 6) };
-      } else {
+      } else if (target === 'full') {
         return { ...task, fullImages: [...task.fullImages, item].slice(0, 6) };
+      } else if (target === 'shoes') {
+        return { ...task, shoesImages: [...(task.shoesImages || []), item].slice(0, 6) };
+      } else {
+        return { ...task, modelReference: item };
       }
     });
   };
@@ -376,7 +466,24 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     let productImgs: Array<{ base64: string; mime: string }> = [];
     let customPromptAddon = '';
 
-    if (currentTask.subMode === 'model') {
+    if (currentTask.subMode === 'shoes') {
+      const shoesList = (currentTask.shoesImages && currentTask.shoesImages.length > 0)
+        ? currentTask.shoesImages
+        : [
+            ...currentTask.topImages,
+            ...currentTask.bottomImages,
+            ...currentTask.fullImages,
+            ...currentTask.productImages,
+          ];
+      if (shoesList.length === 0) {
+        setError('请在【鞋靴素材】区域至少上传一张鞋履平铺/白底图');
+        return;
+      }
+      productImgs = shoesList.map((img) => ({ base64: img.base64, mime: img.mime }));
+      const categoryObj = SHOE_CATEGORY_OPTIONS.find((c) => c.id === currentTask.shoeCategory);
+      const angleObj = SHOE_ANGLE_OPTIONS.find((a) => a.id === currentTask.shoeAngle);
+      customPromptAddon = `[Footwear Try-On Agent]: Realistically fit the footwear onto model's feet. ${categoryObj?.prompt || ''}. ${angleObj?.prompt || ''}. Precise ankle orientation and realistic ground contact shadow.`;
+    } else if (currentTask.subMode === 'model') {
       if (currentTask.clothingType === 'two-piece') {
         if (currentTask.topImages.length === 0 && currentTask.bottomImages.length === 0) {
           setError('请至少在【上装】或【下装】中上传一张服装素材图');
@@ -458,6 +565,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
           resolution: currentTask.resolution,
           count: currentTask.count,
           model: currentTask.selectedModel,
+          lockCropping: currentTask.lockCropping ?? true,
           signal,
         }
       );
@@ -743,14 +851,14 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
               </div>
             </section>
 
-            {/* Step 2 Card: 平铺/人台图上传 Card (Refined 1:1 matching Screenshot 1 & 2) */}
+            {/* Step 2 Card: 平铺/人台/鞋靴商品图上传 Card (完全对齐用户参考截图 1, 2, 3) */}
             <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-pastel-border pb-3">
                 <h2 className="font-black text-pastel-text text-sm flex items-center gap-2">
                   <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#17243c] text-xs font-black text-white dark:bg-white dark:text-[#17243c]">
                     01
                   </span>
-                  平铺 / 人台图
+                  {currentTask.subMode === 'shoes' ? '鞋靴商品图' : '平铺 / 人台图'}
                 </h2>
                 {/* Sub-tabs for Clothing Type in 模特换衣 */}
                 {currentTask.subMode === 'model' && (
@@ -794,6 +902,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 <div className="space-y-4">
                   {/* 【上装】 BOX */}
                   <div
+                    onMouseEnter={() => setActiveUploadTarget('top')}
                     onClick={() => setActiveUploadTarget('top')}
                     className={`rounded-[1.5rem] border bg-white p-4 shadow-xs transition-all dark:bg-[#11151c] ${
                       activeUploadTarget === 'top'
@@ -807,11 +916,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                         <span className="text-xs font-black text-pastel-text">
                           上传 / 拖拽 / 粘贴【上装】
                         </span>
-                        {activeUploadTarget === 'top' && (
-                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[0.62rem] font-bold text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-                            当前粘贴目标
-                          </span>
-                        )}
                       </div>
                       <span className="text-xs font-bold text-pastel-muted">
                         {currentTask.topImages.length} / 6 张
@@ -944,6 +1048,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
 
                   {/* 【下装】 BOX */}
                   <div
+                    onMouseEnter={() => setActiveUploadTarget('bottom')}
                     onClick={() => setActiveUploadTarget('bottom')}
                     className={`rounded-[1.5rem] border bg-white p-4 shadow-xs transition-all dark:bg-[#11151c] ${
                       activeUploadTarget === 'bottom'
@@ -957,11 +1062,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                         <span className="text-xs font-black text-pastel-text">
                           上传 / 拖拽 / 粘贴【下装】
                         </span>
-                        {activeUploadTarget === 'bottom' && (
-                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[0.62rem] font-bold text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-                            当前粘贴目标
-                          </span>
-                        )}
                       </div>
                       <span className="text-xs font-bold text-pastel-muted">
                         {currentTask.bottomImages.length} / 6 张
@@ -1092,9 +1192,12 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                     </div>
                   </div>
                 </div>
-              ) : (
-                /* RENDER MODE B: 换连体 (ONE-PIECE / FULL OUTFIT) */
+              ) : null}
+
+              {/* RENDER MODE B: 换连体 (ONE-PIECE / FULL OUTFIT - 仅非鞋靴模式渲染) */}
+              {currentTask.subMode !== 'shoes' && (currentTask.clothingType === 'one-piece' || currentTask.subMode === 'mannequin') && (
                 <div
+                  onMouseEnter={() => setActiveUploadTarget('full')}
                   onClick={() => setActiveUploadTarget('full')}
                   className={`rounded-[1.5rem] border bg-white p-4 shadow-xs transition-all dark:bg-[#11151c] ${
                     activeUploadTarget === 'full'
@@ -1108,11 +1211,6 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       <span className="text-xs font-black text-pastel-text">
                         上传 / 拖拽 / 粘贴【连体/连衣裙】
                       </span>
-                      {activeUploadTarget === 'full' && (
-                        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[0.62rem] font-bold text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-                          当前粘贴目标
-                        </span>
-                      )}
                     </div>
                     <span className="text-xs font-bold text-pastel-muted">
                       {currentTask.fullImages.length} / 6 张
@@ -1244,19 +1342,398 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 </div>
               )}
 
+              {/* RENDER MODE C: 鞋靴试穿 (单视角图 / 多视角图) - 1:1 还原用户参考截图 1, 2, 3 */}
+              {currentTask.subMode === 'shoes' && (
+                <div onMouseEnter={() => setActiveUploadTarget('shoes')} className="rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] dark:bg-[#111622] p-3 shadow-xs space-y-3">
+                  {/* Header Sub-tabs */}
+                  <div className="flex items-center justify-center gap-8 border-b border-[#e2e8f0] dark:border-white/10 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => updateCurrentTask((t) => ({ ...t, shoeViewMode: 'single' }))}
+                      className={`flex items-center gap-1.5 text-xs font-bold transition relative pb-1.5 ${
+                        (currentTask.shoeViewMode || 'single') === 'single'
+                          ? 'text-slate-900 font-black dark:text-white'
+                          : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Footprints className="h-4 w-4 text-slate-700 dark:text-slate-200" />
+                      单视角图
+                      {(currentTask.shoeViewMode || 'single') === 'single' && (
+                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-9 h-0.5 bg-slate-900 dark:bg-white rounded-full" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateCurrentTask((t) => ({ ...t, shoeViewMode: 'multi' }))}
+                      className={`flex items-center gap-1.5 text-xs font-bold transition relative pb-1.5 ${
+                        currentTask.shoeViewMode === 'multi'
+                          ? 'text-slate-900 font-black dark:text-white'
+                          : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      多视角图
+                      {currentTask.shoeViewMode === 'multi' && (
+                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-9 h-0.5 bg-slate-900 dark:bg-white rounded-full" />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Mode A: 单视角图 (完全还原截图 2) */}
+                  {(currentTask.shoeViewMode || 'single') === 'single' ? (
+                    <div className="space-y-2">
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDraggingShoes(true);
+                        }}
+                        onDragLeave={() => setIsDraggingShoes(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDraggingShoes(false);
+                          if (e.dataTransfer.files?.length) {
+                            handleUploadTarget(e.dataTransfer.files, 'shoes');
+                          }
+                        }}
+                        className="relative min-h-[220px] rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center overflow-hidden"
+                      >
+                        {(currentTask.shoesImages || []).length > 0 ? (
+                          <div className="group relative w-full h-full min-h-[200px] flex items-center justify-center">
+                            <img
+                              src={currentTask.shoesImages![0].preview}
+                              alt="Shoe Single View"
+                              onClick={() => setZoomedImage(currentTask.shoesImages![0].preview)}
+                              className="max-h-[220px] w-auto object-contain cursor-pointer transition hover:scale-105"
+                            />
+                            {/* 右上角关闭/删除图标 */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCurrentTask((t) => ({
+                                  ...t,
+                                  shoesImages: t.shoesImages?.filter((_, i) => i !== 0),
+                                }))
+                              }
+                              className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-lg bg-black/70 text-white hover:bg-red-500 transition"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+
+                            {/* 悬浮胶囊按钮组：资源仓库 & 再次上传 */}
+                            <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (SVG_SHOES_PRESETS.length > 0) {
+                                    handlePresetSelect(SVG_SHOES_PRESETS[Math.floor(Math.random() * SVG_SHOES_PRESETS.length)], 'shoes');
+                                  }
+                                }}
+                                className="rounded-xl bg-[#292524]/85 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-black transition backdrop-blur-xs"
+                              >
+                                资源仓库
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => shoesInputRef.current?.click()}
+                                className="rounded-xl bg-[#292524]/85 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-black transition backdrop-blur-xs"
+                              >
+                                再次上传
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => shoesInputRef.current?.click()}
+                            className="flex flex-col items-center justify-center py-6 cursor-pointer text-center"
+                          >
+                            <Upload className="h-7 w-7 text-slate-400 mb-2" />
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                              点击、拖拽或粘贴【鞋靴】商品款式图
+                            </p>
+                            <p className="mt-1 text-[0.65rem] text-slate-400">
+                              支持单鞋、短靴、运动鞋、高跟鞋白底图
+                            </p>
+                          </div>
+                        )}
+                        <input
+                          ref={shoesInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => e.target.files && handleUploadTarget(e.target.files, 'shoes')}
+                        />
+                      </div>
+
+                      {/* 底部提示与更多 */}
+                      <div className="flex items-center justify-between text-[0.68rem] font-bold text-slate-500 pt-1">
+                        <span><strong className="text-slate-900 dark:text-white">Tips.</strong> 20M以下，jpg、jpeg、png、avif等常见格式</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (SVG_SHOES_PRESETS.length > 0) {
+                              handlePresetSelect(SVG_SHOES_PRESETS[Math.floor(Math.random() * SVG_SHOES_PRESETS.length)], 'shoes');
+                            }
+                          }}
+                          className="text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-0.5"
+                        >
+                          更换推荐预设 &gt;
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Mode B: 多视角图 (完全还原截图 3) */
+                    <div className="space-y-3">
+                      {/* 多视角网格布局 */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* 1. 主角度大框 */}
+                        <div className="col-span-2 relative min-h-[160px] rounded-xl border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center">
+                          {(currentTask.shoesImages || [])[0] ? (
+                            <div className="group relative w-full h-full flex items-center justify-center">
+                              <img
+                                src={currentTask.shoesImages![0].preview}
+                                alt="Shoe Main Angle"
+                                onClick={() => setZoomedImage(currentTask.shoesImages![0].preview)}
+                                className="max-h-[150px] w-auto object-contain cursor-pointer"
+                              />
+                              <span className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-0.5 text-[0.62rem] font-bold text-white">
+                                视角 1 · 主视角
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCurrentTask((t) => ({
+                                    ...t,
+                                    shoesImages: t.shoesImages?.filter((_, i) => i !== 0),
+                                  }))
+                                }
+                                className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => shoesInputRef.current?.click()}
+                              className="flex flex-col items-center justify-center py-4 cursor-pointer text-center"
+                            >
+                              <Upload className="h-6 w-6 text-slate-400 mb-1" />
+                              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                点击上传【45°主透视角度图】
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 2. 辅视角小框 1 */}
+                        <div className="relative min-h-[110px] rounded-xl border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center">
+                          {(currentTask.shoesImages || [])[1] ? (
+                            <div className="group relative w-full h-full flex items-center justify-center">
+                              <img
+                                src={currentTask.shoesImages![1].preview}
+                                alt="Shoe Side Angle 1"
+                                onClick={() => setZoomedImage(currentTask.shoesImages![1].preview)}
+                                className="max-h-[100px] w-auto object-contain cursor-pointer"
+                              />
+                              <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
+                                视角 2 · 外侧面
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCurrentTask((t) => ({
+                                    ...t,
+                                    shoesImages: t.shoesImages?.filter((_, i) => i !== 1),
+                                  }))
+                                }
+                                className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => shoesInputRef.current?.click()}
+                              className="flex flex-col items-center justify-center py-2 cursor-pointer text-center"
+                            >
+                              <Plus className="h-5 w-5 text-slate-400 mb-0.5" />
+                              <p className="text-[0.68rem] font-bold text-slate-500">
+                                视角 2 · 外侧正视
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 3. 辅视角小框 2 */}
+                        <div className="relative min-h-[110px] rounded-xl border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center">
+                          {(currentTask.shoesImages || [])[2] ? (
+                            <div className="group relative w-full h-full flex items-center justify-center">
+                              <img
+                                src={currentTask.shoesImages![2].preview}
+                                alt="Shoe Side Angle 2"
+                                onClick={() => setZoomedImage(currentTask.shoesImages![2].preview)}
+                                className="max-h-[100px] w-auto object-contain cursor-pointer"
+                              />
+                              <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
+                                视角 3 · 内侧/后跟
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCurrentTask((t) => ({
+                                    ...t,
+                                    shoesImages: t.shoesImages?.filter((_, i) => i !== 2),
+                                  }))
+                                }
+                                className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              onClick={() => shoesInputRef.current?.click()}
+                              className="flex flex-col items-center justify-center py-2 cursor-pointer text-center"
+                            >
+                              <Plus className="h-5 w-5 text-slate-400 mb-0.5" />
+                              <p className="text-[0.68rem] font-bold text-slate-500">
+                                视角 3 · 内侧/俯视角
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 多视角【推荐示例】栏 (1:1 还原截图 3) */}
+                      <div className="rounded-xl border border-slate-200 bg-white p-2.5 dark:border-white/10 dark:bg-slate-900">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[0.68rem] font-bold text-slate-500 flex items-center gap-1">
+                            <Eye className="h-3.5 w-3.5 text-slate-700 dark:text-slate-200" /> 推荐多视角组示例
+                          </span>
+                          <span className="text-[0.6rem] text-slate-400">点击一次载入全角度参考</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {MULTI_SHOES_PRESETS.map((presetGroup, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                const newItems: UploadedImage[] = presetGroup.group.map((item) => ({
+                                  id: crypto.randomUUID(),
+                                  preview: item.preview,
+                                  base64: item.preview.split(',')[1] || '',
+                                  mime: 'image/svg+xml',
+                                  name: item.name,
+                                }));
+                                updateCurrentTask((t) => ({ ...t, shoesImages: newItems }));
+                              }}
+                              className="flex items-center gap-1 rounded-lg border border-slate-200 p-1.5 transition hover:border-slate-800 bg-slate-50 dark:bg-slate-800/50"
+                              title={`使用 ${presetGroup.name}`}
+                            >
+                              {presetGroup.group.slice(0, 3).map((item, i) => (
+                                <img
+                                  key={i}
+                                  src={item.preview}
+                                  alt={item.name}
+                                  className="h-8 w-8 rounded object-cover border border-slate-200"
+                                />
+                              ))}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 底部提示 */}
+                      <div className="flex items-center justify-between text-[0.68rem] font-bold text-slate-500 pt-1">
+                        <span><strong className="text-slate-900 dark:text-white">Tips.</strong> 20M以下，jpg、jpeg、png、avif等常见格式</span>
+                        <span className="text-slate-400">更多 &gt;</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-between text-[0.68rem] text-pastel-muted font-bold pt-1">
                 <span>Tips. 款式图上传无遮挡、无褶皱，生成效果更好~</span>
               </div>
             </section>
 
-            {/* Step 2 Sub Card: 模特/姿势参考图 (选填) - Matches Screenshot 2 */}
+            {/* 鞋靴试穿专属参数与视角面板 (放置于 01 鞋靴商品图下方，选项目为纯可选/可取消选择) */}
+            {currentTask.subMode === 'shoes' && (
+              <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-sm space-y-3 dark:bg-amber-950/10">
+                <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                  <h3 className="text-xs font-black text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <Footprints className="h-4 w-4 text-amber-500" />
+                    鞋靴试穿专属偏好与镜头视角
+                  </h3>
+                  <span className="text-[0.65rem] font-bold text-pastel-muted">Agent 自动对齐脚踝与地面对接阴影</span>
+                </div>
+
+                <div>
+                  <label className="text-[0.68rem] font-bold text-pastel-muted mb-1.5 block">1. 选择鞋款品类偏好 (可选)</label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {SHOE_CATEGORY_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() =>
+                          updateCurrentTask((t) => ({
+                            ...t,
+                            shoeCategory: t.shoeCategory === opt.id ? undefined : opt.id,
+                          }))
+                        }
+                        className={`flex flex-col items-center justify-center rounded-xl p-2 text-center transition border ${
+                          currentTask.shoeCategory === opt.id
+                            ? 'bg-amber-500 text-white font-black border-amber-600 shadow-xs'
+                            : 'bg-white dark:bg-slate-800 text-pastel-text border-pastel-border hover:border-amber-400'
+                        }`}
+                      >
+                        <span className="text-base">{opt.icon}</span>
+                        <span className="text-[0.62rem] truncate w-full mt-1 font-bold">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[0.68rem] font-bold text-pastel-muted mb-1.5 block">2. 选择试穿镜头视角 / 动作姿势 (可选)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SHOE_ANGLE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() =>
+                          updateCurrentTask((t) => ({
+                            ...t,
+                            shoeAngle: t.shoeAngle === opt.id ? undefined : opt.id,
+                          }))
+                        }
+                        className={`flex items-center justify-between rounded-xl p-2.5 text-left transition border ${
+                          currentTask.shoeAngle === opt.id
+                            ? 'bg-[#172238] text-white font-black border-[#172238] shadow-sm ring-1 ring-amber-400/50'
+                            : 'bg-white dark:bg-slate-800 text-pastel-text border-pastel-border hover:border-slate-400'
+                        }`}
+                      >
+                        <div>
+                          <div className="text-xs font-black">{opt.label}</div>
+                          <div className="text-[0.6rem] opacity-75">{opt.desc}</div>
+                        </div>
+                        {currentTask.shoeAngle === opt.id && (
+                          <Check className="h-4 w-4 text-amber-400 shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Step 2 Sub Card: 模特/姿势参考图 (选填) - 支持鼠标悬停自动聚焦粘贴，无文字提示 */}
             <section
+              onMouseEnter={() => setActiveUploadTarget('model')}
               onClick={() => setActiveUploadTarget('model')}
-              className={`rounded-[1.5rem] border bg-white p-4 shadow-sm transition-all dark:bg-[#11151c] ${
-                activeUploadTarget === 'model'
-                  ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/30'
-                  : 'border-pastel-border'
-              }`}
+              className="rounded-[1.5rem] border border-pastel-border bg-white p-4 shadow-sm transition-all dark:bg-[#11151c]"
             >
               <div className="mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1270,11 +1747,31 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       ? '人台或目标模特参考图 (选填)'
                       : '带模特图 (选填)'}
                   </h3>
-                  {activeUploadTarget === 'model' && (
-                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[0.62rem] font-bold text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-                      当前粘贴目标
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateCurrentTask((t) => ({ ...t, lockCropping: !(t.lockCropping ?? true) }));
+                    }}
+                    className={`rounded-full px-2.5 py-1 text-[0.62rem] font-bold transition flex items-center gap-1.5 border shadow-2xs ${
+                      (currentTask.lockCropping ?? true)
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border-slate-300 dark:border-white/10 hover:bg-slate-200'
+                    }`}
+                    title="点击切换：开启可 100% 锁死原图构图比例与视角，关闭则允许自由扩展全视角"
+                  >
+                    {(currentTask.lockCropping ?? true) ? (
+                      <>
+                        <Lock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                        1:1 画幅与姿态锁定: 开启
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3 w-3 text-slate-400" />
+                        1:1 画幅与姿态锁定: 关闭 (自由发散)
+                      </>
+                    )}
+                  </button>
                 </div>
                 {currentTask.modelReference && (
                   <button
@@ -1287,7 +1784,9 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 )}
               </div>
               <p className="mb-3 text-xs text-pastel-muted">
-                上传需要上身拟合的模特照片，不上传则由 AI 自动生成完美模特
+                {currentTask.modelReference
+                  ? '已自动开启原图 1:1 像素级锁：将严格保持原模特图的镜头视角、裁剪边界（如仅显示腰/大腿）与人物姿势动作，绝对不增减画面范围。'
+                  : '上传需要上身拟合的模特照片，不上传则由 AI 自动生成完美模特'}
               </p>
 
               <div
