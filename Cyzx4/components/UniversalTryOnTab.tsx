@@ -1753,22 +1753,22 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       e.stopPropagation();
                       updateCurrentTask((t) => ({ ...t, lockCropping: !(t.lockCropping ?? true) }));
                     }}
-                    className={`rounded-full px-2.5 py-1 text-[0.62rem] font-bold transition flex items-center gap-1.5 border shadow-2xs ${
+                    className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                       (currentTask.lockCropping ?? true)
-                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
-                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border-slate-300 dark:border-white/10 hover:bg-slate-200'
+                        ? 'bg-[#172238] text-white border-[#2c3b59] hover:bg-[#1f2d4a] shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-slate-700'
                     }`}
                     title="点击切换：开启可 100% 锁死原图构图比例与视角，关闭则允许自由扩展全视角"
                   >
                     {(currentTask.lockCropping ?? true) ? (
                       <>
-                        <Lock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-                        1:1 画幅与姿态锁定: 开启
+                        <Lock className="h-3.5 w-3.5 text-emerald-400" />
+                        <span>姿态锁定: ON</span>
                       </>
                     ) : (
                       <>
-                        <Sparkles className="h-3 w-3 text-slate-400" />
-                        1:1 画幅与姿态锁定: 关闭 (自由发散)
+                        <Lock className="h-3.5 w-3.5 text-slate-400 opacity-60" />
+                        <span>姿态锁定: OFF</span>
                       </>
                     )}
                   </button>
