@@ -21,6 +21,7 @@ import {
   type FeatureCategory,
 } from '../featureRegistry';
 import { AppMode } from '../types';
+import AssetsManager from './AssetsManager';
 
 type CategoryFilter = 'all' | 'fashion' | 'video' | 'architecture' | 'food' | 'utility';
 
@@ -266,8 +267,13 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
         </div>
       </aside>
 
-      {/* 2. RIGHT MAIN CONTENT AREA (取消全居中约束，全宽自适应与靠左对齐，解决“隔离太远”问题) */}
-      <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
+      {/* 2. RIGHT MAIN CONTENT AREA (当选中“资产”时呈现 AssetsManager，否则呈现创作工具面板) */}
+      {activeSidebarItem === 'assets' ? (
+        <div className="flex-1 overflow-hidden min-w-0">
+          <AssetsManager />
+        </div>
+      ) : (
+        <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
         {/* 顶部搜索栏与品类 Tabs 区域 (全宽，向左对齐) */}
         <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/95 space-y-3.5">
           {/* 下拉 + 搜索框组合 */}
@@ -384,6 +390,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
           )}
         </div>
       </main>
+      )}
     </div>
   );
 };
