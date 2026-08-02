@@ -1,6 +1,7 @@
 
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { XIAOCHE_AVATAR_BASE64 } from './services/avatarData';
 import { Node } from './components/Node';
 import { SidebarDock } from './components/SidebarDock';
 import { AssistantPanel } from './components/AssistantPanel';
@@ -1121,7 +1122,15 @@ export const App = () => {
         return () => canvas.removeEventListener('wheel', handleNativeWheel, { capture: true });
     }, [zoomCanvasAtPoint]);
 
+    const isTargetInAssistant = (target: EventTarget | null) => {
+        if (!target) return false;
+        const el = target as HTMLElement;
+        return Boolean(el.closest?.('.assistant-panel-container') || el.closest?.('.floating-assistant-btn'));
+    };
+
     const handleWheel = (e: React.WheelEvent) => {
+        if (isTargetInAssistant(e.target)) return;
+
         if (interactionMode === 'comfyui') {
             e.preventDefault();
             // ComfyUI 模式：鼠标滚轮直接进行画布缩放
@@ -1142,6 +1151,8 @@ export const App = () => {
     };
 
     const handleCanvasMouseDown = (e: React.MouseEvent) => {
+        if (isTargetInAssistant(e.target)) return;
+
         if (contextMenu) setContextMenu(null);
         setSelectedGroupId(null);
         
@@ -2121,7 +2132,14 @@ export const App = () => {
                 onDragStart={(event) => {
                     if (connectionStartRef.current) event.preventDefault();
                 }}
-                onDoubleClick={(e) => { e.preventDefault(); if (e.detail > 1 && !selectionRect) { setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: '' }); setContextMenuTarget({ type: 'create' }); } }}
+                onDoubleClick={(e) => {
+                    e.preventDefault();
+                    if (isTargetInAssistant(e.target)) return;
+                    if (e.detail > 1 && !selectionRect) {
+                        setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: '' });
+                        setContextMenuTarget({ type: 'create' });
+                    }
+                }}
                 onContextMenu={(e) => { e.preventDefault(); if (e.target === e.currentTarget) setContextMenu(null); }}
                 onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}
             >
@@ -2755,6 +2773,13 @@ export const App = () => {
                     onClose={() => setIsChatOpen(false)}
                     attachments={agentAttachments}
                     onRemoveAttachment={(id) => setAgentAttachments(prev => prev.filter(item => item.id !== id))}
+                    onInsertAssetToCanvas={(url, title) => {
+                        addNode(NodeType.IMAGE_GENERATOR, undefined, undefined, {
+                            image: url,
+                            imagePreview: url,
+                            prompt: `RH Agent【${title}】智能体生成的商业资产`,
+                        });
+                    }}
                 />
 
                 {/* Canvas Mini-map (Dynamic Scale Projection) */}
@@ -3153,33 +3178,34 @@ export const App = () => {
                     </div>
                 )}
 
-                {/* Floating AI Assistant Neon Breathing Ball at Bottom Right */}
-                <div className="absolute bottom-8 right-8 flex items-center gap-3 z-50 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                    <button 
-                        onClick={() => setIsChatOpen(!isChatOpen)}
-                        className="floating-assistant-btn relative w-13 h-13 rounded-full bg-gradient-to-tr from-emerald-500 via-emerald-400 to-green-300 flex items-center justify-center cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.5)] hover:shadow-[0_0_30px_rgba(16,185,129,0.8)] hover:scale-105 transition-all duration-300 group"
-                    >
-                        {/* Breathing light aura */}
-                        <div className="absolute inset-0 rounded-full bg-emerald-400/20 animate-ping opacity-75 pointer-events-none duration-1000" />
-                        
-                        {/* Cute Eyes & Mouth SVG */}
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-black transform group-hover:scale-110 transition-transform">
-                            {/* Shiny dark eyes */}
-                            <circle cx="8" cy="11" r="2" fill="black" />
-                            <circle cx="16" cy="11" r="2" fill="black" />
-                            {/* Tiny cute smile */}
-                            <path d="M10 14.5C10.5 15 11.2 15.3 12 15.3C12.8 15.3 13.5 15 14 14.5" stroke="black" strokeWidth="1.8" strokeLinecap="round" />
-                            {/* Blushing cheeks */}
-                            <circle cx="5.5" cy="13" r="1" fill="#f87171" opacity="0.7" />
-                            <circle cx="18.5" cy="13" r="1" fill="#f87171" opacity="0.7" />
-                        </svg>
-                        
-                        {/* Hover Tooltip */}
-                        <div className="absolute -top-11 scale-0 group-hover:scale-100 transition-all duration-200 px-2 py-1 rounded bg-[#09090b]/90 border border-white/5 text-[9px] font-semibold text-zinc-300 whitespace-nowrap shadow-xl">
-                            AI 导演助理
-                        </div>
-                    </button>
-                </div>
+                {/* Floating AI Assistant Avatar Ball (小彻智能助手悬浮头像球) */}
+                {!isChatOpen && (
+                    <div className="absolute bottom-8 right-8 flex items-center gap-3 z-50 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <button 
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); setIsChatOpen(true); }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            onWheel={(e) => e.stopPropagation()}
+                            className="floating-assistant-btn relative w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-orange-500 via-amber-500 to-orange-400 flex items-center justify-center cursor-pointer shadow-[0_0_30px_rgba(249,115,22,0.7)] hover:shadow-[0_0_45px_rgba(249,115,22,0.95)] hover:scale-110 transition-all duration-300 group animate-[bounce_3s_infinite]"
+                            title="小彻智能助手"
+                        >
+                            {/* Breathing light aura */}
+                            <div className="absolute inset-0 rounded-full bg-orange-400/30 animate-ping opacity-75 pointer-events-none duration-1000" />
+                            
+                            {/* 小彻酷炫卡通头像 Web 图像 */}
+                            <img 
+                                src={XIAOCHE_AVATAR_BASE64} 
+                                alt="小彻智能助手" 
+                                className="w-full h-full object-cover rounded-full pointer-events-none transform group-hover:scale-105 transition-transform" 
+                            />
+                            
+                            {/* Hover Tooltip */}
+                            <div className="absolute -top-11 scale-0 group-hover:scale-100 transition-all duration-200 px-3 py-1 rounded-xl bg-[#09090b]/90 border border-orange-500/40 text-xs font-bold text-orange-400 whitespace-nowrap shadow-xl">
+                                小彻智能助手
+                            </div>
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -459,6 +459,8 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [inputHeight, setInputHeight] = useState(48);
     const [isStylePresetOpen, setIsStylePresetOpen] = useState(false);
     const [isVideoSettingsOpen, setIsVideoSettingsOpen] = useState(false);
+    const [isModelOpen, setIsModelOpen] = useState(false);
+    const [isRatioOpen, setIsRatioOpen] = useState(false);
     const [isImageMoreOpen, setIsImageMoreOpen] = useState(false);
     const [stylePresetTab, setStylePresetTab] = useState<'风格库' | '滤镜' | '功能' | '自定义前后缀'>('风格库');
     const [styleCategory, setStyleCategory] = useState<string>('全部');
@@ -1303,7 +1305,8 @@ const NodeComponent: React.FC<NodeProps> = ({
 
     const renderBottomPanel = () => {
         if (suppressNodeChrome) return null;
-        const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode);
+        const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isStylePresetOpen || isImageMoreOpen;
+        const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
         const promptPlaceholder = node.type === NodeType.AUDIO_GENERATOR
             ? '描述你想生成的音乐或音效...'
@@ -1427,6 +1430,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <div className="absolute bottom-0 left-0 w-full h-3 cursor-row-resize flex items-center justify-center opacity-0 group-hover/input:opacity-100 transition-opacity" onMouseDown={handleInputResizeStart}><div className="w-8 h-1 rounded-full bg-white/10 group-hover/input:bg-white/20" /></div>
                         </div>
                     )}
+
                     <div className="flex items-center justify-between px-2 pb-1 pt-1 relative z-20 gap-1.5 flex-nowrap">
                         <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
                             {isTextNode && (
@@ -1436,24 +1440,112 @@ const NodeComponent: React.FC<NodeProps> = ({
                                     <ChevronDown size={10} className="text-zinc-500" />
                                 </div>
                             )}
+
+                            {/* 模型选择下拉框 (包含 pb-2 透明桥梁，Hover / Click 双重顺畅展出) */}
                             <div className="relative group/model">
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-emerald-300 hover:text-emerald-200"><span className="whitespace-nowrap">{activeModelConfig?.l || models.find(m => m.v === node.data.model)?.l || 'AI Model'}</span><ChevronDown size={10} /></div>
-                                <div className="absolute bottom-full left-0 pb-2 w-48 opacity-0 translate-y-2 pointer-events-none group-hover/model:opacity-100 group-hover/model:translate-y-0 group-hover/model:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{models.map(m => (<div key={m.v} onClick={() => onUpdate(node.id, isVideoNode ? { model: m.v, resolution: node.data.resolution || '1080p', duration: m.v.includes('veo-3.1') ? 8 : (node.data.duration || 5) } : { model: m.v, aspectRatio: normalizeAspectRatio(node.data.aspectRatio, m.ratios || IMAGE_ASPECT_RATIOS) })} className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${node.data.model === m.v ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{m.l}</span>{m.badge && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-500">{m.badge}</span>}</div>))}</div></div>
+                                <div
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsModelOpen(open => !open);
+                                        setIsRatioOpen(false);
+                                        setIsVideoSettingsOpen(false);
+                                    }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-emerald-300 hover:text-emerald-200"
+                                >
+                                    <span className="whitespace-nowrap">{activeModelConfig?.l || models.find(m => m.v === node.data.model)?.l || 'AI Model'}</span>
+                                    <ChevronDown size={10} className={`transition-transform ${isModelOpen ? 'rotate-180' : ''}`} />
+                                </div>
+
+                                <div className={`absolute bottom-full left-0 pb-2 w-52 transition-all duration-200 z-[300] ${isModelOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none group-hover/model:opacity-100 group-hover/model:translate-y-0 group-hover/model:pointer-events-auto'}`}>
+                                    <div
+                                        className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden p-1 backdrop-blur-xl"
+                                        onMouseDown={e => e.stopPropagation()}
+                                        onClick={e => e.stopPropagation()}
+                                    >
+                                        {models.map(m => (
+                                            <div
+                                                key={m.v}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onUpdate(node.id, isVideoNode ? { model: m.v, resolution: node.data.resolution || '1080p', duration: m.v.includes('veo-3.1') ? 8 : (node.data.duration || 5) } : { model: m.v, aspectRatio: normalizeAspectRatio(node.data.aspectRatio, m.ratios || IMAGE_ASPECT_RATIOS) });
+                                                    setIsModelOpen(false);
+                                                }}
+                                                className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 transition-colors ${node.data.model === m.v ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-300'}`}
+                                            >
+                                                <span>{m.l}</span>
+                                                {m.badge && <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400">{m.badge}</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
-                            {node.type !== NodeType.VIDEO_ANALYZER && node.type !== NodeType.AUDIO_GENERATOR && !isVideoNode && !isTextNode && (<div className="relative group/ratio"><div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"><Scaling size={12} /><span>{displayedAspectRatio}</span></div><div className="absolute bottom-full left-0 pb-2 w-28 opacity-0 translate-y-2 pointer-events-none group-hover/ratio:opacity-100 group-hover/ratio:translate-y-0 group-hover/ratio:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden p-1">{activeAspectRatios.map(r => (<div key={r} onClick={() => handleAspectRatioSelect(r)} className={`flex items-center justify-between rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${displayedAspectRatio === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-400'}`}><span>{r}</span><span className="h-3 w-4 rounded-sm border border-current opacity-50" style={{ aspectRatio: r.replace(':', '/') }} /></div>))}</div></div></div>)}
+
+                            {/* 画面比例选择下拉框 (包含 pb-2 透明桥梁，Hover / Click 双重顺畅展出) */}
+                            {node.type !== NodeType.VIDEO_ANALYZER && node.type !== NodeType.AUDIO_GENERATOR && !isVideoNode && !isTextNode && (
+                                <div className="relative group/ratio">
+                                    <div
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsRatioOpen(open => !open);
+                                            setIsModelOpen(false);
+                                            setIsVideoSettingsOpen(false);
+                                        }}
+                                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"
+                                    >
+                                        <Scaling size={12} />
+                                        <span>{displayedAspectRatio}</span>
+                                        <ChevronDown size={10} className={`transition-transform ${isRatioOpen ? 'rotate-180' : ''}`} />
+                                    </div>
+
+                                    <div className={`absolute bottom-full left-0 pb-2 w-32 transition-all duration-200 z-[300] ${isRatioOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none group-hover/ratio:opacity-100 group-hover/ratio:translate-y-0 group-hover/ratio:pointer-events-auto'}`}>
+                                        <div
+                                            className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden p-1 backdrop-blur-xl"
+                                            onMouseDown={e => e.stopPropagation()}
+                                            onClick={e => e.stopPropagation()}
+                                        >
+                                            {activeAspectRatios.map(r => (
+                                                <div
+                                                    key={r}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleAspectRatioSelect(r);
+                                                        setIsRatioOpen(false);
+                                                    }}
+                                                    className={`flex items-center justify-between rounded-lg px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 transition-colors ${displayedAspectRatio === r ? 'text-emerald-300 bg-emerald-400/10' : 'text-slate-300'}`}
+                                                >
+                                                    <span>{r}</span>
+                                                    <span className="h-3 w-4 rounded-sm border border-current opacity-50" style={{ aspectRatio: r.replace(':', '/') }} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 视频综合参数下拉设置 */}
                             {isVideoNode && (
-                                <div className="relative">
+                                <div className="relative group/videosettings">
                                     <button
-                                        onClick={() => setIsVideoSettingsOpen(open => !open)}
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsVideoSettingsOpen(open => !open);
+                                            setIsModelOpen(false);
+                                            setIsRatioOpen(false);
+                                        }}
                                         className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-emerald-400/30 hover:bg-emerald-400/10 hover:text-emerald-200"
                                     >
                                         <span>
                                             {node.data.resolution || '1080p'} / {node.data.duration || 5}s / {node.data.generateAudio === false ? '否' : '是'} / {node.data.aspectRatio || '自适应'}
                                         </span>
-                                        <ChevronDown size={10} className={isVideoSettingsOpen ? 'rotate-180' : ''} />
+                                        <ChevronDown size={10} className={`transition-transform ${isVideoSettingsOpen ? 'rotate-180' : ''}`} />
                                     </button>
-                                    {isVideoSettingsOpen && (
-                                        <div className="absolute bottom-full left-0 z-[240] mb-2 w-[320px] rounded-2xl border border-white/10 bg-[#232325] p-4 shadow-2xl">
+                                    <div className={`absolute bottom-full left-0 pb-2 w-[320px] transition-all duration-200 z-[300] ${isVideoSettingsOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none group-hover/videosettings:opacity-100 group-hover/videosettings:translate-y-0 group-hover/videosettings:pointer-events-auto'}`}>
+                                        <div
+                                            className="rounded-2xl border border-white/10 bg-[#232325]/98 p-4 shadow-2xl backdrop-blur-xl"
+                                            onMouseDown={e => e.stopPropagation()}
+                                            onClick={e => e.stopPropagation()}
+                                        >
                                             <div className="space-y-4">
                                                 <section>
                                                     <div className="mb-2 text-[11px] font-bold text-zinc-400">分辨率</div>
@@ -1461,7 +1553,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                         {VIDEO_RESOLUTIONS.map(resolution => (
                                                             <button
                                                                 key={resolution}
-                                                                onClick={() => onUpdate(node.id, { resolution })}
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); onUpdate(node.id, { resolution }); }}
                                                                 className={`rounded-lg px-1 py-2 text-[10px] font-bold transition-colors ${node.data.resolution === resolution ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
                                                             >
                                                                 {resolution}
@@ -1475,7 +1568,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                         {VIDEO_DURATIONS.map(duration => (
                                                             <button
                                                                 key={duration}
-                                                                onClick={() => onUpdate(node.id, { duration })}
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); onUpdate(node.id, { duration }); }}
                                                                 className={`rounded-lg py-2 text-[10px] font-bold transition-colors ${(node.data.duration || 5) === duration ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
                                                             >
                                                                 {duration}s
@@ -1489,7 +1583,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                         {[true, false].map(enabled => (
                                                             <button
                                                                 key={String(enabled)}
-                                                                onClick={() => onUpdate(node.id, { generateAudio: enabled })}
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); onUpdate(node.id, { generateAudio: enabled }); }}
                                                                 className={`rounded-lg py-2 text-[10px] font-bold transition-colors ${(node.data.generateAudio !== false) === enabled ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
                                                             >
                                                                 {enabled ? '是' : '否'}
@@ -1501,7 +1596,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                     <div className="mb-2 text-[11px] font-bold text-zinc-400">比例</div>
                                                     <div className="grid grid-cols-4 gap-1 rounded-xl bg-black/20 p-1">
                                                         <button
-                                                            onClick={() => onUpdate(node.id, { aspectRatio: undefined })}
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); onUpdate(node.id, { aspectRatio: undefined }); }}
                                                             className={`rounded-lg py-2 text-[10px] font-bold transition-colors ${!node.data.aspectRatio ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
                                                         >
                                                             自适应
@@ -1509,7 +1605,8 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                         {VIDEO_ASPECT_RATIOS.map(ratio => (
                                                             <button
                                                                 key={ratio}
-                                                                onClick={() => handleAspectRatioSelect(ratio)}
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); handleAspectRatioSelect(ratio); }}
                                                                 className={`flex flex-col items-center gap-1 rounded-lg py-2 text-[10px] font-bold transition-colors ${node.data.aspectRatio === ratio ? 'bg-white/15 text-white' : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'}`}
                                                             >
                                                                 <span className="block h-3 rounded-sm border border-current opacity-70" style={{ aspectRatio: ratio.replace(':', '/'), width: ratio === '9:16' ? 7 : 14 }} />
@@ -1520,12 +1617,43 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                 </section>
                                             </div>
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             )}
-                            {node.type.includes('IMAGE') && (<div className="relative group/resolution"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Monitor size={12} /><span>{node.data.resolution || '2K'}</span></div><div className="absolute bottom-full left-0 pb-2 w-20 opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{IMAGE_RESOLUTIONS.map(r => (<div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.resolution || '2K').toUpperCase() === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{r}</div>))}</div></div></div>)}
-                            {(node.type.includes('IMAGE') || node.type === NodeType.VIDEO_GENERATOR) && (<div className="relative group/count"><div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"><Layers size={12} /><span>{node.type.includes('IMAGE') ? (node.data.imageCount || 1) : (node.data.videoCount || 1)}</span></div><div className="absolute bottom-full left-0 pb-2 w-16 opacity-0 translate-y-2 pointer-events-none group-hover/count:opacity-100 group-hover/count:translate-y-0 group-hover/count:pointer-events-auto transition-all duration-200 z-[200]"><div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">{(node.type.includes('IMAGE') ? IMAGE_COUNTS : VIDEO_COUNTS).map(c => (<div key={c} onClick={() => onUpdate(node.id, node.type.includes('IMAGE') ? { imageCount: c } : { videoCount: c })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${((node.type.includes('IMAGE') ? node.data.imageCount : node.data.videoCount) || 1) === c ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{c}</div>))}</div></div></div>)}
+
+                            {node.type.includes('IMAGE') && (
+                                <div className="relative group/resolution">
+                                    <div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400">
+                                        <Monitor size={12} />
+                                        <span>{node.data.resolution || '2K'}</span>
+                                    </div>
+                                    <div className="absolute bottom-full left-0 pb-2 w-20 opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto transition-all duration-200 z-[200]">
+                                        <div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                                            {IMAGE_RESOLUTIONS.map(r => (
+                                                <div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.resolution || '2K').toUpperCase() === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{r}</div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(node.type.includes('IMAGE') || node.type === NodeType.VIDEO_GENERATOR) && (
+                                <div className="relative group/count">
+                                    <div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400">
+                                        <Layers size={12} />
+                                        <span>{node.type.includes('IMAGE') ? (node.data.imageCount || 1) : (node.data.videoCount || 1)}</span>
+                                    </div>
+                                    <div className="absolute bottom-full left-0 pb-2 w-16 opacity-0 translate-y-2 pointer-events-none group-hover/count:opacity-100 group-hover/count:translate-y-0 group-hover/count:pointer-events-auto transition-all duration-200 z-[200]">
+                                        <div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                                            {(node.type.includes('IMAGE') ? IMAGE_COUNTS : VIDEO_COUNTS).map(c => (
+                                                <div key={c} onClick={() => onUpdate(node.id, node.type.includes('IMAGE') ? { imageCount: c } : { videoCount: c })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${((node.type.includes('IMAGE') ? node.data.imageCount : node.data.videoCount) || 1) === c ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{c}</div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
+
                         {isTextNode ? (
                             <div className="flex items-center gap-3 ml-auto shrink-0">
                                 <button className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300" title="文本设置">
