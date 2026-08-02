@@ -62,7 +62,7 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
   }
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-pastel-bg text-pastel-text">
+    <div className="relative flex h-screen overflow-hidden bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100">
       {isMobileSidebarOpen && (
         <button
           type="button"

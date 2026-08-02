@@ -1,5 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRight, RotateCcw, Search, Sparkles } from 'lucide-react';
+import {
+  Sparkles,
+  Search,
+  Folder,
+  Flame,
+  Clock,
+  ListTodo,
+  BookOpen,
+  Headphones,
+  Eye,
+  RotateCcw,
+  Wand2,
+  ChevronDown,
+} from 'lucide-react';
 import {
   CREATIVE_FEATURES,
   FEATURE_CATEGORIES,
@@ -8,7 +21,7 @@ import {
 } from '../featureRegistry';
 import { AppMode } from '../types';
 
-type CategoryFilter = 'all' | FeatureCategory;
+type CategoryFilter = 'all' | 'fashion' | 'video' | 'architecture' | 'food' | 'utility';
 
 interface CreativeHubProps {
   onOpenFeature: (mode: AppMode) => void;
@@ -17,66 +30,79 @@ interface CreativeHubProps {
 
 const normalizeSearch = (value: string) => value.trim().toLocaleLowerCase('zh-CN');
 
+const PRODUCT_CATEGORY_TABS: Array<{ id: CategoryFilter; label: string }> = [
+  { id: 'all', label: '全品类' },
+  { id: 'fashion', label: '服装/模特/首饰' },
+  { id: 'video', label: '视频专区' },
+  { id: 'architecture', label: '建筑/室内设计' },
+  { id: 'food', label: '餐饮/外卖' },
+  { id: 'utility', label: '生活/工具' },
+];
+
 const FeatureCard: React.FC<{
   feature: CreativeFeature;
-  index: number;
   onOpen: () => void;
-}> = ({ feature, index, onOpen }) => {
-  const Icon = feature.icon;
-
+  badge?: string;
+}> = ({ feature, onOpen, badge }) => {
   return (
-    <button
-      type="button"
+    <div
       onClick={onOpen}
-      className="creative-card group w-full overflow-hidden rounded-[1.35rem] border border-[#eadfd4] bg-white text-left shadow-[0_12px_35px_rgba(87,50,25,0.07)] transition duration-300 hover:-translate-y-1.5 hover:border-[#f2a15f] hover:shadow-[0_20px_44px_rgba(205,105,35,0.17)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ef7d2d] focus-visible:ring-offset-2 dark:border-[#49372c] dark:bg-[#211a16] dark:shadow-[0_16px_40px_rgba(0,0,0,0.25)] dark:hover:border-[#c8783c]"
-      style={{ animationDelay: `${Math.min(index * 45, 360)}ms` }}
-      aria-label={`打开${feature.title}`}
+      className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200/60 bg-white/90 shadow-2xs transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-md dark:border-white/10 dark:bg-slate-900"
     >
-      <div className="relative aspect-[16/9] overflow-hidden bg-[#f6eadf] dark:bg-[#34251d]">
+      {/* 封面图片区域 (贴合图2质感) */}
+      <div className="relative aspect-[16/10] overflow-hidden bg-[#fbf9f5] dark:bg-slate-800">
         <img
           src={feature.cover}
-          alt=""
+          alt={feature.title}
           loading="lazy"
-          className="h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.045]"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#30160a]/30 via-transparent to-white/10 dark:from-black/45" />
-        <div className="absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/70 bg-white/86 text-[#e7691e] shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-[#1b1512]/80 dark:text-[#ffad66]">
-          <Icon className="h-5 w-5" strokeWidth={1.8} />
-        </div>
-        <span className="absolute bottom-3 left-3 rounded-full border border-white/45 bg-[#5a2a11]/58 px-2.5 py-1 text-[0.65rem] font-bold tracking-[0.16em] text-white backdrop-blur-md">
-          {feature.englishTitle.toUpperCase()}
-        </span>
+        {badge && (
+          <span className="absolute right-2.5 top-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-0.5 text-[0.6rem] font-black text-white shadow-xs">
+            {badge}
+          </span>
+        )}
+
+        {/* 眼睛图标 (图2右下角样式) */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          className="absolute bottom-2.5 right-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-sm backdrop-blur-xs transition hover:bg-slate-900 hover:text-white dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-white dark:hover:text-slate-900"
+          title={`体验 ${feature.title}`}
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="flex min-h-[9.25rem] flex-col p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="text-[1.08rem] font-black tracking-tight text-[#2e211a] dark:text-[#fff4e9]">
-            {feature.title}
-          </h3>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#fff0e4] text-[#e7681d] transition duration-300 group-hover:bg-[#ed782b] group-hover:text-white dark:bg-[#39251a] dark:text-[#ffad66] dark:group-hover:bg-[#d66c28]">
-            <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
-          </span>
-        </div>
-        <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#75655b] dark:text-[#bdaba0]">
+      {/* 标题与描述文本 */}
+      <div className="p-3.5">
+        <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-orange-600 transition-colors">
+          {feature.title}
+        </h3>
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400 font-medium">
           {feature.description}
         </p>
-        <span className="mt-auto pt-3 text-xs font-bold text-[#d85f19] opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:text-[#ff9d55]">
-          进入工作台
-        </span>
       </div>
-    </button>
+    </div>
   );
 };
 
 const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<CategoryFilter>('all');
+  const [activeTab, setActiveTab] = useState<CategoryFilter>('all');
+  const [activeSidebarItem, setActiveSidebarItem] = useState('creation');
+
   const normalizedQuery = normalizeSearch(query);
 
   const filteredFeatures = useMemo(() => {
     return CREATIVE_FEATURES.filter((feature) => {
-      const inCategory = category === 'all' || feature.category === category;
-      if (!inCategory) return false;
+      if (activeTab === 'fashion' && feature.category !== 'model') return false;
+      if (activeTab === 'video' && feature.mode !== 'PRODUCT_VIDEO') return false;
+      if (activeTab === 'utility' && feature.category !== 'tools') return false;
+
       if (!normalizedQuery) return true;
 
       const searchable = [
@@ -89,165 +115,245 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
         .toLocaleLowerCase('zh-CN');
       return searchable.includes(normalizedQuery);
     });
-  }, [category, normalizedQuery]);
+  }, [activeTab, normalizedQuery]);
 
   const resetFilters = () => {
     setQuery('');
-    setCategory('all');
+    setActiveTab('all');
   };
 
   return (
-    <div className="creative-hub h-full overflow-y-auto bg-[#fbf6f0] text-[#2f2119] dark:bg-[#140f0c] dark:text-[#f9eee5]">
-      <div className="relative overflow-hidden border-b border-[#eadfd4] bg-[#f7ebdf] dark:border-[#3c2d25] dark:bg-[#1b1410]">
-        <div className="creative-orb creative-orb-one" />
-        <div className="creative-orb creative-orb-two" />
-        <div className="relative mx-auto max-w-[98rem] px-4 pb-8 pt-4 sm:px-6 sm:pb-10 lg:px-10">
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#dfcbbb] bg-white/72 px-4 text-sm font-bold text-[#5d493d] shadow-sm backdrop-blur transition hover:border-[#ed8a43] hover:text-[#d65f1d] dark:border-[#4c382d] dark:bg-[#241a15]/75 dark:text-[#ddc9bc]"
-            >
-              <span aria-hidden="true">←</span>
-              返回工作室
-            </button>
-            <div className="hidden items-center gap-2 text-xs font-bold tracking-[0.18em] text-[#9b6f52] sm:flex dark:text-[#bf8c68]">
-              <Sparkles className="h-4 w-4 text-[#ed7728]" />
-              XCAI CREATIVE LAB
-            </div>
+    <div className="flex h-full min-h-screen bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100 overflow-hidden font-sans">
+      {/* 1. LEFT SIDEBAR (宽 52，贴左排布，完全还原图2) */}
+      <aside className="hidden w-52 flex-col border-r border-slate-200/80 bg-white p-3.5 dark:border-white/10 dark:bg-[#111622] md:flex shrink-0">
+        {/* 顶部标题区 */}
+        <div className="flex items-center gap-2.5 px-2 py-3 mb-2 border-b border-slate-100 dark:border-white/5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-gradient-to-tr from-slate-900 to-slate-700 text-white font-black text-xs shadow-xs">
+            AI
+          </div>
+          <div>
+            <h2 className="text-xs font-black tracking-tight text-slate-900 dark:text-white">AI 视觉工作工坊</h2>
+            <p className="text-[0.62rem] text-slate-400 font-bold">C端商业生成面板</p>
+          </div>
+        </div>
+
+        {/* 侧边栏菜单列 */}
+        <nav className="space-y-1 flex-1">
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('creation')}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-bold transition ${
+              activeSidebarItem === 'creation'
+                ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50'
+            }`}
+          >
+            <Wand2 className="h-4 w-4 text-orange-500" />
+            <span>创作</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('assets')}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-bold transition ${
+              activeSidebarItem === 'assets'
+                ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50'
+            }`}
+          >
+            <Folder className="h-4 w-4 text-blue-500" />
+            <span>资产</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('trending')}
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-bold transition ${
+              activeSidebarItem === 'trending'
+                ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50'
+            }`}
+          >
+            <Flame className="h-4 w-4 text-red-500" />
+            <span>爆款</span>
+          </button>
+
+          <div className="pt-3 pb-1">
+            <span className="px-3 text-[0.62rem] font-bold text-slate-400 tracking-wider">常用与历史</span>
           </div>
 
-          <div className="mt-10 max-w-4xl sm:mt-14">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#e8c5a8] bg-white/55 px-3 py-1.5 text-xs font-bold tracking-[0.14em] text-[#b85a22] backdrop-blur dark:border-[#68452f] dark:bg-[#2a1c15]/70 dark:text-[#f29a5f]">
-              <Sparkles className="h-3.5 w-3.5" />
-              AI 商业视觉工作台
-            </div>
-            <h1 className="mt-5 text-[clamp(2.35rem,7vw,5.5rem)] font-black leading-[0.96] tracking-[-0.055em] text-[#2b1b13] dark:text-[#fff5eb]">
-              用AI
-              <span className="ml-2 text-[#e8681d] dark:text-[#ff8e3c]">拓展边界</span>
-            </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-[#705c50] sm:text-lg dark:text-[#c2afa3]">
-              探索生成图像
-              <br />
-              动态影像与视觉设计
-            </p>
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('recent')}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50 transition"
+          >
+            <Clock className="h-4 w-4 text-slate-400" />
+            <span>最近使用</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('tasks')}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50 transition"
+          >
+            <ListTodo className="h-4 w-4 text-slate-400" />
+            <span>任务中心</span>
+          </button>
+
+          <div className="pt-3 pb-1">
+            <span className="px-3 text-[0.62rem] font-bold text-slate-400 tracking-wider">支持与服务</span>
           </div>
 
-          <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:items-center">
-            <label className="group flex min-h-12 w-full max-w-xl items-center gap-3 rounded-2xl border border-[#dfcdbf] bg-white/88 px-4 shadow-[0_8px_28px_rgba(105,60,30,0.08)] transition focus-within:border-[#e9823b] focus-within:ring-4 focus-within:ring-[#f29a5f]/15 dark:border-[#4b382e] dark:bg-[#211814]/90 dark:focus-within:border-[#c87339]">
-              <Search className="h-5 w-5 shrink-0 text-[#a18878] group-focus-within:text-[#e46b22]" />
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('support')}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50 transition"
+          >
+            <Headphones className="h-4 w-4 text-slate-400" />
+            <span>联系客服</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSidebarItem('tutorials')}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50 transition"
+          >
+            <BookOpen className="h-4 w-4 text-slate-400" />
+            <span>使用教程</span>
+          </button>
+        </nav>
+
+        {/* 底部用户极简信息区 */}
+        <div className="rounded-xl border border-slate-200/70 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-slate-800/50">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[0.68rem] font-bold text-white dark:bg-white dark:text-slate-900">
+              XC
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-bold text-slate-900 dark:text-white">商业用户</p>
+              <p className="truncate text-[0.62rem] text-slate-400 font-medium">无限生成模式</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* 2. RIGHT MAIN CONTENT AREA (取消全居中约束，全宽自适应与靠左对齐，解决“隔离太远”问题) */}
+      <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
+        {/* 顶部搜索栏与品类 Tabs 区域 (全宽，向左对齐) */}
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/95 space-y-3.5">
+          {/* 下拉 + 搜索框组合 */}
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200"
+              >
+                <span>智能体</span>
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
+                type="text"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索功能名称或用途"
-                className="h-12 min-w-0 flex-1 bg-transparent text-base text-[#35251c] outline-none placeholder:text-[#a7968b] dark:text-[#f8ece3] dark:placeholder:text-[#8f796c]"
-                aria-label="搜索创意功能"
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="输入模板关键词或功能名称，按 Enter 搜索"
+                className="w-full rounded-xl border border-slate-200/90 bg-slate-50/80 py-2 pl-9 pr-8 text-xs font-medium text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-900/5 dark:border-white/10 dark:bg-slate-800/80 dark:text-white dark:focus:border-slate-500"
               />
               {query && (
                 <button
                   type="button"
                   onClick={() => setQuery('')}
-                  className="min-h-11 shrink-0 px-2 text-xs font-bold text-[#cd6323]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-700"
                 >
                   清除
                 </button>
               )}
-            </label>
-            <div className="shrink-0 text-sm font-medium text-[#8a7467] dark:text-[#a99488]">
-              {filteredFeatures.length} / {CREATIVE_FEATURES.length} 项能力
             </div>
           </div>
-        </div>
-      </div>
 
-      <main className="mx-auto max-w-[98rem] px-4 py-7 sm:px-6 sm:py-9 lg:px-10">
-        <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-2" role="tablist" aria-label="功能分类">
-          <button
-            type="button"
-            onClick={() => setCategory('all')}
-            className={`min-h-11 shrink-0 rounded-full px-5 text-sm font-bold transition ${
-              category === 'all'
-                ? 'bg-[#2f2119] text-white shadow-md dark:bg-[#f4e5d9] dark:text-[#241711]'
-                : 'border border-[#e3d5ca] bg-white/75 text-[#735e51] hover:border-[#e98743] hover:text-[#d85f19] dark:border-[#49372e] dark:bg-[#201713] dark:text-[#c4afa2]'
-            }`}
-            role="tab"
-            aria-selected={category === 'all'}
-          >
-            全部功能
-          </button>
-          {FEATURE_CATEGORIES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setCategory(item.id)}
-              className={`min-h-11 shrink-0 rounded-full px-5 text-sm font-bold transition ${
-                category === item.id
-                  ? 'bg-[#2f2119] text-white shadow-md dark:bg-[#f4e5d9] dark:text-[#241711]'
-                  : 'border border-[#e3d5ca] bg-white/75 text-[#735e51] hover:border-[#e98743] hover:text-[#d85f19] dark:border-[#49372e] dark:bg-[#201713] dark:text-[#c4afa2]'
-              }`}
-              role="tab"
-              aria-selected={category === item.id}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+          {/* 全品类 Tab 胶囊过滤栏 (完全对齐图2头部，靠左全展) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {PRODUCT_CATEGORY_TABS.map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`shrink-0 rounded-lg px-4 py-1.5 text-xs font-bold transition ${
+                    active
+                      ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
+                      : 'bg-slate-100/70 text-slate-600 hover:bg-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </header>
 
-        {filteredFeatures.length > 0 ? (
-          <div className="mt-8 space-y-12">
-            {FEATURE_CATEGORIES.map((categoryMeta) => {
-              const group = filteredFeatures.filter((feature) => feature.category === categoryMeta.id);
-              if (!group.length) return null;
+        {/* 内容分块区 (使用 w-full px-6，让卡片一排充满5列，完全对齐图2) */}
+        <div className="w-full px-6 py-6 space-y-7">
+          {filteredFeatures.length > 0 ? (
+            FEATURE_CATEGORIES.map((cat) => {
+              const groupFeatures = filteredFeatures.filter((f) => f.category === cat.id);
+              if (groupFeatures.length === 0) return null;
+
+              const sectionTitle =
+                cat.id === 'core'
+                  ? '主图/详情图/展示视频'
+                  : cat.id === 'marketing'
+                  ? '爆款复刻'
+                  : cat.id === 'model'
+                  ? '模特服装'
+                  : '通用工具';
 
               return (
-                <section key={categoryMeta.id} aria-labelledby={`category-${categoryMeta.id}`}>
-                  <div className="mb-5 flex items-end justify-between gap-4">
-                    <div>
-                      <span className="text-[0.65rem] font-black tracking-[0.22em] text-[#db6a26] dark:text-[#f18e50]">
-                        {categoryMeta.eyebrow}
-                      </span>
-                      <h2
-                        id={`category-${categoryMeta.id}`}
-                        className="mt-1 text-2xl font-black tracking-tight text-[#34231a] dark:text-[#faeee5]"
-                      >
-                        {categoryMeta.label}
-                      </h2>
-                    </div>
-                    <span className="text-sm text-[#9a887c] dark:text-[#927e72]">{group.length} 个工具</span>
+                <section key={cat.id} className="space-y-3">
+                  {/* 分块 Header：对齐图2 `主图/详情图/展示视频 5个` */}
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-sm font-black text-slate-900 dark:text-white">
+                      {sectionTitle}
+                    </h2>
+                    <span className="text-xs font-normal text-slate-400">
+                      {groupFeatures.length}个
+                    </span>
                   </div>
-                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                    {group.map((feature, index) => (
+
+                  {/* 工具卡片 Grid (自适应 5 列布局，完全对齐图2卡片大小与排布) */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+                    {groupFeatures.map((feature) => (
                       <FeatureCard
                         key={feature.mode}
                         feature={feature}
-                        index={index}
                         onOpen={() => onOpenFeature(feature.mode)}
+                        badge={feature.mode === AppMode.UNIVERSAL_TRY_ON ? '+上新' : undefined}
                       />
                     ))}
                   </div>
                 </section>
               );
-            })}
-          </div>
-        ) : (
-          <div className="mt-10 flex min-h-[22rem] flex-col items-center justify-center rounded-[2rem] border border-dashed border-[#dfcbbb] bg-white/55 px-6 text-center dark:border-[#4d392e] dark:bg-[#1c1511]/70">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#fff0e3] text-[#e66f25] dark:bg-[#352218] dark:text-[#ff9b55]">
-              <Search className="h-7 w-7" />
+            })
+          ) : (
+            <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center dark:border-white/10">
+              <Search className="h-8 w-8 text-slate-300 mb-3" />
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">未找到符合条件的功能</p>
+              <p className="mt-1 text-xs text-slate-400">请尝试更换搜寻关键词或重置全品类筛选</p>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="mt-4 flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-slate-800"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                重置筛选
+              </button>
             </div>
-            <h2 className="mt-5 text-xl font-black">暂时没有找到对应功能</h2>
-            <p className="mt-2 max-w-md text-sm leading-6 text-[#826f63] dark:text-[#ad998d]">
-              换个关键词试试，或者重置筛选查看全部创意能力。
-            </p>
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#e66f25] px-5 text-sm font-bold text-white transition hover:bg-[#c95716]"
-            >
-              <RotateCcw className="h-4 w-4" />
-              重置筛选
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   );
