@@ -12,8 +12,7 @@ import {
   RotateCcw,
   Wand2,
   ChevronDown,
-  ChevronLeft,
-  Home,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   CREATIVE_FEATURES,
@@ -128,27 +127,44 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
     <div className="flex h-full min-h-screen bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100 overflow-hidden font-sans">
       {/* 1. LEFT SIDEBAR (宽 56-60，完全还原图2侧边栏比例) */}
       <aside className="hidden w-56 sm:w-60 flex-col border-r border-slate-200/80 bg-white p-4 dark:border-white/10 dark:bg-[#111622] md:flex shrink-0">
-        {/* 左上角返回首页按钮 */}
+        {/* 顶部标题区 (点击触发 onBack，悬停平滑过渡显示“返回首页”) */}
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white dark:hover:text-slate-900 w-full mb-3 shadow-2xs"
-          title="返回我的首页/工作室"
+          className="group/home flex w-full items-center gap-3 rounded-2xl p-2 mb-2 border-b border-slate-100 dark:border-white/5 text-left transition-all duration-300 hover:bg-slate-100/90 dark:hover:bg-slate-800/90 active:scale-[0.98]"
+          title="点击返回首页"
         >
-          <ChevronLeft className="h-4 w-4" />
-          <span>返回我的首页</span>
-        </button>
+          {/* 左侧 Icon 区域：默认为 AI，悬停平滑淡出并展示箭头图标 */}
+          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-slate-900 to-slate-700 text-white font-black text-xs shadow-xs transition-all duration-300 group-hover/home:from-orange-500 group-hover/home:to-amber-500">
+            <span className="transition-all duration-300 group-hover/home:opacity-0 group-hover/home:scale-50 absolute">
+              AI
+            </span>
+            <ArrowLeft className="h-4 w-4 transition-all duration-300 opacity-0 scale-50 group-hover/home:opacity-100 group-hover/home:scale-100 absolute text-white" />
+          </div>
 
-        {/* 顶部标题区 */}
-        <div className="flex items-center gap-3 px-2 py-2.5 mb-2 border-b border-slate-100 dark:border-white/5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-slate-900 to-slate-700 text-white font-black text-xs shadow-xs">
-            AI
+          {/* 右侧文本区域：默认为标题，悬停向上滑动替换为“返回首页” */}
+          <div className="relative min-w-0 flex-1 h-8 overflow-hidden">
+            {/* 默认状态文案 */}
+            <div className="absolute inset-0 flex flex-col justify-center transition-all duration-300 ease-out group-hover/home:-translate-y-full group-hover/home:opacity-0">
+              <h2 className="truncate text-sm font-black tracking-tight text-slate-900 dark:text-white">
+                AI 视觉工作工坊
+              </h2>
+              <p className="truncate text-[0.68rem] text-slate-400 font-bold">
+                C端商业生成面板
+              </p>
+            </div>
+
+            {/* Hover 状态文案 */}
+            <div className="absolute inset-0 flex flex-col justify-center translate-y-full opacity-0 transition-all duration-300 ease-out group-hover/home:translate-y-0 group-hover/home:opacity-100">
+              <h2 className="truncate text-sm font-black tracking-tight text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                返回首页
+              </h2>
+              <p className="truncate text-[0.68rem] text-slate-400 font-bold">
+                点击离开主控制台
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-black tracking-tight text-slate-900 dark:text-white">AI 视觉工作工坊</h2>
-            <p className="text-[0.68rem] text-slate-400 font-bold">C端商业生成面板</p>
-          </div>
-        </div>
+        </button>
 
         {/* 侧边栏菜单列 */}
         <nav className="space-y-1.5 flex-1">
@@ -254,18 +270,8 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
       <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
         {/* 顶部搜索栏与品类 Tabs 区域 (全宽，向左对齐) */}
         <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/95 space-y-3.5">
-          {/* 下拉 + 搜索框组合 + 返回首页 */}
+          {/* 下拉 + 搜索框组合 */}
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 shrink-0 shadow-2xs"
-              title="返回我的首页/工作室"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">返回首页</span>
-            </button>
-
             <div className="relative shrink-0">
               <button
                 type="button"
