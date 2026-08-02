@@ -12,6 +12,8 @@ import {
   RotateCcw,
   Wand2,
   ChevronDown,
+  ChevronLeft,
+  Home,
 } from 'lucide-react';
 import {
   CREATIVE_FEATURES,
@@ -126,8 +128,19 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
     <div className="flex h-full min-h-screen bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100 overflow-hidden font-sans">
       {/* 1. LEFT SIDEBAR (宽 56-60，完全还原图2侧边栏比例) */}
       <aside className="hidden w-56 sm:w-60 flex-col border-r border-slate-200/80 bg-white p-4 dark:border-white/10 dark:bg-[#111622] md:flex shrink-0">
+        {/* 左上角返回首页按钮 */}
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-white dark:hover:text-slate-900 w-full mb-3 shadow-2xs"
+          title="返回我的首页/工作室"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span>返回我的首页</span>
+        </button>
+
         {/* 顶部标题区 */}
-        <div className="flex items-center gap-3 px-2 py-3 mb-2 border-b border-slate-100 dark:border-white/5">
+        <div className="flex items-center gap-3 px-2 py-2.5 mb-2 border-b border-slate-100 dark:border-white/5">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-slate-900 to-slate-700 text-white font-black text-xs shadow-xs">
             AI
           </div>
@@ -241,8 +254,18 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
       <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
         {/* 顶部搜索栏与品类 Tabs 区域 (全宽，向左对齐) */}
         <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/95 space-y-3.5">
-          {/* 下拉 + 搜索框组合 */}
+          {/* 下拉 + 搜索框组合 + 返回首页 */}
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 shrink-0 shadow-2xs"
+              title="返回我的首页/工作室"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">返回首页</span>
+            </button>
+
             <div className="relative shrink-0">
               <button
                 type="button"
