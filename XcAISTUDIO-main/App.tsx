@@ -35,7 +35,7 @@ const SPRING = "cubic-bezier(0.32, 0.72, 0, 1)";
 const SNAP_THRESHOLD = 8; // Pixels for magnetic snap
 const COLLISION_PADDING = 24; // Spacing when nodes bounce off each other
 const CANVAS_SAVE_DELAY = 800;
-const VIEWPORT_BUFFER_PX = 640;
+const VIEWPORT_BUFFER_PX = 320;
 const PREVIEW_MAX_EDGE = 640;
 const GROUP_PADDING_X = 44;
 const GROUP_PADDING_TOP = 72;
@@ -321,7 +321,6 @@ export const App = () => {
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
     const [draggingNodeParentGroupId, setDraggingNodeParentGroupId] = useState<string | null>(null);
     const [draggingGroup, setDraggingGroup] = useState<any>(null);
-    const [dragPreview, setDragPreview] = useState<{ nodeIds: string[]; dx: number; dy: number } | null>(null);
     const [resizingGroupId, setResizingGroupId] = useState<string | null>(null);
     const [activeGroupNodeIds, setActiveGroupNodeIds] = useState<string[]>([]);
     const [connectionStart, setConnectionStart] = useState<{ id: string, x: number, y: number } | null>(null);
@@ -387,6 +386,13 @@ export const App = () => {
         parentGroupId?: string | null,
         siblingNodeIds: string[],
         draggedNodeStartById: Map<string, { startX: number, startY: number }>,
+        draggedNodeElements: Map<string, {
+            element: HTMLElement,
+            transition: string,
+            willChange: string,
+            backdropFilter: string,
+            boxShadow: string,
+        }>,
         nodeWidth: number,
         nodeHeight: number
     } | null>(null);
@@ -416,10 +422,6 @@ export const App = () => {
         historyRef.current = history; historyIndexRef.current = historyIndex; connectionStartRef.current = connectionStart;
         scaleRef.current = scale; panRef.current = pan; interactionModeRef.current = interactionMode;
     }, [nodes, connections, groups, history, historyIndex, connectionStart, scale, pan, interactionMode]);
-
-    useEffect(() => {
-        dragPreviewRef.current = dragPreview;
-    }, [dragPreview]);
 
     useEffect(() => {
         const handleResize = () => setViewportSize({ width: window.innerWidth, height: window.innerHeight });
@@ -583,11 +585,6 @@ export const App = () => {
 
     const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
     const activeGroupNodeIdSet = useMemo(() => new Set(activeGroupNodeIds), [activeGroupNodeIds]);
-    const dragPreviewNodeIdSet = useMemo(
-        () => new Set(dragPreview?.nodeIds || []),
-        [dragPreview]
-    );
-
     const nodeInputAssetsById = useMemo(() => {
         const assetsById = new Map<string, {
             id: string;
@@ -1224,7 +1221,7 @@ export const App = () => {
             }
 
             if (draggingNodeId && dragNodeRef.current && dragNodeRef.current.id === draggingNodeId) {
-                const { startX, startY, mouseStartX, mouseStartY, nodeWidth, nodeHeight, draggedNodeStartById } = dragNodeRef.current;
+                const { startX, startY, mouseStartX, mouseStartY, nodeWidth, nodeHeight, draggedNodeStartById, draggedNodeElements } = dragNodeRef.current;
                 let dx = (clientX - mouseStartX) / scale;
                 let dy = (clientY - mouseStartY) / scale;
                 let proposedX = startX + dx;
@@ -1258,20 +1255,28 @@ export const App = () => {
                     });
                 }
 
-                setDragPreview({
+                const nextPreview = {
                     nodeIds: Array.from(draggedNodeStartById.keys()),
                     dx: isDraggingSelection ? dx : proposedX - startX,
                     dy: isDraggingSelection ? dy : proposedY - startY,
+                };
+                dragPreviewRef.current = nextPreview;
+                const transform = `translate3d(${nextPreview.dx}px, ${nextPreview.dy}px, 0)`;
+                draggedNodeElements.forEach(({ element }) => {
+                    element.style.transform = transform;
                 });
 
             } else if (draggingNodeId) {
                 const dx = (clientX - lastMousePosRef.current.x) / scale;
                 const dy = (clientY - lastMousePosRef.current.y) / scale;
-                setDragPreview({
+                const nextPreview = {
                     nodeIds: [draggingNodeId],
                     dx,
                     dy,
-                });
+                };
+                dragPreviewRef.current = nextPreview;
+                const draggedElement = canvasRef.current?.querySelector<HTMLElement>(`[data-canvas-node-id="${draggingNodeId}"]`);
+                if (draggedElement) draggedElement.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
                 lastMousePosRef.current = { x: clientX, y: clientY };
             }
 
@@ -1306,6 +1311,7 @@ export const App = () => {
 
         const preview = dragPreviewRef.current;
         const dragContext = dragNodeRef.current;
+        const draggedNodeElements = dragContext?.draggedNodeElements;
         const committedPreviewDrag = Boolean(preview && dragContext);
         if (preview && dragContext) {
             setNodes(prev => prev.map(node => {
@@ -1313,7 +1319,18 @@ export const App = () => {
                 return start ? { ...node, x: start.startX + preview.dx, y: start.startY + preview.dy } : node;
             }));
             dragPreviewRef.current = null;
-            setDragPreview(null);
+        }
+
+        if (draggedNodeElements) {
+            requestAnimationFrame(() => {
+                draggedNodeElements.forEach(({ element, transition, willChange, backdropFilter, boxShadow }) => {
+                    element.style.transform = '';
+                    element.style.transition = transition;
+                    element.style.willChange = willChange;
+                    element.style.backdropFilter = backdropFilter;
+                    element.style.boxShadow = boxShadow;
+                });
+            });
         }
 
         // Collision logic for dropped node
@@ -1376,7 +1393,7 @@ export const App = () => {
 
         if (draggingNodeId || resizingNodeId || dragGroupRef.current) saveHistory();
         connectionStartRef.current = null;
-        setIsDraggingCanvas(false); setDraggingNodeId(null); setDraggingNodeParentGroupId(null); setDraggingGroup(null); setDragPreview(null); setResizingGroupId(null); setActiveGroupNodeIds([]); setResizingNodeId(null); setInitialSize(null); setResizeStartPos(null); setConnectionStart(null);
+        setIsDraggingCanvas(false); setDraggingNodeId(null); setDraggingNodeParentGroupId(null); setDraggingGroup(null); setResizingGroupId(null); setActiveGroupNodeIds([]); setResizingNodeId(null); setInitialSize(null); setResizeStartPos(null); setConnectionStart(null);
         dragNodeRef.current = null; resizeContextRef.current = null; dragGroupRef.current = null;
     }, [selectionRect, pan, scale, saveHistory, draggingNodeId, resizingNodeId]);
 
@@ -2360,7 +2377,34 @@ export const App = () => {
                                     if (!draggedNodeStartById.has(id)) {
                                         draggedNodeStartById.set(id, { startX: n.x, startY: n.y });
                                     }
-                                    dragNodeRef.current = { id, startX: n.x, startY: n.y, mouseStartX: e.clientX, mouseStartY: e.clientY, parentGroupId: pGroup?.id, siblingNodeIds, draggedNodeStartById, nodeWidth: w, nodeHeight: h };
+                                    const canvasNodeElements = new Map<string, HTMLElement>();
+                                    canvasRef.current?.querySelectorAll<HTMLElement>('[data-canvas-node-id]').forEach(element => {
+                                        const nodeId = element.dataset.canvasNodeId;
+                                        if (nodeId) canvasNodeElements.set(nodeId, element);
+                                    });
+                                    const draggedNodeElements = new Map<string, {
+                                        element: HTMLElement,
+                                        transition: string,
+                                        willChange: string,
+                                        backdropFilter: string,
+                                        boxShadow: string,
+                                    }>();
+                                    draggedNodeStartById.forEach((_, nodeId) => {
+                                        const element = canvasNodeElements.get(nodeId);
+                                        if (!element) return;
+                                        draggedNodeElements.set(nodeId, {
+                                            element,
+                                            transition: element.style.transition,
+                                            willChange: element.style.willChange,
+                                            backdropFilter: element.style.backdropFilter,
+                                            boxShadow: element.style.boxShadow,
+                                        });
+                                        element.style.transition = 'none';
+                                        element.style.willChange = 'transform';
+                                        element.style.backdropFilter = 'none';
+                                        element.style.boxShadow = 'none';
+                                    });
+                                    dragNodeRef.current = { id, startX: n.x, startY: n.y, mouseStartX: e.clientX, mouseStartY: e.clientY, parentGroupId: pGroup?.id, siblingNodeIds, draggedNodeStartById, draggedNodeElements, nodeWidth: w, nodeHeight: h };
                                     setDraggingNodeParentGroupId(pGroup?.id || null); setDraggingNodeId(id);
                                 }
                             }}
@@ -2405,7 +2449,6 @@ export const App = () => {
                             canvasScale={scale}
                             inputAssets={nodeInputAssetsById.get(node.id)}
                             onInputReorder={(nodeId, newOrder) => { const targetNode = nodeById.get(nodeId); if (targetNode) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
-                            dragOffset={dragPreviewNodeIdSet.has(node.id) && dragPreview ? { x: dragPreview.dx, y: dragPreview.dy } : undefined}
                             suppressNodeChrome={selectedNodeIds.length > 1 && selectedNodeIdSet.has(node.id)}
                             isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIdSet.has(node.id)}
                         />

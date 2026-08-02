@@ -143,6 +143,8 @@ const SecureVideo = ({ src, className, autoPlay, muted, loop, onMouseEnter, onMo
     const [error, setError] = useState(false);
 
     useEffect(() => {
+        setError(false);
+        setBlobUrl(null);
         if (!src) return;
         if (src.startsWith('data:') || src.startsWith('blob:')) {
             setBlobUrl(src);
@@ -150,6 +152,7 @@ const SecureVideo = ({ src, className, autoPlay, muted, loop, onMouseEnter, onMo
         }
 
         let active = true;
+        let createdObjectUrl: string | null = null;
         // Fetch the video content
         fetch(src)
             .then(response => {
@@ -161,6 +164,7 @@ const SecureVideo = ({ src, className, autoPlay, muted, loop, onMouseEnter, onMo
                     // FORCE MIME TYPE TO VIDEO/MP4 to fix black screen issues with generic binary blobs
                     const mp4Blob = new Blob([blob], { type: 'video/mp4' });
                     const url = URL.createObjectURL(mp4Blob);
+                    createdObjectUrl = url;
                     setBlobUrl(url);
                 }
             })
@@ -171,9 +175,7 @@ const SecureVideo = ({ src, className, autoPlay, muted, loop, onMouseEnter, onMo
 
         return () => {
             active = false;
-            if (blobUrl && !blobUrl.startsWith('data:')) {
-                URL.revokeObjectURL(blobUrl);
-            }
+            if (createdObjectUrl) URL.revokeObjectURL(createdObjectUrl);
         };
     }, [src]);
 
@@ -195,7 +197,7 @@ const SecureVideo = ({ src, className, autoPlay, muted, loop, onMouseEnter, onMo
             loop={loop}
             controls={controls}
             playsInline
-            preload="auto"
+            preload="metadata"
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
             onClick={onClick}
@@ -461,6 +463,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isVideoSettingsOpen, setIsVideoSettingsOpen] = useState(false);
     const [isModelOpen, setIsModelOpen] = useState(false);
     const [isRatioOpen, setIsRatioOpen] = useState(false);
+    const [isImageResolutionOpen, setIsImageResolutionOpen] = useState(false);
     const [isImageMoreOpen, setIsImageMoreOpen] = useState(false);
     const [stylePresetTab, setStylePresetTab] = useState<'风格库' | '滤镜' | '功能' | '自定义前后缀'>('风格库');
     const [styleCategory, setStyleCategory] = useState<string>('全部');
@@ -556,20 +559,29 @@ const NodeComponent: React.FC<NodeProps> = ({
     };
 
     React.useEffect(() => {
-        if (videoBlobUrl) { URL.revokeObjectURL(videoBlobUrl); setVideoBlobUrl(null); }
+        setVideoBlobUrl(null);
         if ((node.type === NodeType.VIDEO_GENERATOR || node.type === NodeType.VIDEO_ANALYZER) && node.data.videoUri) {
-            if (node.data.videoUri.startsWith('data:')) { setVideoBlobUrl(node.data.videoUri); return; }
+            if (node.data.videoUri.startsWith('data:') || node.data.videoUri.startsWith('blob:')) {
+                setVideoBlobUrl(node.data.videoUri);
+                setIsLoadingVideo(false);
+                return;
+            }
             let isActive = true; setIsLoadingVideo(true);
+            let createdObjectUrl: string | null = null;
             // Standard fetch for local usage in analysis/display
             fetch(node.data.videoUri).then(res => res.blob()).then(blob => {
                 if (isActive) {
                     // Force video/mp4 for local analysis blob too
                     const mp4Blob = new Blob([blob], { type: 'video/mp4' });
-                    setVideoBlobUrl(URL.createObjectURL(mp4Blob));
+                    createdObjectUrl = URL.createObjectURL(mp4Blob);
+                    setVideoBlobUrl(createdObjectUrl);
                     setIsLoadingVideo(false);
                 }
             }).catch(err => { if (isActive) setIsLoadingVideo(false); });
-            return () => { isActive = false; if (videoBlobUrl) URL.revokeObjectURL(videoBlobUrl); };
+            return () => {
+                isActive = false;
+                if (createdObjectUrl) URL.revokeObjectURL(createdObjectUrl);
+            };
         }
     }, [node.data.videoUri, node.type]);
 
@@ -1150,7 +1162,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             :
                             <SecureVideo
                                 videoRef={mediaRef} // Pass Ref to Video
-                                src={node.data.videoUri}
+                                src={node.data.videoUri?.startsWith('data:') || node.data.videoUri?.startsWith('blob:') ? node.data.videoUri : videoBlobUrl}
                                 className="w-full h-full object-cover bg-zinc-900"
                                 loop
                                 muted
@@ -1305,8 +1317,9 @@ const NodeComponent: React.FC<NodeProps> = ({
 
     const renderBottomPanel = () => {
         if (suppressNodeChrome) return null;
-        const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isStylePresetOpen || isImageMoreOpen;
+        const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isImageResolutionOpen || isStylePresetOpen || isImageMoreOpen;
         const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);
+        if (!isOpen) return null;
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
         const promptPlaceholder = node.type === NodeType.AUDIO_GENERATOR
             ? '描述你想生成的音乐或音效...'
@@ -1432,7 +1445,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                     )}
 
                     <div className="flex items-center justify-between px-2 pb-1 pt-1 relative z-20 gap-1.5 flex-nowrap">
-                        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
+                        <div className="flex items-center gap-2 flex-nowrap overflow-visible">
                             {isTextNode && (
                                 <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] font-bold text-zinc-100 whitespace-nowrap">
                                     <Type size={13} />
@@ -1449,6 +1462,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                         setIsModelOpen(open => !open);
                                         setIsRatioOpen(false);
                                         setIsVideoSettingsOpen(false);
+                                        setIsImageResolutionOpen(false);
                                     }}
                                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-emerald-300 hover:text-emerald-200"
                                 >
@@ -1489,6 +1503,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                             setIsRatioOpen(open => !open);
                                             setIsModelOpen(false);
                                             setIsVideoSettingsOpen(false);
+                                            setIsImageResolutionOpen(false);
                                         }}
                                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 hover:border-emerald-400/30 hover:bg-emerald-400/10 cursor-pointer transition-colors text-[10px] font-bold text-slate-300 hover:text-emerald-200"
                                     >
@@ -1532,6 +1547,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                             setIsVideoSettingsOpen(open => !open);
                                             setIsModelOpen(false);
                                             setIsRatioOpen(false);
+                                            setIsImageResolutionOpen(false);
                                         }}
                                         className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-emerald-400/30 hover:bg-emerald-400/10 hover:text-emerald-200"
                                     >
@@ -1623,14 +1639,40 @@ const NodeComponent: React.FC<NodeProps> = ({
 
                             {node.type.includes('IMAGE') && (
                                 <div className="relative group/resolution">
-                                    <div className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400">
+                                    <button
+                                        type="button"
+                                        aria-expanded={isImageResolutionOpen}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsImageResolutionOpen(open => !open);
+                                            setIsModelOpen(false);
+                                            setIsRatioOpen(false);
+                                            setIsVideoSettingsOpen(false);
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer transition-colors text-[10px] font-bold text-slate-400 hover:text-cyan-400"
+                                    >
                                         <Monitor size={12} />
                                         <span>{node.data.resolution || '2K'}</span>
-                                    </div>
-                                    <div className="absolute bottom-full left-0 pb-2 w-20 opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto transition-all duration-200 z-[200]">
-                                        <div className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                                        <ChevronDown size={10} className={`transition-transform ${isImageResolutionOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    <div className={`absolute bottom-full left-0 pb-2 w-20 transition-all duration-200 z-[300] ${isImageResolutionOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none group-hover/resolution:opacity-100 group-hover/resolution:translate-y-0 group-hover/resolution:pointer-events-auto'}`}>
+                                        <div
+                                            className="bg-[#1c1c1e] border border-white/10 rounded-xl shadow-xl overflow-hidden"
+                                            onMouseDown={e => e.stopPropagation()}
+                                            onClick={e => e.stopPropagation()}
+                                        >
                                             {IMAGE_RESOLUTIONS.map(r => (
-                                                <div key={r} onClick={() => onUpdate(node.id, { resolution: r })} className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.resolution || '2K').toUpperCase() === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}>{r}</div>
+                                                <div
+                                                    key={r}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onUpdate(node.id, { resolution: r });
+                                                        setIsImageResolutionOpen(false);
+                                                    }}
+                                                    className={`px-3 py-2 text-[10px] font-bold cursor-pointer hover:bg-white/10 ${(node.data.resolution || '2K').toUpperCase() === r ? 'text-cyan-400 bg-white/5' : 'text-slate-400'}`}
+                                                >
+                                                    {r}
+                                                </div>
                                             ))}
                                         </div>
                                     </div>
@@ -1677,6 +1719,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     const enableExpensiveEffects = Boolean((isSelected || isEmptyCreativeNode) && canvasScale >= 0.65 && !isInteracting);
     return (
         <div
+            data-canvas-node-id={node.id}
             className={`absolute group ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'} ${isSelected || isEmptyCreativeNode ? 'ring-1 ring-emerald-400/80 shadow-[0_0_0_1px_rgba(45,212,191,0.12),0_0_42px_-14px_rgba(16,185,129,0.7)] z-30' : 'ring-1 ring-white/10 hover:ring-white/20 z-10'}`}
             style={{
                 left: node.x, top: node.y, width: nodeWidth, height: nodeHeight,

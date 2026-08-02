@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Sparkles,
   Search,
@@ -13,6 +13,7 @@ import {
   Wand2,
   ChevronDown,
   ArrowLeft,
+  X,
 } from 'lucide-react';
 import {
   CREATIVE_FEATURES,
@@ -43,6 +44,22 @@ const PRODUCT_CATEGORY_TABS: Array<{ id: CategoryFilter; label: string }> = [
   { id: 'architecture', label: '建筑/室内设计' },
   { id: 'food', label: '餐饮/外卖' },
   { id: 'utility', label: '生活/工具' },
+];
+
+const SEARCH_HISTORY_KEY = 'creative_hub_search_history';
+const SEARCH_SUGGESTIONS = [
+  '主图',
+  '详情页',
+  '视频',
+  '白底图',
+  '穿搭',
+  '换背景',
+  '模特',
+  '文案',
+  '产品替换',
+  '换脸',
+  '场景图',
+  '高清放大',
 ];
 
 const FeatureCard: React.FC<{
@@ -104,8 +121,72 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState<CategoryFilter>('all');
   const [activeSidebarItem, setActiveSidebarItem] = useState(initialSidebarItem || 'creation');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [suggestionOffset, setSuggestionOffset] = useState(0);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
 
   const normalizedQuery = normalizeSearch(query);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+      if (Array.isArray(stored)) {
+        setRecentSearches(stored.filter((item): item is string => typeof item === 'string').slice(0, 6));
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!searchBoxRef.current?.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
+
+  const visibleSuggestions = useMemo(() => {
+    if (normalizedQuery) {
+      return CREATIVE_FEATURES.filter((feature) => {
+        const searchable = [feature.title, feature.englishTitle, ...feature.keywords]
+          .join(' ')
+          .toLocaleLowerCase('zh-CN');
+        return searchable.includes(normalizedQuery);
+      })
+        .map((feature) => feature.title)
+        .slice(0, 8);
+    }
+
+    return Array.from(
+      { length: 8 },
+      (_, index) => SEARCH_SUGGESTIONS[(suggestionOffset + index) % SEARCH_SUGGESTIONS.length],
+    );
+  }, [normalizedQuery, suggestionOffset]);
+
+  const commitSearch = (value: string) => {
+    const nextQuery = value.trim();
+    setQuery(nextQuery);
+    setIsSearchOpen(false);
+    if (!nextQuery) return;
+
+    setRecentSearches((current) => {
+      const next = [nextQuery, ...current.filter((item) => item !== nextQuery)].slice(0, 6);
+      try {
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const clearRecentSearches = () => {
+    setRecentSearches([]);
+    try {
+      localStorage.removeItem(SEARCH_HISTORY_KEY);
+    } catch {}
+  };
 
   const filteredFeatures = useMemo(() => {
     return CREATIVE_FEATURES.filter((feature) => {
@@ -166,37 +247,134 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
         <main className="flex-1 overflow-y-auto no-scrollbar min-w-0">
         {/* 顶部搜索栏与品类 Tabs 区域 (全宽，向左对齐) */}
         <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/95 space-y-3.5">
-          {/* 下拉 + 搜索框组合 */}
-          <div className="flex items-center gap-3">
-            <div className="relative shrink-0">
+          {/* 搜索范围 + 搜索框 + 推荐面板 */}
+          <div ref={searchBoxRef} className="relative w-full max-w-[640px]">
+            <div
+              className={`flex h-11 items-stretch overflow-hidden rounded-xl border bg-white shadow-2xs transition-all dark:bg-slate-900 ${
+                isSearchOpen
+                  ? 'border-slate-400 ring-4 ring-slate-900/[0.04] dark:border-slate-500 dark:ring-white/[0.04]'
+                  : 'border-slate-200 hover:border-slate-300 dark:border-white/10 dark:hover:border-white/20'
+              }`}
+            >
               <button
                 type="button"
-                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100 transition dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 shadow-2xs"
+                onClick={() => setIsSearchOpen(true)}
+                className="flex w-[92px] shrink-0 items-center justify-center gap-1.5 border-r border-slate-200 bg-slate-50/70 px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-800"
+                aria-label="当前搜索范围：智能体"
               >
                 <span>智能体</span>
-                <ChevronDown className="h-4 w-4 text-slate-400" />
+                <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${isSearchOpen ? 'rotate-180' : ''}`} />
               </button>
-            </div>
 
-            <div className="relative w-full max-w-xl">
-              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <div className="relative min-w-0 flex-1">
+              <Search className={`pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${isSearchOpen ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400'}`} />
               <input
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => setIsSearchOpen(true)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setIsSearchOpen(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') commitSearch(query);
+                  if (event.key === 'Escape') setIsSearchOpen(false);
+                }}
                 placeholder="输入模板关键词或功能名称，按 Enter 搜索"
-                className="w-full rounded-xl border border-slate-200/90 bg-slate-50/80 py-2.5 pl-10 pr-9 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-900/5 dark:border-white/10 dark:bg-slate-800/80 dark:text-white dark:focus:border-slate-500 shadow-2xs"
+                className="h-full w-full bg-transparent pl-10 pr-10 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
+                role="combobox"
+                aria-expanded={isSearchOpen}
+                aria-controls="creative-search-panel"
               />
               {query && (
                 <button
                   type="button"
-                  onClick={() => setQuery('')}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-700"
+                  onClick={() => {
+                    setQuery('');
+                    setIsSearchOpen(true);
+                  }}
+                  className="absolute right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  aria-label="清除搜索内容"
                 >
-                  清除
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
+              </div>
             </div>
+
+            {isSearchOpen && (
+              <div
+                id="creative-search-panel"
+                className="absolute inset-x-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.13)] dark:border-white/10 dark:bg-slate-900 dark:shadow-[0_20px_50px_rgba(0,0,0,0.45)]"
+                role="listbox"
+              >
+                <div className="p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      {normalizedQuery ? '相关功能' : '猜你想搜'}
+                    </span>
+                    {!normalizedQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSuggestionOffset((current) => (current + 8) % SEARCH_SUGGESTIONS.length)}
+                        className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        换一换
+                      </button>
+                    )}
+                  </div>
+
+                  {visibleSuggestions.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-0.5">
+                      {visibleSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => commitSearch(suggestion)}
+                          className="truncate rounded-lg px-2.5 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-orange-50 hover:text-orange-700 dark:text-slate-300 dark:hover:bg-orange-500/10 dark:hover:text-orange-300"
+                          role="option"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="rounded-lg bg-slate-50 px-3 py-4 text-center text-xs text-slate-400 dark:bg-slate-800/60">
+                      暂无匹配建议，按 Enter 搜索全部内容
+                    </p>
+                  )}
+                </div>
+
+                {recentSearches.length > 0 && (
+                  <div className="border-t border-slate-100 px-4 py-3.5 dark:border-white/10">
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400">最近搜索</span>
+                      <button
+                        type="button"
+                        onClick={clearRecentSearches}
+                        className="rounded-md px-1.5 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                      >
+                        清空
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {recentSearches.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => commitSearch(item)}
+                          className="flex max-w-[10rem] items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-300"
+                        >
+                          <Clock className="h-3 w-3 shrink-0 text-slate-400" />
+                          <span className="truncate">{item}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 全品类 Tab 胶囊过滤栏 (完全对齐图2头部，靠左全展) */}
