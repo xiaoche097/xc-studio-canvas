@@ -79,7 +79,7 @@ const FeatureCard: React.FC<{
 
       {/* 标题与描述文本 */}
       <div className="p-3.5">
-        <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-orange-600 transition-colors">
+        <h3 className="text-base font-black text-slate-900 dark:text-slate-100 group-hover:text-orange-600 transition-colors">
           {feature.title}
         </h3>
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400 font-medium">
@@ -315,11 +315,11 @@ const CreativeHub: React.FC<CreativeHubProps> = ({ onOpenFeature, onBack }) => {
               return (
                 <section key={cat.id} className="space-y-3">
                   {/* 分块 Header：对齐图2 `主图/详情图/展示视频 5个` */}
-                  <div className="flex items-center gap-1.5">
-                    <h2 className="text-sm font-black text-slate-900 dark:text-white">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
                       {sectionTitle}
                     </h2>
-                    <span className="text-xs font-normal text-slate-400">
+                    <span className="text-xs font-bold text-slate-400">
                       {groupFeatures.length}个
                     </span>
                   </div>
