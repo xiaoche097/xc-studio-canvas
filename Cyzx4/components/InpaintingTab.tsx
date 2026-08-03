@@ -586,8 +586,6 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasMask, setHasMask] = useState(false);
   const [maskPreviewUrl, setMaskPreviewUrl] = useState<string | null>(null);
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
-  const [showCursor, setShowCursor] = useState(false);
   const [showMaskGuide, setShowMaskGuide] = useState(false);
   const [showStructureGuide, setShowStructureGuide] = useState(false);
 
@@ -714,6 +712,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const savedMaskDataUrlRef = useRef<string | null>(null);
   const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
 
   // 导出外框主界面透明背景的彩色半透明蒙版预览图
   const syncMaskPreview = useCallback(() => {
@@ -1190,8 +1189,16 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     ctx.fillStyle = colorRgba;
     ctx.fill();
 
-    if (!isEraseMode) setHasMask(true);
-  }, [brushSize, brushColor, brushOpacity, activeTool]);
+    if (!isEraseMode && !hasMask) setHasMask(true);
+  }, [brushSize, brushColor, activeTool, hasMask]);
+
+  // 高性能 GPU 硬件加速光圈指示器位置更新 (无需解构触发 React 重新渲染)
+  const updateCursorPos = useCallback((x: number, y: number) => {
+    if (cursorRef.current) {
+      cursorRef.current.style.transform = `translate3d(${x - brushSize / 2}px, ${y - brushSize / 2}px, 0)`;
+      cursorRef.current.style.opacity = '1';
+    }
+  }, [brushSize]);
 
   // 鼠标按下
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1232,32 +1239,35 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     }
 
     const pos = getCanvasPos(e);
-    setCursorPos(pos);
+    updateCursorPos(pos.x, pos.y);
     
     if (!isDrawing || isSpacePressed || activeTool === 'zoom') return;
     drawAt(pos.x, pos.y, lastDrawPointRef.current);
     lastDrawPointRef.current = pos;
-  }, [isPanDragging, isSpacePressed, isDrawing, activeTool, getCanvasPos, drawAt]);
+  }, [isPanDragging, isSpacePressed, isDrawing, activeTool, getCanvasPos, updateCursorPos, drawAt]);
 
   const handleMouseUp = useCallback(() => {
     setIsDrawing(false);
     setIsPanDragging(false);
     lastDrawPointRef.current = null;
-    syncMaskPreview();
-  }, [syncMaskPreview]);
+    if (hasMask) syncMaskPreview();
+  }, [hasMask, syncMaskPreview]);
 
   const handleMouseEnter = useCallback(() => {
-    setShowCursor(true);
+    if (cursorRef.current) {
+      cursorRef.current.style.opacity = '1';
+    }
   }, []);
 
   const handleMouseLeave = useCallback(() => {
     setIsDrawing(false);
     setIsPanDragging(false);
     lastDrawPointRef.current = null;
-    setShowCursor(false);
-    setCursorPos(null);
-    syncMaskPreview();
-  }, [syncMaskPreview]);
+    if (cursorRef.current) {
+      cursorRef.current.style.opacity = '0';
+    }
+    if (hasMask) syncMaskPreview();
+  }, [hasMask, syncMaskPreview]);
 
   // 触摸事件支持
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -1270,17 +1280,17 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
 
   const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
     const pos = getCanvasPos(e);
-    setCursorPos(pos);
+    updateCursorPos(pos.x, pos.y);
     if (!isDrawing || isSpacePressed || activeTool === 'zoom') return;
     drawAt(pos.x, pos.y, lastDrawPointRef.current);
     lastDrawPointRef.current = pos;
-  }, [isDrawing, isSpacePressed, activeTool, getCanvasPos, drawAt]);
+  }, [isDrawing, isSpacePressed, activeTool, getCanvasPos, updateCursorPos, drawAt]);
 
   const handleTouchEnd = useCallback(() => {
     setIsDrawing(false);
     lastDrawPointRef.current = null;
-    syncMaskPreview();
-  }, [syncMaskPreview]);
+    if (hasMask) syncMaskPreview();
+  }, [hasMask, syncMaskPreview]);
 
   // 鼠标滚轮实时调节画笔 / 橡皮擦大小
   const handleCanvasWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -3350,18 +3360,17 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
                   onTouchEnd={handleTouchEnd}
                 />
 
-                {/* 涂抹画笔光圈指示器 (根据当前选择颜色与不透明度完美映射渲染) */}
-                {showCursor && cursorPos && !isSpacePressed && activeTool !== 'zoom' && (
+                {/* 涂抹画笔光圈指示器 (采用 GPU translate3d 零延迟渲染，避免全页面 React 重新渲染) */}
+                {!isSpacePressed && activeTool !== 'zoom' && (
                   <div
-                    className="pointer-events-none absolute rounded-full border-2 z-30"
+                    ref={cursorRef}
+                    className="pointer-events-none absolute left-0 top-0 rounded-full border-2 z-30 opacity-0 transition-opacity duration-150"
                     style={{
                       width: brushSize,
                       height: brushSize,
-                      left: cursorPos.x - brushSize / 2,
-                      top: cursorPos.y - brushSize / 2,
+                      willChange: 'transform',
                       borderColor: activeTool === 'eraser' ? 'rgba(59, 130, 246, 0.9)' : hexToRgba(brushColor, 0.9),
                       backgroundColor: activeTool === 'eraser' ? 'rgba(59, 130, 246, 0.2)' : hexToRgba(brushColor, brushOpacity * 0.4),
-                      transition: 'width 0.05s, height 0.05s',
                     }}
                   />
                 )}

@@ -12,7 +12,7 @@ export const MAX_REF_IMAGES = 3;
 export const MAX_UPLOAD_IMAGES = 10;
 export const LEGACY_JIJING_BASE_URL = "https://api.jijing.ai";
 export const DEFAULT_NO1_IMAGE_BASE_URL = "https://api.rcouyi.com";
-export const DEFAULT_RIGHT_BASE_URL = "https://www.right.codes/draw";
+export const DEFAULT_RUNNINGHUB_BASE_URL = "https://www.runninghub.cn";
 export const DEFAULT_PLATO_BASE_URL = "https://api.apilio.ai";
 export const NO1_IMAGE_NODES = [
     { name: "DCDN主站", url: "https://api.rcouyi.com" },
@@ -35,7 +35,7 @@ export const GEMINI_TEXT_MODELS = [
 export const DEFAULT_TEXT_MODEL = GEMINI_TEXT_MODELS[0];
 export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
 export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
-export const RIGHT_DEFAULT_IMAGE_MODEL = 'gpt-image-2-vip';
+export const RUNNINGHUB_DEFAULT_IMAGE_MODEL = 'gpt-image-2-vip';
 export const YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL = 'gemini-3.5-flash';
 export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL;
 export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
@@ -58,7 +58,7 @@ export interface ApiConfig {
     isYunwu: boolean;
     isPlato: boolean;
     isJijing?: boolean;
-    isRight?: boolean;
+    isRunningHub?: boolean;
     isXiaoche?: boolean;
     apiVersion?: string;
     providerRetryCount?: number;
@@ -70,7 +70,7 @@ export interface GenerateContentParams {
     config?: any;
 }
 
-type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRight' | 'isXiaoche'>;
+type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRunningHub' | 'isXiaoche'>;
 
 const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
     const normalizedPreferred = !preferredUrl || preferredUrl === LEGACY_JIJING_BASE_URL
@@ -107,8 +107,8 @@ export const resolveRuntimeModelId = (
                 localStorage.getItem("jijing_enabled") !== "false"
             ) &&
             !(
-                Boolean(localStorage.getItem("right_api_key")) &&
-                localStorage.getItem("right_enabled") !== "false"
+                Boolean(localStorage.getItem("runninghub_api_key")) &&
+                localStorage.getItem("runninghub_enabled") !== "false"
             ) &&
             !(
                 Boolean(localStorage.getItem("xiaoche_api_key")) &&
@@ -124,21 +124,21 @@ export const resolveRuntimeModelId = (
                 localStorage.getItem("jijing_enabled") !== "false"
             ) ||
             (
-                Boolean(localStorage.getItem("right_api_key")) &&
-                localStorage.getItem("right_enabled") !== "false"
+                Boolean(localStorage.getItem("runninghub_api_key")) &&
+                localStorage.getItem("runninghub_enabled") !== "false"
             ),
-        isRight:
-            Boolean(localStorage.getItem("right_api_key")) &&
-            localStorage.getItem("right_enabled") !== "false",
+        isRunningHub:
+            Boolean(localStorage.getItem("runninghub_api_key")) &&
+            localStorage.getItem("runninghub_enabled") !== "false",
     };
-    if (runtimeConfig.isRight) {
-        const rightImageModelMap: Record<string, string> = {
+    if (runtimeConfig.isRunningHub) {
+        const runningHubImageModelMap: Record<string, string> = {
             'gemini-3.1-flash-image-preview': 'nano-banana-2',
             'gemini-3.1-flash-image': 'nano-banana-2',
             'gemini-3-pro-image-preview': 'nano-banana-pro',
             'gemini-3-pro-image': 'nano-banana-pro',
-            'gpt-image-2': RIGHT_DEFAULT_IMAGE_MODEL,
-            'gpt-image-2-all': RIGHT_DEFAULT_IMAGE_MODEL,
+            'gpt-image-2': RUNNINGHUB_DEFAULT_IMAGE_MODEL,
+            'gpt-image-2-all': RUNNINGHUB_DEFAULT_IMAGE_MODEL,
             'nanobanana2': 'nano-banana-2',
             'standard': 'nano-banana-2',
             'nanobananapro': 'nano-banana-pro',
@@ -147,7 +147,7 @@ export const resolveRuntimeModelId = (
             'nano-banana-2': 'nano-banana-2',
             'nano-banana-pro': 'nano-banana-pro',
         };
-        return rightImageModelMap[modelId] || modelId;
+        return runningHubImageModelMap[modelId] || modelId;
     }
     if (
         runtimeConfig.isYunwu &&
@@ -334,7 +334,7 @@ export const getApiConfig = (
             isYunwu: true,
             isPlato: false,
             isJijing: false,
-            isRight: false,
+            isRunningHub: false,
             isXiaoche: true,
             // Flow2API provides the unversioned Gemini compatibility route at /models/:generateContent.
             apiVersion: '',
@@ -343,22 +343,22 @@ export const getApiConfig = (
         };
     }
 
-    // Right Code API
-    const rightKey = localStorage.getItem("right_api_key");
-    const rightBaseUrl = localStorage.getItem("right_base_url");
-    const rightEnabled = localStorage.getItem("right_enabled") !== "false";
+    // RunningHub API
+    const runningHubKey = localStorage.getItem("runninghub_api_key");
+    const runningHubBaseUrl = localStorage.getItem("runninghub_base_url");
+    const runningHubEnabled = localStorage.getItem("runninghub_enabled") !== "false";
 
-    if (rightKey && rightEnabled) {
-        const keys = rightKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
+    if (runningHubKey && runningHubEnabled) {
+        const keys = runningHubKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
         if (keys.length === 0) {
-            throw new Error("Right Code API Key is empty. Please check Settings.");
+            throw new Error("RunningHub API Key is empty. Please check Settings.");
         }
         const keyCount = keys.length;
         let activeKey = keys[0];
         let currentIndex = 0;
 
         if (keyCount > 1) {
-            const lastIndexKey = "right_api_key_last_index";
+            const lastIndexKey = "runninghub_api_key_last_index";
             if (forceIndex !== undefined) {
                 currentIndex = forceIndex % keyCount;
             } else {
@@ -367,16 +367,16 @@ export const getApiConfig = (
                 localStorage.setItem(lastIndexKey, currentIndex.toString());
             }
             activeKey = keys[currentIndex];
-            console.log(`[Right Code API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
+            console.log(`[RunningHub API Rotation] Using key ${currentIndex + 1}/${keyCount}`);
         }
 
         return {
             apiKey: activeKey,
-            baseUrl: rightBaseUrl || DEFAULT_RIGHT_BASE_URL,
+            baseUrl: runningHubBaseUrl || DEFAULT_RUNNINGHUB_BASE_URL,
             isYunwu: true,
             isPlato: true,
             isJijing: false,
-            isRight: true,
+            isRunningHub: true,
             apiVersion: 'v1',
             keyCount,
             currentIndex
@@ -526,7 +526,7 @@ export const getApiConfig = (
         };
     }
 
-    throw new Error("No active API configuration found. Please enable Xiaoche, Right Code, No.1 Image, Plato, Yunwu or Native API in Settings.");
+    throw new Error("No active API configuration found. Please enable Xiaoche, RunningHub, No.1 Image, Plato, Yunwu or Native API in Settings.");
 };
 
 /** Image generation can opt into image-only relays without hijacking text/analysis calls. */
@@ -538,11 +538,11 @@ export const getVideoApiConfig = (forceIndex?: number) => getApiConfig(forceInde
 /**
  * 获取AI客户端实例
  */
-const toRightCodeBaseUrl = (baseUrl?: string): string => {
-    return (baseUrl || DEFAULT_RIGHT_BASE_URL).replace(/\/$/, "");
+const toRunningHubBaseUrl = (baseUrl?: string): string => {
+    return (baseUrl || DEFAULT_RUNNINGHUB_BASE_URL).replace(/\/$/, "");
 };
 
-const normalizeRightCodeContent = (parts: any[]): string | any[] => {
+const normalizeRunningHubContent = (parts: any[]): string | any[] => {
     const content: any[] = [];
 
     parts.forEach(part => {
@@ -581,7 +581,7 @@ const normalizeRightCodeContent = (parts: any[]): string | any[] => {
     return content;
 };
 
-const normalizeRightCodeMessages = (request: any): any[] => {
+const normalizeRunningHubMessages = (request: any): any[] => {
     const messages: any[] = [];
     const systemInstruction = request?.config?.systemInstruction || request?.systemInstruction;
     if (systemInstruction) {
@@ -590,7 +590,7 @@ const normalizeRightCodeMessages = (request: any): any[] => {
             : [{ text: typeof systemInstruction === 'string' ? systemInstruction : systemInstruction.text || String(systemInstruction) }];
         messages.push({
             role: 'system',
-            content: normalizeRightCodeContent(systemParts)
+            content: normalizeRunningHubContent(systemParts)
         });
     }
 
@@ -609,7 +609,7 @@ const normalizeRightCodeMessages = (request: any): any[] => {
         if (parts.length === 0) return;
         messages.push({
             role: content?.role === 'model' ? 'assistant' : (content?.role || 'user'),
-            content: normalizeRightCodeContent(parts)
+            content: normalizeRunningHubContent(parts)
         });
     });
 
@@ -619,11 +619,11 @@ const normalizeRightCodeMessages = (request: any): any[] => {
     return messages;
 };
 
-const createRightCodeChatClient = (config: ApiConfig) => {
+const createRunningHubChatClient = (config: ApiConfig) => {
     return {
         models: {
             generateContent: async (request: any) => {
-                const endpoint = `${toRightCodeBaseUrl(config.baseUrl)}/v1/chat/completions`;
+                const endpoint = `${toRunningHubBaseUrl(config.baseUrl)}/v1/chat/completions`;
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
@@ -633,13 +633,13 @@ const createRightCodeChatClient = (config: ApiConfig) => {
                     body: JSON.stringify({
                         model: resolveRuntimeModelId(request.model, config),
                         stream: false,
-                        messages: normalizeRightCodeMessages(request),
+                        messages: normalizeRunningHubMessages(request),
                     }),
                 });
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    const error = new Error(`Right Code Chat API Error ${response.status}: ${errorText}`);
+                    const error = new Error(`RunningHub Chat API Error ${response.status}: ${errorText}`);
                     (error as any).status = response.status;
                     throw error;
                 }
@@ -662,8 +662,8 @@ const createRightCodeChatClient = (config: ApiConfig) => {
 export const getAiClient = (): GoogleGenAI => {
     const config = getApiConfig();
 
-    if (config.isRight) {
-        return createRightCodeChatClient(config);
+    if (config.isRunningHub) {
+        return createRunningHubChatClient(config);
     }
 
     if (config.isYunwu && config.baseUrl) {
@@ -694,8 +694,8 @@ export const getImageAiClient = (): {
     config: ApiConfig & { keyCount: number; currentIndex: number };
 } => {
     const config = getImageApiConfig();
-    const ai = config.isRight
-        ? createRightCodeChatClient(config)
+    const ai = config.isRunningHub
+        ? createRunningHubChatClient(config)
         : config.isYunwu && config.baseUrl
             ? new GoogleGenAI({
                 apiKey: config.apiKey,
@@ -716,14 +716,14 @@ export const getImageAiClient = (): {
 /**
  * 获取当前激活的API信息（用于调试）
  */
-export const getActiveApiInfo = (): { type: 'xiaoche' | 'right' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+export const getActiveApiInfo = (): { type: 'xiaoche' | 'runninghub' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
         const config = getImageApiConfig();
         if (config.isXiaoche) {
             return { type: 'xiaoche', baseUrl: config.baseUrl };
         }
-        if (localStorage.getItem("right_api_key") && (localStorage.getItem("right_enabled") !== "false")) {
-            return { type: 'right', baseUrl: config.baseUrl };
+        if (localStorage.getItem("runninghub_api_key") && (localStorage.getItem("runninghub_enabled") !== "false")) {
+            return { type: 'runninghub', baseUrl: config.baseUrl };
         }
         if (localStorage.getItem("jijing_api_key") && (localStorage.getItem("jijing_enabled") !== "false")) {
             return { type: 'jijing', baseUrl: config.baseUrl };

@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Edit3,
   FileText,
   Grid,
   Grid3x3,
@@ -265,11 +266,44 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
   const [error, setError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ url: string; title: string } | null>(null);
   const [promptModal, setPromptModal] = useState<{
+    schemeId?: string;
     title: string;
     subtitle?: string;
-    prompts: Array<{ label: string; content: string }>;
+    editable?: boolean;
+    prompts?: Array<{ label: string; content: string }>;
   } | null>(null);
+  const [editableShots, setEditableShots] = useState<FissionShot[]>([]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const handleEditableShotChange = (
+    index: number,
+    field: keyof FissionShot,
+    value: string
+  ) => {
+    setEditableShots((current) =>
+      current.map((shot, i) => (i === index ? { ...shot, [field]: value } : shot))
+    );
+  };
+
+  const handleSavePromptEdits = () => {
+    if (!promptModal?.schemeId) return;
+    const schemeId = promptModal.schemeId;
+    const updatedSchemes = schemes.map((s) =>
+      s.id === schemeId ? { ...s, shots: editableShots } : s
+    );
+    setSchemes(updatedSchemes);
+    updateTask({ workspace: { ...currentWorkspace(), schemes: updatedSchemes } });
+    setPromptModal(null);
+    setAgentLog((current) => [...current, `已保存对「${promptModal.title}」动作提示词的修改`]);
+  };
+
+  const handleResetPromptEdits = () => {
+    if (!promptModal?.schemeId) return;
+    const originalScheme = schemes.find((s) => s.id === promptModal.schemeId);
+    if (originalScheme) {
+      setEditableShots(JSON.parse(JSON.stringify(originalScheme.shots)));
+    }
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1173,21 +1207,18 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    setEditableShots(JSON.parse(JSON.stringify(scheme.shots)));
                                     setPromptModal({
+                                      schemeId: scheme.id,
                                       title: `${scheme.title} · 9机位动作提示词`,
-                                      subtitle: scheme.strategy,
-                                      prompts: scheme.shots.map((s) => ({
-                                        label: `第 ${s.index} 机位: ${s.shotName} (${s.framing})`,
-                                        content: `机位角度: ${s.cameraAngle}\n动作描述: ${s.poseAction}\nPrompt: ${
-                                          s.prompt || `${s.shotName}, ${s.framing}, ${s.poseAction}`
-                                        }`,
-                                      })),
+                                      subtitle: scheme.strategy || '支持直接编辑各个机位的动作描述与 Prompt 提示词，修改保存后应用于后续生成',
+                                      editable: true,
                                     });
                                   }}
                                   className="flex items-center gap-1 rounded-lg border border-pastel-border bg-white px-2.5 py-1 text-xs font-bold text-pastel-text shadow-sm transition hover:border-orange-400 hover:text-orange-600 dark:bg-slate-800"
                                 >
-                                  <FileText className="h-3.5 w-3.5" />
-                                  查看提示词
+                                  <Edit3 className="h-3.5 w-3.5 text-orange-500" />
+                                  查看/编辑提示词
                                 </button>
                                 <button
                                   type="button"
@@ -1582,13 +1613,19 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
             onClick={() => setPromptModal(null)}
           >
             <div
-              className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card shadow-2xl dark:bg-[#10192b]"
+              className={`flex max-h-[88vh] w-full ${
+                promptModal.editable ? 'max-w-4xl' : 'max-w-3xl'
+              } flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card shadow-2xl dark:bg-[#10192b]`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-pastel-border px-5 py-4">
                 <div>
                   <h3 className="flex items-center gap-2 text-base font-black">
-                    <FileText className="h-4 w-4 text-pastel-highlight" />
+                    {promptModal.editable ? (
+                      <Edit3 className="h-4 w-4 text-[#ed6d46]" />
+                    ) : (
+                      <FileText className="h-4 w-4 text-pastel-highlight" />
+                    )}
                     {promptModal.title}
                   </h3>
                   {promptModal.subtitle && <p className="mt-0.5 text-xs text-pastel-muted">{promptModal.subtitle}</p>}
@@ -1601,38 +1638,145 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {promptModal.editable && (
+                <div className="flex items-center justify-between border-b border-orange-200/60 bg-orange-50/60 px-5 py-2.5 text-xs font-bold text-orange-800 dark:border-orange-900/40 dark:bg-orange-950/30 dark:text-orange-300">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 shrink-0 text-[#ed6d46]" />
+                    <span>提示词已开启编辑模式：您可以随时微调动作描述与 Prompt，保存后应用于后续生成。</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetPromptEdits}
+                    className="shrink-0 text-[0.72rem] font-bold text-orange-600 underline hover:text-orange-800 dark:text-orange-400"
+                  >
+                    重置初始值
+                  </button>
+                </div>
+              )}
+
               <div className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-                {promptModal.prompts.map((item, idx) => (
-                  <div key={idx} className="rounded-xl border border-pastel-border bg-pastel-bg/60 p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-black text-pastel-text">{item.label}</span>
+                {promptModal.editable ? (
+                  editableShots.map((shot, idx) => (
+                    <div key={shot.index} className="rounded-xl border border-pastel-border bg-pastel-bg/60 p-4 shadow-xs">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-pastel-border/60 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#172238] text-[0.65rem] font-black text-white">
+                            0{shot.index}
+                          </span>
+                          <input
+                            type="text"
+                            value={shot.shotName}
+                            onChange={(e) => handleEditableShotChange(idx, 'shotName', e.target.value)}
+                            className="rounded-lg border border-pastel-border/70 bg-white px-2 py-0.5 text-xs font-black text-pastel-text outline-none focus:border-orange-500 dark:bg-slate-800"
+                            placeholder="机位名称"
+                          />
+                          <span className="rounded-md bg-orange-100/80 px-2 py-0.5 text-[0.7rem] font-bold text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+                            {shot.framing}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyPrompt(shot.prompt || `${shot.shotName}: ${shot.framing}, ${shot.poseAction}`, idx)}
+                          className="flex items-center gap-1.5 rounded-lg border border-pastel-border bg-pastel-card px-2.5 py-1 text-xs font-bold text-pastel-text shadow-sm transition hover:border-orange-400 hover:text-orange-600"
+                        >
+                          {copiedIndex === idx ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                          {copiedIndex === idx ? '已复制' : '复制 Prompt'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-[0.7rem] font-bold text-pastel-muted">
+                            动作描述 (中文微调说明)
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={shot.poseAction}
+                            onChange={(e) => handleEditableShotChange(idx, 'poseAction', e.target.value)}
+                            className="w-full resize-y rounded-xl border border-pastel-border bg-white p-2.5 text-xs font-medium leading-5 text-pastel-text outline-none transition focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 dark:bg-slate-800"
+                            placeholder="例如：自然站立，双脚微分，手轻抚衣角，眼神看向镜头..."
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-1 block text-[0.7rem] font-bold text-pastel-muted">
+                            Prompt 提示词 (英文生成词)
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={shot.prompt || ''}
+                            onChange={(e) => handleEditableShotChange(idx, 'prompt', e.target.value)}
+                            className="w-full resize-y rounded-xl border border-pastel-border bg-white p-2.5 text-xs font-mono leading-5 text-pastel-text outline-none transition focus:border-orange-500 focus:ring-1 focus:ring-orange-500/20 dark:bg-slate-800"
+                            placeholder="English prompt for this panel..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  (promptModal.prompts || []).map((item, idx) => (
+                    <div key={idx} className="rounded-xl border border-pastel-border bg-pastel-bg/60 p-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-xs font-black text-pastel-text">{item.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyPrompt(item.content, idx)}
+                          className="flex items-center gap-1.5 rounded-lg border border-pastel-border bg-pastel-card px-2.5 py-1 text-xs font-bold text-pastel-text shadow-sm transition hover:border-orange-400 hover:text-orange-600"
+                        >
+                          {copiedIndex === idx ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                          {copiedIndex === idx ? '已复制' : '复制提示词'}
+                        </button>
+                      </div>
+                      <pre className="whitespace-pre-wrap select-all rounded-lg border border-black/5 bg-black/5 p-3 font-sans text-xs leading-5 text-pastel-muted dark:border-white/5 dark:bg-white/5">
+                        {item.content}
+                      </pre>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex items-center justify-between border-t border-pastel-border px-5 py-3">
+                {promptModal.editable ? (
+                  <>
+                    <span className="text-xs text-pastel-muted">共 9 个机位动作，支持单独微调</span>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleCopyPrompt(item.content, idx)}
-                        className="flex items-center gap-1.5 rounded-lg border border-pastel-border bg-pastel-card px-2.5 py-1 text-xs font-bold text-pastel-text shadow-sm transition hover:border-orange-400 hover:text-orange-600"
+                        onClick={() => setPromptModal(null)}
+                        className="min-h-10 rounded-xl border border-pastel-border px-4 text-xs font-bold text-pastel-muted hover:bg-slate-100 dark:hover:bg-slate-800"
                       >
-                        {copiedIndex === idx ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-500" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                        {copiedIndex === idx ? '已复制' : '复制提示词'}
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSavePromptEdits}
+                        className="flex min-h-10 items-center gap-1.5 rounded-xl bg-[#172238] px-5 text-xs font-bold text-white shadow-md hover:bg-orange-600 transition"
+                      >
+                        <Check className="h-4 w-4" />
+                        保存修改
                       </button>
                     </div>
-                    <pre className="whitespace-pre-wrap select-all rounded-lg border border-black/5 bg-black/5 p-3 font-sans text-xs leading-5 text-pastel-muted dark:border-white/5 dark:bg-white/5">
-                      {item.content}
-                    </pre>
+                  </>
+                ) : (
+                  <div className="ml-auto flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setPromptModal(null)}
+                      className="min-h-10 rounded-xl bg-[#172238] px-5 text-xs font-bold text-white"
+                    >
+                      关闭
+                    </button>
                   </div>
-                ))}
-              </div>
-              <div className="flex justify-end border-t border-pastel-border px-5 py-3">
-                <button
-                  type="button"
-                  onClick={() => setPromptModal(null)}
-                  className="min-h-10 rounded-xl bg-[#172238] px-5 text-xs font-bold text-white"
-                >
-                  关闭
-                </button>
+                )}
               </div>
             </div>
           </div>

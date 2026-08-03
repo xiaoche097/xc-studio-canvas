@@ -947,7 +947,7 @@ const generateMidjourneyImagine = async (
   throw new Error('Midjourney generation timed out before returning an image.');
 };
 
-const RIGHT_CODE_IMAGE_VALUE_KEYS = new Set([
+const RUNNINGHUB_IMAGE_VALUE_KEYS = new Set([
   'b64_json',
   'base64',
   'image',
@@ -1025,14 +1025,14 @@ const extractGeneratedImagesFromResponse = (data: any): string[] => {
 
     Object.entries(value).forEach(([key, nestedValue]) => {
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, '');
-      if (RIGHT_CODE_IMAGE_VALUE_KEYS.has(normalizedKey)) {
+      if (RUNNINGHUB_IMAGE_VALUE_KEYS.has(normalizedKey)) {
         walk(nestedValue, normalizedKey);
       }
     });
 
     Object.entries(value).forEach(([key, nestedValue]) => {
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, '');
-      if (!RIGHT_CODE_IMAGE_VALUE_KEYS.has(normalizedKey)) {
+      if (!RUNNINGHUB_IMAGE_VALUE_KEYS.has(normalizedKey)) {
         walk(nestedValue, normalizedKey);
       }
     });
@@ -1071,7 +1071,7 @@ const delayWithAbort = (ms: number, signal?: AbortSignal) => new Promise<void>((
   signal?.addEventListener('abort', abortHandler, { once: true });
 });
 
-const getRightCodeTaskId = (data: any): string => {
+const getRunningHubTaskId = (data: any): string => {
   return String(
     data?.task_id ||
     data?.taskId ||
@@ -1083,7 +1083,7 @@ const getRightCodeTaskId = (data: any): string => {
   ).trim();
 };
 
-const getRightCodeTaskStatus = (data: any): string => {
+const getRunningHubTaskStatus = (data: any): string => {
   return String(
     data?.status ||
     data?.state ||
@@ -1094,31 +1094,33 @@ const getRightCodeTaskStatus = (data: any): string => {
   ).toLowerCase();
 };
 
-const isRightCodeTaskPending = (status: string): boolean => (
+const isRunningHubTaskPending = (status: string): boolean => (
   ['queued', 'running', 'processing', 'in_progress', 'pending'].includes(status)
 );
 
-const isRightCodeTaskFailed = (status: string): boolean => (
+const isRunningHubTaskFailed = (status: string): boolean => (
   ['failed', 'failure', 'error', 'expired', 'cancelled', 'canceled'].includes(status)
 );
 
-const getRightCodeRootUrl = (baseUrl?: string): string => {
-  const normalized = (baseUrl || 'https://www.right.codes/draw').replace(/\/$/, '');
+const getRunningHubRootUrl = (baseUrl?: string): string => {
+  const normalized = (baseUrl || 'https://www.runninghub.cn').replace(/\/$/, '');
   try {
     const url = new URL(normalized);
     return `${url.protocol}//${url.host}`;
   } catch {
-    return normalized.replace(/\/draw(?:\/.*)?$/, '');
+    return normalized;
   }
 };
 
-const pollRightCodeImageTask = async (
+const pollRunningHubImageTask = async (
   config: ReturnType<typeof getApiConfig>,
   taskId: string,
   signal?: AbortSignal
 ): Promise<string[]> => {
-  const rootUrl = getRightCodeRootUrl(config.baseUrl);
+  const rootUrl = getRunningHubRootUrl(config.baseUrl);
   const endpoints = Array.from(new Set([
+    `${rootUrl}/openapi/v2/query?taskId=${encodeURIComponent(taskId)}`,
+    `${rootUrl}/task/openapi/outputs?taskId=${encodeURIComponent(taskId)}`,
     `${rootUrl}/async-task/${encodeURIComponent(taskId)}`,
   ]));
   let lastData: any = null;
@@ -1147,7 +1149,7 @@ const pollRightCodeImageTask = async (
 
       if (!taskResponse.ok) {
         const errText = await taskResponse.text();
-        lastError = new Error(`Right Code async task fetch failed: ${taskResponse.status} ${errText}`);
+        lastError = new Error(`RunningHub async task fetch failed: ${taskResponse.status} ${errText}`);
         continue;
       }
 
@@ -1156,14 +1158,14 @@ const pollRightCodeImageTask = async (
       const images = extractGeneratedImagesFromResponse(taskData);
       if (images.length > 0) return images;
 
-      const status = getRightCodeTaskStatus(taskData);
-      if (isRightCodeTaskFailed(status)) {
+      const status = getRunningHubTaskStatus(taskData);
+      if (isRunningHubTaskFailed(status)) {
         const message = taskData?.error?.message || taskData?.error || taskData?.message || taskData?.failReason || 'unknown error';
-        throw new Error(`Right Code async image task failed (${taskId}): ${typeof message === 'string' ? message : JSON.stringify(message)}`);
+        throw new Error(`RunningHub async image task failed (${taskId}): ${typeof message === 'string' ? message : JSON.stringify(message)}`);
       }
 
-      if (!isRightCodeTaskPending(status) && status && status !== 'completed') {
-        console.warn('[Right Code Image] Async task has no recognized image yet:', taskData);
+      if (!isRunningHubTaskPending(status) && status && status !== 'completed') {
+        console.warn('[RunningHub Image] Async task has no recognized image yet:', taskData);
       }
 
       lastError = null;
@@ -1171,7 +1173,7 @@ const pollRightCodeImageTask = async (
     }
 
     if (lastError) {
-      console.warn(`[Right Code Image] Async task ${taskId} is still waiting; polling will continue.`, lastError);
+      console.warn(`[RunningHub Image] Async task ${taskId} is still waiting; polling will continue.`, lastError);
       lastError = null;
     }
   }
@@ -1241,15 +1243,15 @@ export const generateImageToImage = async (
     }
   }
 
-  if (initialConfig.isRight) {
+  if (initialConfig.isRunningHub) {
     targetModel = resolveRuntimeModelId(targetModel, initialConfig);
   }
 
   const isGptModel = targetModel.toLowerCase().includes('gpt');
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all' || targetModel === 'gpt-image-2-vip';
   const isMidjourneyModel = targetModel === 'mj_imagine';
-  const usesOpenAiImageEndpoint = isGptImage2 || (initialConfig.isRight && !isMidjourneyModel);
-  const openAiImageProviderLabel = initialConfig.isRight ? 'Right Code Image' : 'GPT Image 2';
+  const usesOpenAiImageEndpoint = isGptImage2 || (initialConfig.isRunningHub && !isMidjourneyModel);
+  const openAiImageProviderLabel = initialConfig.isRunningHub ? 'RunningHub Image' : 'GPT Image 2';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -1580,7 +1582,7 @@ ${forcedPrompt}`;
             prompt: gptPrompt,
             size: gptSize,
             quality: "auto",
-            response_format: config.isRight ? "url" : "b64_json",
+            response_format: config.isRunningHub ? "url" : "b64_json",
             // Exact match with your doc: array[string]
             // AND adding the prefix for input images as required by most reverse proxies
             image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
@@ -1605,7 +1607,7 @@ ${forcedPrompt}`;
           }
 
           const data = await fetchResponse.json();
-          const results = config.isRight
+          const results = config.isRunningHub
             ? extractGeneratedImagesFromResponse(data)
             : (
               Array.isArray(data.data)
@@ -1626,13 +1628,13 @@ ${forcedPrompt}`;
             }).filter(Boolean);
           
           if (results.length > 0) return results;
-          if (config.isRight) {
-            const taskId = getRightCodeTaskId(data);
-            const taskStatus = getRightCodeTaskStatus(data);
-            if (taskId && isRightCodeTaskPending(taskStatus)) {
+          if (config.isRunningHub) {
+            const taskId = getRunningHubTaskId(data);
+            const taskStatus = getRunningHubTaskStatus(data);
+            if (taskId && isRunningHubTaskPending(taskStatus)) {
               console.warn(`[${openAiImageProviderLabel}] Async task ${taskId} is ${taskStatus}; polling result...`);
               onStatus?.('polling');
-              return await pollRightCodeImageTask(config, taskId, signal);
+              return await pollRunningHubImageTask(config, taskId, signal);
             }
             console.warn(`[${openAiImageProviderLabel}] Response did not contain a recognized image payload:`, data);
             throw new Error(describeImageResponseWithoutImages(data));

@@ -35,7 +35,7 @@ const partsToOpenAiContent = (parts: any[] = []) => {
   return content.length === 1 && content[0].type === "text" ? content[0].text : content;
 };
 
-async function* parseRightCodeSseStream(response: Response) {
+async function* parseRunningHubSseStream(response: Response) {
   const reader = response.body?.getReader();
   if (!reader) return;
 
@@ -105,8 +105,8 @@ class GeminiClient {
     const config = getApiConfig();
     const selectedModelName = resolveRuntimeModelId(modelName || "gemini-1.5-flash", config);
 
-    if (config.isRight) {
-      const baseUrl = (config.baseUrl || "https://www.right.codes/draw").replace(/\/$/, "");
+    if (config.isRunningHub) {
+      const baseUrl = (config.baseUrl || "https://www.runninghub.cn").replace(/\/$/, "");
       const messages: any[] = [];
       if (systemInstruction) {
         messages.push({ role: "system", content: systemInstruction });
@@ -137,10 +137,10 @@ class GeminiClient {
 
       if (!response.ok) {
         const txt = await response.text();
-        throw new Error(`Right Code Chat API Error ${response.status}: ${txt}`);
+        throw new Error(`RunningHub Chat API Error ${response.status}: ${txt}`);
       }
 
-      return { stream: parseRightCodeSseStream(response) };
+      return { stream: parseRunningHubSseStream(response) };
     }
     
     // For Proxies (Plato/Yunwu), the SDK might fail if it hardcodes the Google URL.
@@ -226,14 +226,14 @@ class GeminiClient {
       ? resolveXiaocheImageModel(requestedImageModel, options.aspectRatio || '1:1', options.resolution || '1K')
       : resolveRuntimeModelId(requestedImageModel, config);
 
-    if (config.isRight) {
+    if (config.isRunningHub) {
       const openAiImageSize = (() => {
         if (options.aspectRatio === '16:9' || options.aspectRatio === '4:3') return '1536x1024';
         if (options.aspectRatio === '9:16' || options.aspectRatio === '3:4') return '1024x1536';
         return '1024x1024';
       })();
-      const rightUrl = `${baseUrl}/v1/images/generations`;
-      const response = await fetch(rightUrl, {
+      const runningHubUrl = `${baseUrl}/v1/images/generations`;
+      const response = await fetch(runningHubUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -255,7 +255,7 @@ class GeminiClient {
           const errJson = JSON.parse(txt);
           errorInfo = errJson.error?.message || txt;
         } catch(e) {}
-        throw new Error(`Right Code API Error ${response.status}: ${errorInfo}`);
+        throw new Error(`RunningHub API Error ${response.status}: ${errorInfo}`);
       }
 
       const data = await response.json();
@@ -270,7 +270,7 @@ class GeminiClient {
         return imageUrl;
       }
 
-      throw new Error("Right Code returned no image data.");
+      throw new Error("RunningHub returned no image data.");
     }
     
     // Some proxies use v1/models/ or v1beta/models/

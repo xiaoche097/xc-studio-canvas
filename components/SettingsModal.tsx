@@ -10,7 +10,7 @@ import { gemini } from '../lib/gemini';
 type TabType = 'api' | 'agent' | 'about';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
-const DEFAULT_RIGHT_BASE_URL = 'https://www.right.codes/draw';
+const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 
 interface SettingsModalProps {
@@ -114,10 +114,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     baseUrl: DEFAULT_NO1_IMAGE_BASE_URL
   });
 
-  const [rightConfig, setRightConfig] = useState({
+  const [runningHubConfig, setRunningHubConfig] = useState({
     enabled: false,
     apiKey: '',
-    baseUrl: DEFAULT_RIGHT_BASE_URL
+    baseUrl: DEFAULT_RUNNINGHUB_BASE_URL
   });
 
   // Global Status
@@ -152,10 +152,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
       const jEnabled = localStorage.getItem('jijing_enabled') === 'true';
       setJijingConfig({ enabled: jEnabled, apiKey: jKey, baseUrl: jUrl });
 
-      const rKey = localStorage.getItem('right_api_key') || '';
-      const rUrl = localStorage.getItem('right_base_url') || DEFAULT_RIGHT_BASE_URL;
-      const rEnabled = localStorage.getItem('right_enabled') === 'true';
-      setRightConfig({ enabled: rEnabled, apiKey: rKey, baseUrl: rUrl });
+      const rKey = localStorage.getItem('runninghub_api_key') || '';
+      const rUrl = localStorage.getItem('runninghub_base_url') || DEFAULT_RUNNINGHUB_BASE_URL;
+      const rEnabled = localStorage.getItem('runninghub_enabled') === 'true';
+      setRunningHubConfig({ enabled: rEnabled, apiKey: rKey, baseUrl: rUrl });
     }
   }, [isOpen]);
 
@@ -177,17 +177,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     localStorage.setItem('jijing_base_url', jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingConfig.enabled));
 
-    localStorage.setItem('right_api_key', rightConfig.apiKey);
-    localStorage.setItem('right_base_url', rightConfig.baseUrl || DEFAULT_RIGHT_BASE_URL);
-    localStorage.setItem('right_enabled', String(rightConfig.enabled));
+    localStorage.setItem('runninghub_api_key', runningHubConfig.apiKey);
+    localStorage.setItem('runninghub_base_url', runningHubConfig.baseUrl || DEFAULT_RUNNINGHUB_BASE_URL);
+    localStorage.setItem('runninghub_enabled', String(runningHubConfig.enabled));
 
     // Determine active provider
     let activeKey = geminiConfig.apiKey;
     let activeUrl = geminiConfig.baseUrl;
 
-    if (rightConfig.enabled && rightConfig.apiKey) {
-        activeKey = rightConfig.apiKey;
-        activeUrl = rightConfig.baseUrl || DEFAULT_RIGHT_BASE_URL;
+    if (runningHubConfig.enabled && runningHubConfig.apiKey) {
+        activeKey = runningHubConfig.apiKey;
+        activeUrl = runningHubConfig.baseUrl || DEFAULT_RUNNINGHUB_BASE_URL;
     } else if (jijingConfig.enabled && jijingConfig.apiKey) {
         activeKey = jijingConfig.apiKey;
         activeUrl = jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL;
@@ -206,7 +206,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     setTimeout(() => setStatus({ type: 'idle', message: '' }), 2000);
   };
 
-  const testConnection = async (type: 'gemini' | 'yunwu' | 'plato' | 'jijing' | 'right') => {
+  const testConnection = async (type: 'gemini' | 'yunwu' | 'plato' | 'jijing' | 'runninghub') => {
     setStatus({ type: 'testing', message: `正在连接 ${type}...` });
     
     let key = '';
@@ -216,7 +216,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     if (type === 'yunwu') { key = yunwuConfig.apiKey; url = yunwuConfig.baseUrl; }
     if (type === 'plato') { key = platoConfig.apiKey; url = DEFAULT_PLATO_BASE_URL; }
     if (type === 'jijing') { key = jijingConfig.apiKey; url = jijingConfig.baseUrl; }
-    if (type === 'right') { key = rightConfig.apiKey; url = rightConfig.baseUrl; }
+    if (type === 'runninghub') { key = runningHubConfig.apiKey; url = runningHubConfig.baseUrl; }
 
     if (!key) {
         setStatus({ type: 'error', message: '请输入 API Key 后再测试' });
@@ -225,15 +225,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
     try {
         const cleanUrl = (url || 'https://generativelanguage.googleapis.com').replace(/\/$/, "");
-        const response = type === 'right'
-          ? await fetch(`${cleanUrl}/v1/models`, {
+        const response = type === 'runninghub'
+          ? await fetch(`${cleanUrl}/openapi/v2/query?taskId=ping`, {
               method: 'GET',
               headers: {
                 Authorization: `Bearer ${key}`,
               },
             })
           : await fetch(`${cleanUrl}/v1beta/models?key=${key}`);
-        if (response.ok) {
+        if (response.ok || (type === 'runninghub' && response.status !== 401 && response.status !== 403)) {
             setStatus({ type: 'success', message: `${type} 连接成功！` });
         } else {
             const err = await response.text();
@@ -454,26 +454,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                             </div>
                         </ProviderCard>
 
-                        {/* Right Code API */}
+                        {/* RunningHub API */}
                         <ProviderCard 
-                          title="Right Code API 中转站"
-                          description="Right Code 绘图相关接口，默认使用绘图主站。"
+                          title="RunningHub API 中转站"
+                          description="RunningHub 开放平台接口，支持 AI 图像与大模型调用。"
                           icon={<Sparkles className="text-amber-500" />}
-                          enabled={rightConfig.enabled}
-                          onToggle={(v) => setRightConfig(c => ({ ...c, enabled: v }))}
+                          enabled={runningHubConfig.enabled}
+                          onToggle={(v) => setRunningHubConfig(c => ({ ...c, enabled: v }))}
                         >
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <ConfigInput 
                                   label="API Key"
-                                  value={rightConfig.apiKey}
-                                  onChange={(v) => setRightConfig(c => ({ ...c, apiKey: v }))}
+                                  value={runningHubConfig.apiKey}
+                                  onChange={(v) => setRunningHubConfig(c => ({ ...c, apiKey: v }))}
                                   placeholder="sk-..."
                                   type="password"
                                   icon={<Key size={16} />}
                                 />
                             </div>
                             <div className="flex justify-end mt-4">
-                                <button onClick={() => testConnection('right')} className="text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors">
+                                <button onClick={() => testConnection('runninghub')} className="text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors">
                                     测试连接
                                 </button>
                             </div>

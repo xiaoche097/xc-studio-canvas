@@ -44,7 +44,7 @@ interface UnifiedSettingsModalProps {
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-const DEFAULT_RIGHT_BASE_URL = 'https://www.right.codes/draw';
+const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 const NO1_IMAGE_NODES = [
@@ -174,10 +174,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isJijingKeyVisible, setIsJijingKeyVisible] = useState(false);
   const [jijingEnabled, setJijingEnabled] = useState(false);
 
-  const [rightApiKey, setRightApiKey] = useState('');
-  const [rightBaseUrl, setRightBaseUrl] = useState(DEFAULT_RIGHT_BASE_URL);
-  const [isRightKeyVisible, setIsRightKeyVisible] = useState(false);
-  const [rightEnabled, setRightEnabled] = useState(false);
+  const [runningHubApiKey, setRunningHubApiKey] = useState('');
+  const [runningHubBaseUrl, setRunningHubBaseUrl] = useState(DEFAULT_RUNNINGHUB_BASE_URL);
+  const [isRunningHubKeyVisible, setIsRunningHubKeyVisible] = useState(false);
+  const [runningHubEnabled, setRunningHubEnabled] = useState(false);
 
   const [xiaocheApiKey, setXiaocheApiKey] = useState('');
   const [xiaocheBaseUrl, setXiaocheBaseUrl] = useState(DEFAULT_XIAOCHE_BASE_URL);
@@ -198,8 +198,8 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [jijingTestStatus, setJijingTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [jijingTestMessage, setJijingTestMessage] = useState('');
 
-  const [rightTestStatus, setRightTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [rightTestMessage, setRightTestMessage] = useState('');
+  const [runningHubTestStatus, setRunningHubTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [runningHubTestMessage, setRunningHubTestMessage] = useState('');
 
   const [xiaocheTestStatus, setXiaocheTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [xiaocheTestMessage, setXiaocheTestMessage] = useState('');
@@ -221,13 +221,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const yunwuAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const platoAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jijingAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rightAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runningHubAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const xiaocheAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAutoNativeKeyRef = useRef('');
   const lastAutoYunwuKeyRef = useRef('');
   const lastAutoPlatoKeyRef = useRef('');
   const lastAutoJijingKeyRef = useRef('');
-  const lastAutoRightKeyRef = useRef('');
+  const lastAutoRunningHubKeyRef = useRef('');
   const lastAutoXiaocheKeyRef = useRef('');
 
   const formatBytes = (bytes?: number) => {
@@ -292,13 +292,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedJijingUrl) setJijingBaseUrl(savedJijingUrl === LEGACY_JIJING_BASE_URL ? DEFAULT_NO1_IMAGE_BASE_URL : savedJijingUrl);
     setJijingEnabled(savedJijingEnabled === 'true');
 
-    const savedRightKey = localStorage.getItem('right_api_key');
-    const savedRightUrl = localStorage.getItem('right_base_url');
-    const savedRightEnabled = localStorage.getItem('right_enabled');
-    if (savedRightKey) setRightApiKey(savedRightKey);
-    lastAutoRightKeyRef.current = savedRightKey || '';
-    if (savedRightUrl) setRightBaseUrl(savedRightUrl);
-    setRightEnabled(savedRightEnabled === 'true');
+    const savedRunningHubKey = localStorage.getItem('runninghub_api_key');
+    const savedRunningHubUrl = localStorage.getItem('runninghub_base_url');
+    const savedRunningHubEnabled = localStorage.getItem('runninghub_enabled');
+    if (savedRunningHubKey) setRunningHubApiKey(savedRunningHubKey);
+    lastAutoRunningHubKeyRef.current = savedRunningHubKey || '';
+    if (savedRunningHubUrl) setRunningHubBaseUrl(savedRunningHubUrl);
+    setRunningHubEnabled(savedRunningHubEnabled === 'true');
 
     const savedXiaocheKey = localStorage.getItem('xiaoche_api_key');
     const savedXiaocheUrl = localStorage.getItem('xiaoche_base_url');
@@ -396,9 +396,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('jijing_base_url', jijingBaseUrl.trim() || DEFAULT_NO1_IMAGE_BASE_URL);
     localStorage.setItem('jijing_enabled', String(jijingEnabled));
 
-    localStorage.setItem('right_api_key', rightApiKey.trim());
-    localStorage.setItem('right_base_url', rightBaseUrl.trim() || DEFAULT_RIGHT_BASE_URL);
-    localStorage.setItem('right_enabled', String(rightEnabled));
+    localStorage.setItem('runninghub_api_key', runningHubApiKey.trim());
+    localStorage.setItem('runninghub_base_url', runningHubBaseUrl.trim() || DEFAULT_RUNNINGHUB_BASE_URL);
+    localStorage.setItem('runninghub_enabled', String(runningHubEnabled));
 
     localStorage.setItem('xiaoche_api_key', xiaocheApiKey.trim());
     localStorage.setItem('xiaoche_base_url', xiaocheBaseUrl.trim() || DEFAULT_XIAOCHE_BASE_URL);
@@ -461,36 +461,52 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     }
   };
 
-  const handleTestRight = async () => {
-    const key = rightApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
+  const handleTestRunningHub = async () => {
+    const key = runningHubApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
     if (!key) {
-      setRightTestStatus('error');
-      setRightTestMessage('请输入 API Key');
+      setRunningHubTestStatus('error');
+      setRunningHubTestMessage('请输入 API Key');
       return;
     }
-    setRightTestStatus('testing');
-    setRightTestMessage('正在测试...');
+    setRunningHubTestStatus('testing');
+    setRunningHubTestMessage('正在测试...');
     try {
-      const baseUrl = (rightBaseUrl || DEFAULT_RIGHT_BASE_URL).replace(/\/+$/, '');
-      const response = await fetch(`${baseUrl}/v1/models`, {
+      const baseUrl = (runningHubBaseUrl || DEFAULT_RUNNINGHUB_BASE_URL).replace(/\/+$/, '');
+      let response = await fetch(`${baseUrl}/openapi/v2/query?taskId=ping`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${key}`,
         },
       });
-      if (!response.ok) {
+
+      if (response.status === 401 || response.status === 403) {
         const errorData = await response.json().catch(() => ({}));
-        const message = errorData.error?.message || errorData.message || `HTTP Error ${response.status}`;
-        if (response.status === 401 || response.status === 403) {
-          throw new Error(message);
-        }
-        throw new Error(`${message}; Right server is reachable, but the lightweight model-list check failed. Save and verify with image generation.`);
+        throw new Error(errorData.error?.message || errorData.msg || errorData.message || 'API Key 无效或未授权');
       }
-      setRightTestStatus('success');
-      setRightTestMessage('连接成功');
+
+      if (!response.ok && response.status === 404) {
+        response = await fetch(`${baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: 'nano-banana-2',
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
+        });
+        if (response.status === 401 || response.status === 403) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error?.message || errorData.msg || errorData.message || 'API Key 无效或未授权');
+        }
+      }
+
+      setRunningHubTestStatus('success');
+      setRunningHubTestMessage('连接成功');
     } catch (e: any) {
-      setRightTestStatus('error');
-      setRightTestMessage(e?.message || '连接失败');
+      setRunningHubTestStatus('error');
+      setRunningHubTestMessage(e?.message || '连接失败');
     }
   };
 
@@ -666,25 +682,25 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   }, [jijingApiKey, jijingEnabled, isOpen, settingsLoaded]);
 
   useEffect(() => {
-    if (!isOpen || !settingsLoaded || !rightEnabled) return;
-    const key = rightApiKey.trim();
-    if (key === lastAutoRightKeyRef.current) return;
-    if (rightAutoTestTimerRef.current) clearTimeout(rightAutoTestTimerRef.current);
-    lastAutoRightKeyRef.current = key;
+    if (!isOpen || !settingsLoaded || !runningHubEnabled) return;
+    const key = runningHubApiKey.trim();
+    if (key === lastAutoRunningHubKeyRef.current) return;
+    if (runningHubAutoTestTimerRef.current) clearTimeout(runningHubAutoTestTimerRef.current);
+    lastAutoRunningHubKeyRef.current = key;
     if (!key) {
-      setRightTestStatus('idle');
-      setRightTestMessage('');
+      setRunningHubTestStatus('idle');
+      setRunningHubTestMessage('');
       return;
     }
-    setRightTestStatus('testing');
-    setRightTestMessage('输入已更新，正在自动测试...');
-    rightAutoTestTimerRef.current = setTimeout(() => {
-      void handleTestRight();
+    setRunningHubTestStatus('testing');
+    setRunningHubTestMessage('输入已更新，正在自动测试...');
+    runningHubAutoTestTimerRef.current = setTimeout(() => {
+      void handleTestRunningHub();
     }, 900);
     return () => {
-      if (rightAutoTestTimerRef.current) clearTimeout(rightAutoTestTimerRef.current);
+      if (runningHubAutoTestTimerRef.current) clearTimeout(runningHubAutoTestTimerRef.current);
     };
-  }, [rightApiKey, rightEnabled, isOpen, settingsLoaded]);
+  }, [runningHubApiKey, runningHubEnabled, isOpen, settingsLoaded]);
 
   useEffect(() => {
     if (!isOpen || !settingsLoaded || !xiaocheEnabled) return;
@@ -920,7 +936,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     )}
                   </div>
 
-                  {/* Volcengine Ark / Seedance Config */}
+                  {/* Volcengine Ark Config */}
                   <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${volcengineEnabled ? 'bg-white dark:bg-white/5 border-orange-300 dark:border-orange-500/40' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
@@ -988,7 +1004,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <Zap className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`text-lg font-black ${platoEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>柏拉图 API 中转站 (推荐)</h4>
+                          <h4 className={`text-lg font-black ${platoEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>柏拉图 API 中转站</h4>
                           <p className="text-xs text-gray-500 mt-0.5">高性能多节点 Gemini 中转服务</p>
                         </div>
                       </div>
@@ -1002,20 +1018,6 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
                     {platoEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                        <div className="space-y-2">
-                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {[DEFAULT_PLATO_BASE_URL].map(url => (
-                              <button
-                                key={url}
-                                onClick={() => setPlatoBaseUrl(url)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${platoBaseUrl === url ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
-                              >
-                                主站节点
-                              </button>
-                            ))}
-                          </div>
-                        </div>
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">
@@ -1031,7 +1033,6 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                               {isPlatoKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                           </div>
-                          <p className="text-[10px] text-gray-500">支持多 Key 轮询，请使用逗号或换行分隔。</p>
                         </div>
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
@@ -1053,36 +1054,36 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     )}
                   </div>
 
-                  {/* Right Config */}
-                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${rightEnabled ? 'bg-white dark:bg-white/5 border-amber-200 dark:border-amber-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                  {/* RunningHub Config */}
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${runningHubEnabled ? 'bg-white dark:bg-white/5 border-amber-200 dark:border-amber-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
-                        <div className={`p-3 rounded-2xl ${rightEnabled ? 'bg-amber-100 text-amber-600' : 'bg-gray-200 text-gray-500'}`}>
+                        <div className={`p-3 rounded-2xl ${runningHubEnabled ? 'bg-amber-100 text-amber-600' : 'bg-gray-200 text-gray-500'}`}>
                           <Sparkles className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className={`text-lg font-black ${rightEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>Right Code API 中转站</h4>
-                          <p className="text-xs text-gray-500 mt-0.5">绘图接口统一入口，支持聊天与 OpenAI 原生图片生成接口</p>
+                          <h4 className={`text-lg font-black ${runningHubEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>RunningHub API 中转站</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">RunningHub 开放平台接口，支持 AI 图像与大模型调用</p>
                         </div>
                       </div>
                       <button
-                        onClick={() => setRightEnabled(!rightEnabled)}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${rightEnabled ? 'bg-amber-500' : 'bg-gray-300'}`}
+                        onClick={() => setRunningHubEnabled(!runningHubEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${runningHubEnabled ? 'bg-amber-500' : 'bg-gray-300'}`}
                       >
-                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${rightEnabled ? 'left-7' : 'left-1'}`} />
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${runningHubEnabled ? 'left-7' : 'left-1'}`} />
                       </button>
                     </div>
 
-                    {rightEnabled && (
+                    {runningHubEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点地址</label>
                           <div className="flex flex-wrap gap-2 mb-2">
                             <button
-                              onClick={() => setRightBaseUrl(DEFAULT_RIGHT_BASE_URL)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${rightBaseUrl === DEFAULT_RIGHT_BASE_URL ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                              onClick={() => setRunningHubBaseUrl(DEFAULT_RUNNINGHUB_BASE_URL)}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${runningHubBaseUrl === DEFAULT_RUNNINGHUB_BASE_URL ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                             >
-                              Right 绘图主站
+                              RunningHub 官方主站
                             </button>
                           </div>
                         </div>
@@ -1090,33 +1091,33 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">
                             <textarea
-                              value={rightApiKey}
-                              onChange={(e) => setRightApiKey(e.target.value)}
+                              value={runningHubApiKey}
+                              onChange={(e) => setRunningHubApiKey(e.target.value)}
                               rows={4}
-                              style={{ WebkitTextSecurity: isRightKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              style={{ WebkitTextSecurity: isRunningHubKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
                               className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-amber-500/20 outline-none font-mono resize-none"
                               placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                             />
-                            <button onClick={() => setIsRightKeyVisible(!isRightKeyVisible)} className="absolute right-3 top-3 text-gray-400">
-                              {isRightKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            <button onClick={() => setIsRunningHubKeyVisible(!isRunningHubKeyVisible)} className="absolute right-3 top-3 text-gray-400">
+                              {isRunningHubKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                           </div>
                           <p className="text-[10px] text-gray-500">支持多 Key 轮询，请使用逗号或换行分隔。</p>
                         </div>
                         <div className="flex items-center justify-between gap-4 mt-2">
                            <div className="flex-1">
-                             {rightTestStatus !== 'idle' && (
-                                <span className={`text-xs font-bold ${rightTestStatus === 'success' ? 'text-green-500' : rightTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
-                                 {rightTestStatus === 'success' ? '连接成功' : rightTestStatus === 'testing' ? '正在自动测试...' : rightTestMessage}
-                               </span>
+                             {runningHubTestStatus !== 'idle' && (
+                                <span className={`text-xs font-bold ${runningHubTestStatus === 'success' ? 'text-green-500' : runningHubTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                  {runningHubTestStatus === 'success' ? '连接成功' : runningHubTestStatus === 'testing' ? '正在自动测试...' : runningHubTestMessage}
+                                </span>
                              )}
                            </div>
                            <button
-                             onClick={handleTestRight}
-                             disabled={rightTestStatus === 'testing'}
+                             onClick={handleTestRunningHub}
+                             disabled={runningHubTestStatus === 'testing'}
                              className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-amber-50 dark:hover:bg-amber-500/10 text-gray-500 hover:text-amber-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
                            >
-                             {rightTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
+                             {runningHubTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
                         </div>
                       </div>
