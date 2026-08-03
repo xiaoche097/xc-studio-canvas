@@ -5110,8 +5110,22 @@ Return ONLY the final enriched English prompt. Do NOT include any preamble or ex
  * - 'mannequin': 人台换衣 (Mannequin / Ghost Mannequin to Model Clothes Change)
  * - 'shoes': 鞋靴试穿 (Footwear / Shoe Try-On)
  */
+export type UniversalTryOnProductRole =
+  | 'top'
+  | 'bottom'
+  | 'full'
+  | 'shoes'
+  | 'accessory'
+  | 'product';
+
+export interface UniversalTryOnProductImage {
+  base64: string;
+  mime: string;
+  role: UniversalTryOnProductRole;
+}
+
 export const generateUniversalTryOn = async (
-  productImages: { base64: string; mime: string }[],
+  productImages: UniversalTryOnProductImage[],
   modelReference: { base64: string; mime: string } | null,
   subMode: 'model' | 'mannequin' | 'shoes' = 'model',
   customPrompt?: string,
@@ -5128,9 +5142,53 @@ export const generateUniversalTryOn = async (
   const { ai, config: imageApiConfig } = getImageGenerationContext(model, aspectRatio, resolution);
   throwIfAborted(signal);
 
-  const productCount = productImages.length;
   const hasModelRef = !!modelReference;
   const isCroppingLocked = hasModelRef && lockCropping;
+  const firstProductImageIndex = hasModelRef ? 2 : 1;
+  const productRoleLabels: Record<UniversalTryOnProductRole, string> = {
+    top: 'TOP GARMENT reference (replace upper-body clothing only)',
+    bottom: 'BOTTOM GARMENT reference (replace lower-body clothing only)',
+    full: 'FULL OUTFIT reference (replace the complete garment)',
+    shoes: 'FOOTWEAR reference (replace shoes only)',
+    accessory: 'ACCESSORY reference (shoes, bag, hat, belt or jewelry; do not treat as clothing)',
+    product: 'PRODUCT reference',
+  };
+  const inputImageMap = productImages
+    .map((image, index) => `- Image ${firstProductImageIndex + index}: ${productRoleLabels[image.role]}`)
+    .join('\n');
+  const qualityInstruction = isCroppingLocked
+    ? QUALITY_BOOSTERS.RETOUCHING
+    : QUALITY_BOOSTERS.PRODUCT;
+  const roleSpecificFrameRules = [
+    productImages.some((image) => image.role === 'top')
+      ? '- **TOP GARMENT LOCK**: Replace only the upper garment area already visible in Image 1. Keep the original top-edge body intersection; do not reveal extra neck, shoulders, chest, arms, or head to display the full top.'
+      : '',
+    productImages.some((image) => image.role === 'bottom')
+      ? '- **BOTTOM GARMENT / TROUSER LOCK**: Keep the original waistband height, crotch point, hip width, knee coordinates, trouser hem height, leg stance, ankle/foot positions, footwear, and floor contact. Do not reveal more torso above the original top boundary or more floor below the original bottom boundary to display the full trousers.'
+      : '',
+    productImages.some((image) => image.role === 'full')
+      ? '- **FULL OUTFIT LOCK**: Fit the outfit only inside the body area visible in Image 1. Any portion outside the original frame must remain clipped rather than causing an expanded body or canvas.'
+      : '',
+  ].filter(Boolean).join('\n');
+  const preservationContract = isCroppingLocked
+    ? `
+## HIGHEST-PRIORITY FRAME PRESERVATION CONTRACT
+This contract overrides the commercial-photography goal, garment completeness, styling preferences, and every CUSTOM INSTRUCTION.
+
+1. **TOP EDGE CONTENT LOCK**: Identify the exact anatomical/body/clothing point cut by the TOP edge of Image 1. The output top edge must cut through that same point. Never reveal additional head, neck, shoulders, chest, arms, or empty background above it.
+2. **BOTTOM & SIDE EDGE LOCK**: Preserve the exact body/object intersections at the bottom, left, and right boundaries. Never extend the canvas or reveal content outside Image 1.
+3. **NORMALIZED LANDMARK LOCK**: Keep waistline, hands, elbows, hips, knees, ankles, feet, and visible garment boundaries at the same normalized x/y coordinates as Image 1.
+4. **SUBJECT SCALE LOCK**: The model must occupy the same percentage of the frame. No zooming out to show the full garment and no zooming in for detail.
+5. **CLIPPED GARMENT RULE**: If Image 1 clips part of the replacement garment, clip the new garment at the identical frame boundary. Showing the whole product is a failure.
+6. **UNCHANGED-PIXEL PRINCIPLE**: Outside the replaced garment/accessory regions, reproduce Image 1 without redesign, relighting, beautification, background cleanup, or recomposition.
+7. **FORBIDDEN OUTPUTS**: more upper body than Image 1, newly visible head/neck/shoulders, wider scene, taller canvas content, altered pose, shifted hands, changed footwear unless requested, or a newly staged fashion photo.
+
+### ROLE-SPECIFIC CROP RULES
+${roleSpecificFrameRules}
+
+Before rendering, compare the planned output silhouette and all four frame intersections against Image 1. If any boundary exposes more content, correct it before generating.
+`
+    : '';
 
   let modeTitle = '模特换衣试穿';
   let modeInstruction = '';
@@ -5138,13 +5196,15 @@ export const generateUniversalTryOn = async (
   if (subMode === 'model') {
     modeTitle = `模特换装/虚拟试穿 (Model Virtual Try-On - ${isCroppingLocked ? 'Strict Cropping Lock' : 'Free Full Body View'})`;
     modeInstruction = `
-- **GOAL**: Seamlessly transfer the clothes from Product Images (Images 1-${productCount}) onto the model figure in Image ${productCount + (hasModelRef ? 1 : 0)}.
+- **GOAL**: ${hasModelRef ? 'Edit the target model in Image 1' : 'Generate a model'} using the role-labeled garment and accessory references in the INPUT IMAGE MAP.
 ${isCroppingLocked ? `
-- **CRITICAL CROPPING & VIEWPORT LOCK**:
-  1. **STRICT CROP BOUNDARY MIRRORING**: You MUST 100% mirror the exact camera distance, framing, aspect ratio, and crop boundary of Image ${productCount + 1} (Model Ref).
-  2. **NO EXTRA HEAD/LIMBS**: If Image ${productCount + 1} is cropped at the neck/chest, waist, or upper thigh (e.g. headless, torso-only, or partial view), the output image MUST maintain the EXACT SAME crop line. DO NOT invent, generate, or reveal a head, full body, or extra limbs if they were not visible in Image ${productCount + 1}!
-  3. **PARTIAL CLOTHING DISPLAY LOCK**: If a garment (top or shorts) is only partially visible in Image ${productCount + 1} due to the crop, render ONLY that exact visible portion of the new garment matching the original crop border.
-  4. **POSE & ANATOMY FREEZE**: Freeze hand positions (e.g. hands inside pockets), leg posture, waistline height, belt buckle, skin exposure area, and background environment (e.g. brick wall, crosswalk) with zero alteration.
+- **IMAGE-EDITING MODE — TARGET IMAGE 1 IS THE IMMUTABLE BASE CANVAS**:
+  1. **POSE SKELETON FREEZE**: Preserve the exact head tilt, shoulder line, spine curve, hip angle, elbow/wrist/finger positions, knee bend, ankle angle and weight distribution from Image 1. Do not re-pose or beautify the body.
+  2. **CAMERA & CROP FREEZE**: Preserve the exact camera position, perspective, focal length, subject scale, framing, crop boundaries and output orientation of Image 1. Do not zoom, pan, rotate, extend or recrop.
+  3. **IDENTITY & ENVIRONMENT FREEZE**: Preserve face, hair, skin, body proportions, visible anatomy, background, lighting direction and all non-clothing objects from Image 1.
+  4. **GARMENT-ONLY EDIT**: Change pixels only where the designated garments sit. Keep exposed skin and original body contours anchored. For partially visible garments, replace only the visible portion.
+  5. **ACCESSORY PLACEMENT**: Add accessory references only at anatomically correct locations using the existing pose. Never move hands, arms, feet, head or shoulders to accommodate an accessory.
+  6. **NO FULL-SCENE REGENERATION**: This is a localized virtual try-on edit, not a new fashion photo. When uncertain, preserve Image 1 rather than inventing content.
 ` : `
 - **BODY & POSE**: Keep the model's exact pose, facial features, skin tone, hair style, and body proportions untouched.
 - **CLOTHING FIT**: Drape the product garment naturally on the model body with realistic fabric tension, natural folds, and true-to-life 3D volume.
@@ -5153,25 +5213,27 @@ ${isCroppingLocked ? `
   } else if (subMode === 'mannequin') {
     modeTitle = '人台换衣/人台生模特 (Mannequin to Live Model Try-On - Strict Cropping Lock)';
     modeInstruction = `
-- **GOAL**: Take the clothing item displayed on mannequin/flat-lay from Product Images (Images 1-${productCount}) and render a professional live fashion model wearing it naturally${hasModelRef ? ` using the reference model in Image ${productCount + 1}` : ''}.
+- **GOAL**: Take the clothing references in the INPUT IMAGE MAP and render a professional live fashion model wearing them naturally${hasModelRef ? ' using Image 1 as the target model/base canvas' : ''}.
 - **ELEVATION**: Convert ghost mannequin stiffness into fluid human posture, realistic fabric drapes, natural lighting shadows, and commercial lookbook aesthetics.
 ${isCroppingLocked ? `
 - **CRITICAL CROPPING & VIEWPORT LOCK**:
-  1. **STRICT CROP BOUNDARY MIRRORING**: You MUST 100% mirror the exact camera distance, framing, aspect ratio, and crop boundary of Image ${productCount + 1} (Reference Image).
-  2. **NO EXTRA HEAD/LIMBS**: If Image ${productCount + 1} is cropped at the neck/chest, waist, or upper thigh (e.g. headless mannequin, torso-only, or partial view), the output image MUST maintain the EXACT SAME crop line. DO NOT invent, generate, or reveal a head, full body, or extra limbs if they were not visible in Image ${productCount + 1}!
+  1. **STRICT CROP BOUNDARY MIRRORING**: Mirror the exact camera distance, framing, aspect ratio and crop boundary of Image 1.
+  2. **POSE & IDENTITY FREEZE**: Preserve Image 1's joints, face, body proportions and background; edit clothing regions only.
+  3. **NO EXTRA HEAD/LIMBS**: Maintain the exact same crop line and never invent body parts outside Image 1.
 ` : ''}
 - **FABRIC FIDELITY**: Preserve exact textile texture, weave pattern, color hue, and brand details without deformation.
 `;
   } else {
     modeTitle = '鞋靴试穿 (Footwear & Shoe Try-On Specialist - Single/Multi View 3D Agent & Crop Lock)';
     modeInstruction = `
-- **GOAL**: Accurately fit the footwear/shoes from Product Images (Images 1-${productCount}, which may include single-angle or multi-angle 3D views like front 45°, side, quarter) onto the feet/legs of the model in Image ${productCount + (hasModelRef ? 1 : 0)}.
+- **GOAL**: Accurately fit the footwear references from the INPUT IMAGE MAP onto ${hasModelRef ? "the target model's feet in Image 1" : "a generated model's feet"}.
 ${isCroppingLocked ? `
 - **CRITICAL CROPPING & VIEWPORT LOCK**:
-  1. **STRICT LEG/ANKLE CROP BOUNDARY MIRRORING**: You MUST 100% mirror the exact camera distance, close-up framing, aspect ratio, and crop boundary of Image ${productCount + 1} (Leg/Foot Reference Image).
-  2. **NO ZOOM OUT**: If Image ${productCount + 1} is an ankle/leg close-up crop, the output image MUST remain an ankle/leg close-up crop with the EXACT SAME framing. DO NOT zoom out to show full body!
+  1. **STRICT LEG/ANKLE CROP BOUNDARY MIRRORING**: Mirror the exact camera distance, framing, perspective and crop boundary of Image 1.
+  2. **LEG POSE FREEZE**: Keep knee, ankle, toe direction and foot-ground contact from Image 1 unchanged; replace shoes only.
+  3. **NO ZOOM OUT**: If Image 1 is an ankle/leg close-up, keep the exact same framing and never reveal additional body areas.
 ` : ''}
-- **MULTI-ANGLE FUSION**: If multiple footwear views are provided in Product Images 1-${productCount}, extract the 3D volume, sole tread depth, lace topology, and upper leather texture from all angles to construct a 100% distortion-free 3D shoe model wrapped around the model's feet.
+- **MULTI-ANGLE FUSION**: If multiple FOOTWEAR references are provided in the INPUT IMAGE MAP, extract their 3D volume, sole tread depth, lace topology and upper texture from all views before fitting them to the feet.
 - **LEG & ANKLE FIT**: Align shoe pitch, heel height, and ankle joint orientation seamlessly with the model's posture. Generate natural contact shadows where sole touches ground surface.
 - **FABRIC & DETAIL LOCK**: Preserve shoe brand logos, leather gloss, metallic eyelets, stitching lines, and rubber sole texture accurately without blur.
 `;
@@ -5184,9 +5246,15 @@ ${isCroppingLocked ? `
 You are performing a ultra-realistic virtual try-on operation: **${modeTitle}**.
 You MUST process the input through these 8 distinct phases:
 
+## INPUT IMAGE MAP — FOLLOW THESE ROLES EXACTLY
+${hasModelRef ? '- Image 1: TARGET MODEL / IMMUTABLE BASE CANVAS (highest priority)' : '- No target model image: generate a suitable model.'}
+${inputImageMap}
+
+Do not infer image roles from visual similarity. An ACCESSORY image must never replace a top or bottom garment.
+
 ## PHASE 1: ANATOMICAL & GARMENT ANALYSIS 🔍
-1. **[Garment Deconstruction]**: Analyze Product Images (1-${productCount}). Extract pattern, silhouette, collar/sleeve cut, fabric texture, and exact color codes.
-2. **[Human Pose Alignment]**: ${hasModelRef ? `Analyze Image ${productCount + 1} (Model Ref). Map 3D body skeleton, joints, skin color, AND LOCK THE EXACT CAMERA CROPPING BOUNDARY.` : 'Generate an ideal high-fashion model matching the product vibe.'}
+1. **[Garment Deconstruction]**: Analyze every role-labeled product reference. Extract pattern, silhouette, cut, fabric texture and exact colors without mixing roles.
+2. **[Human Pose Alignment]**: ${hasModelRef ? 'Analyze Image 1 first. Map its body skeleton and use those joint coordinates as hard anchors for the output.' : 'Generate an ideal high-fashion model matching the product vibe.'}
 
 ## PHASE 2: 3D DRESSING & LIGHTING SIMULATION 🛠️
 3. **[Mesh Warp & Draping]**: Wrap the garment/shoes around the target 3D human body mesh. Apply gravity, fabric weight, and movement folds.
@@ -5196,33 +5264,36 @@ You MUST process the input through these 8 distinct phases:
 ## PHASE 3: COLOR GUARD & FINAL RENDERING 🎨
 6. **[Edge Blending]**: Seamlessly blend clothing seams with skin boundaries without haloing or blur.
 7. **[Color Guard]**: Preserve exact clothing/shoe true colors. Prevent warm/red color casts, over-saturation, or skin distortion.
-8. **[Commercial Delivery]**: Output a clean, high-conversion commercial fashion photograph.
+8. **[Delivery]**: ${isCroppingLocked ? 'Deliver a localized edit of Image 1 with its original framing intact; do not create a newly staged photograph.' : 'Output a clean, high-conversion commercial fashion photograph.'}
 
 ---
 
 ## 🎯 MISSION
 
 ${modeInstruction}
+${preservationContract}
 - **CUSTOM INSTRUCTION**: ${customPrompt ? `"${customPrompt}"` : 'Ensure maximum realism and commercial polish.'}
-- **QUALITY**: ${QUALITY_BOOSTERS.PRODUCT}
+- **QUALITY**: ${qualityInstruction}
 
 **OUTPUT**:
 - Generate **ONE** photo-realistic final try-on image.
+- ${isCroppingLocked ? 'The output must have the same framing, subject scale, visible body range, and boundary intersections as Image 1.' : 'Compose a natural complete fashion image.'}
 - Do NOT output text. Just the final image.
 `;
 
   const parts: any[] = [];
   parts.push({ text: prompt });
 
-  for (const img of productImages) {
-    parts.push({
-      inlineData: { mimeType: img.mime, data: img.base64 }
-    });
-  }
-
+  // Image 1 is the edit target so image models anchor composition and pose to it.
   if (modelReference) {
     parts.push({
       inlineData: { mimeType: modelReference.mime, data: modelReference.base64 }
+    });
+  }
+
+  for (const img of productImages) {
+    parts.push({
+      inlineData: { mimeType: img.mime, data: img.base64 }
     });
   }
 
@@ -5233,7 +5304,7 @@ ${modeInstruction}
       : resolveRuntimeModelId(modelName, imageApiConfig);
 
     const config: any = {
-      temperature: 0.2,
+      temperature: 0.1,
       safetySettings: GLOBAL_SAFETY_SETTINGS,
       imageConfig: {
         aspectRatio: aspectRatio,

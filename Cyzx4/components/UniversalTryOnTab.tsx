@@ -26,9 +26,13 @@ import {
   Grid3x3,
   Check,
   Eye,
-  Lock
+  Lock,
+  Gem
 } from 'lucide-react';
-import { generateUniversalTryOn } from '../services/geminiService';
+import {
+  generateUniversalTryOn,
+  type UniversalTryOnProductImage,
+} from '../services/geminiService';
 import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
@@ -37,7 +41,7 @@ import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
-export type ActiveUploadTarget = 'top' | 'bottom' | 'full' | 'shoes' | 'model';
+export type ActiveUploadTarget = 'top' | 'bottom' | 'accessory' | 'full' | 'shoes' | 'model';
 type Stage = 1 | 2 | 3 | 4;
 type SelectionModalType = 'model' | 'ratio' | 'resolution' | null;
 
@@ -48,6 +52,8 @@ interface UploadedImage {
   base64: string;
   mime: string;
   name?: string;
+  width?: number;
+  height?: number;
 }
 
 interface UniversalTask {
@@ -62,6 +68,7 @@ interface UniversalTask {
   status: 'editing' | 'generating' | 'done' | 'error';
   topImages: UploadedImage[];
   bottomImages: UploadedImage[];
+  accessoryImages: UploadedImage[];
   fullImages: UploadedImage[];
   shoesImages: UploadedImage[];
   productImages: UploadedImage[];
@@ -312,6 +319,7 @@ const createNewTask = (subMode: UniversalTryOnSubMode = 'model'): UniversalTask 
   status: 'editing',
   topImages: [],
   bottomImages: [],
+  accessoryImages: [],
   fullImages: [],
   shoesImages: [],
   productImages: [],
@@ -340,6 +348,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const [activeUploadTarget, setActiveUploadTarget] = useState<ActiveUploadTarget>('top');
 
   const currentTask = tasks.find((t) => t.id === activeTaskId) || tasks[0];
+  const accessoryImages = currentTask.accessoryImages ?? [];
 
   const {
     startGenerationTask,
@@ -356,6 +365,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   // File input refs
   const topInputRef = useRef<HTMLInputElement>(null);
   const bottomInputRef = useRef<HTMLInputElement>(null);
+  const accessoryInputRef = useRef<HTMLInputElement>(null);
   const fullInputRef = useRef<HTMLInputElement>(null);
   const shoesInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
@@ -363,6 +373,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   // Drag states
   const [isDraggingTop, setIsDraggingTop] = useState(false);
   const [isDraggingBottom, setIsDraggingBottom] = useState(false);
+  const [isDraggingAccessory, setIsDraggingAccessory] = useState(false);
   const [isDraggingFull, setIsDraggingFull] = useState(false);
   const [isDraggingShoes, setIsDraggingShoes] = useState(false);
   const [isDraggingModel, setIsDraggingModel] = useState(false);
@@ -396,14 +407,36 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
 
   const processImageFile = async (file: File): Promise<UploadedImage> => {
     const { base64, mime } = await compressImage(file, 2048, 0.92);
+    const preview = `data:${mime};base64,${base64}`;
+    const dimensions = await new Promise<{ width?: number; height?: number }>((resolve) => {
+      const image = new window.Image();
+      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      image.onerror = () => resolve({});
+      image.src = preview;
+    });
     return {
       id: crypto.randomUUID(),
       file,
-      preview: `data:${mime};base64,${base64}`,
+      preview,
       base64,
       mime,
       name: file.name,
+      ...dimensions,
     };
+  };
+
+  const getClosestAspectRatio = (image: UploadedImage): AspectRatio | null => {
+    if (!image.width || !image.height) return null;
+    const sourceRatio = image.width / image.height;
+    const supportedRatios = ASPECT_RATIO_OPTIONS.map((option) => {
+      const [width, height] = option.id.split(':').map(Number);
+      return { id: option.id, value: width / height };
+    });
+    return supportedRatios.reduce((closest, candidate) =>
+      Math.abs(candidate.value - sourceRatio) < Math.abs(closest.value - sourceRatio)
+        ? candidate
+        : closest
+    ).id;
   };
 
   const handleUploadTarget = async (files: FileList | File[], target: ActiveUploadTarget) => {
@@ -416,12 +449,22 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
           return { ...task, topImages: [...task.topImages, ...processed].slice(0, 6) };
         } else if (target === 'bottom') {
           return { ...task, bottomImages: [...task.bottomImages, ...processed].slice(0, 6) };
+        } else if (target === 'accessory') {
+          return { ...task, accessoryImages: [...(task.accessoryImages ?? []), ...processed].slice(0, 6) };
         } else if (target === 'full') {
           return { ...task, fullImages: [...task.fullImages, ...processed].slice(0, 6) };
         } else if (target === 'shoes') {
           return { ...task, shoesImages: [...(task.shoesImages || []), ...processed].slice(0, 6) };
         } else {
-          return { ...task, modelReference: processed[0] };
+          const modelReference = processed[0];
+          const lockedAspectRatio = getClosestAspectRatio(modelReference);
+          return {
+            ...task,
+            modelReference,
+            aspectRatio: task.lockCropping && lockedAspectRatio
+              ? lockedAspectRatio
+              : task.aspectRatio,
+          };
         }
       });
     } catch (err: any) {
@@ -463,7 +506,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   }, isActive && !isLoading);
 
   const handleStartTryOn = async () => {
-    let productImgs: Array<{ base64: string; mime: string }> = [];
+    let productImgs: UniversalTryOnProductImage[] = [];
     let customPromptAddon = '';
 
     if (currentTask.subMode === 'shoes') {
@@ -479,7 +522,11 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         setError('请在【鞋靴素材】区域至少上传一张鞋履平铺/白底图');
         return;
       }
-      productImgs = shoesList.map((img) => ({ base64: img.base64, mime: img.mime }));
+      productImgs = shoesList.map((img) => ({
+        base64: img.base64,
+        mime: img.mime,
+        role: 'shoes',
+      }));
       const categoryObj = SHOE_CATEGORY_OPTIONS.find((c) => c.id === currentTask.shoeCategory);
       const angleObj = SHOE_ANGLE_OPTIONS.find((a) => a.id === currentTask.shoeAngle);
       customPromptAddon = `[Footwear Try-On Agent]: Realistically fit the footwear onto model's feet. ${categoryObj?.prompt || ''}. ${angleObj?.prompt || ''}. Precise ankle orientation and realistic ground contact shadow.`;
@@ -490,17 +537,41 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
           return;
         }
         productImgs = [
-          ...currentTask.topImages.map((img) => ({ base64: img.base64, mime: img.mime })),
-          ...currentTask.bottomImages.map((img) => ({ base64: img.base64, mime: img.mime })),
+          ...currentTask.topImages.map((img) => ({
+            base64: img.base64,
+            mime: img.mime,
+            role: 'top' as const,
+          })),
+          ...currentTask.bottomImages.map((img) => ({
+            base64: img.base64,
+            mime: img.mime,
+            role: 'bottom' as const,
+          })),
+          ...accessoryImages.map((img) => ({
+            base64: img.base64,
+            mime: img.mime,
+            role: 'accessory' as const,
+          })),
         ];
-        customPromptAddon = `[Two-Piece Try-On]: Fit upper garment (Top Images) and lower garment (Bottom Images) onto the model figure.`;
+        customPromptAddon = `[Two-Piece Try-On]: Replace the upper garment using TOP references and the lower garment using BOTTOM references. Apply ACCESSORY references only to anatomically correct locations without changing the pose. FRAME RULE: preserve the target model image's exact top/bottom/side crop boundaries and subject scale. If a garment is cut by the original frame, keep it cut; never zoom out to show the complete garment. For BOTTOM/trouser references, lock the original waistband, crotch, knees, trouser hems, feet and floor-contact coordinates, and never reveal additional torso above or floor below the source crop.`;
       } else {
         if (currentTask.fullImages.length === 0) {
           setError('请在【连体/连衣裙】区域上传至少一张服装素材图');
           return;
         }
-        productImgs = currentTask.fullImages.map((img) => ({ base64: img.base64, mime: img.mime }));
-        customPromptAddon = `[One-Piece Try-On]: Fit the full dress/suit (Full Outfit Images) onto the model figure.`;
+        productImgs = [
+          ...currentTask.fullImages.map((img) => ({
+            base64: img.base64,
+            mime: img.mime,
+            role: 'full' as const,
+          })),
+          ...accessoryImages.map((img) => ({
+            base64: img.base64,
+            mime: img.mime,
+            role: 'accessory' as const,
+          })),
+        ];
+        customPromptAddon = `[One-Piece Try-On]: Fit the full dress/suit onto the model while preserving the target image's exact crop boundaries and subject scale. Clip any unseen garment portion at the original frame edge; never expand the body or scene to show the whole outfit.`;
       }
     } else {
       const combined = [
@@ -513,7 +584,11 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         setError('请至少上传一张商品/服饰素材图');
         return;
       }
-      productImgs = combined.map((img) => ({ base64: img.base64, mime: img.mime }));
+      productImgs = combined.map((img) => ({
+        base64: img.base64,
+        mime: img.mime,
+        role: 'product',
+      }));
     }
 
     setError(null);
@@ -1191,6 +1266,130 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       />
                     </div>
                   </div>
+
+                  {/* 搭配素材：鞋、包、首饰等不会参与上下装结构判断。 */}
+                  <div
+                    onMouseEnter={() => setActiveUploadTarget('accessory')}
+                    onClick={() => setActiveUploadTarget('accessory')}
+                    className={`rounded-[1.5rem] border bg-white p-4 shadow-xs transition-all dark:bg-[#11151c] ${
+                      activeUploadTarget === 'accessory'
+                        ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/30'
+                        : 'border-pastel-border'
+                    }`}
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Gem className="h-4 w-4 text-amber-500" />
+                        <span className="text-xs font-black text-pastel-text">
+                          上传 / 拖拽 / 粘贴【搭配】（可选）
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold text-pastel-muted">
+                        {accessoryImages.length} / 6 张
+                      </span>
+                    </div>
+
+                    <p className="mb-3 text-[0.68rem] leading-5 text-pastel-muted">
+                      支持鞋子、包、帽子、腰带、项链、耳饰、手表等配饰；建议使用单品白底图。
+                    </p>
+
+                    <div
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setIsDraggingAccessory(true);
+                      }}
+                      onDragLeave={() => setIsDraggingAccessory(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setIsDraggingAccessory(false);
+                        if (event.dataTransfer.files?.length) {
+                          handleUploadTarget(event.dataTransfer.files, 'accessory');
+                        }
+                      }}
+                      className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-3 text-center transition ${
+                        isDraggingAccessory
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10'
+                          : 'border-amber-300 bg-amber-50/60 hover:border-amber-500 dark:border-amber-500/30 dark:bg-amber-500/5'
+                      }`}
+                    >
+                      {accessoryImages.length > 0 ? (
+                        <div className="w-full">
+                          <div className="no-scrollbar flex items-center justify-center gap-3 overflow-x-auto p-1">
+                            {accessoryImages.map((image, index) => (
+                              <div
+                                key={image.id || index}
+                                className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
+                              >
+                                <img
+                                  src={image.preview}
+                                  alt={`Accessory ${index + 1}`}
+                                  onClick={() => setZoomedImage(image.preview)}
+                                  className="h-full w-full cursor-pointer object-cover"
+                                  title="点击放大预览"
+                                />
+                                <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
+                                  #{index + 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    updateCurrentTask((task) => ({
+                                      ...task,
+                                      accessoryImages: (task.accessoryImages ?? []).filter((_, itemIndex) => itemIndex !== index),
+                                    }));
+                                  }}
+                                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition group-hover:opacity-100"
+                                  aria-label={`移除搭配素材 ${index + 1}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+
+                            {accessoryImages.length < 6 && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  accessoryInputRef.current?.click();
+                                }}
+                                className="flex h-36 w-28 shrink-0 flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300 text-amber-500 transition hover:border-amber-500"
+                                aria-label="继续添加搭配素材"
+                              >
+                                <Plus className="h-6 w-6" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="mt-2 text-[0.68rem] font-bold text-pastel-muted">
+                            配饰将按类别放到脚部、肩部、手腕、颈部等正确位置
+                          </p>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            accessoryInputRef.current?.click();
+                          }}
+                          className="flex flex-col items-center justify-center py-3"
+                        >
+                          <Upload className="mb-1.5 h-6 w-6 text-amber-500" />
+                          <span className="text-xs font-bold text-pastel-text">
+                            点击、拖拽或粘贴鞋包与饰品素材
+                          </span>
+                        </button>
+                      )}
+                      <input
+                        ref={accessoryInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => event.target.files && handleUploadTarget(event.target.files, 'accessory')}
+                      />
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -1751,7 +1950,19 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      updateCurrentTask((t) => ({ ...t, lockCropping: !(t.lockCropping ?? true) }));
+                      updateCurrentTask((task) => {
+                        const lockCropping = !(task.lockCropping ?? true);
+                        const lockedAspectRatio = task.modelReference
+                          ? getClosestAspectRatio(task.modelReference)
+                          : null;
+                        return {
+                          ...task,
+                          lockCropping,
+                          aspectRatio: lockCropping && lockedAspectRatio
+                            ? lockedAspectRatio
+                            : task.aspectRatio,
+                        };
+                      });
                     }}
                     className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
                       (currentTask.lockCropping ?? true)
@@ -1785,7 +1996,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
               </div>
               <p className="mb-3 text-xs text-pastel-muted">
                 {currentTask.modelReference
-                  ? '已自动开启原图 1:1 像素级锁：将严格保持原模特图的镜头视角、裁剪边界（如仅显示腰/大腿）与人物姿势动作，绝对不增减画面范围。'
+                  ? `已将模特原图作为基础画布，并同步到最接近的输出比例 ${currentTask.aspectRatio}；锁定开启时只替换服装与指定配饰，保持人物姿态、镜头和背景。`
                   : '上传需要上身拟合的模特照片，不上传则由 AI 自动生成完美模特'}
               </p>
 

@@ -25,12 +25,13 @@ import { AppMode } from '../types';
 import AssetsManager from './AssetsManager';
 import RecentUsedManager from './RecentUsedManager';
 import TaskCenterManager from './TaskCenterManager';
-import GlobalSidebar from './GlobalSidebar';
+import GlobalSidebar, { type SidebarItem } from './GlobalSidebar';
 
 type CategoryFilter = 'all' | 'fashion' | 'video' | 'architecture' | 'food' | 'utility';
 
 interface CreativeHubProps {
-  initialSidebarItem?: string;
+  activeSidebarItem: SidebarItem;
+  onSelectSidebarItem: (item: SidebarItem) => void;
   onOpenFeature: (mode: AppMode) => void;
   onBack: () => void;
 }
@@ -114,13 +115,13 @@ const FeatureCard: React.FC<{
 };
 
 const CreativeHub: React.FC<CreativeHubProps> = ({
-  initialSidebarItem,
+  activeSidebarItem,
+  onSelectSidebarItem,
   onOpenFeature,
   onBack,
 }) => {
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState<CategoryFilter>('all');
-  const [activeSidebarItem, setActiveSidebarItem] = useState(initialSidebarItem || 'creation');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -227,7 +228,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
       {/* 1. LEFT SIDEBAR (全局统一图2侧边栏) */}
       <GlobalSidebar
         activeSidebarItem={activeSidebarItem}
-        onSelectSidebarItem={(item) => setActiveSidebarItem(item as any)}
+        onSelectSidebarItem={onSelectSidebarItem}
         onBack={onBack}
       />
 
@@ -240,7 +241,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
         <div className="flex-1 overflow-hidden min-w-0">
           <RecentUsedManager
             onOpenFeature={handleOpenFeatureWithRecord}
-            onSwitchToCreation={() => setActiveSidebarItem('creation')}
+            onSwitchToCreation={() => onSelectSidebarItem('creation')}
           />
         </div>
       ) : (
@@ -462,7 +463,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
 
       {/* 任务中心全局半透明蒙层 Modal 弹窗 */}
       {activeSidebarItem === 'tasks' && (
-        <TaskCenterManager onClose={() => setActiveSidebarItem('creation')} />
+        <TaskCenterManager onClose={() => onSelectSidebarItem('creation')} />
       )}
     </div>
   );

@@ -1,9 +1,9 @@
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Grid2X2, Menu, X } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import CreativeHub from './components/CreativeHub';
-import { CREATIVE_FEATURES, FEATURE_CATEGORIES, getFeatureByMode } from './featureRegistry';
+import { CREATIVE_FEATURES, getFeatureByMode } from './featureRegistry';
 import { AppMode } from './types';
-import GlobalSidebar from './components/GlobalSidebar';
+import GlobalSidebar, { type SidebarItem } from './components/GlobalSidebar';
 
 interface CreativeCenterAppProps {
   onBack?: () => void;
@@ -21,7 +21,8 @@ const FeatureLoading: React.FC = () => (
 const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
   const [activeMode, setActiveMode] = useState<AppMode | null>(null);
   const [visitedModes, setVisitedModes] = useState<Set<AppMode>>(() => new Set());
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<'hub' | 'feature'>('hub');
+  const [hubSidebarItem, setHubSidebarItem] = useState<SidebarItem>('creation');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const activeFeature = useMemo(() => getFeatureByMode(activeMode), [activeMode]);
@@ -48,11 +49,13 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
       return next;
     });
     setActiveMode(mode);
+    setWorkspaceView('feature');
     setIsMobileSidebarOpen(false);
   };
 
   const openHub = () => {
-    setActiveMode(null);
+    setHubSidebarItem('creation');
+    setWorkspaceView('hub');
     setIsMobileSidebarOpen(false);
   };
 
@@ -64,76 +67,87 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isMobileSidebarOpen]);
 
-  const [hubSidebarItem, setHubSidebarItem] = useState<string>('creation');
-
-  const handleSidebarSelectInFeature = (item: string) => {
-    setActiveMode(null);
+  const handleSidebarSelect = (item: SidebarItem) => {
     setHubSidebarItem(item);
+    setWorkspaceView('hub');
   };
 
-  if (activeMode === null) {
-    return (
-      <CreativeHub
-        initialSidebarItem={hubSidebarItem}
-        onOpenFeature={openFeature}
-        onBack={handleBackToStudio}
-      />
-    );
-  }
-
   return (
-    <div className="relative flex h-screen overflow-hidden bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100">
-      {/* 统一使用图 2 高保真全尺寸侧边栏 (点击“创作”即刻无缝切回功能列表) */}
-      <GlobalSidebar
-        activeSidebarItem="creation"
-        onSelectSidebarItem={handleSidebarSelectInFeature}
-        onBack={handleBackToStudio}
-      />
+    <div className="relative h-screen overflow-hidden">
+      <div
+        className="h-full"
+        style={{ display: workspaceView === 'hub' ? 'block' : 'none' }}
+        aria-hidden={workspaceView !== 'hub'}
+      >
+        <CreativeHub
+          activeSidebarItem={hubSidebarItem}
+          onSelectSidebarItem={handleSidebarSelect}
+          onOpenFeature={openFeature}
+          onBack={handleBackToStudio}
+        />
+      </div>
 
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* 顶部面包屑与功能 Header */}
-        <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-6 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/90">
-          <div className="flex items-center gap-2 text-xs">
-            <button
-              type="button"
-              onClick={openHub}
-              className="font-bold text-slate-500 hover:text-slate-900 transition dark:text-slate-400 dark:hover:text-white"
-            >
-              创意中心
-            </button>
-            <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            <span className="font-black text-slate-900 dark:text-white">
-              {activeFeature?.title}
-            </span>
-          </div>
+      {activeMode !== null && (
+        <div
+          className="relative h-full"
+          style={{ display: workspaceView === 'feature' ? 'block' : 'none' }}
+          aria-hidden={workspaceView !== 'feature'}
+        >
+          <div className="relative flex h-full overflow-hidden bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100">
+            {/* 功能工作区保持挂载；侧栏入口返回创意中心或相应管理页面。 */}
+            <GlobalSidebar
+              activeSidebarItem="creation"
+              onSelectSidebarItem={handleSidebarSelect}
+              onBack={handleBackToStudio}
+            />
 
-          <div className="text-[0.7rem] font-bold text-slate-400">
-            {activeFeature?.description}
-          </div>
-        </header>
+            <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              {/* 顶部面包屑与功能 Header */}
+              <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-6 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/90">
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={openHub}
+                    className="font-bold text-slate-500 hover:text-slate-900 transition dark:text-slate-400 dark:hover:text-white"
+                  >
+                    创意中心
+                  </button>
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="font-black text-slate-900 dark:text-white">
+                    {activeFeature?.title}
+                  </span>
+                </div>
 
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          {CREATIVE_FEATURES.filter((feature) => visitedModes.has(feature.mode)).map((feature) => {
-            const FeatureComponent = feature.component;
-            const active = feature.mode === activeMode;
-            return (
-              <div
-                key={feature.mode}
-                className="h-full w-full"
-                style={{ display: active ? 'block' : 'none' }}
-                aria-hidden={!active}
-              >
-                <Suspense fallback={<FeatureLoading />}>
-                  <FeatureComponent
-                    isActive={active}
-                    onImageGenerated={() => undefined}
-                  />
-                </Suspense>
+                <div className="text-[0.7rem] font-bold text-slate-400">
+                  {activeFeature?.description}
+                </div>
+              </header>
+
+              <div className="relative min-h-0 flex-1 overflow-hidden">
+                {CREATIVE_FEATURES.filter((feature) => visitedModes.has(feature.mode)).map((feature) => {
+                  const FeatureComponent = feature.component;
+                  const active = workspaceView === 'feature' && feature.mode === activeMode;
+                  return (
+                    <div
+                      key={feature.mode}
+                      className="h-full w-full"
+                      style={{ display: active ? 'block' : 'none' }}
+                      aria-hidden={!active}
+                    >
+                      <Suspense fallback={<FeatureLoading />}>
+                        <FeatureComponent
+                          isActive={active}
+                          onImageGenerated={() => undefined}
+                        />
+                      </Suspense>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </main>
+          </div>
         </div>
-      </main>
+      )}
     </div>
   );
 };
