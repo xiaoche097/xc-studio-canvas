@@ -1954,39 +1954,37 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
 
           {/* 3. RIGHT COLUMN: AGENT OUTPUT PANEL */}
           <div className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm min-h-[35rem] flex flex-col">
-            {/* Agent Status Banner */}
-            <div className="flex items-center gap-2 rounded-xl bg-orange-500/10 p-3 text-xs font-bold text-orange-600 dark:text-orange-400 mb-4">
-              <Sparkles className="h-4 w-4 shrink-0" />
-              <span>{currentTask.agentStatus}</span>
-            </div>
-
-            {/* CoT Progress Step Bar */}
-            {currentTask.status === 'generating' && (
-              <div className="mb-4 grid grid-cols-4 gap-1.5 p-2 rounded-xl bg-pastel-bg">
-                {COT_STEPS.map((step) => {
-                  const isCompleted = currentTask.cotStep > step.id;
-                  const isCurrent = currentTask.cotStep === step.id;
-                  return (
-                    <div
-                      key={step.id}
-                      className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[0.62rem] font-bold ${
-                        isCurrent
-                          ? 'bg-[#172238] text-white shadow-xs'
-                          : isCompleted
-                          ? 'bg-emerald-500/15 text-emerald-600'
-                          : 'text-pastel-muted opacity-50'
-                      }`}
-                    >
-                      <span className="truncate">{step.label.slice(0, 4)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Output Display / Empty State */}
+            {/* Output Display / Loading State / Empty State */}
             <div className="flex-1 flex flex-col">
-              {currentTask.generatedResults.length > 0 ? (
+              {currentTask.status === 'generating' || isLoading ? (
+                <div className="flex-1 flex flex-col items-center justify-center rounded-2xl border border-dashed border-orange-500/30 bg-white/75 p-8 text-center shadow-xs dark:bg-slate-900/50">
+                  <div className="relative flex h-24 w-24 items-center justify-center">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-[#ed6d46]/15" />
+                    <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-[#17243c] text-white shadow-md">
+                      <Loader2 className="h-8 w-8 animate-spin text-orange-400" />
+                    </span>
+                  </div>
+                  <h3 className="mt-6 text-lg font-black text-pastel-text">
+                    AI 试穿 Agent 正在合成拟真效果大图
+                  </h3>
+                  <p className="mt-2 max-w-md text-xs leading-6 text-pastel-muted">
+                    正在校验服装版型与材质、高精像素抠图、精准贴合模特肢体，并重绘自然光影褶皱...
+                  </p>
+                  
+                  {/* Dynamic Agent Step Pill */}
+                  <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-4 py-1.5 text-xs font-bold text-orange-600 dark:text-orange-400 animate-pulse">
+                    <Sparkles className="h-4 w-4 shrink-0" />
+                    <span>{currentTask.agentStatus || 'Agent 任务进行中...'}</span>
+                  </div>
+
+                  {/* Progress Dots */}
+                  <div className="mt-4 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              ) : currentTask.generatedResults.length > 0 ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="font-black text-pastel-text text-sm flex items-center gap-1.5">

@@ -282,8 +282,8 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
   const isWhiteBackgroundProduction = selectedStyle?.id === 'white-background-production';
 
   // For 'clothing-to-3d-mannequin' style parameters
-  const [viewAngle, setViewAngle] = useState<'front' | 'three_quarter'>('three_quarter');
-  const [renderStyle, setRenderStyle] = useState<'real' | 'render'>('real');
+  const [viewAngle, setViewAngle] = useState<'front' | 'three_quarter' | 'back' | 'three_quarter_back' | 'side'>('three_quarter');
+  const [renderStyle, setRenderStyle] = useState<'real' | 'render' | 'retouched_3d'>('real');
   const [shadowStyle, setShadowStyle] = useState<'none' | 'subtle'>('subtle');
 
   // Drag and Drop State
@@ -549,20 +549,44 @@ Image 2 以及后续图片只作为光影参考，绝对不是内容参考。不
 ${userIntent}`;
           } else if (selectedStyle.id === 'clothing-to-3d-mannequin') {
               // Construct parameters string
-              const anglePrompt = viewAngle === 'front' ? 'front view' : '3/4 front-right side view';
-              const styleTypePrompt = renderStyle === 'real' ? 'high-end studio photography feel' : 'clean 3D digital render style';
+              let anglePrompt = '3/4 front-right side view';
+              let extraAngleNotice = '';
+              
+              switch (viewAngle) {
+                  case 'front':
+                      anglePrompt = 'front view, showing the front side of the clothing garment';
+                      break;
+                  case 'back':
+                      anglePrompt = 'back view, rear view, showing the back side of the clothing garment';
+                      extraAngleNotice = ', CRITICAL: output MUST render the BACK/REAR view of the garment, do NOT render the front view';
+                      break;
+                  case 'three_quarter_back':
+                      anglePrompt = '3/4 back-rear side view, angled from behind showing rear and side details';
+                      extraAngleNotice = ', CRITICAL: output MUST render the back-rear perspective of the garment';
+                      break;
+                  case 'side':
+                      anglePrompt = 'side profile view, side angle of the garment';
+                      break;
+                  case 'three_quarter':
+                  default:
+                      anglePrompt = '3/4 front-right side view';
+                      break;
+              }
+
+              let styleTypePrompt = 'high-end studio photography feel';
+              if (renderStyle === 'render') {
+                  styleTypePrompt = 'clean 3D digital render style';
+              } else if (renderStyle === 'retouched_3d') {
+                  styleTypePrompt = 'high-end commercial retouched 3D ghost mannequin style, full structural retouching according to the most complete garment architecture (collar, lapels, placket, zipper, buttons, sleeves, cuffs, seams, hem, and pocket), realistic 3D volume, natural garment curvature, soft diffused studio light, ultra-sharp fabric texture, perfectly clean non-destructive edges';
+              }
               const shadowPrompt = shadowStyle === 'none' ? 'no shadows, flat cutout look' : 'soft natural contact shadow at the bottom';
               
-              const paramText = `camera angle: ${anglePrompt}, rendering style: ${styleTypePrompt}, shadow: ${shadowPrompt}`;
+              const paramText = `camera angle: ${anglePrompt}${extraAngleNotice}, rendering style: ${styleTypePrompt}, shadow: ${shadowPrompt}`;
               
               stylePrompt = stylePrompt.replace('[PARAMETERS]', paramText);
               
               // Also replace default "3/4 side view by default unless specified" with the selected angle
-              if (viewAngle === 'front') {
-                  stylePrompt = stylePrompt.replace('3/4 side view by default unless specified', 'front view');
-              } else {
-                  stylePrompt = stylePrompt.replace('3/4 side view by default unless specified', '3/4 front-right side view');
-              }
+              stylePrompt = stylePrompt.replace('3/4 side view by default unless specified', anglePrompt);
           }
           
           if (selectedStyle.id !== 'lighting-replication') {
@@ -1135,11 +1159,14 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       <div className="relative">
                         <select
                           value={viewAngle}
-                          onChange={(e) => setViewAngle(e.target.value as 'front' | 'three_quarter')}
+                          onChange={(e) => setViewAngle(e.target.value as 'front' | 'three_quarter' | 'back' | 'three_quarter_back' | 'side')}
                           className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-1.5 px-2.5 text-xs text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight/50 transition-all font-medium cursor-pointer"
                         >
                           <option value="three_quarter">3/4 侧前视角 (默认)</option>
                           <option value="front">正面视角</option>
+                          <option value="back">背面视角</option>
+                          <option value="three_quarter_back">3/4 侧后视角</option>
+                          <option value="side">侧面视角</option>
                         </select>
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
                           <svg width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
@@ -1155,11 +1182,12 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       <div className="relative">
                         <select
                           value={renderStyle}
-                          onChange={(e) => setRenderStyle(e.target.value as 'real' | 'render')}
+                          onChange={(e) => setRenderStyle(e.target.value as 'real' | 'render' | 'retouched_3d')}
                           className="w-full appearance-none bg-pastel-bg border border-pastel-border rounded-lg py-1.5 px-2.5 text-xs text-pastel-text outline-none focus:ring-1 focus:ring-pastel-highlight/50 transition-all font-medium cursor-pointer"
                         >
                           <option value="real">真实棚拍 (质感写实)</option>
                           <option value="render">3D渲染 (纯净数字)</option>
+                          <option value="retouched_3d">精修立体3D (结构完整)</option>
                         </select>
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-pastel-muted">
                           <svg width="8" height="5" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 1L5 5L9 1" /></svg>
