@@ -1583,7 +1583,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
           <button
             type="button"
             onClick={() => setIsHistoryOpen(true)}
-            className="fixed bottom-5 left-4 z-40 flex min-h-11 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-xs font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] xl:left-24 dark:bg-[#11151c] dark:border-white/10 dark:text-white"
+            className="fixed bottom-5 left-4 z-40 flex min-h-11 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-xs font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] md:left-[16.25rem] lg:left-[17rem] dark:bg-[#11151c] dark:border-white/10 dark:text-white"
           >
             <PanelLeftOpen className="h-4 w-4 text-[#ed6d46]" />
             生成记录

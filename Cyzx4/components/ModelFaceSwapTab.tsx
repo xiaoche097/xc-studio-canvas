@@ -629,7 +629,7 @@ RULES:
           <button
             type="button"
             onClick={() => setIsHistoryOpen(true)}
-            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-[#d9e5f1] bg-white px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] transition hover:scale-105 dark:border-white/10 dark:bg-[#15191f] xl:left-24"
+            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-[#d9e5f1] bg-white px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] transition hover:scale-105 dark:border-white/10 dark:bg-[#15191f] md:left-[16.25rem] lg:left-[17rem]"
           >
             <PanelLeftOpen className="h-4 w-4 text-[#ed6d46]" />
             生成记录

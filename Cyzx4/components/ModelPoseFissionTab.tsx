@@ -1033,7 +1033,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
-            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg xl:left-24"
+            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg md:left-[16.25rem] lg:left-[17rem]"
           >
             <PanelLeftOpen className="h-4 w-4" />生成记录{' '}
             <span className="rounded-full bg-pastel-bg px-2 py-1 text-xs">{tasks.length}</span>

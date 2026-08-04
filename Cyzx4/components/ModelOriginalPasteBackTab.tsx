@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ChevronLeft,
   Crop,
   Download,
   Image as ImageIcon,
   Loader2,
   Maximize2,
+  PanelLeftOpen,
+  Plus,
   RefreshCw,
   Sparkles,
+  Trash2,
   Upload,
   UserCircle2,
-  Wand2,
   X,
   Zap,
 } from 'lucide-react';
@@ -46,6 +49,7 @@ type PasteTransform = {
 };
 
 type CropPreset = 'face' | 'headShoulders' | 'halfBody';
+type CropAspectRatio = '3:4' | '2:3';
 type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se';
 
 const MODEL_OPTIONS = [
@@ -72,18 +76,29 @@ const PRESETS: Record<CropPreset, { label: string; desc: string; box: CropBox }>
   },
 };
 
-const CROP_ASPECT_RATIO = 3 / 4;
+const CROP_ASPECT_RATIO_OPTIONS: Array<{
+  id: CropAspectRatio;
+  label: string;
+  desc: string;
+  value: number;
+}> = [
+  { id: '3:4', label: '3:4', desc: '标准贴回', value: 3 / 4 },
+  { id: '2:3', label: '2:3', desc: '纵向扩展', value: 2 / 3 },
+];
+const DEFAULT_CROP_ASPECT_RATIO: CropAspectRatio = '3:4';
+const getCropAspectRatioValue = (ratio: CropAspectRatio) => (
+  CROP_ASPECT_RATIO_OPTIONS.find(option => option.id === ratio)?.value ?? 3 / 4
+);
 const MIN_CROP_WIDTH = 0.12;
-const MIN_CROP_HEIGHT = MIN_CROP_WIDTH / CROP_ASPECT_RATIO;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const getNormalizedCropAspectRatio = (frameAspectRatio: number) => CROP_ASPECT_RATIO / frameAspectRatio;
+const getNormalizedCropAspectRatio = (frameAspectRatio: number, aspectRatio: number) => aspectRatio / frameAspectRatio;
 
 const fitCropBoxToAspectRatio = (
   box: CropBox,
   frameAspectRatio = 1,
-  aspectRatio = CROP_ASPECT_RATIO
+  aspectRatio = getCropAspectRatioValue(DEFAULT_CROP_ASPECT_RATIO)
 ): CropBox => {
   const normalizedAspectRatio = aspectRatio / frameAspectRatio;
   const centerX = box.x + box.w / 2;
@@ -109,7 +124,8 @@ const fitCropBoxToAspectRatio = (
   w = Math.max(Math.min(w, maxW), Math.min(MIN_CROP_WIDTH, maxW));
   h = w / normalizedAspectRatio;
   if (h > maxH) {
-    h = Math.max(Math.min(maxH, 1), Math.min(MIN_CROP_HEIGHT, maxH));
+    const minCropHeight = MIN_CROP_WIDTH / normalizedAspectRatio;
+    h = Math.max(Math.min(maxH, 1), Math.min(minCropHeight, maxH));
     w = h * normalizedAspectRatio;
   }
 
@@ -121,8 +137,12 @@ const fitCropBoxToAspectRatio = (
   };
 };
 
-const getPresetCropBox = (preset: CropPreset, frameAspectRatio = 1) => (
-  fitCropBoxToAspectRatio(PRESETS[preset].box, frameAspectRatio)
+const getPresetCropBox = (
+  preset: CropPreset,
+  frameAspectRatio = 1,
+  aspectRatio = getCropAspectRatioValue(DEFAULT_CROP_ASPECT_RATIO)
+) => (
+  fitCropBoxToAspectRatio(PRESETS[preset].box, frameAspectRatio, aspectRatio)
 );
 
 const resizeCropBoxFromCorner = (
@@ -130,9 +150,10 @@ const resizeCropBoxFromCorner = (
   mode: Exclude<DragMode, 'move'>,
   dx: number,
   dy: number,
-  frameAspectRatio: number
+  frameAspectRatio: number,
+  aspectRatio: number
 ): CropBox => {
-  const normalizedAspectRatio = getNormalizedCropAspectRatio(frameAspectRatio);
+  const normalizedAspectRatio = getNormalizedCropAspectRatio(frameAspectRatio, aspectRatio);
   const left = start.x;
   const top = start.y;
   const right = start.x + start.w;
@@ -585,14 +606,79 @@ ${notes || 'No extra notes.'}
 Negative: zoomed-in crop, close-up portrait, enlarged face, enlarged head, enlarged shoulders, enlarged torso, larger subject scale, cropped-out torso, cropped-out hand, cropped-out bag, different person, face drift, changed expression character, changed head angle, changed shoulder line, changed pose, changed crop, shifted subject, moved background, changed clothing, changed garment edge, changed background, copied reference background, copied reference clothing, copied reference pose, color shift, warmer color, cooler color, changed sea color, changed wall color, red skin cast, waxy skin, plastic skin, over-smoothed skin, blurry face, low detail skin, CGI, doll face, text, watermark.
 `.trim();
 
+type PasteBackWorkspace = {
+  targetImage: UploadedImage | null;
+  referenceImages: UploadedImage[];
+  cropPreset: CropPreset;
+  cropAspectRatio: CropAspectRatio;
+  cropBox: CropBox;
+  committedCropBox: CropBox;
+  feather: number;
+  pasteScale: number;
+  pasteOffsetX: number;
+  pasteOffsetY: number;
+  resolution: ImageResolution;
+  selectedModel: string;
+  notes: string;
+  cropPreview: string | null;
+  generatedCrop: string | null;
+  resultImage: string | null;
+  comparePosition: number;
+};
+
+type PasteBackTask = {
+  id: string;
+  createdAt: number;
+  status: 'editing' | 'generating' | 'done' | 'error';
+  cover?: string;
+  workspace: PasteBackWorkspace;
+};
+
+const createFreshPasteBackWorkspace = (): PasteBackWorkspace => {
+  const cropBox = getPresetCropBox('headShoulders');
+  return {
+    targetImage: null,
+    referenceImages: [],
+    cropPreset: 'headShoulders',
+    cropAspectRatio: DEFAULT_CROP_ASPECT_RATIO,
+    cropBox,
+    committedCropBox: cropBox,
+    feather: 18,
+    pasteScale: 1,
+    pasteOffsetX: 0,
+    pasteOffsetY: 0,
+    resolution: ImageResolution.RES_2K,
+    selectedModel: 'gemini-3.1-flash-image-preview',
+    notes: '',
+    cropPreview: null,
+    generatedCrop: null,
+    resultImage: null,
+    comparePosition: 50,
+  };
+};
+
+const createPasteBackTask = (): PasteBackTask => ({
+  id: crypto.randomUUID(),
+  createdAt: Date.now(),
+  status: 'editing',
+  workspace: createFreshPasteBackWorkspace(),
+});
+
 type ModelOriginalPasteBackTabProps = {
   isActive?: boolean;
 };
 
 const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ isActive = true }) => {
+  const initialTaskRef = useRef<PasteBackTask | null>(null);
+  if (!initialTaskRef.current) initialTaskRef.current = createPasteBackTask();
+
+  const [tasks, setTasks] = useState<PasteBackTask[]>([initialTaskRef.current!]);
+  const [activeTaskId, setActiveTaskId] = useState(initialTaskRef.current!.id);
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [targetImage, setTargetImage] = useState<UploadedImage | null>(null);
   const [referenceImages, setReferenceImages] = useState<UploadedImage[]>([]);
   const [cropPreset, setCropPreset] = useState<CropPreset>('headShoulders');
+  const [cropAspectRatio, setCropAspectRatio] = useState<CropAspectRatio>(DEFAULT_CROP_ASPECT_RATIO);
   const [cropBox, setCropBox] = useState<CropBox>(() => getPresetCropBox('headShoulders'));
   const [committedCropBox, setCommittedCropBox] = useState<CropBox>(() => getPresetCropBox('headShoulders'));
   const [feather, setFeather] = useState(18);
@@ -624,6 +710,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
     startBox: CropBox;
   } | null>(null);
   const cropBoxRef = useRef(cropBox);
+  const cropAspectRatioRef = useRef(getCropAspectRatioValue(DEFAULT_CROP_ASPECT_RATIO));
   const pendingCropBoxRef = useRef<CropBox | null>(null);
   const cropFrameRef = useRef<number | null>(null);
 
@@ -639,16 +726,138 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
   const targetDataUrl = useMemo(() => targetImage ? getDataUrl(targetImage) : null, [targetImage]);
   const canGenerate = !!targetImage && referenceImages.length > 0 && !isLoading;
   const targetFrameAspectRatio = targetImage ? targetImage.width / targetImage.height : 1;
+  const cropAspectRatioValue = getCropAspectRatioValue(cropAspectRatio);
+
+  const updateCurrentTask = useCallback((patch: Partial<PasteBackTask>) => {
+    setTasks(current => current.map(task => (
+      task.id === activeTaskId ? { ...task, ...patch } : task
+    )));
+  }, [activeTaskId]);
+
+  const getCurrentWorkspace = (): PasteBackWorkspace => ({
+    targetImage,
+    referenceImages,
+    cropPreset,
+    cropAspectRatio,
+    cropBox,
+    committedCropBox,
+    feather,
+    pasteScale,
+    pasteOffsetX,
+    pasteOffsetY,
+    resolution,
+    selectedModel,
+    notes,
+    cropPreview,
+    generatedCrop,
+    resultImage,
+    comparePosition,
+  });
+
+  const restoreWorkspace = (workspace: PasteBackWorkspace) => {
+    setTargetImage(workspace.targetImage);
+    setReferenceImages(workspace.referenceImages);
+    setCropPreset(workspace.cropPreset);
+    setCropAspectRatio(workspace.cropAspectRatio);
+    setCropBox(workspace.cropBox);
+    setCommittedCropBox(workspace.committedCropBox);
+    cropBoxRef.current = workspace.cropBox;
+    cropAspectRatioRef.current = getCropAspectRatioValue(workspace.cropAspectRatio);
+    setFeather(workspace.feather);
+    setPasteScale(workspace.pasteScale);
+    setPasteOffsetX(workspace.pasteOffsetX);
+    setPasteOffsetY(workspace.pasteOffsetY);
+    setResolution(workspace.resolution);
+    setSelectedModel(workspace.selectedModel);
+    setNotes(workspace.notes);
+    setCropPreview(workspace.cropPreview);
+    setGeneratedCrop(workspace.generatedCrop);
+    setResultImage(workspace.resultImage);
+    setComparePosition(workspace.comparePosition);
+    setPreviewImage(null);
+    setError(null);
+    setProgressText('');
+    setIsEditingCrop(false);
+  };
+
+  const switchTask = (task: PasteBackTask) => {
+    if (isLoading || task.id === activeTaskId) return;
+    const snapshot = getCurrentWorkspace();
+    setTasks(current => current.map(item => (
+      item.id === activeTaskId
+        ? { ...item, workspace: snapshot, cover: resultImage || targetImage?.preview || item.cover }
+        : item
+    )));
+    setActiveTaskId(task.id);
+    restoreWorkspace(task.workspace);
+    if (window.innerWidth < 1280) setHistoryOpen(false);
+  };
+
+  const startNewTask = () => {
+    if (isLoading) return;
+    const fresh = createPasteBackTask();
+    const snapshot = getCurrentWorkspace();
+    setTasks(current => [
+      fresh,
+      ...current.map(item => (
+        item.id === activeTaskId
+          ? { ...item, workspace: snapshot, cover: resultImage || targetImage?.preview || item.cover }
+          : item
+      )),
+    ].slice(0, 20));
+    setActiveTaskId(fresh.id);
+    restoreWorkspace(fresh.workspace);
+    if (window.innerWidth < 1280) setHistoryOpen(false);
+  };
+
+  const deleteTask = (taskId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (isLoading && taskId === activeTaskId) return;
+    const remaining = tasks.filter(task => task.id !== taskId);
+    if (remaining.length === 0) {
+      const fresh = createPasteBackTask();
+      setTasks([fresh]);
+      setActiveTaskId(fresh.id);
+      restoreWorkspace(fresh.workspace);
+      return;
+    }
+    setTasks(remaining);
+    if (taskId === activeTaskId) {
+      setActiveTaskId(remaining[0].id);
+      restoreWorkspace(remaining[0].workspace);
+    }
+  };
 
   useEffect(() => {
     cropBoxRef.current = cropBox;
   }, [cropBox]);
 
+  useEffect(() => {
+    cropAspectRatioRef.current = cropAspectRatioValue;
+  }, [cropAspectRatioValue]);
+
   const setPreset = (preset: CropPreset) => {
     setCropPreset(preset);
-    const nextCropBox = getPresetCropBox(preset, targetFrameAspectRatio);
+    const nextCropBox = getPresetCropBox(preset, targetFrameAspectRatio, cropAspectRatioValue);
     setCropBox(nextCropBox);
     setCommittedCropBox(nextCropBox);
+  };
+
+  const selectCropAspectRatio = (nextRatio: CropAspectRatio) => {
+    if (nextRatio === cropAspectRatio) return;
+    const nextAspectRatioValue = getCropAspectRatioValue(nextRatio);
+    const nextCropBox = fitCropBoxToAspectRatio(
+      committedCropBox,
+      targetFrameAspectRatio,
+      nextAspectRatioValue
+    );
+    cropAspectRatioRef.current = nextAspectRatioValue;
+    setCropAspectRatio(nextRatio);
+    setCropBox(nextCropBox);
+    setCommittedCropBox(nextCropBox);
+    setGeneratedCrop(null);
+    setResultImage(null);
+    setPreviewImage(null);
   };
 
   const handleTargetUpload = useCallback(async (files: File[] | FileList) => {
@@ -660,14 +869,15 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
       setResultImage(null);
       setGeneratedCrop(null);
       setPreviewImage(null);
-      const nextCropBox = getPresetCropBox(cropPreset, image.width / image.height);
+      const nextCropBox = getPresetCropBox(cropPreset, image.width / image.height, cropAspectRatioValue);
       setCropBox(nextCropBox);
       setCommittedCropBox(nextCropBox);
       setError(null);
+      updateCurrentTask({ cover: image.preview, status: 'editing' });
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
     }
-  }, [cropPreset]);
+  }, [cropPreset, cropAspectRatioValue, updateCurrentTask]);
 
   const handleReferenceUpload = useCallback(async (files: File[] | FileList) => {
     const imageFiles = Array.from(files).filter(item => item.type.startsWith('image/')).slice(0, 3);
@@ -802,7 +1012,14 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
       next.x = clamp(start.x + dx, 0, 1 - start.w);
       next.y = clamp(start.y + dy, 0, 1 - start.h);
     } else {
-      next = resizeCropBoxFromCorner(start, drag.mode, dx, dy, rect.width / rect.height);
+      next = resizeCropBoxFromCorner(
+        start,
+        drag.mode,
+        dx,
+        dy,
+        rect.width / rect.height,
+        cropAspectRatioRef.current
+      );
     }
 
     scheduleCropBoxUpdate(next);
@@ -874,6 +1091,15 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
     setResultImage(null);
     setGeneratedCrop(null);
     setProgressText('正在按所选清晰度准备贴回底图...');
+    updateCurrentTask({
+      status: 'generating',
+      cover: targetImage.preview,
+      workspace: {
+        ...getCurrentWorkspace(),
+        generatedCrop: null,
+        resultImage: null,
+      },
+    });
 
     try {
       const activeCropBox = committedCropBox;
@@ -959,6 +1185,16 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
       assertCurrentGenerationTask(taskId, signal);
       setResultImage(finalPng);
       setProgressText('完成');
+      updateCurrentTask({
+        status: 'done',
+        cover: finalPng,
+        workspace: {
+          ...getCurrentWorkspace(),
+          cropPreview: crop.dataUrl,
+          generatedCrop: pngCrop,
+          resultImage: finalPng,
+        },
+      });
 
       await saveGeneratedProject({
         type: 'MODEL',
@@ -968,6 +1204,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
         params: {
           subType: 'model_original_paste_back',
           cropPreset,
+          cropAspectRatio,
           cropBox: activeCropBox,
           feather,
           pasteScale,
@@ -981,6 +1218,9 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
     } catch (generateError) {
       if (!isAbortError(generateError)) {
         setError(getErrorMessage(generateError));
+        updateCurrentTask({ status: 'error' });
+      } else {
+        updateCurrentTask({ status: 'editing' });
       }
     } finally {
       if (isCurrentGenerationTask(taskId)) {
@@ -994,6 +1234,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
     cancelGenerationTask();
     setIsLoading(false);
     setProgressText('');
+    updateCurrentTask({ status: 'editing' });
   };
 
   const handleDownload = () => {
@@ -1014,57 +1255,175 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
     link.click();
   };
 
-  const handleReset = () => {
-    const nextCropBox = getPresetCropBox('headShoulders', targetFrameAspectRatio);
-    setTargetImage(null);
-    setReferenceImages([]);
-    setCropBox(nextCropBox);
-    setCommittedCropBox(nextCropBox);
-    setCropPreset('headShoulders');
-    setResultImage(null);
-    setGeneratedCrop(null);
-    setCropPreview(null);
-    setPreviewImage(null);
-    setError(null);
-    setNotes('');
-    setComparePosition(50);
-    setPasteScale(1);
-    setPasteOffsetX(0);
-    setPasteOffsetY(0);
-  };
-
   const updateComparePosition = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const next = ((event.clientX - rect.left) / rect.width) * 100;
     setComparePosition(clamp(next, 0, 100));
   };
 
+  const activeWorkflowStep = resultImage || isLoading
+    ? 5
+    : targetImage && referenceImages.length > 0
+      ? 3
+      : targetImage
+        ? 2
+        : 1;
+  const workflowSteps = ['全身结果图', '高清参考', '区域与比例', '核心参数', '生成结果'];
+
   return (
-    <div className="h-full overflow-y-auto bg-gradient-to-b from-pastel-bg to-white">
-      <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="h-full overflow-y-auto bg-[#f3f6f9] text-pastel-text dark:bg-[#080a0d]">
+      <div className="mx-auto w-full max-w-[105rem] px-3 py-5 sm:px-5 lg:px-7">
         <div className="mb-6 text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-pastel-border bg-white px-4 py-1.5 text-sm text-pastel-muted shadow-sm">
-            <UserCircle2 className="h-4 w-4 text-pastel-highlight" />
-            <span>模特原图贴回</span>
+          <div className="mb-2 inline-flex items-center gap-2 text-xs font-black tracking-[0.08em] text-[#687b94]">
+            <Sparkles className="h-4 w-4 text-[#ed6d46]" />
+            <span>AI 模特细节修复工作坊</span>
           </div>
-          <h2 className="mb-2 text-2xl font-bold text-pastel-text">全身图局部高清修复</h2>
-          <p className="mx-auto max-w-2xl text-sm leading-relaxed text-pastel-muted">
+          <h2 className="text-2xl font-black tracking-tight text-[#15223a] sm:text-3xl dark:text-white">模特原图贴回</h2>
+          <p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-pastel-muted">
             用全身结果图锁定姿势、服装和背景，只重绘头肩/半身局部，再按原坐标柔边贴回，减少全身图人脸和皮肤细节丢失。
           </p>
+          <div className="mx-auto mt-5 flex max-w-4xl items-center justify-center overflow-x-auto pb-1">
+            {workflowSteps.map((step, index) => {
+              const stepNumber = index + 1;
+              const active = stepNumber === activeWorkflowStep;
+              const complete = stepNumber < activeWorkflowStep;
+              return (
+                <React.Fragment key={step}>
+                  {index > 0 && <span className={`mx-2 h-px min-w-5 flex-1 ${complete || active ? 'bg-[#f2a185]' : 'bg-[#dce4ed]'}`} />}
+                  <span className={`flex min-w-max items-center gap-2 rounded-full border px-3 py-2 text-xs font-black transition-colors ${active
+                    ? 'border-[#15223a] bg-[#15223a] text-white shadow-sm'
+                    : complete
+                      ? 'border-[#f2b49e] bg-[#fff5ef] text-[#d85a35]'
+                      : 'border-[#dde5ee] bg-white text-[#75869c]'
+                  }`}>
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[0.68rem] ${active ? 'bg-white text-[#15223a]' : complete ? 'bg-[#ed6d46] text-white' : 'bg-[#edf2f7] text-[#61738a]'}`}>{stepNumber}</span>
+                    {step}
+                  </span>
+                </React.Fragment>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[440px_minmax(0,1fr)]">
-          <div className="space-y-5">
+        {!historyOpen && (
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-sm font-black text-pastel-text shadow-[0_8px_24px_rgba(30,50,80,0.16)] md:left-[16.25rem] lg:left-[17rem] dark:border-white/10 dark:bg-[#11151c]"
+          >
+            <PanelLeftOpen className="h-4 w-4 text-[#ed6d46]" />
+            生成记录
+            <span className="rounded-full bg-pastel-bg px-2 py-0.5 text-xs text-pastel-muted dark:bg-white/10">{tasks.length}</span>
+          </button>
+        )}
+        {historyOpen && (
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(false)}
+            aria-label="关闭生成记录"
+            className="fixed inset-0 z-[59] bg-[#10203a]/35 xl:hidden"
+          />
+        )}
+
+        <div className={`grid grid-cols-1 gap-5 ${historyOpen ? 'xl:grid-cols-[16rem_28rem_minmax(0,1fr)]' : 'xl:grid-cols-[28rem_minmax(0,1fr)]'}`}>
+          {historyOpen && (
+            <aside className="no-scrollbar fixed inset-y-3 left-3 z-[60] flex w-[min(17rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[1.25rem] border border-[#d9e2ec] bg-white p-3.5 shadow-xl xl:sticky xl:top-4 xl:z-10 xl:h-[calc(100vh-7rem)] xl:w-auto xl:shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-black text-pastel-text">生成记录</h2>
+                  <p className="mt-0.5 text-xs text-pastel-muted">最多保留 20 个贴回任务</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-pastel-border text-pastel-muted transition hover:bg-pastel-bg"
+                  aria-label="收起生成记录"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={startNewTask}
+                disabled={isLoading}
+                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#15223a] text-sm font-black text-white shadow-sm transition hover:bg-[#24334d] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                新开任务
+              </button>
+
+              <div className="no-scrollbar mt-3.5 min-h-0 flex-1 space-y-3 overflow-y-auto">
+                {tasks.map(task => {
+                  const selected = task.id === activeTaskId;
+                  const statusLabel = task.status === 'generating'
+                    ? '生成中...'
+                    : task.status === 'done'
+                      ? '已完成'
+                      : task.status === 'error'
+                        ? '生成失败'
+                        : '准备中';
+                  return (
+                    <div key={task.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => switchTask(task)}
+                        className={`w-full overflow-hidden rounded-xl border text-left transition-all ${selected
+                          ? 'border-[#ed6d46] bg-[#fff8f3] ring-2 ring-[#ed6d46]/15'
+                          : 'border-pastel-border bg-pastel-bg/35 hover:border-[#efb49d]'
+                        }`}
+                      >
+                        <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#e9eef4]">
+                          {task.cover ? (
+                            <img src={task.cover} alt="贴回任务缩略图" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-[#aab7c7]">
+                              <ImageIcon className="h-8 w-8 opacity-60" />
+                            </div>
+                          )}
+                          <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
+                            {new Date(task.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <span className="absolute bottom-2 right-2 rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-black text-[#d85a35] backdrop-blur-sm">
+                            {task.workspace.cropAspectRatio}
+                          </span>
+                        </div>
+                        <div className="p-2.5">
+                          <p className="truncate text-xs font-black text-pastel-text">
+                            {PRESETS[task.workspace.cropPreset].label}贴回任务
+                          </p>
+                          <p className={`mt-1 text-[10px] font-bold ${task.status === 'error' ? 'text-red-500' : task.status === 'generating' ? 'text-[#ed6d46]' : 'text-pastel-muted'}`}>
+                            {statusLabel}
+                          </p>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={event => deleteTask(task.id, event)}
+                        disabled={isLoading && selected}
+                        className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg bg-black/60 text-white opacity-0 transition hover:bg-red-600 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+                        aria-label="删除此任务"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </aside>
+          )}
+
+          <div className="space-y-4">
             <section
-              className={`rounded-2xl border bg-white p-5 shadow-sm transition-colors ${isDraggingTarget ? 'border-pastel-highlight ring-2 ring-orange-100' : 'border-pastel-border'}`}
+              className={`rounded-[1.25rem] border bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] transition-colors dark:bg-[#11151c] ${isDraggingTarget ? 'border-pastel-highlight ring-2 ring-orange-100' : 'border-[#d9e2ec] dark:border-white/10'}`}
               onDragOver={(event) => handleUploadDragOver(event, 'target')}
               onDragLeave={(event) => handleUploadDragLeave(event, 'target')}
               onDrop={(event) => handleUploadDrop(event, 'target')}
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-pastel-text">
-                    <ImageIcon className="h-4 w-4 text-blue-500" />
+                  <h3 className="flex items-center gap-2 text-sm font-black text-pastel-text">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">1</span>
                     全身结果图
                   </h3>
                   <p className="mt-1 text-xs text-pastel-muted">上传姿势、构图、服装已经正确但脸部细节不足的成品图。</p>
@@ -1111,15 +1470,15 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
             </section>
 
             <section
-              className={`rounded-2xl border bg-white p-5 shadow-sm transition-colors ${isDraggingReferences ? 'border-pastel-highlight ring-2 ring-orange-100' : 'border-pastel-border'}`}
+              className={`rounded-[1.25rem] border bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] transition-colors dark:bg-[#11151c] ${isDraggingReferences ? 'border-pastel-highlight ring-2 ring-orange-100' : 'border-[#d9e2ec] dark:border-white/10'}`}
               onDragOver={(event) => handleUploadDragOver(event, 'references')}
               onDragLeave={(event) => handleUploadDragLeave(event, 'references')}
               onDrop={(event) => handleUploadDrop(event, 'references')}
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-pastel-text">
-                    <Sparkles className="h-4 w-4 text-orange-500" />
+                  <h3 className="flex items-center gap-2 text-sm font-black text-pastel-text">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">2</span>
                     模特原图 / 高清半身参考
                   </h3>
                   <p className="mt-1 text-xs text-pastel-muted">用于恢复五官、肤质、发丝和身份细节，最多 3 张。</p>
@@ -1167,11 +1526,46 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
               />
             </section>
 
-            <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-pastel-text">
-                <Crop className="h-4 w-4 text-pastel-highlight" />
-                贴回区域
+            <section className="rounded-[1.25rem] border border-[#d9e2ec] bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
+              <h3 className="mb-4 flex items-center gap-2 text-sm font-black text-pastel-text">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">3</span>
+                贴回区域与比例
               </h3>
+              <div className="mb-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-pastel-muted">局部重绘比例</span>
+                  <span className="text-[10px] text-pastel-muted">完整图尺寸保持不变</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {CROP_ASPECT_RATIO_OPTIONS.map(option => {
+                    const selected = cropAspectRatio === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => selectCropAspectRatio(option.id)}
+                        disabled={isLoading}
+                        className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-all ${selected
+                          ? 'border-[#ed6d46] bg-[#fff5ef] shadow-[0_5px_14px_rgba(237,109,70,0.1)] ring-1 ring-[#ed6d46]/15'
+                          : 'border-pastel-border bg-pastel-bg/30 hover:border-[#efb49d] hover:bg-[#fffaf7]'
+                        } disabled:cursor-not-allowed disabled:opacity-50`}
+                        aria-pressed={selected}
+                      >
+                        <span
+                          className={`block h-8 rounded-[0.2rem] border-2 ${selected ? 'border-[#ed6d46] bg-white' : 'border-[#aebdce] bg-white'}`}
+                          style={{ aspectRatio: option.value }}
+                        />
+                        <span>
+                          <strong className="block text-xs font-black text-pastel-text">{option.label}</strong>
+                          <small className="mt-0.5 block text-[10px] text-pastel-muted">{option.desc}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p className="mb-2 text-xs font-bold text-pastel-muted">修复范围</p>
               <div className="grid grid-cols-3 gap-2">
                 {(Object.keys(PRESETS) as CropPreset[]).map((preset) => (
                   <button
@@ -1264,10 +1658,10 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
               </div>
             </section>
 
-            <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-pastel-text">
-                <Wand2 className="h-4 w-4 text-purple-500" />
-                生成设置
+            <section className="rounded-[1.25rem] border border-[#d9e2ec] bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
+              <h3 className="mb-4 flex items-center gap-2 text-sm font-black text-pastel-text">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">4</span>
+                核心生成参数
               </h3>
               <div className="mb-4 grid grid-cols-3 gap-2">
                 {MODEL_OPTIONS.map((model) => (
@@ -1320,9 +1714,9 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
               type="button"
               onClick={handleGenerate}
               disabled={!canGenerate}
-              className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 font-bold text-white shadow-md transition-all ${canGenerate
-                ? 'bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 active:scale-[0.98]'
-                : 'cursor-not-allowed bg-gray-300'
+              className={`flex min-h-13 w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-black text-white shadow-[0_10px_25px_rgba(21,34,58,0.18)] transition-all ${canGenerate
+                ? 'bg-[#15223a] hover:-translate-y-0.5 hover:bg-[#24334d] active:translate-y-0'
+                : 'cursor-not-allowed bg-[#b8c2cf] shadow-none'
               }`}
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
@@ -1343,10 +1737,14 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
           </div>
 
           <div className="space-y-5">
-            <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
+            <section className="rounded-[1.25rem] border border-[#d9e2ec] bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-pastel-text">裁切框编辑</h3>
+                  <h3 className="flex items-center gap-2 text-sm font-black text-pastel-text">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">3</span>
+                    裁切框编辑
+                    <span className="rounded-md bg-[#fff1e8] px-2 py-1 text-[10px] font-black text-[#d85a35]">{cropAspectRatio}</span>
+                  </h3>
                   <p className="mt-1 text-xs text-pastel-muted">拖动框体移动，拖四角缩放。生成时只会重绘框内局部。</p>
                 </div>
                 {targetImage && (
@@ -1377,7 +1775,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
                       onPointerDown={(event) => startCropDrag(event, 'move')}
                     >
                       <div className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-white">
-                        {PRESETS[cropPreset].label}
+                        {PRESETS[cropPreset].label} · {cropAspectRatio}
                       </div>
                       {(['nw', 'ne', 'sw', 'se'] as DragMode[]).map((mode) => (
                         <button
@@ -1403,7 +1801,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
             </section>
 
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-              <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
+              <section className="rounded-[1.25rem] border border-[#d9e2ec] bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
                 <h3 className="mb-3 text-sm font-bold text-pastel-text">局部裁切预览</h3>
                 {cropPreview ? (
                   <img src={cropPreview} alt="Crop preview" className="max-h-80 w-full rounded-xl border border-pastel-border object-contain bg-pastel-bg" />
@@ -1414,7 +1812,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
                 )}
               </section>
 
-              <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm">
+              <section className="rounded-[1.25rem] border border-[#d9e2ec] bg-white p-5 shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
                 <h3 className="mb-3 text-sm font-bold text-pastel-text">重绘局部预览</h3>
                 {generatedCrop ? (
                   <div className="group relative">
@@ -1441,10 +1839,10 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
               </section>
             </div>
 
-            <section className="min-h-[520px] overflow-hidden rounded-2xl border border-pastel-border bg-white shadow-sm">
+            <section className="min-h-[520px] overflow-hidden rounded-[1.25rem] border border-[#d9e2ec] bg-white shadow-[0_8px_28px_rgba(30,50,80,0.045)] dark:border-white/10 dark:bg-[#11151c]">
               <div className="flex items-center justify-between border-b border-pastel-border bg-pastel-bg/50 px-5 py-3">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-pastel-text">
-                  <Sparkles className="h-4 w-4 text-pastel-highlight" />
+                <h3 className="flex items-center gap-2 text-sm font-black text-pastel-text">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">5</span>
                   最终贴回结果
                 </h3>
                 {resultImage && (
@@ -1458,10 +1856,10 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
                     </button>
                     <button
                       type="button"
-                      onClick={handleReset}
+                      onClick={startNewTask}
                       className="rounded-lg border border-pastel-border px-3 py-1.5 text-xs font-bold text-pastel-muted hover:bg-pastel-bg"
                     >
-                      重置
+                      新开任务
                     </button>
                   </div>
                 )}
@@ -1574,7 +1972,7 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
             {resultImage && (
               <button
                 type="button"
-                onClick={handleReset}
+                onClick={startNewTask}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-pastel-border bg-white py-3 text-sm font-bold text-pastel-muted hover:bg-pastel-bg"
               >
                 <RefreshCw className="h-4 w-4" />

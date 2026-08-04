@@ -447,7 +447,7 @@ No Markdown. No generic duplicate concepts.`);
           </div>
         </header>
 
-        {!historyOpen && <button type="button" onClick={() => setHistoryOpen(true)} className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg xl:left-24"><PanelLeftOpen className="h-4 w-4" />生成记录 <span className="rounded-full bg-pastel-bg px-2 py-1 text-xs">{tasks.length}</span></button>}
+        {!historyOpen && <button type="button" onClick={() => setHistoryOpen(true)} className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg md:left-[16.25rem] lg:left-[17rem]"><PanelLeftOpen className="h-4 w-4" />生成记录 <span className="rounded-full bg-pastel-bg px-2 py-1 text-xs">{tasks.length}</span></button>}
         {historyOpen && <button type="button" onClick={() => setHistoryOpen(false)} aria-label="关闭生成记录" className="fixed inset-0 z-[59] bg-black/30 xl:hidden" />}
 
         <div className={`grid grid-cols-1 gap-4 ${historyOpen ? 'xl:grid-cols-[16rem_30rem_minmax(0,1fr)]' : 'xl:grid-cols-[30rem_minmax(0,1fr)]'}`}>

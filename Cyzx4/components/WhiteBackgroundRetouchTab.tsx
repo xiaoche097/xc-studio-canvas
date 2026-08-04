@@ -415,7 +415,7 @@ const WhiteBackgroundRetouchTab: React.FC<WhiteBackgroundRetouchTabProps> = ({ i
           <button
             type="button"
             onClick={() => setIsHistoryOpen(true)}
-            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,35,45,0.12)] transition hover:-translate-y-0.5 hover:border-orange-300 xl:left-24"
+            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,35,45,0.12)] transition hover:-translate-y-0.5 hover:border-orange-300 md:left-[16.25rem] lg:left-[17rem]"
             aria-label="打开生成记录"
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#172238] text-white"><PanelLeftOpen className="h-4 w-4" /></span>

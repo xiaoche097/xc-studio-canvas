@@ -1723,9 +1723,9 @@ Return ONLY JSON:
           </div>
         </header>
 
-        {/* Floating Left-Bottom Collapsed Record Button (Matches 图3/图4) */}
+        {/* 折叠后的生成记录入口：放在主工作区内，避免占用全局左侧导航 */}
         {!isHistoryOpen && (
-          <button type="button" onClick={() => setIsHistoryOpen(true)} className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] xl:left-24">
+          <button type="button" onClick={() => setIsHistoryOpen(true)} className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] md:left-[16.25rem] lg:left-[17rem]">
             <PanelLeftOpen className="h-4 w-4 text-[#ed6d46]" />
             生成记录
             <span className="rounded-full bg-pastel-bg px-2 py-1 text-xs text-pastel-muted">{records.length}</span>

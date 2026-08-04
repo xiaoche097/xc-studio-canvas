@@ -2052,7 +2052,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
-            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg xl:left-24 text-pastel-text dark:bg-[#10192b]"
+            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg md:left-[16.25rem] lg:left-[17rem] text-pastel-text dark:bg-[#10192b]"
           >
             <PanelLeftOpen className="h-4 w-4" />生成记录{' '}
             <span className="rounded-full bg-slate-200 dark:bg-slate-800 px-2 py-0.5 text-xs">{tasks.length}</span>
