@@ -142,8 +142,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
       // Load Plato
       const pKey = localStorage.getItem('plato_api_key') || '';
+      const pUrl = localStorage.getItem('plato_base_url') || DEFAULT_PLATO_BASE_URL;
       const pEnabled = localStorage.getItem('plato_enabled') === 'true';
-      setPlatoConfig({ enabled: pEnabled, apiKey: pKey, baseUrl: DEFAULT_PLATO_BASE_URL });
+      setPlatoConfig({ enabled: pEnabled, apiKey: pKey, baseUrl: pUrl });
 
       // Load Jijing
       const jKey = localStorage.getItem('jijing_api_key') || '';
@@ -170,7 +171,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     localStorage.setItem('yunwu_enabled', String(yunwuConfig.enabled));
 
     localStorage.setItem('plato_api_key', platoConfig.apiKey);
-    localStorage.setItem('plato_base_url', DEFAULT_PLATO_BASE_URL);
+    localStorage.setItem('plato_base_url', platoConfig.baseUrl.trim() || DEFAULT_PLATO_BASE_URL);
     localStorage.setItem('plato_enabled', String(platoConfig.enabled));
 
     localStorage.setItem('jijing_api_key', jijingConfig.apiKey);
@@ -193,7 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
         activeUrl = jijingConfig.baseUrl || DEFAULT_NO1_IMAGE_BASE_URL;
     } else if (platoConfig.enabled && platoConfig.apiKey) {
         activeKey = platoConfig.apiKey;
-        activeUrl = DEFAULT_PLATO_BASE_URL;
+        activeUrl = platoConfig.baseUrl.trim() || DEFAULT_PLATO_BASE_URL;
     } else if (yunwuConfig.enabled && yunwuConfig.apiKey) {
         activeKey = yunwuConfig.apiKey;
         activeUrl = yunwuConfig.baseUrl;
@@ -214,7 +215,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     
     if (type === 'gemini') { key = geminiConfig.apiKey; url = geminiConfig.baseUrl; }
     if (type === 'yunwu') { key = yunwuConfig.apiKey; url = yunwuConfig.baseUrl; }
-    if (type === 'plato') { key = platoConfig.apiKey; url = DEFAULT_PLATO_BASE_URL; }
+    if (type === 'plato') { key = platoConfig.apiKey; url = platoConfig.baseUrl.trim() || DEFAULT_PLATO_BASE_URL; }
     if (type === 'jijing') { key = jijingConfig.apiKey; url = jijingConfig.baseUrl; }
     if (type === 'runninghub') { key = runningHubConfig.apiKey; url = runningHubConfig.baseUrl; }
 
@@ -430,14 +431,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                           onToggle={(v) => setPlatoConfig(c => ({ ...c, enabled: v }))}
                           recommended
                         >
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <ConfigInput 
-                                  label="Base URL"
-                                  value={platoConfig.baseUrl}
-                                  onChange={() => setPlatoConfig(c => ({ ...c, baseUrl: DEFAULT_PLATO_BASE_URL }))}
-                                  placeholder={DEFAULT_PLATO_BASE_URL}
-                                  icon={<Globe size={16} />}
-                                />
+                            <div className="mb-5 space-y-2.5">
+                                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                                    <Globe size={16} /> API 节点选择
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setPlatoConfig(c => ({ ...c, baseUrl: DEFAULT_PLATO_BASE_URL }))}
+                                  className="rounded-full border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-bold text-orange-600 shadow-sm transition hover:border-orange-400 hover:bg-orange-100 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-300"
+                                  aria-pressed="true"
+                                >
+                                  主站节点
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-1 gap-6">
                                 <ConfigInput 
                                   label="API Key"
                                   value={platoConfig.apiKey}

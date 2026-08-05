@@ -177,9 +177,10 @@ const SettingsTab: React.FC = () => {
 
     // 柏拉图 API 配置
     const savedPlatoKey = localStorage.getItem('plato_api_key');
+    const savedPlatoUrl = localStorage.getItem('plato_base_url');
     const savedPlatoEnabled = localStorage.getItem('plato_enabled');
 
-    setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL);
+    setPlatoBaseUrl(savedPlatoUrl || DEFAULT_PLATO_BASE_URL);
     if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
     setPlatoEnabled(savedPlatoEnabled === 'true'); // Default to false
     setPlatoStatus(savedPlatoKey ? 'success' : 'empty');
@@ -271,7 +272,7 @@ const SettingsTab: React.FC = () => {
       return;
     }
     localStorage.setItem('plato_api_key', platoApiKey.trim());
-    localStorage.setItem('plato_base_url', DEFAULT_PLATO_BASE_URL);
+    localStorage.setItem('plato_base_url', platoBaseUrl.trim() || DEFAULT_PLATO_BASE_URL);
     localStorage.setItem('plato_enabled', String(platoEnabled));
     setPlatoStatus('success');
   };
@@ -300,7 +301,7 @@ const SettingsTab: React.FC = () => {
       }
 
       const result = await sendToYunwuApi(
-        DEFAULT_PLATO_BASE_URL,
+        platoBaseUrl.trim() || DEFAULT_PLATO_BASE_URL,
         firstKey,
         testModel,
         'Say OK',
@@ -483,7 +484,7 @@ const SettingsTab: React.FC = () => {
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {platoStatus === 'success' && platoEnabled
-                    ? `Base URL: ${DEFAULT_PLATO_BASE_URL}`
+                    ? 'API Key 已配置'
                     : yunwuStatus === 'success' && yunwuEnabled
                       ? `Base URL: ${yunwuBaseUrl || DEFAULT_BASE_URL}`
                       : nativeStatus === 'success' && nativeEnabled
@@ -758,29 +759,19 @@ const SettingsTab: React.FC = () => {
                   </p>
 
                   <div className="space-y-5">
-                    {/* Base URL */}
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text">
                         <Globe className="w-4 h-4 text-rose-500" />
-                        API 节点地址
+                        API 节点选择
                       </label>
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        <button
-                          onClick={() => setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL)}
-                          className={`px-3 py-1 text-xs rounded-full border transition-all ${platoBaseUrl === DEFAULT_PLATO_BASE_URL ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-white border-gray-200 text-gray-600 hover:border-rose-200'}`}
-                        >
-                          主站节点
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={platoBaseUrl}
-                          readOnly
-                          placeholder={DEFAULT_PLATO_BASE_URL}
-                          className="w-full bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none shadow-sm transition-all font-mono text-sm"
-                        />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL)}
+                        className="rounded-full border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-bold text-orange-600 shadow-sm transition hover:border-orange-400 hover:bg-orange-100"
+                        aria-pressed="true"
+                      >
+                        主站节点
+                      </button>
                     </div>
 
                     {/* API Key */}

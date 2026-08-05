@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
 import { StyleModelModal } from './StyleModelModal';
 import { STYLE_PRESETS, StylePreset } from '../constants/stylePresets';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
-import { storageService } from '../../services/storageService';
-import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu } from 'lucide-react';
+import { storageService, type Project } from '../../services/storageService';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu, PanelLeftOpen, PanelLeftClose, Plus, Trash2 } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
 import { useImagePaste } from '../hooks/useImagePaste';
@@ -43,10 +44,15 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const [historyProjects, setHistoryProjects] = useState<Project[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [resolution, setResolution] = useState<ImageResolution>(ImageResolution.RES_2K);
+  const [outputFormat, setOutputFormat] = useState<'png' | 'jpg'>('png');
   const [imageCount, setImageCount] = useState<number>(1); // 新增：并行生成张数
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');
@@ -65,6 +71,23 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [hoveredMentionIdx, setHoveredMentionIdx] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ top: number; left: number } | null>(null);
+
+  const loadGenerationHistory = useCallback(async () => {
+    try {
+      const projects = await storageService.getProjectsByType('FUSION');
+      setHistoryProjects(projects.slice(0, 30));
+    } catch (historyError) {
+      console.warn('Failed to load image generation history.', historyError);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadGenerationHistory();
+    window.addEventListener('project-cache-updated', loadGenerationHistory);
+    return () => window.removeEventListener('project-cache-updated', loadGenerationHistory);
+  }, [loadGenerationHistory]);
 
   const handleSelectionChange = () => {
       const selection = window.getSelection();
@@ -223,6 +246,20 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
   const [editRefImages, setEditRefImages] = useState<Record<number, File[]>>({}); // NEW: Ref images for edit
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!zoomImage) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setZoomImage(null);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [zoomImage]);
+
   // Comparison State
   const [originalImages, setOriginalImages] = useState<Record<number, string>>({});
   const [isComparing, setIsComparing] = useState<Record<number, boolean>>({});
@@ -288,6 +325,64 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
 
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  const startNewGenerationTask = () => {
+    previewUrls.forEach((url) => {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    });
+    setSelectedFiles([]);
+    setPreviewUrls([]);
+    setDescription('');
+    setGeneratedImages([]);
+    setOriginalImages({});
+    setIsComparing({});
+    setSelectedPoints({});
+    setEditPrompts({});
+    setEditRefImages({});
+    setSelectedStyle(null);
+    setSelectedModel('gemini-3.1-flash-image-preview');
+    setAspectRatio(AspectRatio.SQUARE);
+    setResolution(ImageResolution.RES_2K);
+    setOutputFormat('png');
+    setImageCount(1);
+    setError(null);
+    setProgress('');
+    setActiveHistoryId(null);
+  };
+
+  const restoreHistoryProject = (project: Project) => {
+    const params = project.metadata.params || {};
+    setGeneratedImages(project.assets.generated.filter(Boolean));
+    setDescription(project.metadata.prompt || '');
+    if (params.aspectRatio) setAspectRatio(params.aspectRatio as AspectRatio);
+    if (params.resolution) setResolution(params.resolution as ImageResolution);
+    if (params.outputFormat === 'png' || params.outputFormat === 'jpg') setOutputFormat(params.outputFormat);
+    if (typeof params.modelId === 'string') setSelectedModel(params.modelId);
+    if ([1, 2, 4].includes(params.imageCount)) setImageCount(params.imageCount);
+    if (typeof params.styleId === 'string') {
+      setSelectedStyle(STYLE_PRESETS.find((style) => style.id === params.styleId) || null);
+    } else {
+      setSelectedStyle(null);
+    }
+    setOriginalImages({});
+    setIsComparing({});
+    setSelectedPoints({});
+    setEditPrompts({});
+    setEditRefImages({});
+    setError(null);
+    setActiveHistoryId(project.id);
+    if (window.innerWidth < 1280) setHistoryOpen(false);
+  };
+
+  const deleteHistoryProject = async (projectId: string) => {
+    try {
+      await storageService.deleteProject(projectId);
+      if (activeHistoryId === projectId) setActiveHistoryId(null);
+    } catch (historyError) {
+      console.warn('Failed to delete image generation history.', historyError);
+      setError('删除生成记录失败，请稍后重试');
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -657,26 +752,34 @@ Do not combine this image with any other uploaded image. Do not create extra var
         setOriginalImages(comparisonMap);
       }
 
-      // Save to Project History
-      allResults.forEach((url, i) => {
-        storageService.saveProject({
-          id: Date.now().toString() + i, // Ensure unique ID
-          type: 'FUSION',
-          createdAt: Date.now(),
-          thumbnail: url,
-          assets: {
-            generated: [url],
-            original: selectedFiles.map(f => f.name)
+      // A single generation action is stored as one task so all batch results can
+      // be restored together from the in-page history panel.
+      const historyId = `fusion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      void storageService.saveProject({
+        id: historyId,
+        type: 'FUSION',
+        createdAt: Date.now(),
+        thumbnail: allResults[0],
+        assets: {
+          generated: allResults,
+          original: selectedFiles.map((file) => file.name),
+        },
+        metadata: {
+          prompt: finalPrompt,
+          params: {
+            aspectRatio,
+            resolution,
+            outputFormat,
+            modelId: selectedModel,
+            imageCount,
+            styleId: selectedStyle?.id || null,
           },
-          metadata: {
-            prompt: finalPrompt, // Save the optimized prompt
-            params: { aspectRatio, resolution },
-            refImageCount: selectedFiles.length,
-            autoOptimized: isAutoOptimize,
-            batchIndex: i,
-            batchTotal: allResults.length
-          }
-        }).catch(err => console.error("Failed to save to history", err));
+          refImageCount: selectedFiles.length,
+          autoOptimized: isAutoOptimize,
+          batchTotal: allResults.length,
+        },
+      }).then(() => setActiveHistoryId(historyId)).catch((historyError) => {
+        console.error('Failed to save to history', historyError);
       });
     } catch (error: any) {
       if (!isAbortError(error)) {
@@ -816,15 +919,19 @@ Do not combine this image with any other uploaded image. Do not create extra var
     }
   };
 
-  const convertImageToJpeg = (url: string, quality = 0.92): Promise<string> => {
-    return new Promise((resolve) => {
+  const convertImageForDownload = (
+    url: string,
+    format: 'png' | 'jpg',
+    quality = 0.92,
+  ): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         try {
           const width = img.naturalWidth || img.width;
           const height = img.naturalHeight || img.height;
           if (!width || !height) {
-            resolve(url);
+            reject(new Error('Image has no valid dimensions'));
             return;
           }
 
@@ -833,19 +940,25 @@ Do not combine this image with any other uploaded image. Do not create extra var
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            resolve(url);
+            reject(new Error('Canvas is unavailable'));
             return;
           }
 
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, width, height);
+          if (format === 'jpg') {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
+          }
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        } catch {
-          resolve(url);
+          canvas.toBlob(
+            (blob) => blob ? resolve(blob) : reject(new Error('Image conversion failed')),
+            format === 'png' ? 'image/png' : 'image/jpeg',
+            format === 'jpg' ? quality : undefined,
+          );
+        } catch (error) {
+          reject(error);
         }
       };
-      img.onerror = () => resolve(url);
+      img.onerror = () => reject(new Error('Image could not be loaded'));
       img.src = url;
     });
   };
@@ -860,60 +973,223 @@ Do not combine this image with any other uploaded image. Do not create extra var
     document.body.removeChild(link);
   };
 
-  const downloadImage = async (url: string, filename: string) => {
-    if (/^https?:\/\//i.test(url)) {
-      try {
-        const response = await fetch(url, { mode: 'cors' });
+  const downloadImage = async (url: string, baseFilename: string) => {
+    const filename = `${baseFilename}.${outputFormat}`;
+    let sourceUrl = url;
+    let fetchedObjectUrl: string | null = null;
+
+    try {
+      if (/^https?:\/\//i.test(url)) {
+        let response: Response;
+        try {
+          response = await fetch(url, { mode: 'cors' });
+          if (!response.ok) throw new Error(`Remote image returned ${response.status}`);
+        } catch (directError) {
+          console.warn('Direct image download was blocked; retrying through the same-origin proxy.', directError);
+          response = await fetch(`/api/image-download?url=${encodeURIComponent(url)}`);
+        }
         if (!response.ok) throw new Error(`Image download failed: ${response.status}`);
         const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        triggerDownload(objectUrl, filename);
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-        return;
-      } catch (error) {
-        console.warn('Remote image download fallback: opening original URL because blob download failed.', error);
-        window.open(url, '_blank', 'noopener,noreferrer');
-        return;
+        fetchedObjectUrl = URL.createObjectURL(blob);
+        sourceUrl = fetchedObjectUrl;
       }
-    }
 
-    const jpegUrl = await convertImageToJpeg(url);
-    triggerDownload(jpegUrl, filename);
+      const convertedBlob = await convertImageForDownload(sourceUrl, outputFormat);
+      const convertedUrl = URL.createObjectURL(convertedBlob);
+      triggerDownload(convertedUrl, filename);
+      window.setTimeout(() => URL.revokeObjectURL(convertedUrl), 1000);
+    } catch (error) {
+      console.warn(`Failed to export image as ${outputFormat.toUpperCase()}.`, error);
+      setError(`无法导出 ${outputFormat.toUpperCase()}，请稍后重试`);
+    } finally {
+      if (fetchedObjectUrl) URL.revokeObjectURL(fetchedObjectUrl);
+    }
   };
 
   const downloadAllWhiteBackgroundImages = () => {
     generatedImages.forEach((url, index) => {
       window.setTimeout(() => {
-        downloadImage(url, `white-bg-${index + 1}-${Date.now()}.jpg`);
+        downloadImage(url, `white-bg-${index + 1}-${Date.now()}`);
       }, index * 120);
     });
   };
 
   const isGenerateDisabled = (!description && !selectedStyle) || isGenerating || (isWhiteBackgroundProduction && selectedFiles.length === 0);
+  const workflowStage = generatedImages.length > 0 ? 3 : isGenerating ? 2 : 1;
+  const workflowSteps = ['输入与配置', 'AI 生成', '结果与微调'] as const;
 
   return (
 
-    <div className="flex flex-col h-full bg-pastel-bg text-pastel-text">
-      {/* Header */}
-      <div className="px-6 py-4 bg-pastel-card border-b border-pastel-border flex items-center justify-between shrink-0">
-        <h2 className="text-xl font-semibold flex items-center gap-2 text-pastel-text">
-          <Layers className="w-5 h-5 text-pastel-highlight" />
-          图像生成 (Image Generation)
-        </h2>
-        <div className="text-sm text-pastel-muted">
-          已选择 {selectedFiles.length} / 10 张参考图
+    <div className="flex h-full flex-col bg-[#f5f6f8] text-pastel-text dark:bg-[#080808]">
+      <header className="shrink-0 border-b border-pastel-border bg-[#f5f6f8] px-4 pb-5 pt-5 text-center dark:bg-[#080808] sm:px-6">
+        <p className="flex items-center justify-center gap-2 text-xs font-bold text-pastel-muted">
+          <Sparkles className="h-4 w-4 text-pastel-highlight" />
+          AI 商业视觉工作台
+        </p>
+        <h1 className="mt-1.5 text-2xl font-black tracking-tight sm:text-3xl">AI 图像生成</h1>
+        <p className="mt-1 text-sm text-pastel-muted">融合参考素材与创意描述，生成可继续微调的高质量商业图像</p>
+        <div className="mt-4 flex items-center justify-center gap-2 text-xs font-bold text-pastel-muted sm:gap-4">
+          {workflowSteps.map((label, index) => {
+            const step = index + 1;
+            const isCurrent = workflowStage === step;
+            const isComplete = workflowStage > step;
+            return (
+              <React.Fragment key={label}>
+                <div
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 transition-colors ${
+                    isCurrent
+                      ? 'bg-[#172238] text-white shadow-sm ring-2 ring-[#172238]/15'
+                      : isComplete
+                        ? 'bg-white text-[#172238] shadow-sm dark:bg-slate-800 dark:text-white'
+                        : 'bg-white/60 text-pastel-muted dark:bg-slate-900'
+                  }`}
+                  aria-current={isCurrent ? 'step' : undefined}
+                >
+                  <span className={`flex h-5 min-w-5 items-center justify-center rounded-full text-[10px] font-black ${
+                    isCurrent ? 'bg-white text-[#172238]' : isComplete ? 'bg-orange-50 text-orange-600' : 'bg-slate-200 text-slate-500 dark:bg-slate-700'
+                  }`}>
+                    {step}
+                  </span>
+                  <span>{label}</span>
+                </div>
+                {index < workflowSteps.length - 1 && <span className="h-px w-4 bg-pastel-border sm:w-8" />}
+              </React.Fragment>
+            );
+          })}
         </div>
-      </div>
+      </header>
+
+      {!historyOpen && (
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-lg md:left-[16.25rem]"
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+          生成记录
+          <span className="rounded-full bg-pastel-bg px-2 py-1 text-xs">{historyProjects.length}</span>
+        </button>
+      )}
+      {historyOpen && (
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(false)}
+          aria-label="关闭生成记录遮罩"
+          className="fixed inset-0 z-[59] bg-black/30 xl:hidden"
+        />
+      )}
 
       {/* Main Content Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-[500px]">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className={`mx-auto grid min-h-[500px] max-w-[108rem] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)] ${
+          historyOpen ? 'xl:grid-cols-[15rem_minmax(0,1fr)_minmax(420px,1fr)]' : ''
+        }`}>
 
-          <div className="flex flex-col gap-5 h-full">
+          {historyOpen && (
+            <aside className="fixed inset-y-3 left-3 z-[60] flex w-[min(17rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-3 shadow-xl md:left-[15.75rem] xl:sticky xl:top-0 xl:z-10 xl:h-[calc(100vh-15rem)] xl:w-auto xl:min-h-[620px] xl:shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-black text-pastel-text">生成记录</h2>
+                  <p className="mt-0.5 text-xs text-pastel-muted">最近完成的图像任务</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-pastel-border text-pastel-muted transition hover:border-orange-300 hover:text-orange-600"
+                  aria-label="收起生成记录"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={startNewGenerationTask}
+                disabled={isGenerating}
+                className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#172238] text-sm font-black text-white transition hover:bg-[#202e49] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                新建任务
+              </button>
+
+              <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5 custom-scrollbar">
+                {historyLoading ? (
+                  <div className="flex h-32 items-center justify-center text-pastel-muted">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </div>
+                ) : historyProjects.length === 0 ? (
+                  <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-pastel-border px-4 text-center">
+                    <ImageIcon className="h-7 w-7 text-pastel-border" />
+                    <p className="mt-3 text-xs font-bold text-pastel-muted">暂无生成记录</p>
+                    <p className="mt-1 text-[10px] text-pastel-muted">完成生成后会自动保存在这里</p>
+                  </div>
+                ) : (
+                  historyProjects.map((project) => (
+                    <div key={project.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => restoreHistoryProject(project)}
+                        className={`block w-full overflow-hidden rounded-xl border text-left transition ${
+                          activeHistoryId === project.id
+                            ? 'border-pastel-highlight ring-2 ring-orange-100'
+                            : 'border-pastel-border hover:border-orange-300'
+                        }`}
+                      >
+                        <div className="relative aspect-[4/3] bg-pastel-bg">
+                          {project.thumbnail ? (
+                            <img src={project.thumbnail} alt="历史生成结果" className="h-full w-full object-cover" />
+                          ) : (
+                            <ImageIcon className="absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 text-pastel-border" />
+                          )}
+                          <span className="absolute inset-x-0 bottom-0 flex min-h-8 items-center justify-center bg-[#172238]/90 text-[11px] font-black text-white">
+                            已完成 {project.assets.generated.length} 张
+                          </span>
+                        </div>
+                        <div className="px-3 py-2.5">
+                          <p className="truncate text-xs font-bold text-pastel-text">{project.metadata.prompt || '未命名图像任务'}</p>
+                          <div className="mt-1.5 flex items-center justify-between text-[10px] text-pastel-muted">
+                            <span>{new Date(project.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="uppercase">{project.metadata.params?.outputFormat || 'PNG'}</span>
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteHistoryProject(project.id);
+                        }}
+                        className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-black/65 text-white opacity-0 shadow transition hover:bg-red-500 group-hover:opacity-100 focus:opacity-100"
+                        aria-label="删除这条生成记录"
+                        title="删除记录"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </aside>
+          )}
+
+          <div className="flex h-full flex-col gap-4">
 
             {/* 1. Upload Area */}
-            <div
-              className={`relative border-2 border-dashed rounded-xl p-6 transition-all min-h-[220px] flex flex-col items-center justify-center group
+            <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-50 text-pastel-highlight dark:bg-orange-950/30">
+                    <ImageIcon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="font-black text-pastel-text">参考素材图</h2>
+                    <p className="truncate text-xs text-pastel-muted">上传产品、人物、构图或风格参考，支持拖拽排序和 @图片引用</p>
+                  </div>
+                </div>
+                <span className="shrink-0 text-xs font-bold text-pastel-muted">{selectedFiles.length}/10</span>
+              </div>
+              <div
+              className={`group relative flex min-h-[176px] flex-col items-center justify-center rounded-xl border border-dashed p-5 transition-all
                 ${selectedFiles.length === 0
                   ? 'border-pastel-border hover:border-pastel-highlight hover:bg-orange-50/30'
                   : 'border-pastel-highlight/30 bg-pastel-pink/10'
@@ -988,16 +1264,26 @@ Do not combine this image with any other uploaded image. Do not create extra var
                   </div>
                 </div>
               )}
-            </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-pastel-border bg-pastel-bg/50 px-3 py-2 text-xs leading-5 text-pastel-muted">
+                提示：可上传最多 10 张参考图。在创意描述中输入“@”可指定某张图片的用途，拖动缩略图可调整图片顺序。
+              </div>
+            </section>
 
             {/* 2. Configuration & Prompt Wrapper */}
             <div className="flex-1 flex flex-col gap-5 min-h-0">
               {/* Model Selection - Top Row for consistency */}
-              <div className="bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
-                <label className="block text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5" /> 图像模型选择
-                </label>
-                <div className="grid grid-cols-4 gap-2">
+              <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
+                <div className="mb-3 flex items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-600 dark:bg-purple-950/30">
+                    <Cpu className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-black text-pastel-text">图像生成模型</h2>
+                    <p className="text-xs text-pastel-muted">选择速度、画质和风格表现最适合的生成引擎</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <button
                     onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
                     className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
@@ -1059,10 +1345,15 @@ Do not combine this image with any other uploaded image. Do not create extra var
                     <span className="text-[8px] text-pastel-muted">MJ Imagine</span>
                   </button>
                 </div>
-              </div>
+              </section>
 
               {/* Settings Row */}
-              <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-xl border border-pastel-border shadow-sm">
+              <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
+                <div className="mb-3">
+                  <h2 className="text-sm font-black text-pastel-text">图像与导出参数</h2>
+                  <p className="mt-0.5 text-xs text-pastel-muted">设置画幅、清晰度与最终下载文件格式</p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
                     <Monitor className="w-3.5 h-3.5" /> 画幅比例
@@ -1140,7 +1431,33 @@ Do not combine this image with any other uploaded image. Do not create extra var
                     </div>
                   </div>
                 </div>
-              </div>
+                <div>
+                  <label className="mb-2 flex items-center gap-1.5 text-xs font-bold text-pastel-muted">
+                    <Download className="w-3.5 h-3.5" /> 输出格式
+                  </label>
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-pastel-border bg-pastel-bg p-1" role="group" aria-label="输出格式">
+                    {(['png', 'jpg'] as const).map((format) => (
+                      <button
+                        key={format}
+                        type="button"
+                        onClick={() => setOutputFormat(format)}
+                        aria-pressed={outputFormat === format}
+                        className={`rounded-md px-2 py-1.5 text-xs font-bold uppercase transition-all ${
+                          outputFormat === format
+                            ? 'bg-white text-orange-600 shadow-sm ring-1 ring-orange-100'
+                            : 'text-pastel-muted hover:text-pastel-text'
+                        }`}
+                      >
+                        {format}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-pastel-muted">
+                    {outputFormat === 'png' ? '无损画质，默认推荐' : '文件更小，白色背景'}
+                  </p>
+                </div>
+                </div>
+              </section>
 
               {/* Style Specific Parameters - 自动识别服装转3D */}
               {selectedStyle?.id === 'clothing-to-3d-mannequin' && (
@@ -1219,13 +1536,16 @@ Do not combine this image with any other uploaded image. Do not create extra var
               )}
 
               {/* Prompt Area */}
-              <div className="flex-1 min-h-0 flex flex-col relative">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <label className="block text-sm font-bold text-pastel-text flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-pastel-highlight" />
-                    创意描述
-                  </label>
-                  <div className="flex items-center gap-2">
+              <section className="relative flex min-h-0 flex-1 flex-col rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-black text-pastel-text">
+                      <Sparkles className="w-4 h-4 text-pastel-highlight" />
+                      创意描述
+                    </label>
+                    <p className="mt-1 text-xs text-pastel-muted">描述主体、场景、构图与风格，也可以通过 @图片 精确指定参考素材</p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     {/* Style Model Selector Button */}
                     <button
                       onClick={() => setIsStyleModalOpen(true)}
@@ -1446,12 +1766,12 @@ Do not combine this image with any other uploaded image. Do not create extra var
                     </div>
                   )}
                 </div>
-              </div>
+              </section>
 
             </div>
 
             {/* 4. Bottom Action Area with Error Handling */}
-            <div className="mt-auto flex flex-col gap-3">
+            <div className="sticky bottom-0 z-20 mt-auto flex flex-col gap-3 rounded-2xl border border-pastel-border bg-pastel-card/95 p-3 shadow-lg backdrop-blur-md">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 text-sm text-red-600 animate-in slide-in-from-bottom-2 fade-in">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -1469,7 +1789,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-1.5 p-1 bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
                   {[1, 2, 4].map((num) => (
                     <button
@@ -1509,7 +1829,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 <button
                   onClick={handleGenerate}
                   disabled={isGenerateDisabled}
-                  className={`flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${isGenerateDisabled
+                  className={`min-w-[220px] flex-1 py-4 text-base font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.98] ${isGenerateDisabled
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none border border-gray-200'
                     : 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-orange-500/25 hover:shadow-orange-500/40 hover:brightness-105'
                     }`}
@@ -1541,12 +1861,15 @@ Do not combine this image with any other uploaded image. Do not create extra var
           </div>
 
           {/* Right: Result Area */}
-          <div className="flex flex-col bg-pastel-card rounded-xl border border-pastel-border p-6 overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-pastel-text flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-pastel-highlight" />
-                生成结果
-              </h3>
+          <section className="flex min-h-[620px] flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5 lg:sticky lg:top-0 lg:max-h-[calc(100vh-15rem)]">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-2 font-black text-pastel-text">
+                  <Sparkles className="h-4 w-4 text-pastel-highlight" />
+                  创作工作区
+                </h2>
+                <p className="mt-1 text-xs text-pastel-muted">生成结果可放大、下载、对比、标记和局部微调</p>
+              </div>
               {generatedImages.length > 0 && (
                 <div className="flex items-center gap-2">
                   {isWhiteBackgroundProduction && generatedImages.length > 1 && (
@@ -1564,8 +1887,18 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 </div>
               )}
             </div>
+            <div className="mb-4 flex min-h-12 items-center gap-2 rounded-xl border border-orange-100 bg-orange-50/70 px-3 text-sm font-black text-orange-900 dark:border-orange-500/20 dark:bg-orange-500/5 dark:text-orange-200">
+              {isGenerating ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Sparkles className="h-4 w-4 shrink-0" />}
+              <span className="truncate">
+                {isGenerating
+                  ? progress || '图像生成 Agent · 正在处理任务'
+                  : generatedImages.length > 0
+                    ? `图像生成 Agent · 已完成 ${generatedImages.length} 张作品`
+                    : '输入准备 Agent · 等待完成左侧配置'}
+              </span>
+            </div>
 
-            <div className="flex-1 flex items-center justify-center bg-pastel-bg rounded-lg border-2 border-dashed border-pastel-border overflow-hidden relative">
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-dashed border-pastel-border bg-pastel-bg">
               {generatedImages.length > 0 ? (
                 <div className={`w-full h-full overflow-y-auto p-4 custom-scrollbar ${isWhiteBackgroundProduction && generatedImages.length > 1 ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 content-start' : ''}`}>
                   {generatedImages.map((imgSrc, idx) => (
@@ -1627,7 +1960,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                             放大
                           </button>
                           <button
-                            onClick={() => downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}.jpg`)}
+                            onClick={() => downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}`)}
                             className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
                             title="下载原图"
                           >
@@ -1774,31 +2107,59 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 </div>
               )}
             </div>
-            {zoomImage && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setZoomImage(null)}>
+            {zoomImage && createPortal(
+              <div
+                className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-black/95 p-4 backdrop-blur-md animate-in fade-in duration-200 sm:p-6"
+                onClick={() => setZoomImage(null)}
+                role="dialog"
+                aria-modal="true"
+                aria-label="图片放大预览"
+              >
+                <div className="absolute left-4 top-4 z-10 rounded-full bg-black/45 px-3 py-1.5 text-xs font-bold text-white/80 backdrop-blur sm:left-6 sm:top-6">
+                  图片预览 · Esc 关闭
+                </div>
                 <button
-                  className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors bg-white/10 p-2 rounded-full backdrop-blur-md"
+                  type="button"
+                  className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur transition hover:bg-white hover:text-black sm:right-6 sm:top-6"
                   onClick={() => setZoomImage(null)}
+                  aria-label="关闭图片预览"
                 >
-                  <X className="w-6 h-6" />
+                  <X className="h-5 w-5" />
                 </button>
 
-                <img
-                  src={zoomImage}
-                  alt="Full Screen Preview"
-                  className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
-                  onClick={(e) => e.stopPropagation()}
-                />
+                <div
+                  className="flex h-full w-full items-center justify-center pb-20 pt-12"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <img
+                    src={zoomImage}
+                    alt="生成图片放大预览"
+                    className="max-h-full max-w-full select-none rounded-xl object-contain shadow-[0_30px_90px_rgba(0,0,0,0.55)] animate-in zoom-in-95 duration-200"
+                    draggable={false}
+                  />
+                </div>
 
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-4">
+                <div
+                  className="absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/55 p-2 shadow-2xl backdrop-blur-md sm:bottom-7"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <button
-                    onClick={(e) => { e.stopPropagation(); downloadImage(zoomImage, `i2i-zoom-${Date.now()}.jpg`); }}
-                    className="bg-white text-black px-6 py-2.5 rounded-full font-medium shadow-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
+                    type="button"
+                    onClick={() => void downloadImage(zoomImage, `i2i-zoom-${Date.now()}`)}
+                    className="flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black transition hover:bg-orange-50"
                   >
-                    <Download className="w-4 h-4" /> 下载原图
+                    <Download className="h-4 w-4" /> 下载原图
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomImage(null)}
+                    className="flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-white/80 transition hover:bg-white/10 hover:text-white"
+                  >
+                    关闭
                   </button>
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
       {/* Style Model Modal */}
       <StyleModelModal 
@@ -1821,7 +2182,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
         }}
         currentSelectedId={selectedStyle?.id}
       />
-          </div>
+          </section>
         </div>
       </div>
     </div>

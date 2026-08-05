@@ -1250,8 +1250,13 @@ export const generateImageToImage = async (
   const isGptModel = targetModel.toLowerCase().includes('gpt');
   const isGptImage2 = targetModel === 'gpt-image-2' || targetModel === 'gpt-image-2-all' || targetModel === 'gpt-image-2-vip';
   const isMidjourneyModel = targetModel === 'mj_imagine';
-  const usesOpenAiImageEndpoint = isGptImage2 || (initialConfig.isRunningHub && !isMidjourneyModel);
-  const openAiImageProviderLabel = initialConfig.isRunningHub ? 'RunningHub Image' : 'GPT Image 2';
+  const isNativePlato = Boolean(initialConfig.isPlato && !initialConfig.isJijing && !initialConfig.isRunningHub);
+  const usesOpenAiImageEndpoint = isGptImage2 || isNativePlato || (initialConfig.isRunningHub && !isMidjourneyModel);
+  const openAiImageProviderLabel = initialConfig.isRunningHub
+    ? 'RunningHub Image'
+    : isNativePlato
+      ? 'Plato Image'
+      : 'GPT Image 2';
 
   // Force Aspect Ratio into the prompt text for proxy-based models (like GPT Image 2)
   const getAspectRatioHint = (ar: string) => {
@@ -1577,26 +1582,68 @@ ${forcedPrompt}`;
         }
 
         const sendGptRequest = async (modelName: string) => {
-          const payload = {
-            model: resolveRuntimeModelId(modelName, config),
-            prompt: gptPrompt,
-            size: gptSize,
-            quality: "auto",
-            response_format: config.isRunningHub ? "url" : "b64_json",
-            // Exact match with your doc: array[string]
-            // AND adding the prefix for input images as required by most reverse proxies
-            image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`)
-          };
+          const isPlatoGeminiImage = Boolean(config.isPlato && !config.isJijing && !config.isRunningHub && !isGptImage2);
+          const usesPlatoEditsEndpoint = isPlatoGeminiImage && images.length > 0;
+          const endpoint = joinApiUrl(
+            config.baseUrl || '',
+            usesPlatoEditsEndpoint ? '/v1/images/edits' : '/v1/images/generations',
+          );
+          const payload: Record<string, unknown> = isPlatoGeminiImage
+            ? {
+                model: resolveRuntimeModelId(modelName, config),
+                prompt: gptPrompt,
+              }
+            : {
+                model: resolveRuntimeModelId(modelName, config),
+                prompt: gptPrompt,
+                size: gptSize,
+                // Exact match with your doc: array[string]
+                // AND adding the prefix for input images as required by most reverse proxies
+                image: images.map(img => `data:${img.mimeType || 'image/png'};base64,${img.base64}`),
+              };
+          // Plato's Nano Banana endpoint defaults to URL output. GPT-only optional fields are
+          // omitted because some Plato nodes reject them during request validation.
+          if (!isPlatoGeminiImage) {
+            payload.quality = "auto";
+            payload.response_format = config.isRunningHub ? "url" : "b64_json";
+          }
+
+          let requestBody: BodyInit;
+          let requestHeaders: Record<string, string>;
+          if (usesPlatoEditsEndpoint) {
+            const formData = new FormData();
+            formData.append('model', String(payload.model));
+            formData.append('prompt', gptPrompt);
+            formData.append('response_format', 'url');
+            formData.append('aspect_ratio', aspectRatio);
+            formData.append('image_size', resolution);
+            images.forEach((image, index) => {
+              const rawBase64 = image.base64.replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
+              const binary = atob(rawBase64);
+              const bytes = new Uint8Array(binary.length);
+              for (let byteIndex = 0; byteIndex < binary.length; byteIndex += 1) {
+                bytes[byteIndex] = binary.charCodeAt(byteIndex);
+              }
+              const mimeType = image.mimeType || 'image/png';
+              const extension = mimeType.includes('jpeg') ? 'jpg' : mimeType.includes('webp') ? 'webp' : 'png';
+              formData.append('image', new Blob([bytes], { type: mimeType }), `reference-${index + 1}.${extension}`);
+            });
+            requestBody = formData;
+            requestHeaders = { Authorization: `Bearer ${config.apiKey}` };
+          } else {
+            requestBody = JSON.stringify(payload);
+            requestHeaders = {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.apiKey}`,
+            };
+          }
 
           const fetchResponse = await executeWithTimeout(
             fetch(endpoint, {
               method: 'POST',
               signal,
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.apiKey}`
-              },
-              body: JSON.stringify(payload)
+              headers: requestHeaders,
+              body: requestBody,
             }),
             { timeoutMs: 120000 } // Extended timeout for high-res generation
           );
@@ -1607,7 +1654,7 @@ ${forcedPrompt}`;
           }
 
           const data = await fetchResponse.json();
-          const results = config.isRunningHub
+          const results = (config.isRunningHub || config.isPlato)
             ? extractGeneratedImagesFromResponse(data)
             : (
               Array.isArray(data.data)
@@ -1642,8 +1689,6 @@ ${forcedPrompt}`;
           throw new Error("API returned success but no images were found in the response.");
         };
 
-        const endpoint = `${config.baseUrl}/v1/images/generations`; 
-        
         try {
           return await sendGptRequest(targetModel);
         } catch (gptError: any) {

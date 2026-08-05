@@ -425,6 +425,7 @@ export const getApiConfig = (
 
     // 1. Plato API (柏拉图)
     const platoKey = localStorage.getItem("plato_api_key");
+    const savedPlatoBaseUrl = localStorage.getItem("plato_base_url");
     const platoEnabled = localStorage.getItem("plato_enabled") !== "false";
 
     if (platoKey && platoEnabled) {
@@ -449,7 +450,12 @@ export const getApiConfig = (
 
         return {
             apiKey: activeKey,
-            baseUrl: DEFAULT_PLATO_BASE_URL,
+            // The actual Plato Base URL is workspace-specific. Normalize a trailing API version
+            // so downstream endpoint joins cannot accidentally produce /v1/v1/....
+            baseUrl: (savedPlatoBaseUrl || DEFAULT_PLATO_BASE_URL)
+                .trim()
+                .replace(/\/+$/, '')
+                .replace(/\/v1(?:beta)?$/i, ''),
             isYunwu: true, // 柏拉图也使用标准的 OpenAI/Gemini 兼容中转格式，这里复用 isYunwu 逻辑
             isPlato: true,
             isJijing: false,

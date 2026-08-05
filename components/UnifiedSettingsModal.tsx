@@ -278,10 +278,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setYunwuEnabled(savedYunwuEnabled !== 'false');
 
     const savedPlatoKey = localStorage.getItem('plato_api_key');
+    const savedPlatoUrl = localStorage.getItem('plato_base_url');
     const savedPlatoEnabled = localStorage.getItem('plato_enabled');
     if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
     lastAutoPlatoKeyRef.current = savedPlatoKey || '';
-    setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL);
+    setPlatoBaseUrl(savedPlatoUrl || DEFAULT_PLATO_BASE_URL);
     setPlatoEnabled(savedPlatoEnabled === 'true');
 
     const savedJijingKey = localStorage.getItem('jijing_api_key');
@@ -389,7 +390,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('yunwu_enabled', String(yunwuEnabled));
     
     localStorage.setItem('plato_api_key', platoApiKey.trim());
-    localStorage.setItem('plato_base_url', DEFAULT_PLATO_BASE_URL);
+    localStorage.setItem('plato_base_url', platoBaseUrl.trim() || DEFAULT_PLATO_BASE_URL);
     localStorage.setItem('plato_enabled', String(platoEnabled));
 
     localStorage.setItem('jijing_api_key', jijingApiKey.trim());
@@ -433,7 +434,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setPlatoTestStatus('testing');
     setPlatoTestMessage('正在测试...');
     try {
-      const res = await sendTestRequest(DEFAULT_PLATO_BASE_URL, key, 'gemini-3.1-flash-lite-preview', 'Say OK');
+      const res = await sendTestRequest(platoBaseUrl.trim() || DEFAULT_PLATO_BASE_URL, key, 'gemini-3.1-flash-lite-preview', 'Say OK');
       setPlatoTestStatus(res.text ? 'success' : 'error');
       setPlatoTestMessage(res.text ? '✅ 连接成功' : '❌ 无响应');
     } catch (e: any) {
@@ -658,7 +659,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     return () => {
       if (platoAutoTestTimerRef.current) clearTimeout(platoAutoTestTimerRef.current);
     };
-  }, [platoApiKey, platoEnabled, isOpen, settingsLoaded]);
+  }, [platoApiKey, platoBaseUrl, platoEnabled, isOpen, settingsLoaded]);
 
   useEffect(() => {
     if (!isOpen || !settingsLoaded || !jijingEnabled) return;
@@ -1018,6 +1019,19 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
                     {platoEnabled && (
                       <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2.5">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2">
+                            <Globe className="w-4 h-4" /> API 节点选择
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setPlatoBaseUrl(DEFAULT_PLATO_BASE_URL)}
+                            className="rounded-full border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-bold text-orange-600 shadow-sm transition hover:border-orange-400 hover:bg-orange-100 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-300"
+                            aria-pressed="true"
+                          >
+                            主站节点
+                          </button>
+                        </div>
                         <div className="space-y-2">
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
                           <div className="relative">

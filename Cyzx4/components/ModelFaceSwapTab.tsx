@@ -34,6 +34,7 @@ import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { ModelLibraryModal } from './ModelLibraryModal';
 import { modelLibrary, ModelItem } from '../services/modelLibrary';
+import { downloadImageFile } from '../utils/imageDownload';
 
 export interface FaceSwapUploadedImage {
   id: string;
@@ -63,6 +64,7 @@ export interface FaceSwapRecord {
   referenceFaceImage: FaceSwapUploadedImage | null;
   referenceSceneImage: FaceSwapUploadedImage | null;
   selectedModelPersonaId: string | null;
+  modelId: string;
   userPrompt: string;
   aspectRatio: AspectRatio;
   resolution: ImageResolution;
@@ -73,6 +75,26 @@ export interface FaceSwapRecord {
 const MAX_TARGET_IMAGES = 15;
 const MAX_FILE_SIZE = 30 * 1024 * 1024;
 const DEFAULT_MODEL_ID = 'gemini-3.1-flash-image-preview';
+const FACE_SWAP_MODEL_OPTIONS = [
+  {
+    id: 'gemini-3.1-flash-image-preview',
+    label: 'Gemini 3.1 Flash Image',
+    description: '速度快、稳定性高，适合批量换脸',
+    badge: '推荐',
+  },
+  {
+    id: 'gemini-3-pro-image-preview',
+    label: 'Gemini 3 Pro Image',
+    description: '细节与面部一致性更强',
+    badge: 'Pro',
+  },
+  {
+    id: 'gpt-image-2',
+    label: 'GPT Image 2',
+    description: '高质量商业人像与精细编辑',
+    badge: 'Ultra',
+  },
+] as const;
 
 const isValidImageType = (file: File) => {
   if (!file) return false;
@@ -90,6 +112,7 @@ const createRecord = (): FaceSwapRecord => ({
   referenceFaceImage: null,
   referenceSceneImage: null,
   selectedModelPersonaId: null,
+  modelId: DEFAULT_MODEL_ID,
   userPrompt: '',
   aspectRatio: AspectRatio.PORTRAIT_2_3,
   resolution: ImageResolution.RES_2K,
@@ -149,6 +172,7 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
   const [activeRecordId, setActiveRecordId] = useState(initialRecordRef.current.id);
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [isModelModalOpen, setIsModelModalOpen] = useState(false);
+  const [isGenerationModelModalOpen, setIsGenerationModelModalOpen] = useState(false);
   const [isRatioModalOpen, setIsRatioModalOpen] = useState(false);
   const [modelPersonas, setModelPersonas] = useState<ModelItem[]>([]);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
@@ -270,6 +294,11 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
     if (!activeRecord?.selectedModelPersonaId) return null;
     return modelPersonas.find((m) => m.id === activeRecord.selectedModelPersonaId) || null;
   }, [activeRecord?.selectedModelPersonaId, modelPersonas]);
+
+  const selectedGenerationModel = useMemo(
+    () => FACE_SWAP_MODEL_OPTIONS.find((model) => model.id === activeRecord?.modelId) || FACE_SWAP_MODEL_OPTIONS[0],
+    [activeRecord?.modelId],
+  );
 
   // Image Upload Helper
   const processUploadedFiles = async (files: File[], kind: 'target' | 'refFace' | 'refScene') => {
@@ -421,7 +450,7 @@ RULES:
         const [rawImage] = await generateImageToImage(inputImages, faceSwapPrompt, {
           aspectRatio: activeRecord.aspectRatio,
           resolution: activeRecord.resolution,
-          modelId: DEFAULT_MODEL_ID,
+          modelId: activeRecord.modelId,
           signal,
         });
 
@@ -429,7 +458,9 @@ RULES:
 
         if (!rawImage) throw new Error('模型未返回生成结果图片');
 
-        const imageUrl = rawImage.startsWith('data:') ? rawImage : `data:image/png;base64,${rawImage}`;
+        const imageUrl = rawImage.startsWith('data:') || /^https?:\/\//i.test(rawImage)
+          ? rawImage
+          : `data:image/png;base64,${rawImage}`;
 
         updateResultStatus(taskRecordId, resultObj.id, {
           status: 'done',
@@ -446,6 +477,7 @@ RULES:
           params: {
             subType: 'model_face_swap',
             title: `模特换脸 - ${targetImg.name}`,
+            model: activeRecord.modelId,
             aspectRatio: activeRecord.aspectRatio,
             resolution: activeRecord.resolution,
           },
@@ -471,6 +503,15 @@ RULES:
   };
 
   const isGenerating = activeRecord.step === 'generating';
+
+  const downloadFaceSwapResult = async (source: string, index: number) => {
+    try {
+      await downloadImageFile(source, `FaceSwap_${index + 1}_${Date.now()}.png`);
+    } catch (downloadError) {
+      console.error('Failed to download face swap image.', downloadError);
+      patchActive({ error: '图片下载失败，请检查网络后重试。' });
+    }
+  };
 
   // History Panel Component (Matches Image 2 & Scene Generation Tab 1:1)
   const historyPanel = (
@@ -1100,20 +1141,25 @@ RULES:
               <h3 className="text-sm font-black text-[#17243c] dark:text-white">图像与裂变参数</h3>
 
               {/* 生成模型 Block */}
-              <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#f48c68] bg-[#fff8f3] p-3.5 shadow-xs transition dark:border-[#ed6d46]/50 dark:bg-white/5">
+              <button
+                type="button"
+                onClick={() => setIsGenerationModelModalOpen(true)}
+                disabled={isGenerating}
+                className="mt-4 flex w-full items-center justify-between rounded-2xl border border-[#f48c68] bg-[#fff8f3] p-3.5 text-left shadow-xs transition hover:border-[#ed6d46] hover:bg-[#fff3eb] disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#ed6d46]/50 dark:bg-white/5"
+              >
                 <div>
                   <span className="block text-[0.68rem] font-bold text-[#718198]">生成模型</span>
                   <div className="mt-0.5 flex items-center gap-2">
                     <strong className="text-sm font-black text-[#17243c] dark:text-white">
-                      Gemini 3.1 Flash Image
+                      {selectedGenerationModel.label}
                     </strong>
                     <span className="rounded-full bg-[#ffefe8] px-2 py-0.5 text-[0.62rem] font-bold text-[#ed6d46] dark:bg-orange-950 dark:text-orange-300">
-                      推荐
+                      {selectedGenerationModel.badge}
                     </span>
                   </div>
                 </div>
                 <ChevronRight className="h-4 w-4 text-[#718198]" />
-              </div>
+              </button>
 
               {/* 尺寸比例 & 裂变分辨率 Grid */}
               <div className="mt-3 grid grid-cols-2 gap-3">
@@ -1257,14 +1303,14 @@ RULES:
                             >
                               <Maximize2 className="h-4 w-4" />
                             </button>
-                            <a
-                              href={res.imageUrl}
-                              download={`FaceSwap_${index + 1}.png`}
+                            <button
+                              type="button"
+                              onClick={() => void downloadFaceSwapResult(res.imageUrl!, index)}
                               className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-black dark:hover:bg-white/10 dark:hover:text-white"
                               title="下载"
                             >
                               <Download className="h-4 w-4" />
-                            </a>
+                            </button>
                           </div>
                         </div>
                       )}
@@ -1334,6 +1380,62 @@ RULES:
             >
               <X className="h-5 w-5" />
             </button>
+          </div>
+        </div>
+      )}
+      {/* Generation Model Selection Modal */}
+      {isGenerationModelModalOpen && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-[#10203a]/60 p-4 backdrop-blur-sm"
+          onClick={() => setIsGenerationModelModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl overflow-hidden rounded-[1.8rem] bg-white p-6 shadow-2xl dark:bg-[#15191f]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-white/10">
+              <div>
+                <h2 className="text-base font-black text-[#17243c] dark:text-white">选择生成模型</h2>
+                <p className="mt-1 text-xs text-[#718198]">选择本次模特换脸使用的图像模型</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGenerationModelModalOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f0f5fb] text-slate-500 hover:bg-slate-200 dark:bg-white/10"
+                aria-label="关闭模型选择"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {FACE_SWAP_MODEL_OPTIONS.map((model) => {
+                const isSelected = activeRecord.modelId === model.id;
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => {
+                      patchActive({ modelId: model.id, results: [], error: '' });
+                      setIsGenerationModelModalOpen(false);
+                    }}
+                    className={`relative min-h-32 rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 ${
+                      isSelected
+                        ? 'border-[#ed6d46] bg-[#fff7f2] shadow-[0_10px_24px_rgba(237,109,70,0.14)]'
+                        : 'border-[#d9e5f1] bg-[#f8fbff] hover:border-[#efb49d] dark:border-white/10 dark:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <Sparkles className={`h-5 w-5 ${isSelected ? 'text-[#ed6d46]' : 'text-[#2d6bb1]'}`} />
+                      {isSelected && <CheckCircle2 className="h-5 w-5 text-[#ed6d46]" />}
+                    </div>
+                    <strong className="mt-4 block text-sm font-black text-[#17243c] dark:text-white">{model.label}</strong>
+                    <span className="mt-1 block text-[0.68rem] leading-4 text-[#718198]">{model.description}</span>
+                    <span className="mt-3 inline-flex rounded-full bg-white px-2 py-1 text-[0.62rem] font-bold text-[#ed6d46] shadow-sm dark:bg-white/10">{model.badge}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
