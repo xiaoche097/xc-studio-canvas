@@ -325,6 +325,7 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
 
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const suppressPreviewClickRef = useRef(false);
 
   const startNewGenerationTask = () => {
     previewUrls.forEach((url) => {
@@ -475,9 +476,23 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
 
   // Drag and Drop Handlers
   const handleDragStart = async (e: React.DragEvent, index: number) => {
+    suppressPreviewClickRef.current = true;
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = 'move';
     // Optimization: Add a ghost image or styling if needed
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    window.setTimeout(() => {
+      suppressPreviewClickRef.current = false;
+    }, 0);
+  };
+
+  const handleReferencePreview = (event: React.MouseEvent, url: string) => {
+    event.stopPropagation();
+    if (suppressPreviewClickRef.current) return;
+    setZoomImage(url);
   };
 
   const handleDragOver = async (e: React.DragEvent) => {
@@ -1086,7 +1101,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
         }`}>
 
           {historyOpen && (
-            <aside className="fixed inset-y-3 left-3 z-[60] flex w-[min(17rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-3 shadow-xl md:left-[15.75rem] xl:sticky xl:top-0 xl:z-10 xl:h-[calc(100vh-15rem)] xl:w-auto xl:min-h-[620px] xl:shadow-sm">
+            <aside className="fixed inset-y-3 left-3 z-[60] flex w-[min(17rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-3 shadow-xl md:left-[15.75rem] xl:sticky xl:bottom-auto xl:left-auto xl:top-0 xl:z-10 xl:h-[calc(100vh-15rem)] xl:w-auto xl:min-h-[620px] xl:shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="font-black text-pastel-text">生成记录</h2>
@@ -1233,18 +1248,38 @@ Do not combine this image with any other uploaded image. Do not create extra var
                         key={idx} 
                         draggable
                         onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragEnd={handleDragEnd}
                         onDragOver={handleDragOver}
                         onDrop={(e) => handleDrop(e, idx)}
-                        className={`relative aspect-square group/img rounded-lg overflow-hidden border shadow-sm bg-white cursor-move transition-all
+                        onClick={(event) => handleReferencePreview(event, url)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setZoomImage(url);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`放大查看参考图 ${idx + 1}，可拖拽调整顺序`}
+                        title="点击放大，拖拽调整顺序"
+                        className={`relative aspect-square group/img rounded-lg overflow-hidden border shadow-sm bg-white cursor-grab active:cursor-grabbing transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-pastel-highlight focus-visible:ring-offset-2
                           ${draggedIndex === idx ? 'opacity-40 scale-95 border-pastel-highlight' : 'border-pastel-border hover:border-pastel-highlight/50'}
                         `}
                       >
                         <img src={url} alt={`Ref ${idx}`} className="w-full h-full object-cover pointer-events-none" />
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover/img:bg-black/20 group-hover/img:opacity-100 group-focus-visible/img:bg-black/20 group-focus-visible/img:opacity-100">
+                          <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/45 shadow-lg backdrop-blur-sm">
+                            <Maximize2 className="h-4 w-4" />
+                          </span>
+                        </span>
                         <button
+                          type="button"
                           onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
-                          className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/img:opacity-100 transition-all scale-90 hover:scale-100"
+                          className="absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-100 shadow-sm transition-all hover:scale-105 hover:bg-red-500 sm:opacity-0 sm:group-hover/img:opacity-100 sm:group-focus-within/img:opacity-100"
+                          aria-label={`删除参考图 ${idx + 1}`}
                         >
-                          <X className="w-3 h-3" />
+                          <X className="h-3 w-3" />
                         </button>
                       </div>
                     ))}
