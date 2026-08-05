@@ -26,6 +26,7 @@ import { resolveRuntimeModelId } from '../utils/apiHelpers';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 
@@ -627,6 +628,13 @@ const SettingsTab: React.FC = () => {
                           className={`px-3 py-1 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api.zhongzhuan.chat' ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'}`}
                         >
                           中转节点
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setYunwuBaseUrl(YUNWU_OVERSEAS_BASE_URL)}
+                          className={`px-3 py-1 text-xs rounded-full border transition-all ${yunwuBaseUrl === YUNWU_OVERSEAS_BASE_URL ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-200'}`}
+                        >
+                          海外节点
                         </button>
                       </div>
                       <div className="relative">

@@ -42,6 +42,7 @@ interface UnifiedSettingsModalProps {
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
+const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
@@ -1245,6 +1246,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                               className={`px-4 py-2 text-xs rounded-full border transition-all ${yunwuBaseUrl === 'https://api.zhongzhuan.chat' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
                             >
                               中转节点
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setYunwuBaseUrl(YUNWU_OVERSEAS_BASE_URL)}
+                              className={`px-4 py-2 text-xs rounded-full border transition-all ${yunwuBaseUrl === YUNWU_OVERSEAS_BASE_URL ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-gray-50 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 hover:border-orange-200'}`}
+                            >
+                              海外节点
                             </button>
                           </div>
                         </div>

@@ -12,6 +12,8 @@ const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
+const DEFAULT_YUNWU_BASE_URL = 'https://yunwu.ai';
+const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -398,6 +400,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                           enabled={yunwuConfig.enabled}
                           onToggle={(v) => setYunwuConfig(c => ({ ...c, enabled: v }))}
                         >
+                            <div className="mb-5 space-y-2.5">
+                                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                                    <Globe size={16} /> API 节点选择
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setYunwuConfig(c => ({ ...c, baseUrl: DEFAULT_YUNWU_BASE_URL }))}
+                                      className={`rounded-full border px-4 py-2 text-xs font-bold transition ${yunwuConfig.baseUrl === DEFAULT_YUNWU_BASE_URL || !yunwuConfig.baseUrl ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-500 hover:border-orange-200 dark:border-white/10'}`}
+                                    >
+                                      主站节点
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setYunwuConfig(c => ({ ...c, baseUrl: YUNWU_OVERSEAS_BASE_URL }))}
+                                      className={`rounded-full border px-4 py-2 text-xs font-bold transition ${yunwuConfig.baseUrl === YUNWU_OVERSEAS_BASE_URL ? 'border-orange-300 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-500 hover:border-orange-200 dark:border-white/10'}`}
+                                    >
+                                      海外节点
+                                    </button>
+                                </div>
+                            </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <ConfigInput 
                                   label="Base URL"
