@@ -1952,7 +1952,12 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       <div className="flex items-center justify-between mt-3 bg-white p-2 rounded-lg border border-pastel-border shadow-sm">
                         <div className="flex gap-2">
                           <button
-                            onClick={() => setZoomImage(imgSrc)}
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setZoomImage(imgSrc);
+                            }}
                             className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
                             title="放大查看"
                           >
@@ -1960,7 +1965,12 @@ Do not combine this image with any other uploaded image. Do not create extra var
                             放大
                           </button>
                           <button
-                            onClick={() => downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}`)}
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void downloadImage(imgSrc, `${isWhiteBackgroundProduction ? `white-bg-${idx + 1}` : 'i2i-gen'}-${Date.now()}`);
+                            }}
                             className="flex items-center gap-1.5 text-xs font-medium text-pastel-text hover:text-pastel-highlight px-3 py-1.5 rounded-md hover:bg-orange-50 transition-colors"
                             title="下载原图"
                           >
@@ -2145,7 +2155,11 @@ Do not combine this image with any other uploaded image. Do not create extra var
                 >
                   <button
                     type="button"
-                    onClick={() => void downloadImage(zoomImage, `i2i-zoom-${Date.now()}`)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void downloadImage(zoomImage, `i2i-zoom-${Date.now()}`);
+                    }}
                     className="flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black transition hover:bg-orange-50"
                   >
                     <Download className="h-4 w-4" /> 下载原图
