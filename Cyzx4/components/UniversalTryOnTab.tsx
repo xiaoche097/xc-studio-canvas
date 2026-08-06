@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Sparkles,
   Upload,
@@ -357,6 +357,16 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   } = useCancelableGeneration();
 
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const preventAccidentalUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', preventAccidentalUnload);
+    return () => window.removeEventListener('beforeunload', preventAccidentalUnload);
+  }, [isLoading]);
   const [error, setError] = useState<string | null>(null);
 
   // Lightbox Zoom Modal Image State (For ALL images)

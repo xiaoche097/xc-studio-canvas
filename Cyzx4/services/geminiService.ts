@@ -80,6 +80,67 @@ const getImageGenerationContext = (
   return { ai, config, model };
 };
 
+type ImageResponseDiagnostics = {
+  topLevelFields: string[];
+  candidateCount: number;
+  finishReasons: string[];
+  blockReason?: string;
+  partFields: string[][];
+  textPreview?: string;
+  usage?: Record<string, unknown>;
+};
+
+const IMAGE_URL_PATTERN = /https?:\/\/[^\s<>"'\]\[)]+/g;
+
+const asNonEmptyString = (value: unknown): string | null => {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
+const diagnoseImageResponse = (response: any): ImageResponseDiagnostics => {
+  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
+  const parts = candidates.flatMap((candidate: any) => {
+    const candidateParts = candidate?.content?.parts || candidate?.parts;
+    return Array.isArray(candidateParts) ? candidateParts : [];
+  });
+  const textPreview = parts
+    .map((part: any) => asNonEmptyString(part?.text))
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 240);
+  const usage = response?.usageMetadata || response?.usage;
+
+  return {
+    topLevelFields: response && typeof response === 'object' ? Object.keys(response).sort() : [],
+    candidateCount: candidates.length,
+    finishReasons: candidates
+      .map((candidate: any) => candidate?.finishReason || candidate?.finish_reason)
+      .filter(Boolean),
+    blockReason: response?.promptFeedback?.blockReason || response?.prompt_feedback?.block_reason,
+    partFields: parts.map((part: any) => part && typeof part === 'object' ? Object.keys(part).sort() : []),
+    ...(textPreview ? { textPreview } : {}),
+    ...(usage && typeof usage === 'object' ? { usage } : {}),
+  };
+};
+
+const createEmptyImageResponseError = (response: any, model: string): Error => {
+  const diagnostics = diagnoseImageResponse(response);
+  const reason = diagnostics.blockReason
+    || diagnostics.finishReasons.join(', ')
+    || '未提供 finishReason';
+  const fields = diagnostics.partFields.length > 0
+    ? diagnostics.partFields.map(keys => keys.join('|') || '(空)').join(', ')
+    : diagnostics.topLevelFields.join('|') || '(空响应)';
+  const error = new Error(
+    `中转请求已完成，但响应中未找到可接收的图片。模型：${model}；结束原因：${reason}；返回字段：${fields}。` +
+    '系统已停止本任务的后续付费请求，避免继续扣费。请保留本次中转日志；若 Network 响应中实际存在图片字段，请将响应结构交给开发者继续适配。'
+  );
+  (error as any).code = 'IMAGE_RESPONSE_EMPTY';
+  (error as any).preventRetry = true;
+  (error as any).diagnostics = diagnostics;
+  console.error('[ImageResponseEmpty]', { model, ...diagnostics });
+  return error;
+};
+
 /**
  * 1. Analyze Product (Hyper-Realistic Film Mode)
  * Uses gemini-2.5-flash-image
@@ -986,6 +1047,9 @@ const normalizeGeneratedImageValue = (value: unknown, keyHint = ''): string | nu
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (trimmed.startsWith('data:image/')) return trimmed;
+  if (/^https?:\/\//i.test(trimmed) && /(?:url|uri|image|file|output|result|thumbnail)/i.test(keyHint)) {
+    return trimmed;
+  }
   if (looksLikeImageUrl(trimmed)) return trimmed;
   if (
     looksLikeBase64Image(trimmed) &&
@@ -996,7 +1060,7 @@ const normalizeGeneratedImageValue = (value: unknown, keyHint = ''): string | nu
   return null;
 };
 
-const extractGeneratedImagesFromResponse = (data: any): string[] => {
+export const extractGeneratedImages = (data: any): string[] => {
   const results: string[] = [];
   const seenValues = new Set<string>();
   const seenObjects = new WeakSet<object>();
@@ -1011,6 +1075,13 @@ const extractGeneratedImagesFromResponse = (data: any): string[] => {
     const directValue = normalizeGeneratedImageValue(value, keyHint);
     if (directValue) {
       add(directValue);
+      return;
+    }
+
+    if (typeof value === 'string' && /(?:text|content|message)/i.test(keyHint)) {
+      (value.match(IMAGE_URL_PATTERN) || []).forEach(url => {
+        if (/^https?:\/\//i.test(url)) add(url);
+      });
       return;
     }
 
@@ -1155,7 +1226,7 @@ const pollRunningHubImageTask = async (
 
       lastData = await taskResponse.json();
       const taskData = lastData?.data || lastData?.task || lastData;
-      const images = extractGeneratedImagesFromResponse(taskData);
+      const images = extractGeneratedImages(taskData);
       if (images.length > 0) return images;
 
       const status = getRunningHubTaskStatus(taskData);
@@ -1655,7 +1726,7 @@ ${forcedPrompt}`;
 
           const data = await fetchResponse.json();
           const results = (config.isRunningHub || config.isPlato)
-            ? extractGeneratedImagesFromResponse(data)
+            ? extractGeneratedImages(data)
             : (
               Array.isArray(data.data)
                 ? data.data
@@ -2434,6 +2505,7 @@ ${forcedPrompt}`;
             // Some proxies look for standard Gemini structure, others for OpenAI/Midjourney style fields
             config: {
               safetySettings: GLOBAL_SAFETY_SETTINGS,
+              responseModalities: [Modality.IMAGE],
               ...(workflowHint === 'pose-replication-lock'
                 ? { temperature: 0.25 }
                 : workflowHint === 'model-original-paste-back'
@@ -2491,23 +2563,8 @@ ${forcedPrompt}`;
         }
       }
 
-      const generatedImages: string[] = [];
+      const generatedImages = extractGeneratedImages(response);
       const candidate = response.candidates?.[0];
-      
-      if (candidate?.content?.parts) {
-        for (const part of candidate.content.parts) {
-          if (part.inlineData && part.inlineData.data) {
-            generatedImages.push(
-              `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`,
-            );
-          } else if (part.text && (part.text.includes('http://') || part.text.includes('https://'))) {
-            const urlMatch = part.text.match(/https?:\/\/[^\s\)\n\r]+(?:\.[a-zA-Z0-9]{2,})[^\s\)\n\r]*/g);
-            if (urlMatch) {
-              urlMatch.forEach(url => generatedImages.push(url));
-            }
-          }
-        }
-      }
 
       if (generatedImages.length === 0) {
         const finishReason = candidate?.finishReason;
@@ -2517,8 +2574,11 @@ ${forcedPrompt}`;
         console.warn("[AI GENERATION EMPTY]", { finishReason, safetyRatings, blockReason });
         
         if (finishReason === 'SAFETY' || blockReason) {
-           throw new Error(`Generation blocked by safety filter: ${finishReason || blockReason}. The model detected sensitive visual content. Try a more conservative target image, a clearer face crop, or another image model.`);
+           const safetyError = new Error(`Generation blocked by safety filter: ${finishReason || blockReason}. The model detected sensitive visual content. Try a more conservative target image, a clearer face crop, or another image model.`);
+           (safetyError as any).preventRetry = true;
+           throw safetyError;
         }
+        throw createEmptyImageResponseError(response, targetModel);
       }
 
       return generatedImages;
@@ -2526,6 +2586,10 @@ ${forcedPrompt}`;
     } catch (error: any) {
       lastError = error;
       console.warn(`[API Retry] Attempt ${attempt + 1} failed with key ${config.currentIndex + 1}. Error:`, error.message);
+
+      if (error?.preventRetry) {
+        throw error;
+      }
       
       // Handle specific status codes or error messages
       const isPathError = error.message?.includes('invalid_request') || error.message?.includes('404') || error.message?.includes('API 路径');
@@ -5351,12 +5415,15 @@ ${preservationContract}
     const config: any = {
       temperature: 0.1,
       safetySettings: GLOBAL_SAFETY_SETTINGS,
+      responseModalities: [Modality.IMAGE],
       imageConfig: {
         aspectRatio: aspectRatio,
-        aspect_ratio: aspectRatio,
         imageSize: resolution,
       }
     };
+    // A local timeout cannot cancel work already accepted by a relay and may still be billed.
+    // Keep enough headroom for 4K delivery so the browser does not abandon a valid late response.
+    const receiveTimeoutMs = resolution === ImageResolution.RES_4K ? 600000 : 420000;
 
     const response: any = await executeWithTimeout(
       ai.models.generateContent({
@@ -5364,21 +5431,18 @@ ${preservationContract}
         contents: [{ role: "user", parts }],
         config,
       }),
-      { timeoutMs: 300000, signal }
+      {
+        timeoutMs: receiveTimeoutMs,
+        timeoutMessage: `中转在 ${Math.round(receiveTimeoutMs / 60000)} 分钟内未返回最终响应。请求可能仍在中转后台执行，请先核对中转日志，避免立即重复提交。`,
+        signal,
+      }
     );
 
     throwIfAborted(signal);
 
-    const images: string[] = [];
-    const candidate = response?.candidates?.[0];
-    if (candidate?.content?.parts) {
-      for (const part of candidate.content.parts) {
-        if (part?.inlineData?.data) {
-          const base64Data = part.inlineData.data;
-          const mimeType = part.inlineData.mimeType || 'image/png';
-          images.push(base64Data.startsWith('data:') ? base64Data : `data:${mimeType};base64,${base64Data}`);
-        }
-      }
+    const images = extractGeneratedImages(response);
+    if (images.length === 0) {
+      throw createEmptyImageResponseError(response, runtimeModel);
     }
     return images;
   };
@@ -5386,14 +5450,17 @@ ${preservationContract}
   const results: string[] = [];
   for (let i = 0; i < count; i++) {
     throwIfAborted(signal);
-    const batchResults = await runGeneration(model);
-    if (batchResults.length > 0) {
+    try {
+      const batchResults = await runGeneration(model);
       results.push(...batchResults);
+    } catch (error) {
+      if (results.length === 0) throw error;
+      console.warn(
+        `[UniversalTryOn] 第 ${i + 1}/${count} 张生成异常，已保留并返回前面成功的 ${results.length} 张结果。`,
+        error
+      );
+      break;
     }
-  }
-
-  if (results.length === 0) {
-    throw new Error('未生成试穿图像，请检查图像格式后重试。');
   }
 
   return results;

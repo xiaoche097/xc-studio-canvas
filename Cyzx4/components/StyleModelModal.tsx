@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, Check, Info } from 'lucide-react';
 import { STYLE_PRESETS, StylePreset } from '../constants/stylePresets';
@@ -20,19 +21,28 @@ export const StyleModelModal: React.FC<StyleModelModalProps> = ({
 }) => {
     const [activeCategory, setActiveCategory] = useState<typeof CATEGORIES[number]>('全部');
 
-    if (!isOpen) return null;
+    useEffect(() => {
+        if (!isOpen) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [isOpen]);
+
+    if (!isOpen || typeof document === 'undefined') return null;
 
     const filteredStyles = activeCategory === '全部' 
         ? STYLE_PRESETS 
         : STYLE_PRESETS.filter(s => s.category === activeCategory);
 
-    return (
+    return createPortal(
         <AnimatePresence>
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
                 onClick={onClose}
             >
                 <motion.div
@@ -146,6 +156,7 @@ export const StyleModelModal: React.FC<StyleModelModalProps> = ({
                     </div>
                 </motion.div>
             </motion.div>
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body
     );
 };

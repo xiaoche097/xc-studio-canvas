@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { generateImageToImage, blobToBase64, optimizePrompt, editGeneratedImage, optimizeImageToImagePrompt } from '../services/geminiService';
 import { StyleModelModal } from './StyleModelModal';
+import { PromptLibraryModal } from './PromptLibraryModal';
 import { STYLE_PRESETS, StylePreset } from '../constants/stylePresets';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService, type Project } from '../../services/storageService';
-import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu, PanelLeftOpen, PanelLeftClose, Plus, Trash2 } from 'lucide-react';
+import { Layers, Upload, Loader2, AlertCircle, X, Sparkles, Key, Image as ImageIcon, Wand2, Monitor, Grid, Maximize2, Download, RefreshCw, Eye, EyeOff, MessageCircle, Cpu, PanelLeftOpen, PanelLeftClose, Plus, Trash2, BookOpen } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
 import { useImagePaste } from '../hooks/useImagePaste';
@@ -315,6 +316,7 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
 
   // Style Model State
   const [isStyleModalOpen, setIsStyleModalOpen] = useState(false);
+  const [isPromptLibraryOpen, setIsPromptLibraryOpen] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<StylePreset | null>(null);
   const isWhiteBackgroundProduction = selectedStyle?.id === 'white-background-production';
 
@@ -1601,6 +1603,15 @@ Do not combine this image with any other uploaded image. Do not create extra var
                         </div>
                       )}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPromptLibraryOpen(true)}
+                      className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                      title="保存和复用自己的提示词"
+                    >
+                      <BookOpen className="h-3 w-3" />
+                      词库
+                    </button>
                     {/* Refine Popover */}
                     {showRefineInput && hasPolished && (
                       <div className="absolute top-10 right-0 z-50 w-72 bg-white rounded-xl shadow-xl border border-pastel-border p-3 animate-in fade-in zoom-in-95 duration-200">
@@ -1896,7 +1907,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
           </div>
 
           {/* Right: Result Area */}
-          <section className="flex min-h-[620px] flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5 lg:sticky lg:top-0 lg:max-h-[calc(100vh-15rem)]">
+          <section className="flex min-h-[620px] flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="flex items-center gap-2 font-black text-pastel-text">
@@ -1933,9 +1944,11 @@ Do not combine this image with any other uploaded image. Do not create extra var
               </span>
             </div>
 
-            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-dashed border-pastel-border bg-pastel-bg">
+            <div className={`relative flex flex-1 justify-center rounded-xl border border-dashed border-pastel-border bg-pastel-bg ${
+              generatedImages.length > 0 ? 'min-h-[520px] items-start overflow-visible' : 'items-center overflow-hidden'
+            }`}>
               {generatedImages.length > 0 ? (
-                <div className={`w-full h-full overflow-y-auto p-4 custom-scrollbar ${isWhiteBackgroundProduction && generatedImages.length > 1 ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 content-start' : ''}`}>
+                <div className={`w-full p-4 ${isWhiteBackgroundProduction && generatedImages.length > 1 ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 content-start' : ''}`}>
                   {generatedImages.map((imgSrc, idx) => (
                     <div key={idx} className={`${isWhiteBackgroundProduction && generatedImages.length > 1 ? '' : 'mb-6 last:mb-0'} group/card relative animate-in fade-in slide-in-from-bottom-4 duration-500`}>
 
@@ -2230,6 +2243,16 @@ Do not combine this image with any other uploaded image. Do not create extra var
           }
         }}
         currentSelectedId={selectedStyle?.id}
+      />
+      <PromptLibraryModal
+        isOpen={isPromptLibraryOpen}
+        onClose={() => setIsPromptLibraryOpen(false)}
+        currentPrompt={description}
+        onApply={(prompt) => {
+          setDescription(prompt);
+          setHasPolished(false);
+          setError(null);
+        }}
       />
           </section>
         </div>
