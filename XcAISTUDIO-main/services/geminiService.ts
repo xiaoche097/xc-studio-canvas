@@ -434,14 +434,7 @@ export const sendChatMessage = async (
 ): Promise<string> => {
     const ai = getClient();
 
-    // Model Selection
-    let modelName = 'gemini-3.1-flash-lite-preview';
     let systemInstruction = SYSTEM_INSTRUCTION;
-
-    if (options?.isThinkingMode) {
-        modelName = 'gemini-3.1-flash-lite-preview'; // Or 'gemini-2.0-flash-thinking-exp-1219' if available
-        // Thinking mode logic (mocked by model selection/config here if supported)
-    }
 
     if (options?.isStoryboard) {
         systemInstruction = STORYBOARD_INSTRUCTION;
@@ -449,13 +442,14 @@ export const sendChatMessage = async (
         systemInstruction = HELP_ME_WRITE_INSTRUCTION;
     }
 
-    const chat = ai.chats.create({
-        model: resolveRuntimeModelId(modelName),
+    const result = await generateContentWithAnalysisFallback(ai, {
+        model: 'gemini-3.1-flash-lite-preview',
+        contents: [
+            ...history,
+            { role: 'user', parts: [{ text: newMessage }] },
+        ],
         config: { systemInstruction },
-        history: history
     });
-
-    const result = await chat.sendMessage({ message: newMessage });
     return result.text || "No response";
 };
 

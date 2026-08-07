@@ -25,7 +25,13 @@ import {
   HardDrive,
   Database
 } from 'lucide-react';
-import { resolveRuntimeModelId } from '../Cyzx4/utils/apiHelpers';
+import {
+  DEEP_THINKING_TEXT_MODELS,
+  getTextModelPowerMode,
+  LOW_POWER_TEXT_MODELS,
+  resolveRuntimeModelId,
+  setTextModelPowerMode,
+} from '../Cyzx4/utils/apiHelpers';
 import { storageService, CacheStats } from '../services/storageService';
 import { deleteFromStorage } from '../XcAISTUDIO-main/services/storage';
 import {
@@ -153,6 +159,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [agentName, setAgentName] = useState('XcAI 首席电商视觉策划师');
   const [agentRole, setAgentRole] = useState('你是一个拥有10年经验的亚马逊/独立站电商视觉总监。你的目标是根据用户提供的产品信息或图片，策划出高转化率的视觉方案。');
   const [agentCapabilities, setAgentCapabilities] = useState('1. 深入分析产品卖点与目标市场\n2. 策划高转化率的电商图片（主图、副图、A+）\n3. 保持专业、精炼的语言风格');
+  const [deepThinkingEnabled, setDeepThinkingEnabled] = useState(false);
 
   // Model Settings State
   const [nativeApiKey, setNativeApiKey] = useState('');
@@ -259,6 +266,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedName) setAgentName(savedName);
     if (savedRole) setAgentRole(savedRole);
     if (savedCapabilities) setAgentCapabilities(savedCapabilities);
+    setDeepThinkingEnabled(getTextModelPowerMode() === 'deep-thinking');
 
     // Load Model Settings
     const savedNativeKey = localStorage.getItem('user_api_key');
@@ -378,6 +386,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('agentName', agentName);
     localStorage.setItem('agentRole', agentRole);
     localStorage.setItem('agentCapabilities', agentCapabilities);
+    setTextModelPowerMode(deepThinkingEnabled ? 'deep-thinking' : 'low-power');
 
     // Save Model
     const trimmedNative = nativeApiKey.trim();
@@ -1397,6 +1406,54 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                 </div>
               ) : (
                 <div className="space-y-8 max-w-3xl">
+                  <div className={`rounded-3xl border p-6 transition-all ${deepThinkingEnabled ? 'border-orange-300 bg-gradient-to-br from-orange-50 to-amber-50 dark:border-orange-500/40 dark:from-orange-500/10 dark:to-amber-500/5' : 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/25 dark:bg-emerald-500/5'}`}>
+                    <div className="flex items-start justify-between gap-5">
+                      <div className="flex min-w-0 items-start gap-4">
+                        <div className={`mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${deepThinkingEnabled ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15'}`}>
+                          {deepThinkingEnabled ? <Sparkles className="h-5 w-5" /> : <Zap className="h-5 w-5" />}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-base font-black text-gray-900 dark:text-white">开启深度思考</h4>
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${deepThinkingEnabled ? 'bg-orange-500 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'}`}>
+                              {deepThinkingEnabled ? '高性能模式' : '低功耗模式'}
+                            </span>
+                          </div>
+                          <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                            {deepThinkingEnabled
+                              ? '全站文本对话与智能分析将轮换使用高性能模型，异常时自动切换备用模型。'
+                              : '默认使用经济型模型，兼顾响应速度与调用成本。'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={deepThinkingEnabled}
+                        aria-label="开启深度思考"
+                        onClick={() => {
+                          const enabled = !deepThinkingEnabled;
+                          setDeepThinkingEnabled(enabled);
+                          setTextModelPowerMode(enabled ? 'deep-thinking' : 'low-power');
+                        }}
+                        className={`relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-4 focus:ring-orange-500/15 ${deepThinkingEnabled ? 'bg-orange-500' : 'bg-gray-300 dark:bg-white/15'}`}
+                      >
+                        <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${deepThinkingEnabled ? 'left-6' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    <div className="mt-5 border-t border-black/5 pt-4 dark:border-white/10">
+                      <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-gray-400">当前模型池 · 自动轮换与故障回退</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(deepThinkingEnabled ? DEEP_THINKING_TEXT_MODELS : LOW_POWER_TEXT_MODELS).map((model) => (
+                          <span key={model} className="rounded-xl border border-white/70 bg-white/80 px-3 py-1.5 font-mono text-[11px] font-bold text-gray-600 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
+                            {model}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-6">
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-gray-700 dark:text-gray-300">智能体名称 (Agent Name)</label>

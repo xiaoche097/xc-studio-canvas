@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getApiConfig, getImageApiConfig, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
+import { getApiConfig, getImageApiConfig, getOrderedTextModels, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
 import { resolveXiaocheImageModel } from "../Cyzx4/utils/xiaocheModels";
 
 const toOpenAiContent = (text: string, images: string[] = []) => {
@@ -103,61 +103,7 @@ class GeminiClient {
     modelName?: string
   ) {
     const config = getApiConfig();
-    const selectedModelName = resolveRuntimeModelId(modelName || "gemini-1.5-flash", config);
-
-    if (config.isRunningHub) {
-      const baseUrl = (config.baseUrl || "https://www.runninghub.cn").replace(/\/$/, "");
-      const messages: any[] = [];
-      if (systemInstruction) {
-        messages.push({ role: "system", content: systemInstruction });
-      }
-      history.forEach(h => {
-        messages.push({
-          role: h.role === "model" || h.role === "ai" ? "assistant" : "user",
-          content: partsToOpenAiContent(h.parts)
-        });
-      });
-      messages.push({
-        role: "user",
-        content: toOpenAiContent(prompt, images)
-      });
-
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: selectedModelName,
-          stream: true,
-          messages,
-        }),
-      });
-
-      if (!response.ok) {
-        const txt = await response.text();
-        throw new Error(`RunningHub Chat API Error ${response.status}: ${txt}`);
-      }
-
-      return { stream: parseRunningHubSseStream(response) };
-    }
-    
-    // For Proxies (Plato/Yunwu), the SDK might fail if it hardcodes the Google URL.
-    // However, if the user has configured it in Settings, we should honor it.
-    
-    const genAI = new GoogleGenerativeAI(config.apiKey);
-    
-    // Some versions of @google/generative-ai support baseUrl in the second argument of getGenerativeModel
-    // If not, we might need a manual fetch implementation for proxies.
-    const model = genAI.getGenerativeModel({
-      model: selectedModelName,
-      systemInstruction: systemInstruction,
-    }, { 
-        baseUrl: config.baseUrl?.replace(/\/$/, "") // Pass base URL if present
-    } as any);
-
-    // Prepare parts
+    const candidateModels = getOrderedTextModels(modelName);
     const parts: any[] = [{ text: prompt }];
     for (const imgData of images) {
       const match = imgData.match(/^data:(image\/\w+);base64,(.+)$/);
@@ -180,11 +126,53 @@ class GeminiClient {
         })
     }));
 
-    const chat = model.startChat({
-      history: chatHistory,
-    });
+    let lastError: unknown;
+    for (const candidateModel of candidateModels) {
+      const selectedModelName = resolveRuntimeModelId(candidateModel, config);
+      try {
+        if (config.isRunningHub) {
+          const baseUrl = (config.baseUrl || "https://www.runninghub.cn").replace(/\/$/, "");
+          const messages: any[] = [];
+          if (systemInstruction) messages.push({ role: "system", content: systemInstruction });
+          history.forEach(h => {
+            messages.push({
+              role: h.role === "model" || h.role === "ai" ? "assistant" : "user",
+              content: partsToOpenAiContent(h.parts)
+            });
+          });
+          messages.push({ role: "user", content: toOpenAiContent(prompt, images) });
 
-    return chat.sendMessageStream(parts);
+          const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify({ model: selectedModelName, stream: true, messages }),
+          });
+          if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`RunningHub Chat API Error ${response.status}: ${txt}`);
+          }
+          return { stream: parseRunningHubSseStream(response) };
+        }
+
+        const genAI = new GoogleGenerativeAI(config.apiKey);
+        const model = genAI.getGenerativeModel({
+          model: selectedModelName,
+          systemInstruction,
+        }, {
+          baseUrl: config.baseUrl?.replace(/\/$/, "")
+        } as any);
+        const chat = model.startChat({ history: chatHistory });
+        return await chat.sendMessageStream(parts);
+      } catch (error) {
+        lastError = error;
+        console.warn(`[ChatModelFallback] ${selectedModelName} failed, trying next model.`, error);
+      }
+    }
+
+    throw lastError || new Error('All configured text models failed.');
   }
 
   async generateImage(prompt: string, referenceImages: string[] = [], options: { aspectRatio?: string; resolution?: string; model?: string } = {}): Promise<string> {

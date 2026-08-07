@@ -18,6 +18,7 @@ import {
   UserRoundCog,
   Shirt,
   LayoutTemplate,
+  Instagram,
 } from 'lucide-react';
 import { AppMode } from './types';
 
@@ -56,6 +57,7 @@ const ImageCleanTab = lazy(() => import('./components/ImageCleanTab'));
 const WhiteBackgroundRetouchTab = lazy(() => import('./components/WhiteBackgroundRetouchTab'));
 const ProductVideoTab = lazy(() => import('./components/ProductVideoTab'));
 const SceneGenerationTab = lazy(() => import('./components/SceneGenerationTab'));
+const InstagramSceneTab = lazy(() => import('./components/InstagramSceneTab'));
 const StyleReplicateTab = lazy(() => import('./components/StyleReplicateTab'));
 const ModelTransferTab = lazy(() => import('./components/ModelTransferTab'));
 const SingleItemTryOnTab = lazy(() => import('./components/SingleItemTryOnTab'));
@@ -168,6 +170,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/scene-builder.webp?v=20260802',
     icon: Store,
     component: SceneGenerationTab,
+  },
+  {
+    mode: AppMode.INSTAGRAM_SCENE,
+    title: 'INS风场景图制作',
+    englishTitle: 'Instagram Scene Agent',
+    description: '读取公开 Instagram 账号的视觉风格，为服装匹配场景并生成社媒大片。',
+    category: 'marketing',
+    keywords: ['Instagram', 'INS风', '社媒场景', '服装场景', '账号风格', 'COMMENSE'],
+    cover: './creative-covers/instagram-scene.jpg?v=20260807-layout2',
+    icon: Instagram,
+    component: InstagramSceneTab,
   },
   {
     mode: AppMode.COPYWRITING,

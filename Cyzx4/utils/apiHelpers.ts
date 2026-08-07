@@ -25,14 +25,28 @@ export const NO1_IMAGE_NODES = [
     { name: "美国阿什本OVH线路", url: "https://us-2.rcouyi.com" },
 ];
 
-export const GEMINI_TEXT_MODELS = [
+export const TEXT_MODEL_POWER_MODE_STORAGE_KEY = 'xcai_text_model_power_mode';
+export type TextModelPowerMode = 'low-power' | 'deep-thinking';
+
+/**
+ * Text-only model pools used across the site. Image, video, audio and TTS
+ * model selection deliberately stays independent from this preference.
+ */
+export const DEEP_THINKING_TEXT_MODELS = [
     'gemini-3.6-flash',
-    'gemini-3.5-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite-preview',
+    'gpt-5.6-sol',
 ] as const;
 
-export const DEFAULT_TEXT_MODEL = GEMINI_TEXT_MODELS[0];
+export const LOW_POWER_TEXT_MODELS = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gpt-5.6-luna',
+] as const;
+
+// Kept as a compatibility export for call sites that provide a default model.
+// The actual request model is selected dynamically by getOrderedTextModels().
+export const GEMINI_TEXT_MODELS = LOW_POWER_TEXT_MODELS;
+export const DEFAULT_TEXT_MODEL = LOW_POWER_TEXT_MODELS[0];
 export const GEMINI_FLASH_LITE_PREVIEW_MODEL = 'gemini-3.1-flash-lite-preview';
 export const YUNWU_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite';
 export const RUNNINGHUB_DEFAULT_IMAGE_MODEL = 'gpt-image-2-vip';
@@ -41,14 +55,36 @@ export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBAC
 export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
 export const ANALYSIS_FALLBACK_TIMEOUT_MS = 60000;
 
-export const getOrderedTextModels = (requestedModel?: string): string[] => {
-    const primary = requestedModel || DEFAULT_TEXT_MODEL;
-    const list = [...GEMINI_TEXT_MODELS] as string[];
-    const index = list.indexOf(primary as any);
-    if (index !== -1) {
-        return [primary, ...list.filter((_, i) => i !== index)];
-    }
-    return [primary, ...list];
+export const getTextModelPowerMode = (): TextModelPowerMode => {
+    if (typeof window === 'undefined') return 'low-power';
+    return localStorage.getItem(TEXT_MODEL_POWER_MODE_STORAGE_KEY) === 'deep-thinking'
+        ? 'deep-thinking'
+        : 'low-power';
+};
+
+export const setTextModelPowerMode = (mode: TextModelPowerMode): void => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(TEXT_MODEL_POWER_MODE_STORAGE_KEY, mode);
+    window.dispatchEvent(new CustomEvent('text-model-power-mode-updated', { detail: { mode } }));
+};
+
+/**
+ * Rotate the primary model for each text request, then retain the rest of the
+ * active pool as automatic fallbacks. The requestedModel argument remains for
+ * API compatibility; the global power mode intentionally takes precedence.
+ */
+export const getOrderedTextModels = (_requestedModel?: string): string[] => {
+    const mode = getTextModelPowerMode();
+    const pool = mode === 'deep-thinking'
+        ? [...DEEP_THINKING_TEXT_MODELS]
+        : [...LOW_POWER_TEXT_MODELS];
+    if (typeof window === 'undefined') return pool;
+
+    const cursorKey = `xcai_text_model_rotation_${mode}`;
+    const previousCursor = Number.parseInt(localStorage.getItem(cursorKey) || '-1', 10);
+    const nextCursor = (Number.isFinite(previousCursor) ? previousCursor + 1 : 0) % pool.length;
+    localStorage.setItem(cursorKey, String(nextCursor));
+    return [...pool.slice(nextCursor), ...pool.slice(0, nextCursor)];
 };
 
 // ==================== 类型定义 ====================
@@ -171,6 +207,19 @@ const isFlashLiteAnalysisModel = (modelId: string): boolean => (
 export const shouldFallbackAnalysisModel = (error: any): boolean => {
     const message = (error?.message || error?.toString?.() || '').toLowerCase();
     const status = error?.status || error?.code;
+
+    // A relay may not expose every model in a pool. Treat model availability
+    // errors as a signal to use the next configured model, not as a hard stop.
+    if (
+        status === 404 ||
+        message.includes('model not found') ||
+        message.includes('model is not supported') ||
+        message.includes('unsupported model') ||
+        message.includes('unknown model') ||
+        message.includes('does not exist')
+    ) {
+        return true;
+    }
 
     if (
         status === 401 ||

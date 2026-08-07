@@ -24,6 +24,9 @@ import {
   Wand2,
   WandSparkles,
   X,
+  Instagram,
+  Link2,
+  ExternalLink,
 } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImage, generateImageToImage, generateText } from '../services/geminiService';
@@ -125,6 +128,15 @@ export interface SceneHeroAnalysis {
   boardReason: string;
   boardVisualStrategy: string;
   backgroundComposition: string;
+  referenceStyleFingerprint: string;
+  referenceCompatibilityReason: string;
+  referenceSceneRules: string[];
+  referenceAvoidRules: string[];
+  atmosphereBlueprint: string;
+  lightAndAir: string;
+  spatialDepth: string;
+  modelMoment: string;
+  filmTexture: string;
   modelPersonaPreset: string;
   modelEthnicity: string;
   modelAgeGroup: string;
@@ -170,6 +182,11 @@ export interface SceneGenerationRecord {
   analysis: SceneHeroAnalysis | null;
   results: SceneHeroResult[];
   error: string;
+  instagramUrl: string;
+  instagramHandle: string;
+  instagramBio: string;
+  instagramReferences: SceneUploadedImage[];
+  instagramImportNote: string;
 }
 
 const MAX_PRODUCT_IMAGES = 10;
@@ -202,7 +219,7 @@ const STEPS: Array<{ id: SceneGenerationRecord['step']; label: string }> = [
   { id: 'complete', label: '5. 完成' },
 ];
 
-const createRecord = (): SceneGenerationRecord => ({
+const createRecord = (experience: 'standard' | 'instagram' = 'standard'): SceneGenerationRecord => ({
   id: crypto.randomUUID(),
   createdAt: Date.now(),
   step: 'input',
@@ -211,7 +228,7 @@ const createRecord = (): SceneGenerationRecord => ({
   cropFraming: 'full-length',
   productImages: [],
   referenceSceneImage: null,
-  userHint: '',
+  userHint: experience === 'instagram' ? '自然松弛的都市时装氛围，适合 Instagram 发布' : '',
   productSize: '',
   modelId: DEFAULT_MODEL_ID,
   aspectRatio: AspectRatio.PORTRAIT_2_3,
@@ -224,6 +241,11 @@ const createRecord = (): SceneGenerationRecord => ({
   analysis: null,
   results: [],
   error: '',
+  instagramUrl: '',
+  instagramHandle: '',
+  instagramBio: '',
+  instagramReferences: [],
+  instagramImportNote: '',
 });
 
 const toApiImage = (image: SceneUploadedImage) => ({ base64: image.base64, mimeType: image.mime });
@@ -296,6 +318,15 @@ const parseSceneAnalysis = (
     boardReason: String(parsed.boardReason).trim(),
     boardVisualStrategy: String(parsed.boardVisualStrategy).trim(),
     backgroundComposition: String(parsed.backgroundComposition).trim(),
+    referenceStyleFingerprint: String(parsed.referenceStyleFingerprint || '未提供可验证的社媒截图风格指纹').trim(),
+    referenceCompatibilityReason: String(parsed.referenceCompatibilityReason || '根据产品品类与目标人群匹配场景').trim(),
+    referenceSceneRules: normalizeStringList(parsed.referenceSceneRules),
+    referenceAvoidRules: normalizeStringList(parsed.referenceAvoidRules),
+    atmosphereBlueprint: String(parsed.atmosphereBlueprint || '自然光下具有空气流动与环境叙事的时装瞬间').trim(),
+    lightAndAir: String(parsed.lightAndAir || '有明确方向的自然光、真实高光与空气流动').trim(),
+    spatialDepth: String(parsed.spatialDepth || '前景、中景人物与远景环境形成真实空间层次').trim(),
+    modelMoment: String(parsed.modelMoment || '非摆拍的自然停顿、视线与轻微动态').trim(),
+    filmTexture: String(parsed.filmTexture || '克制胶片颗粒、自然肤质与轻微不完美曝光').trim(),
     modelPersonaPreset: String(parsed.modelPersonaPreset || '美国都市女性').trim(),
     modelEthnicity: String(parsed.modelEthnicity || '自动匹配').trim(),
     modelAgeGroup: String(parsed.modelAgeGroup || '20-30岁').trim(),
@@ -331,6 +362,13 @@ const styleSummary = (record: SceneGenerationRecord, customStyles: EcommerceCust
   const preset = stylePresetById(record.selectedPresetId);
   if (preset) return { name: preset.name, prompt: preset.prompt, references: [] as SceneUploadedImage[] };
   const custom = customStyles.find((item) => item.id === record.selectedCustomStyleId);
+  if (!custom && record.instagramReferences.length > 0) {
+    return {
+      name: '真实截图氛围风格',
+      prompt: 'Treat the verified Instagram screenshots as the primary visual direction. Preserve their emotional weather, directional light, environmental depth, candid human moment, tactile materials, restrained color grade and photographic imperfections. Keep the garment recognizable without turning the frame into a sterile catalog or generic street-style image.',
+      references: [] as SceneUploadedImage[],
+    };
+  }
   if (!custom) return { name: '默认平台风格', prompt: 'Use realistic commercial photo lighting, harmonious lifestyle colors, crisp product focus.', references: [] as SceneUploadedImage[] };
   return {
     name: custom.name,
@@ -353,12 +391,18 @@ const buildAnalysisPrompt = (record: SceneGenerationRecord, styleName: string, s
   const refSceneText = record.referenceSceneImage
     ? `Image ${record.productImages.length + 1} is a REFERENCE SCENE & POSE IMAGE. Extract its exact background environment, lighting, composition, camera perspective, and model pose/action. Create visual plans that faithfully replicate this scene style and pose for the product.`
     : 'No reference scene image provided.';
+  const instagramStart = record.productImages.length + (record.referenceSceneImage ? 1 : 0) + 1;
+  const instagramEnd = instagramStart + record.instagramReferences.length - 1;
+  const instagramText = record.instagramReferences.length
+    ? `Instagram source label: ${record.instagramUrl || 'not provided'}\nImages ${instagramStart}-${instagramEnd} are USER-PROVIDED SCREENSHOTS of an Instagram grid/posts. They are the only verified Instagram visual evidence. Ignore browser chrome, Instagram navigation, profile avatars, story highlights, recommendation cards, captions, logos, likes, icons and all text. Analyze only the actual fashion-post tiles. Find recurring evidence across multiple tiles: palette, locations, natural/artificial light, framing distance, camera height, styling mood, model movement, candid/editorial balance and negative space. Do not infer unseen posts and do not copy a specific person or garment.`
+    : 'No verified Instagram screenshots were provided. Do not claim that the link itself was visually analyzed.';
 
   return `
 You are an expert commercial scene director and product analyst.
 
 Analyze Images 1-${record.productImages.length} as multiple views/angles of ONE identical product SKU.
 ${refSceneText}
+${instagramText}
 
 CURRENT SETTINGS
 - Scene Board: ${board.label} (${board.description})
@@ -373,6 +417,14 @@ CURRENT SETTINGS
 
 RULES
 - Extract absolute product identity (silhouette, texture, colors, key features).
+- Match the scene to the uploaded garment first. Instagram references guide visual language, but must never override garment identity, fit, length, material or color.
+- Analyze the product BEFORE evaluating the Instagram references. Determine garment category, silhouette, season, occasion, target wearer, styling compatibility and movement needs first.
+- Evaluate every Instagram reference against that product profile. Use only compatible references; reject scenes, poses or styling that conflict with the garment's season, length, structure, intended occasion or target customer.
+- For each final image plan, explicitly describe why the chosen scene and styling are appropriate for this specific product rather than merely fashionable in isolation.
+- Translate the user's approximate keywords into concrete locations, time of day, lighting, props, camera distance and model action.
+- ATMOSPHERE IS NOT A DECORATION. Reverse-engineer the emotional weather of the screenshots: exact time-of-day feeling, light direction and hardness, highlight roll-off, shadow color, air/wind movement, tactile architecture/nature, foreground-midground-background depth, candid human micro-moment, film stock/texture and intentional exposure imperfections.
+- Avoid reducing the reference to nouns such as "white wall", "street" or "villa". Describe the sensory relationship among light, air, skin, fabric, surfaces and space.
+- Reject sterile catalog posing, centered full-body sidewalk shots, generic luxury hotels, empty studio backdrops and evenly lit commercial scenes unless those traits recur clearly in the uploaded screenshots.
 - Recommend exact board type from: main, aplus, social, story, asset, mobile.
 - If user does NOT provide product size, infer exact realistic product size & fit dimensions in Chinese based on product images, apparel silhouette/style, category standards, and real-world proportions (e.g. "裙长约 115cm（中长款流线型）", "裤长约 100cm（修身长裤）", "常规手提包约 28x20cm"). Output this as "estimatedProductSize".
 - Plan exactly ${record.outputCount} distinct, high-converting commercial lifestyle image plans.
@@ -389,6 +441,15 @@ RULES
   "boardReason":"Chinese recommendation reason",
   "boardVisualStrategy":"Chinese board visual strategy",
   "backgroundComposition":"Chinese background composition, lighting and space plan",
+  "referenceStyleFingerprint":"Chinese evidence-based fingerprint from recurring visual traits in the uploaded Instagram screenshots; include palette, light, location, framing, camera feel, model energy and styling restraint",
+  "referenceCompatibilityReason":"Chinese explanation of why the selected reference traits fit this exact uploaded product",
+  "referenceSceneRules":["specific rule that every generated image must follow"],
+  "referenceAvoidRules":["visual trait seen in screenshots but incompatible with this product, or UI/reference elements that must not be generated"],
+  "atmosphereBlueprint":"Chinese sensory atmosphere direction combining emotional tone, time, weather, environment and material contrast",
+  "lightAndAir":"Chinese exact light direction/hardness, exposure behavior, shadow tone, breeze/air movement and how they affect hair and fabric",
+  "spatialDepth":"Chinese foreground, subject plane, architectural/natural midground and distant background relationship; include lens distance and crop",
+  "modelMoment":"Chinese candid micro-action, gaze, posture, interaction with environment and what must avoid looking posed",
+  "filmTexture":"Chinese capture medium, grain, highlight roll-off, color response, skin texture and tasteful imperfection",
   "modelPersonaPreset":"recommended persona preset name",
   "modelEthnicity":"ethnicity",
   "modelAgeGroup":"age group",
@@ -421,7 +482,13 @@ const buildGenerationPrompt = (
     refSceneNote = `- Image ${productEnd + 1} is a REFERENCE SCENE & POSE IMAGE. Replicate its exact scene setting, background composition, lighting mood, camera perspective, and subject pose/gestures faithfully, placing the target product into that replicated scene and pose.`;
   }
 
-  const styleEnd = productEnd + (record.referenceSceneImage ? 1 : 0);
+  const instagramStart = productEnd + (record.referenceSceneImage ? 1 : 0) + 1;
+  const instagramEnd = instagramStart + record.instagramReferences.length - 1;
+  const instagramRefNote = record.instagramReferences.length
+    ? `- Images ${instagramStart}-${instagramEnd} are verified user screenshots of Instagram grids/posts. Treat them strictly as STYLE EVIDENCE: ignore all app/browser UI and every garment shown there. Transfer only recurring scene types, palette, lighting, camera distance, framing rhythm, model energy and editorial mood. The garment in Images 1-${productEnd} is the ONLY clothing identity. Never render a social-media grid, interface, caption, logo, watermark, text, reference person or reference garment.`
+    : `- No verified Instagram visual reference is available. Do not pretend the URL supplied visual information.`;
+
+  const styleEnd = productEnd + (record.referenceSceneImage ? 1 : 0) + record.instagramReferences.length;
   let styleRefNote = styleReferenceCount
     ? `- Images ${styleEnd + 1}-${styleEnd + styleReferenceCount} are visual style references for color and lighting ONLY.`
     : '- No separate style reference image provided.';
@@ -442,6 +509,7 @@ Create ONE premium commercial scene image, variation ${index + 1} of ${record.ou
 IMAGE ROUTING
 - Images 1-${productEnd}: multiple views/details of ONE identical product SKU (Identity lock).
 ${refSceneNote}
+${instagramRefNote}
 ${styleRefNote}
 
 PRODUCT IDENTITY LOCK
@@ -456,6 +524,10 @@ SCENE & BOARD SYSTEM
 - Mandatory Crop Framing: ${cropConfig.label} (${cropConfig.description}) - ${cropConfig.promptRule}
 - Strategy: ${analysis.boardVisualStrategy}
 - Background & Composition: ${analysis.backgroundComposition}
+- Verified Reference Style Fingerprint: ${analysis.referenceStyleFingerprint}
+- Why It Fits This Product: ${analysis.referenceCompatibilityReason}
+- Mandatory Reference Rules: ${analysis.referenceSceneRules.join('; ') || 'Use the verified recurring screenshot style traits.'}
+- Explicit Avoid Rules: ${analysis.referenceAvoidRules.join('; ') || 'No social UI, copied reference garments, text or logos.'}
 - Image Plan: ${analysis.imagePlans[index] || analysis.imagePlans[0]}
 - Camera / Device: ${analysis.cameraDevice}
 - Shot Type: ${analysis.shotType}
@@ -464,6 +536,16 @@ SCENE & BOARD SYSTEM
 STYLE DIRECTION
 - Selected Style: ${styleName}
 - Style Prompt: ${stylePrompt}
+
+ATMOSPHERE LOCK — EQUAL PRIORITY TO PRODUCT IDENTITY
+- Master Atmosphere: ${analysis.atmosphereBlueprint}
+- Light & Air Movement: ${analysis.lightAndAir}
+- Spatial Depth & Lens Distance: ${analysis.spatialDepth}
+- Candid Human Moment: ${analysis.modelMoment}
+- Film / Sensor Texture: ${analysis.filmTexture}
+- Atmosphere must be visible through at least four concrete cues in the final pixels: directional light behavior, moving air on hair/fabric, tactile environmental surfaces, layered depth, candid body language, or filmic exposure/color texture.
+- Do not substitute atmosphere with a generic location label. A plain sidewalk, clean wall, centered catalog stance or uniformly lit background is a FAILURE unless explicitly demanded by the verified screenshots.
+- Preserve natural highlight clipping, textured shadows, environmental color bounce and small photographic imperfections when supported by the reference. Do not over-polish into sterile e-commerce CGI.
 
 USER HINT
 ${record.userHint.trim() || 'No extra hint.'}
@@ -726,9 +808,15 @@ const StyleLibraryModal: React.FC<StyleLibraryModalProps> = ({ record, customSty
   );
 };
 
-const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+interface SceneGenerationTabProps {
+  isActive?: boolean;
+  experience?: 'standard' | 'instagram';
+}
+
+const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true, experience = 'standard' }) => {
+  const isInstagramExperience = experience === 'instagram';
   const initialRecordRef = useRef<SceneGenerationRecord | null>(null);
-  if (!initialRecordRef.current) initialRecordRef.current = createRecord();
+  if (!initialRecordRef.current) initialRecordRef.current = createRecord(experience);
 
   const [records, setRecords] = useState<SceneGenerationRecord[]>([initialRecordRef.current]);
   const [activeRecordId, setActiveRecordId] = useState(initialRecordRef.current.id);
@@ -740,16 +828,16 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const [styleMutationError, setStyleMutationError] = useState('');
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const [selectionModal, setSelectionModal] = useState<'ratio' | 'board' | 'crop' | null>(null);
-
   const productInputRef = useRef<HTMLInputElement>(null);
   const refSceneInputRef = useRef<HTMLInputElement>(null);
+  const instagramInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeUploadKind, setActiveUploadKind] = useState<'product' | 'refScene'>('product');
-  const activeUploadKindRef = useRef<'product' | 'refScene'>('product');
+  const [activeUploadKind, setActiveUploadKind] = useState<'product' | 'refScene' | 'instagram'>('product');
+  const activeUploadKindRef = useRef<'product' | 'refScene' | 'instagram'>('product');
   const [isDraggingRefScene, setIsDraggingRefScene] = useState(false);
   const [isDraggingProduct, setIsDraggingProduct] = useState(false);
 
-  const activateUploadKind = useCallback((kind: 'product' | 'refScene') => {
+  const activateUploadKind = useCallback((kind: 'product' | 'refScene' | 'instagram') => {
     activeUploadKindRef.current = kind;
     setActiveUploadKind(kind);
   }, []);
@@ -865,6 +953,32 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
     }
   }, [isBusy, patchActive]);
 
+  const processInstagramReferenceFiles = useCallback(async (files: File[]) => {
+    if (!isInstagramExperience || isBusy) return;
+    if (!activeRecord.productImages.length) {
+      patchActive({ error: '请先上传产品/服装图，再添加 Instagram 主页或帖子截图。' });
+      return;
+    }
+    try {
+      const { uploaded } = await readUploadedFiles(files, 5, activeRecord.instagramReferences.length);
+      if (!uploaded.length) throw new Error('请选择 1–5 张有效的 Instagram 主页网格或帖子截图。');
+      updateRecord(activeRecord.id, (record) => {
+        const instagramReferences = [...record.instagramReferences, ...uploaded].slice(0, 5);
+        return {
+          ...record,
+          instagramReferences,
+          instagramImportNote: `已确认 ${instagramReferences.length} 张真实截图会送入视觉模型。Agent 将先分析服装，再从截图中提取匹配的场景与风格。`,
+          analysis: null,
+          results: [],
+          step: 'input',
+          error: '',
+        };
+      });
+    } catch (error) {
+      patchActive({ error: getErrorMessage(error) });
+    }
+  }, [activeRecord.id, activeRecord.instagramReferences.length, activeRecord.productImages.length, isBusy, isInstagramExperience, patchActive, updateRecord]);
+
   const handleRefSceneDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -910,7 +1024,9 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
 
   useImagePaste((files) => {
     if (!files.length || isBusy || activeRecord.step !== 'input' || isStyleOpen) return;
-    if (activeUploadKindRef.current === 'refScene') {
+    if (activeUploadKindRef.current === 'instagram') {
+      void processInstagramReferenceFiles(files);
+    } else if (activeUploadKindRef.current === 'refScene') {
       const imageFile = files.find((f) => isValidImageType(f)) || files[0];
       if (imageFile) void processRefSceneFile(imageFile);
     } else {
@@ -926,12 +1042,27 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
     }
   }, isActive && !isBusy && activeRecord.step === 'input' && !isStyleOpen);
 
-  const removeProductImage = (id: string) => updateRecord(activeRecord.id, (record) => ({ ...record, productImages: record.productImages.filter((image) => image.id !== id), analysis: null, results: [], error: '' }));
+  const removeProductImage = (id: string) => updateRecord(activeRecord.id, (record) => {
+    const productImages = record.productImages.filter((image) => image.id !== id);
+    return {
+      ...record,
+      productImages,
+      ...(productImages.length === 0 ? {
+        instagramReferences: [],
+        instagramHandle: '',
+        instagramBio: '',
+        instagramImportNote: '',
+      } : {}),
+      analysis: null,
+      results: [],
+      error: '',
+    };
+  });
   const removeRefSceneImage = () => patchActive({ referenceSceneImage: null, analysis: null, results: [], error: '' });
 
   const startNewRecord = () => {
     if (isBusy) return;
-    const record = createRecord();
+    const record = createRecord(experience);
     setRecords((current) => [record, ...current].slice(0, MAX_RECORDS));
     setActiveRecordId(record.id);
   };
@@ -939,7 +1070,7 @@ const SceneGenerationTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const deleteRecord = (id: string) => {
     if (isBusy && id === activeRecord.id) return;
     if (records.length === 1) {
-      const replacement = createRecord();
+      const replacement = createRecord(experience);
       setRecords([replacement]);
       setActiveRecordId(replacement.id);
       return;
@@ -1005,6 +1136,7 @@ Return ONLY JSON:
 
     const inputImages = [...record.productImages.map(toApiImage)];
     if (record.referenceSceneImage) inputImages.push(toApiImage(record.referenceSceneImage));
+    record.instagramReferences.forEach((ref) => inputImages.push(toApiImage(ref)));
     if (selectedModel?.base64 && selectedModel?.mime) {
       inputImages.push({ base64: selectedModel.base64, mimeType: selectedModel.mime });
     }
@@ -1032,7 +1164,11 @@ Return ONLY JSON:
     await saveGeneratedProject({
       type: 'MARKETING',
       generated: successful.map((result) => result.imageUrl!),
-      original: [...record.productImages.map(toDataUrl), ...(record.referenceSceneImage ? [toDataUrl(record.referenceSceneImage)] : [])],
+      original: [
+        ...record.productImages.map(toDataUrl),
+        ...(record.referenceSceneImage ? [toDataUrl(record.referenceSceneImage)] : []),
+        ...record.instagramReferences.map(toDataUrl),
+      ],
       prompt: successful[0].prompt,
       thumbnail: successful[0].imageUrl,
       params: {
@@ -1048,6 +1184,9 @@ Return ONLY JSON:
         userHint: record.userHint,
         productSize: record.productSize,
         analysis: record.analysis,
+        instagramUrl: record.instagramUrl,
+        instagramHandle: record.instagramHandle,
+        instagramReferenceCount: record.instagramReferences.length,
       },
     });
   };
@@ -1082,6 +1221,10 @@ Return ONLY JSON:
       if (!activeRecord.productImages.length) patchActive({ error: '请至少上传1张产品图。' });
       return;
     }
+    if (isInstagramExperience && !activeRecord.instagramReferences.length) {
+      patchActive({ error: '请在 Instagram 区域上传至少 1 张主页网格或帖子截图。链接本身不算视觉参考。' });
+      return;
+    }
     const snapshot: SceneGenerationRecord = { ...activeRecord, productImages: [...activeRecord.productImages], results: [], analysis: null, error: '' };
     const analysisStyle = styleSummary(snapshot, customStyles);
     const { taskId, signal } = startGenerationTask();
@@ -1089,6 +1232,7 @@ Return ONLY JSON:
     try {
       const apiImages = [...snapshot.productImages.map(toApiImage)];
       if (snapshot.referenceSceneImage) apiImages.push(toApiImage(snapshot.referenceSceneImage));
+      snapshot.instagramReferences.forEach((ref) => apiImages.push(toApiImage(ref)));
 
       const text = await generateText(apiImages, buildAnalysisPrompt(snapshot, analysisStyle.name, analysisStyle.prompt));
       assertCurrentGenerationTask(taskId, signal);
@@ -1272,6 +1416,101 @@ Return ONLY JSON:
         )}
         <input ref={productInputRef} type="file" multiple accept="image/*,.jpg,.jpeg,.png,.webp,.jfif,.heic,.avif,.bmp" className="hidden" onChange={(event) => { void processProductFiles(Array.from(event.target.files || [])); event.target.value = ''; }} />
       </section>
+
+      {isInstagramExperience && (
+        <section className={`rounded-2xl border p-4 shadow-sm transition-all dark:from-[#11151c] dark:via-[#15121a] dark:to-[#11151c] sm:p-5 ${activeRecord.productImages.length ? 'border-[#e7d8ef] bg-gradient-to-br from-white via-[#fffafd] to-[#f7f2ff] dark:border-fuchsia-500/20' : 'border-slate-200 bg-slate-50 opacity-75 dark:border-white/10 dark:bg-white/5'}`}>
+          <div className="flex items-start gap-3">
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-md ${activeRecord.productImages.length ? 'bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-400' : 'bg-slate-400'}`}><Instagram className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-black text-[#17243c] dark:text-white">Instagram 搭配与场景参考</h3>
+                <span className={`rounded-full px-2 py-0.5 text-[0.62rem] font-black ${activeRecord.productImages.length ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                  {activeRecord.productImages.length ? '已根据产品解锁' : '需先上传产品'}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">Agent 会先识别当前服装，再从账号候选内容中挑选适合它的搭配、地点、光线、构图和模特表达。</p>
+            </div>
+          </div>
+
+          {!activeRecord.productImages.length ? (
+            <div className="mt-4 flex min-h-20 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/70 px-4 text-center text-xs font-bold leading-5 text-slate-500 dark:border-white/10 dark:bg-white/5">
+              请先在上方上传至少 1 张产品/服装图，随后才能添加 Instagram 主页或帖子截图。
+            </div>
+          ) : (
+            <>
+              <label className="mt-4 block text-xs font-black text-pastel-muted">
+                Instagram 来源链接（只记录来源，不作为视觉参考）
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <div className="relative min-w-0 flex-1">
+                    <Link2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pastel-muted" />
+                    <input
+                      type="url"
+                      value={activeRecord.instagramUrl}
+                      disabled={isBusy}
+                      onChange={(event) => patchActive({ instagramUrl: event.target.value, analysis: null, results: [] })}
+                      className="min-h-12 w-full rounded-xl border border-pastel-border bg-white pl-10 pr-3 text-sm font-medium text-pastel-text outline-none focus:border-fuchsia-400 dark:bg-white/5"
+                      placeholder="https://www.instagram.com/commense.official/"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!/^https?:\/\/(?:www\.)?instagram\.com\//i.test(activeRecord.instagramUrl.trim())}
+                    onClick={() => window.open(activeRecord.instagramUrl.trim(), '_blank', 'noopener,noreferrer')}
+                    className="flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-fuchsia-200 bg-white px-4 text-xs font-black text-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ExternalLink className="h-4 w-4" />打开主页截图
+                  </button>
+                </div>
+              </label>
+
+              <div
+                onMouseEnter={() => activateUploadKind('instagram')}
+                onClick={() => activateUploadKind('instagram')}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => { event.preventDefault(); void processInstagramReferenceFiles(Array.from(event.dataTransfer.files || [])); }}
+                className={`mt-4 rounded-xl border-2 border-dashed p-3 transition ${activeUploadKind === 'instagram' ? 'border-fuchsia-400 bg-fuchsia-50/70 ring-2 ring-fuchsia-400/10 dark:bg-fuchsia-500/10' : 'border-fuchsia-200 bg-white/70 dark:border-fuchsia-500/20 dark:bg-white/5'}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <strong className="text-xs font-black text-[#17243c] dark:text-white">真实视觉参考截图</strong>
+                    <p className="mt-1 text-[0.68rem] leading-5 text-pastel-muted">上传主页网格、单篇帖子或 Reels 封面截图；这些图片会真实送入模型。</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-black text-fuchsia-600">{activeRecord.instagramReferences.length}/5</span>
+                </div>
+
+                {activeRecord.instagramReferences.length > 0 && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    {activeRecord.instagramReferences.map((image, index) => (
+                      <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-white bg-white shadow-sm">
+                        <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedPreview(image.preview); }} className="h-full w-full">
+                          <img src={image.preview} alt={`实际送入模型的 Instagram 参考 ${index + 1}`} className="h-full w-full object-cover transition group-hover:scale-105" />
+                        </button>
+                        <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[0.58rem] font-black text-white">模型参考 {index + 1}</span>
+                        <button type="button" disabled={isBusy} onClick={(event) => { event.stopPropagation(); patchActive({ instagramReferences: activeRecord.instagramReferences.filter((item) => item.id !== image.id), analysis: null, results: [], instagramImportNote: '' }); }} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white" aria-label="删除 Instagram 参考截图"><X className="h-3.5 w-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeRecord.instagramReferences.length < 5 && (
+                  <button type="button" disabled={isBusy} onClick={(event) => { event.stopPropagation(); activateUploadKind('instagram'); instagramInputRef.current?.click(); }} className="mt-3 flex min-h-20 w-full flex-col items-center justify-center rounded-lg bg-white/80 text-center dark:bg-white/5">
+                    <Upload className="h-5 w-5 text-fuchsia-500" />
+                    <span className="mt-2 text-xs font-black">拖拽、点击或 Ctrl+V 粘贴 1–5 张截图</span>
+                  </button>
+                )}
+                <input ref={instagramInputRef} type="file" multiple accept="image/*,.jpg,.jpeg,.png,.webp" className="hidden" onChange={(event) => { void processInstagramReferenceFiles(Array.from(event.target.files || [])); event.target.value = ''; }} />
+              </div>
+
+              {activeRecord.instagramImportNote && (
+                <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  {activeRecord.instagramImportNote}
+                </p>
+              )}
+              <p className="mt-3 text-[0.68rem] font-bold leading-5 text-rose-600 dark:text-rose-300">链接本身不会被当作已经读取的风格。没有上方真实截图，系统不会允许生成。</p>
+            </>
+          )}
+        </section>
+      )}
 
       {/* Upload Reference Scene Image (Optional) */}
       <section
@@ -1485,8 +1724,8 @@ Return ONLY JSON:
         </div>
 
         <label className="mt-4 block text-xs font-black text-pastel-muted">
-          一句话描述场景与卖点（选填）
-          <textarea value={activeRecord.userHint} disabled={isBusy} onChange={(event) => patchActive({ userHint: event.target.value, analysis: null, results: [] })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" placeholder="例如：圣诞送礼场景、亲子温馨陪伴、卧室床头柔光..." />
+          {isInstagramExperience ? '近似风格关键词与场景要求（推荐填写）' : '一句话描述场景与卖点（选填）'}
+          <textarea value={activeRecord.userHint} disabled={isBusy} onChange={(event) => patchActive({ userHint: event.target.value, analysis: null, results: [] })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" placeholder={isInstagramExperience ? '例如：南法街角、自然午后光、松弛抓拍、低饱和奶油色、都市度假感…' : '例如：圣诞送礼场景、亲子温馨陪伴、卧室床头柔光...'} />
         </label>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1537,9 +1776,9 @@ Return ONLY JSON:
       </label>
 
       {/* Action Submit Button */}
-      <button type="button" onClick={() => void handleAnalyze()} disabled={!activeRecord.productImages.length || isBusy} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#17243c] text-sm font-black text-white shadow-[0_14px_28px_rgba(23,36,60,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
+      <button type="button" onClick={() => void handleAnalyze()} disabled={!activeRecord.productImages.length || isBusy || (isInstagramExperience && !activeRecord.instagramReferences.length)} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#17243c] text-sm font-black text-white shadow-[0_14px_28px_rgba(23,36,60,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
         {activeRecord.step === 'analyzing' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5 text-[#ff9b67]" />}
-        {activeRecord.step === 'analyzing' ? 'Agent正在分析场景与人群…' : '分析产品，生成场景图方案'}
+        {activeRecord.step === 'analyzing' ? (isInstagramExperience ? 'Agent正在分析账号风格与服装…' : 'Agent正在分析场景与人群…') : (isInstagramExperience ? '分析账号与产品，生成 INS 场景方案' : '分析产品，生成场景图方案')}
       </button>
       {activeRecord.step === 'analyzing' && <button type="button" onClick={handleCancel} className="min-h-11 rounded-xl border border-pastel-border text-xs font-black text-pastel-muted">取消分析</button>}
     </div>
@@ -1629,6 +1868,42 @@ Return ONLY JSON:
           <p className="mt-2 text-xs leading-5 text-pastel-muted">{activeRecord.analysis.boardVisualStrategy}</p>
         </div>
 
+        {isInstagramExperience && (
+          <div className="mt-4 rounded-xl border border-fuchsia-200 bg-fuchsia-50/60 p-4 dark:border-fuchsia-500/20 dark:bg-fuchsia-500/10">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-xs font-black text-fuchsia-700 dark:text-fuchsia-300"><Instagram className="h-4 w-4" />截图风格证据</span>
+              <span className="rounded-full bg-white px-2 py-1 text-[0.62rem] font-black text-fuchsia-600">实际参考 {activeRecord.instagramReferences.length} 张</span>
+            </div>
+            <p className="mt-2 text-sm font-bold leading-6 text-[#17243c] dark:text-white">{activeRecord.analysis.referenceStyleFingerprint}</p>
+            <p className="mt-2 text-xs leading-5 text-pastel-muted"><strong>与当前产品的匹配理由：</strong>{activeRecord.analysis.referenceCompatibilityReason}</p>
+            {activeRecord.analysis.referenceSceneRules.length > 0 && (
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {activeRecord.analysis.referenceSceneRules.map((rule) => <li key={rule} className="rounded-lg bg-white/80 px-3 py-2 text-xs leading-5 text-slate-700 dark:bg-white/5 dark:text-slate-300">必须：{rule}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {isInstagramExperience && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-[#fffaf0] p-4 dark:border-amber-500/20 dark:bg-amber-500/10">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-xs font-black text-amber-800 dark:text-amber-300"><Sparkles className="h-4 w-4" />氛围蓝图 · 生成硬约束</span>
+              <span className="rounded-full bg-amber-100 px-2 py-1 text-[0.62rem] font-black text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">与服装还原同等优先</span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-pastel-muted">这里不是装饰性关键词。Agent 会把光、空气、空间、人物状态与成像质感一起送入每一张图；生成前可直接修改。</p>
+            <label className="mt-3 block text-xs font-black text-pastel-muted">
+              总体氛围
+              <textarea value={activeRecord.analysis.atmosphereBlueprint} onChange={(event) => patchAnalysis({ atmosphereBlueprint: event.target.value })} className="mt-1 min-h-20 w-full resize-y rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-sm leading-6 text-pastel-text outline-none focus:border-amber-400 dark:bg-white/5" />
+            </label>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-black text-pastel-muted">光线与空气感<textarea value={activeRecord.analysis.lightAndAir} onChange={(event) => patchAnalysis({ lightAndAir: event.target.value })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs leading-5 text-pastel-text outline-none focus:border-amber-400 dark:bg-white/5" /></label>
+              <label className="text-xs font-black text-pastel-muted">空间纵深与镜头<textarea value={activeRecord.analysis.spatialDepth} onChange={(event) => patchAnalysis({ spatialDepth: event.target.value })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs leading-5 text-pastel-text outline-none focus:border-amber-400 dark:bg-white/5" /></label>
+              <label className="text-xs font-black text-pastel-muted">人物瞬间与动作<textarea value={activeRecord.analysis.modelMoment} onChange={(event) => patchAnalysis({ modelMoment: event.target.value })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs leading-5 text-pastel-text outline-none focus:border-amber-400 dark:bg-white/5" /></label>
+              <label className="text-xs font-black text-pastel-muted">胶片与成像质感<textarea value={activeRecord.analysis.filmTexture} onChange={(event) => patchAnalysis({ filmTexture: event.target.value })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs leading-5 text-pastel-text outline-none focus:border-amber-400 dark:bg-white/5" /></label>
+            </div>
+          </div>
+        )}
+
         <div className="mt-5">
           <span className="text-xs font-black text-pastel-muted">单图规划推演（可直接修改描述）</span>
           <div className="mt-2 space-y-2">
@@ -1716,9 +1991,9 @@ Return ONLY JSON:
         <header className="relative mb-5 overflow-hidden rounded-[1.75rem] border border-[#d9e5f1] bg-white px-4 py-6 shadow-[0_14px_45px_rgba(33,66,104,0.07)] dark:border-white/10 dark:bg-[#11151c] sm:px-7 sm:py-7">
           <div className="absolute -right-16 -top-24 h-56 w-56 rounded-full border-[2rem] border-[#edf5fd] bg-[#fff2e9] dark:border-white/[0.03] dark:bg-[#ed6d46]/5" />
           <div className="relative text-center">
-            <div className="inline-flex items-center gap-2 text-xs font-black tracking-[0.14em] text-[#6f8199]"><Sparkles className="h-4 w-4 text-[#ed6d46]" />AI 场景视觉 Agent</div>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-[#142139] dark:text-white sm:text-3xl">生成高转化场景图</h1>
-            <p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-pastel-muted">基于产品基因与卖点，生成匹配曝光场景与目标视角的商业级场景图。</p>
+            <div className="inline-flex items-center gap-2 text-xs font-black tracking-[0.14em] text-[#6f8199]">{isInstagramExperience ? <Instagram className="h-4 w-4 text-fuchsia-500" /> : <Sparkles className="h-4 w-4 text-[#ed6d46]" />}{isInstagramExperience ? 'INS STYLE SCENE AGENT' : 'AI 场景视觉 Agent'}</div>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-[#142139] dark:text-white sm:text-3xl">{isInstagramExperience ? 'INS风场景图制作' : '生成高转化场景图'}</h1>
+            <p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-pastel-muted">{isInstagramExperience ? '上传真实主页或帖子截图作为视觉证据，为你的服装匹配场景、光线、构图与模特表达。' : '基于产品基因与卖点，生成匹配曝光场景与目标视角的商业级场景图。'}</p>
             <WorkflowSteps step={activeRecord.step} />
           </div>
         </header>
@@ -1743,8 +2018,8 @@ Return ONLY JSON:
             {activeRecord.step === 'input' && !activeRecord.analysis && (
               <section className="flex min-h-[34rem] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#cedbe8] bg-white/75 p-8 text-center">
                 <span className="flex h-20 w-20 items-center justify-center rounded-[1.5rem] bg-[#fff1e8] text-[#ed6d46]"><Store className="h-9 w-9" /></span>
-                <h2 className="mt-5 text-xl font-black text-[#17243c]">先理解产品，再选择场景表达</h2>
-                <p className="mt-2 max-w-lg text-sm leading-7 text-pastel-muted">Agent会识别商品结构、卖点与目标人群，建立场景构图与氛围方案；确认后才生成视觉底图。</p>
+                <h2 className="mt-5 text-xl font-black text-[#17243c]">{isInstagramExperience ? '先理解服装，再提炼账号风格' : '先理解产品，再选择场景表达'}</h2>
+                <p className="mt-2 max-w-lg text-sm leading-7 text-pastel-muted">{isInstagramExperience ? '先上传服装，再添加 Instagram 主页网格或帖子截图；只有界面中明确展示的截图才会作为模型参考。' : 'Agent会识别商品结构、卖点与目标人群，建立场景构图与氛围方案；确认后才生成视觉底图。'}</p>
                 <div className="mt-6 grid w-full max-w-xl gap-3 sm:grid-cols-3">
                   <div className="rounded-xl bg-white p-3 text-left shadow-sm"><Store className="h-4 w-4 text-[#ed6d46]" /><strong className="mt-2 block text-xs">6个场景板块</strong></div>
                   <div className="rounded-xl bg-white p-3 text-left shadow-sm"><Sparkles className="h-4 w-4 text-[#2d6bb1]" /><strong className="mt-2 block text-xs">尺寸精密比例</strong></div>
