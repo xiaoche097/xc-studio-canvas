@@ -1,14 +1,20 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { 
   X, Eraser, Copy, CornerDownLeft, Loader2, Sparkles, Brain, PenLine, Wand2,
   Shirt, Palette, Award, Home, MessageSquare, Clapperboard, Megaphone, ScanFace, Zap,
   Clock, Plus, AtSign, FileText, Globe, ArrowUp, ChevronDown, ChevronRight, RotateCcw,
   ArrowLeftRight, Camera, Crop, Expand, Film, ImagePlus, Layers3, PackageCheck, Paintbrush,
   ScanSearch, Scissors, Store, UserRoundCog, Check, Send, LayoutTemplate, BookOpen, MessageSquareQuote,
-  SlidersHorizontal, CheckCircle2, Circle, Settings2
+  SlidersHorizontal, CheckCircle2, Circle, Settings2, Upload
 } from 'lucide-react';
 import { sendChatMessage } from '../services/geminiService';
 import { XIAOCHE_AVATAR_BASE64 } from '../services/avatarData';
+import {
+  executeAgentSkill,
+  type AgentSkillAsset,
+  type AgentSkillId,
+  type AgentSkillResult,
+} from '../services/agentSkillExecutor';
 
 interface Message {
   role: 'user' | 'model';
@@ -16,7 +22,7 @@ interface Message {
   isConfirmationStep?: boolean;
   skillId?: string;
   skillTitle?: string;
-  assetUrl?: string;
+  assets?: AgentSkillResult[];
 }
 
 interface AssistantPanelProps {
@@ -24,17 +30,16 @@ interface AssistantPanelProps {
   onClose: () => void;
   attachments?: { id: string; src: string; title: string }[];
   onRemoveAttachment?: (id: string) => void;
-  onInsertAssetToCanvas?: (url: string, title: string) => void;
+  onInsertAssetToCanvas?: (url: string, title: string, mediaType?: 'image' | 'video') => void;
 }
 
 export interface AgentSkill {
-  id: string;
+  id: AgentSkillId;
   title: string;
   desc: string;
   prompt: string;
-  icon: any;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   color: string;
-  demoAssetUrl: string;
 }
 
 export const ALL_AGENT_SKILLS: AgentSkill[] = [
@@ -45,7 +50,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '我想为我的商品图片生成商业真人试穿图...',
     icon: Shirt,
     color: 'text-purple-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1546938576-6e6a64f317cc?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'SINGLE_ITEM_TRY_ON',
@@ -54,7 +58,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '我想对这件单品服装进行快速真人试穿...',
     icon: Scissors,
     color: 'text-indigo-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'RETOUCHING',
@@ -63,7 +66,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '请帮我将商品图抠图处理为高清白底图...',
     icon: Sparkles,
     color: 'text-amber-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'PRODUCT_VIDEO',
@@ -72,7 +74,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '请为我的产品生成一段动态商业展现短视频...',
     icon: Film,
     color: 'text-pink-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'MODEL_SCENE_FISSION',
@@ -81,7 +82,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '请为我的模特图进行多商业场景图裂变...',
     icon: Camera,
     color: 'text-emerald-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'MODEL_POSE_FISSION',
@@ -90,7 +90,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '请保持服装不变，生成多角度模特动作姿势...',
     icon: UserRoundCog,
     color: 'text-cyan-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'ECOMMERCE_HERO',
@@ -99,7 +98,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '请为该商品设计符合高转化率的电商主图...',
     icon: Store,
     color: 'text-orange-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=800&auto=format&fit=crop',
   },
   {
     id: 'IMAGE_CLEAN',
@@ -108,7 +106,6 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     prompt: '请帮我提升画面质感，生成高分辨率主图...',
     icon: ImagePlus,
     color: 'text-blue-400',
-    demoAssetUrl: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?q=80&w=800&auto=format&fit=crop',
   },
 ];
 
@@ -198,6 +195,10 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
   const [selectedSkill, setSelectedSkill] = useState<AgentSkill | null>(null);
+  const [skillBrief, setSkillBrief] = useState('');
+  const [uploadedAttachments, setUploadedAttachments] = useState<AgentSkillAsset[]>([]);
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [isDraggingImages, setIsDraggingImages] = useState(false);
 
   // 底部弹窗下拉菜单状态
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
@@ -225,6 +226,17 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+
+  const activeAttachments = useMemo(() => {
+    const seen = new Set<string>();
+    return [...attachments, ...uploadedAttachments].filter((asset) => {
+      if (seen.has(asset.src)) return false;
+      seen.add(asset.src);
+      return true;
+    }).slice(0, 8);
+  }, [attachments, uploadedAttachments]);
 
   useEffect(() => {
     if (isOpen) {
@@ -234,14 +246,15 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
   const handleSelectSkillFlow = (skill: AgentSkill) => {
     setSelectedSkill(skill);
+    setSkillBrief(skill.prompt);
     setIsSkillBookOpen(false);
 
     if (askMode === 'auto') {
-      handleConfirmAndExecuteSkill(skill);
+      void handleConfirmAndExecuteSkill(skill);
       return;
     }
 
-    const confirmPrompt = `已为您选择技能：**【${skill.title}】**\n\n📌 **创作流程确认**：\n该功能将为您生成商业级别的 ${skill.title} 图像资产。\n\n请确认：您是否已上传或准备好对应的参考素材图？回复**“确认开始”**我将为您调用 AI 引擎，生成完成后将**直接自动插入至您的工作区画布**中！`;
+    const confirmPrompt = `已为您选择技能：**【${skill.title}】**\n\n📌 **真实执行流程**：\n确认后将在当前聊天中调用创意中心的真实生成引擎；完成的结果会显示在这里，并自动插入左侧画布。\n\n当前已准备 **${activeAttachments.length} 张参考图**。你可以继续上传素材或补充要求，然后回复**“确认开始”**。`;
 
     setMessages((prev) => [
       ...prev,
@@ -256,31 +269,120 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     ]);
   };
 
-  const handleConfirmAndExecuteSkill = (skill: AgentSkill) => {
-    setMessages((prev) => [
-      ...prev,
-      { role: 'user', text: `确认开始制作【${skill.title}】` },
-    ]);
+  const handleConfirmAndExecuteSkill = async (skill: AgentSkill, appendUserConfirmation = true) => {
+    if (isLoading) return;
+    if (appendUserConfirmation) {
+      setMessages((prev) => [...prev, { role: 'user', text: `确认开始制作【${skill.title}】` }]);
+    }
     setIsLoading(true);
+    setGenerationStatus('正在准备真实生成任务…');
 
-    setTimeout(() => {
-      setIsLoading(false);
-      const generatedUrl = skill.demoAssetUrl;
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'model',
-          text: `🎉 **【${skill.title}】生成完成！**\n\n资产已成功为您构建完毕，并已**直接插入至您的工作区画布**中！您可以双击画布中的节点进行细节调整。`,
-          assetUrl: generatedUrl,
-          skillTitle: skill.title,
+    try {
+      const results = await executeAgentSkill({
+        skillId: skill.id,
+        skillTitle: skill.title,
+        prompt: selectedSkill?.id === skill.id && skillBrief.trim() ? skillBrief.trim() : skill.prompt,
+        assets: activeAttachments,
+        preferences: {
+          imageRatio,
+          imageResolution,
+          imageModel,
+          videoRatio,
+          videoResolution,
+          videoDuration,
+          videoModel,
         },
-      ]);
+        onProgress: setGenerationStatus,
+      });
 
-      if (onInsertAssetToCanvas) {
-        onInsertAssetToCanvas(generatedUrl, skill.title);
-      }
-    }, 1500);
+      setMessages((prev) => [...prev, {
+        role: 'model',
+        text: `🎉 **【${skill.title}】生成完成！**\n\n已生成 ${results.length} 个真实资产，并自动插入当前工作区画布。`,
+        assets: results,
+        skillTitle: skill.title,
+      }]);
+      results.forEach((result) => {
+        onInsertAssetToCanvas?.(result.url, result.title, result.mediaType);
+      });
+    } catch (error: unknown) {
+      setMessages((prev) => [...prev, {
+        role: 'model',
+        text: `**【${skill.title}】执行失败**\n\n${error instanceof Error ? error.message : '生成服务发生未知错误，请重试。'}`,
+      }]);
+    } finally {
+      setGenerationStatus('');
+      setIsLoading(false);
+    }
+  };
+
+  const handleLocalUpload = async (files: File[]) => {
+    const accepted = files.filter((file) => file.type.startsWith('image/')).slice(0, Math.max(0, 8 - activeAttachments.length));
+    const next = await Promise.all(accepted.map((file) => new Promise<AgentSkillAsset>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error(`无法读取 ${file.name}`));
+      reader.onload = () => resolve({
+        id: crypto.randomUUID(),
+        src: String(reader.result),
+        title: file.name,
+      });
+      reader.readAsDataURL(file);
+    })));
+    setUploadedAttachments((current) => {
+      const seen = new Set([...attachments, ...current].map((asset) => asset.src));
+      const uniqueNext = next.filter((asset) => {
+        if (seen.has(asset.src)) return false;
+        seen.add(asset.src);
+        return true;
+      });
+      const availableSlots = Math.max(0, 8 - attachments.length - current.length);
+      return [...current, ...uniqueNext.slice(0, availableSlots)];
+    });
+  };
+
+  const handlePasteImages = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+
+    if (imageFiles.length === 0) return;
+    event.preventDefault();
+    void handleLocalUpload(imageFiles);
+  };
+
+  const handleImageDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingImages(true);
+  };
+
+  const handleImageDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleImageDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingImages(false);
+  };
+
+  const handleImageDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDraggingImages(false);
+    void handleLocalUpload(Array.from(event.dataTransfer.files));
+  };
+
+  const removeActiveAttachment = (id: string) => {
+    if (uploadedAttachments.some((asset) => asset.id === id)) {
+      setUploadedAttachments((current) => current.filter((asset) => asset.id !== id));
+    } else {
+      onRemoveAttachment?.(id);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -290,9 +392,14 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
     setMessages((prev) => [...prev, { role: 'user', text: userText }]);
 
-    if (selectedSkill && (userText.includes('确认') || userText.includes('开始') || userText.includes('好'))) {
-      handleConfirmAndExecuteSkill(selectedSkill);
+    const isExecutionConfirmation = /^(确认|确认开始|开始|开始生成|好|好的|可以|执行)[！!。.]?$/.test(userText);
+    if (selectedSkill && isExecutionConfirmation) {
+      void handleConfirmAndExecuteSkill(selectedSkill, false);
       return;
+    }
+
+    if (selectedSkill) {
+      setSkillBrief((current) => `${current}\n用户补充要求：${userText}`.trim());
     }
 
     setIsLoading(true);
@@ -319,6 +426,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   return (
     <div
       ref={panelRef}
+      onPaste={handlePasteImages}
       onWheel={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -442,8 +550,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                           <div className="mt-3.5 pt-3 border-t border-white/10 flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => handleConfirmAndExecuteSkill(selectedSkill)}
-                              className="flex items-center gap-1.5 rounded-xl bg-orange-500 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-orange-400 transition shadow-lg shadow-orange-500/20"
+                              onClick={() => void handleConfirmAndExecuteSkill(selectedSkill)}
+                              disabled={isLoading}
+                              className="flex items-center gap-1.5 rounded-xl bg-orange-500 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-orange-400 transition shadow-lg shadow-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <Check className="h-3.5 w-3.5 stroke-[3]" />
                               🚀 确认无误，开始生成
@@ -459,23 +568,27 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                           </div>
                         )}
 
-                        {m.assetUrl && (
-                          <div className="mt-3 rounded-xl overflow-hidden border border-orange-500/30 bg-black/40 p-2 space-y-2">
-                            <img
-                              src={m.assetUrl}
-                              alt="Generated Asset"
-                              className="w-full h-40 object-cover rounded-lg"
-                            />
-                            <div className="flex items-center justify-between text-[0.68rem] text-orange-400 font-bold px-1">
-                              <span>✓ 已直接插入到左侧工作区画布中</span>
-                              <button
-                                type="button"
-                                onClick={() => onInsertAssetToCanvas?.(m.assetUrl!, m.skillTitle || '资产')}
-                                className="underline hover:text-orange-300"
-                              >
-                                再次插入画布
-                              </button>
-                            </div>
+                        {m.assets && m.assets.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {m.assets.map((asset, assetIndex) => (
+                              <div key={`${asset.url}-${assetIndex}`} className="overflow-hidden rounded-xl border border-orange-500/30 bg-black/40 p-2 space-y-2">
+                                {asset.mediaType === 'video' ? (
+                                  <video src={asset.url} className="h-40 w-full rounded-lg bg-black object-contain" controls playsInline />
+                                ) : (
+                                  <img src={asset.url} alt={asset.title} className="h-40 w-full rounded-lg object-contain" />
+                                )}
+                                <div className="flex items-center justify-between gap-2 px-1 text-[0.68rem] font-bold text-orange-400">
+                                  <span>✓ 已插入左侧工作区画布</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => onInsertAssetToCanvas?.(asset.url, asset.title, asset.mediaType)}
+                                    className="shrink-0 underline hover:text-orange-300"
+                                  >
+                                    再次插入画布
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -491,7 +604,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               <div className="flex justify-start w-full">
                 <div className="flex items-center gap-2 px-4 py-3 bg-[#1c1c1e] border border-white/5 rounded-2xl text-xs text-orange-400">
                   <Loader2 size={15} className="animate-spin" />
-                  <span>正在为您调度 AI 商业引擎生成资产并准备插入画布...</span>
+                  <span>{generationStatus || '正在调度创意中心真实生成引擎…'}</span>
                 </div>
               </div>
             )}
@@ -871,19 +984,68 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         )}
 
         {/* 输入框包围卡片 */}
-        <div className="bg-[#18181c] border border-white/[0.04] rounded-[20px] shadow-2xl p-2.5 flex flex-col gap-2.5 focus-within:border-orange-500/30 transition-all">
-          <div className="flex gap-2.5 items-start">
-            <div
-              className="relative w-[42px] h-[42px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer shrink-0"
-              title="上传参考图"
-            >
-              <Plus size={18} />
+        <div
+          onDragEnter={handleImageDragEnter}
+          onDragOver={handleImageDragOver}
+          onDragLeave={handleImageDragLeave}
+          onDrop={handleImageDrop}
+          className={`relative bg-[#18181c] border rounded-[20px] shadow-2xl p-2.5 flex flex-col gap-2.5 transition-all ${
+            isDraggingImages
+              ? 'border-orange-400/80 bg-orange-500/10 ring-2 ring-orange-500/20'
+              : 'border-white/[0.04] focus-within:border-orange-500/30'
+          }`}
+        >
+          {isDraggingImages && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[20px] bg-[#18181c]/90 backdrop-blur-sm">
+              <div className="flex items-center gap-2 rounded-xl border border-orange-400/40 bg-orange-500/10 px-4 py-2 text-xs font-semibold text-orange-200">
+                <Upload size={16} />
+                松开即可添加图片
+              </div>
             </div>
+          )}
+          {activeAttachments.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar" aria-label="已引用素材">
+              {activeAttachments.map((asset, index) => (
+                <div key={asset.id} className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                  <img src={asset.src} alt={asset.title} className="h-full w-full object-cover" />
+                  <span className="absolute bottom-0 left-0 rounded-tr-md bg-black/70 px-1 text-[8px] font-bold text-white">@{index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeActiveAttachment(asset.id)}
+                    className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-white opacity-0 transition group-hover:opacity-100"
+                    aria-label={`移除 ${asset.title}`}
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2.5 items-start">
+            <button
+              type="button"
+              onClick={() => uploadInputRef.current?.click()}
+              className="relative w-[42px] h-[42px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer shrink-0"
+              title="点击、粘贴或拖拽上传参考图"
+            >
+              <Upload size={17} />
+            </button>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void handleLocalUpload(Array.from(event.target.files || []));
+                event.target.value = '';
+              }}
+            />
 
             <textarea
               ref={textareaRef as any}
               className="flex-1 bg-transparent border-0 resize-none py-2 px-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-0 leading-5 custom-scrollbar min-h-[42px] max-h-[100px]"
-              placeholder="先上传参考图，再用 @ 引用，输入你的想法..."
+              placeholder="点击、粘贴或拖拽图片，再用 @ 引用并输入想法..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -918,7 +1080,20 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               </button>
 
               {/* 2. @ 引用 */}
-              <button type="button" className="p-1.5 text-zinc-500 hover:text-zinc-300 transition" title="引用素材">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!activeAttachments.length) {
+                    uploadInputRef.current?.click();
+                    return;
+                  }
+                  const refs = activeAttachments.map((_, index) => `@${index + 1}`).join(' ');
+                  setInput((current) => `${current}${current ? ' ' : ''}${refs}`);
+                  textareaRef.current?.focus();
+                }}
+                className="p-1.5 text-zinc-500 hover:text-zinc-300 transition"
+                title="引用素材"
+              >
                 <AtSign size={13} />
               </button>
 

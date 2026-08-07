@@ -2816,12 +2816,15 @@ export const App = () => {
                     onClose={() => setIsChatOpen(false)}
                     attachments={agentAttachments}
                     onRemoveAttachment={(id) => setAgentAttachments(prev => prev.filter(item => item.id !== id))}
-                    onInsertAssetToCanvas={(url, title) => {
-                        addNode(NodeType.IMAGE_GENERATOR, undefined, undefined, {
-                            image: url,
-                            imagePreview: url,
-                            prompt: `RH Agent【${title}】智能体生成的商业资产`,
-                        });
+                    onInsertAssetToCanvas={(url, title, mediaType = 'image') => {
+                        addNode(
+                            mediaType === 'video' ? NodeType.VIDEO_GENERATOR : NodeType.IMAGE_GENERATOR,
+                            undefined,
+                            undefined,
+                            mediaType === 'video'
+                                ? { videoUri: url, prompt: `Agent【${title}】生成的视频资产` }
+                                : { image: url, imagePreview: url, prompt: `Agent【${title}】生成的图片资产` },
+                        );
                     }}
                 />
 
