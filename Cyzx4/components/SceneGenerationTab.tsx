@@ -33,6 +33,7 @@ import { compressImage, generateImageToImage, generateText } from '../services/g
 import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
+import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { ecommerceStyleLibrary } from '../services/ecommerceStyleLibrary';
 import {
@@ -1280,11 +1281,12 @@ Return ONLY JSON:
     }
   };
 
-  const downloadImage = (src: string, index: number) => {
-    const link = document.createElement('a');
-    link.href = src;
-    link.download = `生成场景图-${activeRecord.boardType}-${index + 1}-${Date.now()}.png`;
-    link.click();
+  const downloadImage = async (src: string, index: number) => {
+    try {
+      await downloadImageFile(src, `生成场景图-${activeRecord.boardType}-${index + 1}-${Date.now()}.png`);
+    } catch (error) {
+      patchActive({ error: `图片下载失败：${getErrorMessage(error)}` });
+    }
   };
 
   const completedCount = activeRecord.results.filter((result) => result.status === 'done').length;
