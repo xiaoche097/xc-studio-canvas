@@ -196,7 +196,8 @@ const executeImageSkill = async (
   const orderedImages = input.skillId === 'SINGLE_ITEM_TRY_ON' && images.length > 1
     ? [images[1], images[0], ...images.slice(2)]
     : images;
-  const prompt = `${config.instruction}\n\nUSER DIRECTION:\n${input.prompt}`;
+  const qualityEnhancement = `\n\nIMAGEN 3.0 QUALITY SPECIFICATION:\n- Professional commercial photography, editorial studio lighting, ultra-realistic texture, crisp focus, 8k resolution, photorealistic masterwork.\n- Negative Constraints: Avoid bad anatomy, distorted hands/fingers, blurry edges, extra limbs, noise artifacts, low resolution, watermark, unintended text blur.`;
+  const prompt = `${config.instruction}\n\nUSER DIRECTION:\n${input.prompt}${qualityEnhancement}`;
 
   if (input.skillId === 'RETOUCHING') {
     const batches = await Promise.all(orderedImages.map((image) => generateImageToImage(

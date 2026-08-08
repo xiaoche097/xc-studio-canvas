@@ -2826,6 +2826,43 @@ export const App = () => {
                                 : { image: url, imagePreview: url, prompt: `Agent【${title}】生成的图片资产` },
                         );
                     }}
+                    onInsertImageModificationWorkflow={(inputImages, outputImage) => {
+                        const canvas = canvasRef.current;
+                        const rect = canvas ? canvas.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+                        const centerX = (-panRef.current.x + rect.width / 2) / scaleRef.current;
+                        const centerY = (-panRef.current.y + rect.height / 2) / scaleRef.current;
+
+                        // 1. 原图输入节点 (包含原始参考图片)
+                        const sourceNodeId = addNode(
+                            NodeType.IMAGE_GENERATOR,
+                            centerX - 300,
+                            centerY - 150,
+                            {
+                                image: inputImages[0]?.url,
+                                imagePreview: inputImages[0]?.url,
+                                prompt: `原图参考【${inputImages[0]?.title || '图片'}】`,
+                            }
+                        );
+
+                        // 2. AI 调整生成节点 (包含修改后生成的成果图)
+                        const outputNodeId = addNode(
+                            NodeType.IMAGE_GENERATOR,
+                            centerX + 200,
+                            centerY - 150,
+                            {
+                                image: outputImage.url,
+                                imagePreview: outputImage.url,
+                                prompt: outputImage.prompt,
+                            }
+                        );
+
+                        // 3. 建立输入 -> 输出贝塞尔连线与节点依附关系
+                        if (sourceNodeId && outputNodeId) {
+                            setConnections(prev => [...prev, { from: sourceNodeId, to: outputNodeId }]);
+                            setNodes(prev => prev.map(n => n.id === outputNodeId ? { ...n, inputs: [...n.inputs, sourceNodeId] } : n));
+                            handleFocusNode(outputNodeId);
+                        }
+                    }}
                     onLocateAssetOnCanvas={(url) => {
                         const targetNode = [...nodesRef.current].reverse().find(node => (
                             node.data.image === url

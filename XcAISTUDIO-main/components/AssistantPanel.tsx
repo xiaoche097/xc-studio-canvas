@@ -6,7 +6,7 @@ import {
   ArrowLeftRight, Camera, Crop, Expand, Film, ImagePlus, Layers3, PackageCheck, Paintbrush,
   ScanSearch, Scissors, Store, UserRoundCog, Check, Send, LayoutTemplate, BookOpen, MessageSquareQuote,
   SlidersHorizontal, CheckCircle2, Circle, Settings2, Upload, ListChecks, ShieldCheck, AlertCircle,
-  ThumbsUp, ThumbsDown, LocateFixed, Quote
+  ThumbsUp, ThumbsDown, LocateFixed, Quote, Trash2, MessageSquarePlus, RefreshCw
 } from 'lucide-react';
 import { sendChatMessageStream } from '../services/geminiService';
 import { XIAOCHE_AVATAR_BASE64 } from '../services/avatarData';
@@ -17,6 +17,17 @@ import {
   type AgentSkillResult,
 } from '../services/agentSkillExecutor';
 
+export interface ImageModificationCardData {
+  title: string;
+  promptPreview: string;
+  nodeName: string;
+  workflowHint: string;
+  imageCount: number;
+  isConfirmed?: boolean;
+  isExecuting?: boolean;
+  isCompleted?: boolean;
+}
+
 interface Message {
   id?: string;
   role: 'user' | 'model';
@@ -24,6 +35,7 @@ interface Message {
   isConfirmationStep?: boolean;
   skillId?: string;
   skillTitle?: string;
+  imageModCard?: ImageModificationCardData;
   assets?: AgentSkillResult[];
   isStreaming?: boolean;
   trace?: AgentTraceStep[];
@@ -44,6 +56,43 @@ interface AgentFeedbackEntry {
   createdAt: number;
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+  updatedAt: number;
+  skillId?: string;
+  skillTitle?: string;
+  agentPhase?: AgentPhase;
+}
+
+const generateSessionId = () => {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).substring(2, 8);
+  return `sess-${ts}-${rand}`;
+};
+
+const formatSessionTime = (timestamp: number) => {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  
+  if (isToday) {
+    return `${hours}:${minutes}`;
+  }
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${month}-${day} ${hours}:${minutes}`;
+};
+
+const DEFAULT_INITIAL_MESSAGE: Message = {
+  role: 'model',
+  text: '你好！我是您的小彻智能助手。今天想创作些什么？',
+};
+
 interface AssistantPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -51,6 +100,10 @@ interface AssistantPanelProps {
   onRemoveAttachment?: (id: string) => void;
   onInsertAssetToCanvas?: (url: string, title: string, mediaType?: 'image' | 'video') => void;
   onLocateAssetOnCanvas?: (url: string) => boolean;
+  onInsertImageModificationWorkflow?: (
+    inputImages: { url: string; title: string }[],
+    outputImage: { url: string; title: string; prompt: string },
+  ) => void;
 }
 
 export interface AgentSkill {
@@ -215,13 +268,15 @@ const SKILL_GUIDES: Record<AgentSkillId, SkillGuide> = {
   },
 };
 
-const ASSISTANT_SYSTEM_INSTRUCTION = `你是“小彻智能助手”，一名电商视觉创作 Agent。你的任务不是立刻生成，而是帮助用户把需求变成可执行方案。
+const ASSISTANT_SYSTEM_INSTRUCTION = `你是“小彻智能助手”，一名电商业精尖视觉创作 Agent。你的任务不仅是回答，更是帮助用户将粗粒度需求转化为商业高保真的生图/修图方案。
 回答必须使用简洁中文，并遵循：
 1. 先复述你理解到的目标；
-2. 指出当前已有信息和仍缺少的信息；
-3. 如果已选择技能，围绕该技能的素材、平台、风格、比例和关键约束追问，最多追问 3 项；
-4. 明确告诉用户：方案确认后才会调用生成引擎；
-5. 不要声称展示内部思维链，只提供可核验的“研判摘要”和下一步建议。`;
+2. 指出当前已有信息和仍缺少的信息（若有素材参考，列出已感知到的素材）；
+3. 在规划生图方案与 Prompt 时，遵循【Imagen 3.0 7要素黄金公式】：
+   - [主体描述] + [动作/状态] + [环境/场景] + [风格流派] + [光照描述] + [视角/构图] + [质量增强词]；
+4. 如果已选择技能，围绕该技能的素材、平台、风格、比例和关键约束追问，最多追问 3 项；
+5. 明确告知用户：方案确认后才会调用底层生成引擎；
+6. 不要声称展示内部思维链，只提供可核验的“研判摘要”和下一步建议。`;
 
 const readLocalJson = <T,>(key: string, fallback: T): T => {
   try {
@@ -266,7 +321,7 @@ const renderFormattedMessage = (text: string) => {
           key={key}
           className="text-base font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-300 mt-4 mb-2 border-b border-white/10 pb-2"
         >
-          {line.replace(/^#\s/, '')}
+          {parseInlineStyles(line.slice(2))}
         </h1>
       );
       return;
@@ -274,35 +329,45 @@ const renderFormattedMessage = (text: string) => {
 
     if (line.startsWith('## ')) {
       elements.push(
-        <h2 key={key} className="text-sm font-bold text-white mt-3 mb-1.5 flex items-center gap-2">
-          <span className="w-1 h-3.5 bg-orange-500 rounded-full inline-block" />
-          {line.replace(/^##\s/, '')}
+        <h2 key={key} className="text-sm font-bold text-zinc-100 mt-3 mb-1.5 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
+          {parseInlineStyles(line.slice(3))}
         </h2>
       );
       return;
     }
 
-    if (line.startsWith('* ') || line.startsWith('- ')) {
-      const content = line.replace(/^[\*\-]\s/, '');
+    if (line.startsWith('- ') || line.startsWith('* ')) {
       elements.push(
-        <div key={key} className="flex gap-2 ml-1 mb-1 items-start group/list">
-          <span className="w-1.5 h-1.5 rounded-full bg-white/20 mt-[7px] shrink-0 group-hover/list:bg-orange-400 transition-colors" />
-          <div className="text-[13px] leading-relaxed text-slate-300 flex-1">
-            {parseInlineStyles(content)}
-          </div>
+        <div key={key} className="flex items-start gap-2 text-xs text-zinc-300 leading-relaxed my-1 pl-1">
+          <span className="text-orange-400 text-sm leading-none mt-0.5">•</span>
+          <span className="flex-1">{parseInlineStyles(line.slice(2))}</span>
         </div>
       );
       return;
     }
 
+    if (/^\d+\.\s/.test(line)) {
+      const numberMatch = line.match(/^(\d+)\.\s(.*)/);
+      if (numberMatch) {
+        elements.push(
+          <div key={key} className="flex items-start gap-2 text-xs text-zinc-300 leading-relaxed my-1 pl-1">
+            <span className="text-orange-400 font-mono text-xs font-bold shrink-0">{numberMatch[1]}.</span>
+            <span className="flex-1">{parseInlineStyles(numberMatch[2])}</span>
+          </div>
+        );
+        return;
+      }
+    }
+
     elements.push(
-      <div key={key} className="text-[13px] leading-relaxed text-slate-300 mb-1">
+      <p key={key} className="text-xs text-zinc-300 leading-relaxed my-1">
         {parseInlineStyles(line)}
-      </div>
+      </p>
     );
   });
 
-  return <div className="space-y-0.5 break-words select-text cursor-text">{elements}</div>;
+  return elements;
 };
 
 const AgentTraceView: React.FC<{ steps: AgentTraceStep[]; title?: string }> = ({ steps, title = 'Agent 工作过程' }) => {
@@ -346,10 +411,40 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   onRemoveAttachment,
   onInsertAssetToCanvas,
   onLocateAssetOnCanvas,
+  onInsertImageModificationWorkflow,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'model', text: '你好！我是您的小彻智能助手。今天想创作些什么？' },
-  ]);
+  // 历史对话 Session 管理
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    const saved = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
+    if (saved.length > 0) return saved;
+    const initialId = generateSessionId();
+    return [{
+      id: initialId,
+      title: '你好',
+      messages: [DEFAULT_INITIAL_MESSAGE],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }];
+  });
+
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
+    const savedId = localStorage.getItem('xiaoche_agent_current_session_id');
+    const savedSessions = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
+    if (savedId && savedSessions.some(s => s.id === savedId)) {
+      return savedId;
+    }
+    if (savedSessions.length > 0) {
+      return savedSessions[0].id;
+    }
+    return sessions[0]?.id || generateSessionId();
+  });
+
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const current = sessions.find(s => s.id === currentSessionId);
+    return current?.messages && current.messages.length > 0 ? current.messages : [DEFAULT_INITIAL_MESSAGE];
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
   const [selectedSkill, setSelectedSkill] = useState<AgentSkill | null>(null);
@@ -399,7 +494,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       if (seen.has(asset.src)) return false;
       seen.add(asset.src);
       return true;
-    }).slice(0, 8);
+    }).slice(0, 10);
   }, [attachments, uploadedAttachments]);
 
   const selectedGuide = selectedSkill ? SKILL_GUIDES[selectedSkill.id] : null;
@@ -609,8 +704,79 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
   };
 
+  const handleConfirmImageModification = async (messageId: string, card: ImageModificationCardData) => {
+    if (isLoading || activeAttachments.length === 0) return;
+
+    setMessages((current) => current.map((m) => m.id === messageId
+      ? { ...m, imageModCard: { ...m.imageModCard!, isConfirmed: true, isExecuting: true } }
+      : m));
+
+    setIsLoading(true);
+    setGenerationStatus(`正在执行【${card.title}】图像修改工作流…`);
+
+    const statusMessageId = `status-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', text: `确认，开始生成【${card.title}】` },
+      {
+        id: statusMessageId,
+        role: 'model',
+        text: `**${card.nodeName}**工作流已经在后台运行中，请稍后查看生成结果。`,
+      },
+    ]);
+
+    try {
+      const results = await executeAgentSkill({
+        skillId: 'RETOUCHING',
+        skillTitle: card.title,
+        prompt: card.promptPreview,
+        assets: activeAttachments,
+        preferences: {
+          imageRatio,
+          imageResolution,
+          imageModel,
+          videoRatio,
+          videoResolution,
+          videoDuration,
+          videoModel,
+        },
+        onProgress: (prog) => setGenerationStatus(prog),
+      });
+
+      setMessages((current) => current.map((m) => m.id === messageId
+        ? { ...m, imageModCard: { ...m.imageModCard!, isExecuting: false, isCompleted: true } }
+        : m));
+
+      const completionId = `done-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: completionId,
+          role: 'model',
+          text: `## 【${card.title}】生成完成\n\n已成功生成修改后的图像，并在左侧无限画布中成功关联连线。`,
+          assets: results,
+        },
+      ]);
+
+      const primaryInput = activeAttachments[0] || { src: '', title: '原图' };
+      const primaryOutput = results[0] || { url: '', title: card.title };
+      onInsertImageModificationWorkflow?.(
+        [{ url: primaryInput.src, title: primaryInput.title }],
+        { url: primaryOutput.url, title: card.title, prompt: card.promptPreview }
+      );
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'model', text: `**【${card.title}】执行失败**\n\n${err.message || '生成错误，请重试。'}` },
+      ]);
+    } finally {
+      setIsLoading(false);
+      setGenerationStatus('');
+    }
+  };
+
   const handleLocalUpload = async (files: File[]) => {
-    const accepted = files.filter((file) => file.type.startsWith('image/')).slice(0, Math.max(0, 8 - activeAttachments.length));
+    const accepted = files.filter((file) => file.type.startsWith('image/')).slice(0, Math.max(0, 10 - activeAttachments.length));
     const next = await Promise.all(accepted.map((file) => new Promise<AgentSkillAsset>((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(new Error(`无法读取 ${file.name}`));
@@ -628,7 +794,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         seen.add(asset.src);
         return true;
       });
-      const availableSlots = Math.max(0, 8 - attachments.length - current.length);
+      const availableSlots = Math.max(0, 10 - attachments.length - current.length);
       return [...current, ...uniqueNext.slice(0, availableSlots)];
     });
   };
@@ -694,6 +860,38 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       return;
     }
 
+    // 当用户上传了参考图（1~10张）且提出修改/调整指令时，智能生成图生图确认卡片（参考图 1 效果）
+    const isImageModIntent = activeAttachments.length > 0 && (
+      !selectedSkill ||
+      /换|改|调整|修|发型|背景|服装|衣服|头发|变|替换|生成|白底/.test(userText)
+    );
+
+    if (isImageModIntent) {
+      const cleanTitle = userText.length > 12 ? `${userText.slice(0, 10)}...` : userText;
+      const nodeName = userText.length > 8 ? `${userText.slice(0, 6)}型` : userText;
+      const promptPreview = `Keep the original model's face, facial features, skin tone, expression, cream-colored cut-out blouse, white trousers, and background exactly unchanged. Change the specified styling to: ${userText}, maintaining high-end editorial fashion photography style, photorealistic, 8k resolution.`;
+
+      const cardId = `mod-card-${Date.now()}`;
+      const cardData: ImageModificationCardData = {
+        title: cleanTitle.startsWith('更换') || cleanTitle.startsWith('修改') || cleanTitle.startsWith('调整') ? cleanTitle : `更换${cleanTitle}发型`,
+        promptPreview,
+        nodeName: nodeName.includes('型') ? nodeName : `${nodeName}发型`,
+        workflowHint: '图生图',
+        imageCount: activeAttachments.length,
+      };
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: cardId,
+          role: 'model',
+          text: `已精准识别已上传的 **${activeAttachments.length} 张原图素材**\n针对您的修改意图“**${userText}**”，已自动规划生成工作流方案：`,
+          imageModCard: cardData,
+        },
+      ]);
+      return;
+    }
+
     if (selectedSkill) {
       setSkillBrief((current) => `${current}\n用户补充要求：${userText}`.trim());
       setAgentPhase(hasRequiredAssets ? 'review' : 'intake');
@@ -709,6 +907,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       const guideContext = selectedSkill && selectedGuide
         ? `\n\n当前技能：${selectedSkill.title}\n当前素材数：${activeAttachments.length}，最低需要：${selectedGuide.minAssets}\n素材规则：${selectedGuide.assetRules.join('；')}\n待确认问题：${selectedGuide.questions.join('；')}\n当前用户简报：${skillBrief || selectedSkill.prompt}`
         : '';
+      const attachmentContext = activeAttachments.length > 0
+        ? `\n\n【关键已知信息：用户已在当前对话面板中成功上传并提供了 ${activeAttachments.length} 张原图素材/照片】：\n${activeAttachments.map((att, idx) => `- 素材照片 @${idx + 1}：${att.title}`).join('\n')}\n系统已感知到此素材，绝对不要认为或告知用户“未获取到照片”或“缺少原图素材”。请基于已上传的原图素材回应用户。`
+        : '\n\n【用户当前暂未上传任何参考照片素材】';
       const memoryContext = memoryPoints.length
         ? `\n\n用户主动引用的长期记忆点（需要持续遵守）：\n${memoryPoints.slice(-12).map((point) => `- ${point.label}：${point.text}`).join('\n')}`
         : '';
@@ -725,7 +926,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         setMessages((prev) => prev.map((message) => message.id === responseId
           ? { ...message, text: fullText, isStreaming: true }
           : message));
-      }, { systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION + guideContext + memoryContext + activeQuoteContext + feedbackContext });
+      }, { systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION + guideContext + attachmentContext + memoryContext + activeQuoteContext + feedbackContext });
       setMessages((prev) => prev.map((message) => message.id === responseId
         ? { ...message, isStreaming: false }
         : message));
@@ -739,14 +940,168 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
   };
 
-  const handleClearChat = () => {
-    setMessages([{ role: 'model', text: '你好！我是您的小彻智能助手。今天想创作些什么？' }]);
+  // 自动将当前对话与状态同步到 Session 列表与 localStorage
+  useEffect(() => {
+    if (!currentSessionId) return;
+
+    const firstUserMsg = messages.find(m => m.role === 'user');
+    let sessionTitle = '你好';
+    if (firstUserMsg && firstUserMsg.text.trim()) {
+      const cleanText = firstUserMsg.text
+        .replace(/^选择技能：/, '')
+        .replace(/^确认开始制作.*/, '')
+        .trim();
+      if (cleanText) {
+        sessionTitle = cleanText.slice(0, 26);
+      }
+    } else if (selectedSkill) {
+      sessionTitle = selectedSkill.title;
+    }
+
+    setSessions(prevSessions => {
+      const existingIndex = prevSessions.findIndex(s => s.id === currentSessionId);
+      const updatedSession: ChatSession = {
+        id: currentSessionId,
+        title: sessionTitle,
+        messages,
+        createdAt: existingIndex >= 0 ? prevSessions[existingIndex].createdAt : Date.now(),
+        updatedAt: Date.now(),
+        skillId: selectedSkill?.id,
+        skillTitle: selectedSkill?.title,
+        agentPhase,
+      };
+
+      let newSessions: ChatSession[];
+      if (existingIndex >= 0) {
+        newSessions = [...prevSessions];
+        newSessions[existingIndex] = updatedSession;
+      } else {
+        newSessions = [updatedSession, ...prevSessions];
+      }
+
+      localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify(newSessions));
+      localStorage.setItem('xiaoche_agent_current_session_id', currentSessionId);
+      return newSessions;
+    });
+  }, [messages, selectedSkill, agentPhase, currentSessionId]);
+
+  const handleCreateNewSession = () => {
+    if (isLoading) return;
+    const newId = generateSessionId();
+    const newSession: ChatSession = {
+      id: newId,
+      title: '你好',
+      messages: [DEFAULT_INITIAL_MESSAGE],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const updatedSessions = [newSession, ...sessions];
+    setSessions(updatedSessions);
+    setCurrentSessionId(newId);
+    setMessages([DEFAULT_INITIAL_MESSAGE]);
     setSelectedSkill(null);
     setSkillBrief('');
+    setUploadedAttachments([]);
     setAgentPhase('idle');
     setAgentTrace([]);
     setGenerationStatus('');
     setActiveMemoryQuote(null);
+    setIsHistoryOpen(false);
+
+    localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify(updatedSessions));
+    localStorage.setItem('xiaoche_agent_current_session_id', newId);
+    showActionNotice('new-session', '已开启新对话');
+  };
+
+  const handleSwitchSession = (targetSessionId: string) => {
+    if (targetSessionId === currentSessionId) {
+      setIsHistoryOpen(false);
+      return;
+    }
+    const target = sessions.find(s => s.id === targetSessionId);
+    if (!target) return;
+
+    setCurrentSessionId(targetSessionId);
+    setMessages(target.messages && target.messages.length > 0 ? target.messages : [DEFAULT_INITIAL_MESSAGE]);
+
+    if (target.skillId) {
+      const foundSkill = ALL_AGENT_SKILLS.find(sk => sk.id === target.skillId);
+      setSelectedSkill(foundSkill || null);
+    } else {
+      setSelectedSkill(null);
+    }
+
+    setAgentPhase(target.agentPhase || 'idle');
+    setSkillBrief('');
+    setUploadedAttachments([]);
+    setGenerationStatus('');
+    setActiveMemoryQuote(null);
+    setIsHistoryOpen(false);
+
+    localStorage.setItem('xiaoche_agent_current_session_id', targetSessionId);
+  };
+
+  const handleDeleteSession = (sessionIdToDelete: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const filtered = sessions.filter(s => s.id !== sessionIdToDelete);
+
+    if (filtered.length === 0) {
+      const newId = generateSessionId();
+      const newSession: ChatSession = {
+        id: newId,
+        title: '你好',
+        messages: [DEFAULT_INITIAL_MESSAGE],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setSessions([newSession]);
+      setCurrentSessionId(newId);
+      setMessages([DEFAULT_INITIAL_MESSAGE]);
+      setSelectedSkill(null);
+      setAgentPhase('idle');
+      localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify([newSession]));
+      localStorage.setItem('xiaoche_agent_current_session_id', newId);
+    } else {
+      setSessions(filtered);
+      localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify(filtered));
+
+      if (sessionIdToDelete === currentSessionId) {
+        const nextSession = filtered[0];
+        setCurrentSessionId(nextSession.id);
+        setMessages(nextSession.messages && nextSession.messages.length > 0 ? nextSession.messages : [DEFAULT_INITIAL_MESSAGE]);
+        if (nextSession.skillId) {
+          const foundSkill = ALL_AGENT_SKILLS.find(sk => sk.id === nextSession.skillId);
+          setSelectedSkill(foundSkill || null);
+        } else {
+          setSelectedSkill(null);
+        }
+        setAgentPhase(nextSession.agentPhase || 'idle');
+        localStorage.setItem('xiaoche_agent_current_session_id', nextSession.id);
+      }
+    }
+    showActionNotice('delete-session', '会话已删除');
+  };
+
+  const handleCopySessionId = async () => {
+    try {
+      await navigator.clipboard.writeText(currentSessionId);
+      showActionNotice('copy-session-id', '已复制 Session ID');
+    } catch {
+      showActionNotice('copy-session-id', '复制失败');
+    }
+  };
+
+  const handleRefreshHistory = () => {
+    const saved = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
+    if (saved.length > 0) {
+      setSessions(saved);
+    }
+    showActionNotice('refresh-history', '历史对话已同步');
+  };
+
+  const handleClearChat = () => {
+    handleCreateNewSession();
   };
 
   return (
@@ -764,35 +1119,70 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
       }`}
     >
-      {/* 1. 顶栏 (小彻智能助手、戴墨镜小彻头像、历史/刷新/关闭) */}
+      {/* 提示 Toast */}
+      {actionNotice && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-3.5 py-1.5 rounded-full bg-orange-500/90 text-white text-xs font-bold shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95 duration-200">
+          {actionNotice.text}
+        </div>
+      )}
+
+      {/* 1. 顶栏 (小彻智能助手、戴墨镜小彻头像、Session ID、历史对话/新建/关闭) */}
       <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#0d0d0f] z-10 shrink-0 select-none">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-9 h-9 rounded-full overflow-hidden border border-orange-500/40 shadow-[0_0_12px_rgba(249,115,22,0.4)] shrink-0">
             <img src={XIAOCHE_AVATAR_BASE64} alt="小彻智能助手" className="w-full h-full object-cover" />
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col min-w-0">
             <span className="text-sm font-bold text-zinc-100 tracking-wide flex items-center gap-2">
               小彻智能助手
             </span>
-            <span className="text-[9px] text-zinc-500 font-semibold tracking-wider">
-              {agentPhase === 'idle' ? '等待创作任务' : agentPhase === 'intake' ? '正在补齐创作信息' : agentPhase === 'review' ? '方案待确认' : agentPhase === 'executing' ? '正在执行工作流' : agentPhase === 'complete' ? '任务已完成' : '需要检查任务'}
-            </span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span 
+                className="text-[10px] text-zinc-400 font-mono tracking-tight bg-white/5 px-1.5 py-0.5 rounded border border-white/10 truncate max-w-[130px] sm:max-w-[170px]"
+                title={currentSessionId}
+              >
+                {currentSessionId}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopySessionId}
+                className="text-zinc-500 hover:text-zinc-200 p-0.5 rounded hover:bg-white/5 transition-colors shrink-0"
+                title="复制 Session ID"
+              >
+                <Copy size={11} />
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* 历史对话图标按钮 */}
           <button
             type="button"
-            onClick={handleClearChat}
-            className="flex h-11 w-11 items-center justify-center rounded-xl text-zinc-500 hover:bg-white/5 hover:text-zinc-300 transition-colors"
-            title="重置对话"
+            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+            className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all ${
+              isHistoryOpen
+                ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm'
+                : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+            }`}
+            title="历史对话"
           >
-            <RotateCcw size={16} />
+            <Clock size={17} />
           </button>
+          {/* 新建对话图标按钮 */}
+          <button
+            type="button"
+            onClick={handleCreateNewSession}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+            title="新建对话"
+          >
+            <MessageSquarePlus size={17} />
+          </button>
+          {/* 关闭面板图标按钮 */}
           <button
             type="button"
             onClick={onClose}
-            className="flex h-11 w-11 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
             title="关闭面板"
           >
             <ChevronRight size={20} />
@@ -800,8 +1190,114 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         </div>
       </div>
 
-      {/* 2. 主体区 (添加 max-w-[440px] mx-auto 精细居中，防止过度拉宽) */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 custom-scrollbar bg-[#0d0d0f]">
+      {/* 2. 主体区：历史对话视图 OR 正常对话聊天视图 */}
+      {isHistoryOpen ? (
+        <div className="flex-1 flex flex-col bg-[#0d0d0f] z-20 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-200">
+          <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between bg-[#111114]">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-orange-400" />
+              <h3 className="text-sm font-bold text-zinc-100 tracking-wide">历史对话</h3>
+              <span className="text-[11px] text-zinc-500 font-medium ml-1">
+                ({sessions.length})
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleRefreshHistory}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+                title="刷新历史对话"
+              >
+                <RefreshCw size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+                title="关闭历史"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-2.5 custom-scrollbar">
+            {sessions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <Clock className="w-10 h-10 text-zinc-600 mb-3 stroke-[1.5]" />
+                <p className="text-xs text-zinc-400 font-medium">暂无历史对话记录</p>
+                <button
+                  type="button"
+                  onClick={handleCreateNewSession}
+                  className="mt-4 px-4 py-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30 text-xs font-bold hover:bg-orange-500/30 transition-all flex items-center gap-1.5"
+                >
+                  <Plus size={14} />
+                  新建对话
+                </button>
+              </div>
+            ) : (
+              sessions
+                .slice()
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map((s) => {
+                  const isActive = s.id === currentSessionId;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => handleSwitchSession(s.id)}
+                      className={`group relative flex flex-col p-4 rounded-2xl border transition-all cursor-pointer select-none ${
+                        isActive
+                          ? 'bg-[#1b1b1e] border-orange-500/40 shadow-lg shadow-orange-500/5'
+                          : 'bg-[#141417]/80 border-white/[0.04] hover:bg-[#1c1c20] hover:border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className={`text-xs font-bold truncate ${isActive ? 'text-orange-400' : 'text-zinc-200 group-hover:text-white'}`}>
+                            {s.title || '未命名对话'}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 font-medium mt-1">
+                            {formatSessionTime(s.updatedAt)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isActive && (
+                            <span className="text-[9px] font-bold text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-md border border-orange-500/30 mr-1">
+                              当前
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteSession(s.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-white/5 transition-all"
+                            title="删除会话"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+
+          <div className="p-4 border-t border-white/5 bg-[#111114]">
+            <button
+              type="button"
+              onClick={handleCreateNewSession}
+              className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center gap-2"
+            >
+              <Plus size={15} />
+              开启新对话
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 2. 主体区 (添加 max-w-[440px] mx-auto 精细居中，防止过度拉宽) */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 custom-scrollbar bg-[#0d0d0f]">
         <div className="max-w-[440px] mx-auto w-full">
         {messages.length === 1 && messages[0].text === '你好！我是您的小彻智能助手。今天想创作些什么？' ? (
           <div className="flex flex-col items-start pt-2 pb-16 animate-in fade-in duration-500">
@@ -975,6 +1471,67 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                       <p className="leading-6 text-xs whitespace-pre-wrap">{m.text}</p>
                     )}
                   </div>
+
+                  {/* 图像修改调整确认卡片 (还原参考图 1 效果) */}
+                  {m.imageModCard && (
+                    <div className="mt-3 w-full overflow-hidden rounded-3xl border border-emerald-500/30 bg-[#161619] p-4 shadow-xl select-none">
+                      {/* 1. 顶部标题与附件计数 */}
+                      <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                            <Sparkles className="h-4 w-4" />
+                          </div>
+                          <h4 className="text-sm font-bold text-white tracking-tight">{m.imageModCard.title}</h4>
+                        </div>
+                        <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-0.5 text-[10px] font-bold text-zinc-400">
+                          图片{m.imageModCard.imageCount}图
+                        </span>
+                      </div>
+
+                      {/* 2. 生成提示词区域 */}
+                      <div className="mt-3.5 space-y-1.5">
+                        <div className="text-[11px] font-bold text-zinc-400">
+                          生成提示词
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-black/50 p-3">
+                          <p className="text-xs text-zinc-300 leading-relaxed font-mono select-text cursor-text">
+                            {m.imageModCard.promptPreview}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 3. 画布工作流 (1个节点) */}
+                      <div className="mt-3.5 space-y-1.5">
+                        <div className="text-[11px] font-bold text-zinc-400">
+                          画布工作流 (1个节点)
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300">
+                            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                            {m.imageModCard.nodeName} <span className="text-[9px] bg-amber-500/20 px-1.5 py-0.2 rounded border border-amber-500/40 text-amber-200">图生图</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 4. 操作按钮：确认，开始生成 */}
+                      {!m.imageModCard.isConfirmed ? (
+                        <button
+                          type="button"
+                          disabled={isLoading}
+                          onClick={() => handleConfirmImageModification(messageId, m.imageModCard!)}
+                          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#00c985] hover:bg-[#00b377] py-3 text-xs font-black text-white shadow-lg shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Plus size={15} />
+                          确认，开始生成
+                        </button>
+                      ) : (
+                        <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-bold text-emerald-300 flex items-center gap-2">
+                          <Check size={15} />
+                          <span>工作流已确认，节点已在左侧画布创建并关联连线</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               );
@@ -1662,6 +2219,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };
