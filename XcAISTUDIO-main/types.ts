@@ -6,6 +6,7 @@ export enum NodeType {
   VIDEO_ANALYZER = 'VIDEO_ANALYZER',
   IMAGE_EDITOR = 'IMAGE_EDITOR',
   AUDIO_GENERATOR = 'AUDIO_GENERATOR',
+  STORYBOARD_GRID = 'STORYBOARD_GRID',
 }
 
 export enum NodeStatus {
@@ -50,6 +51,13 @@ export interface AppNode {
     stylePresetName?: string;
     stylePresetNegativePrompt?: string;
     textMode?: 'launcher' | 'editor';
+    
+    // Storyboard Grid properties
+    storyboardAspectRatio?: string; // e.g., '2:3', '16:9', '9:16', '3:4', '4:3', '1:1'
+    storyboardGridSize?: string;    // e.g., '2x2', '3x3', '4x4', '5x5'
+    storyboardCells?: { id: string; image?: string; prompt?: string }[];
+    isCollapsed?: boolean;
+    isEditingStoryboard?: boolean;
     
     // Video Strategies (StoryContinuator, SceneDirector, FrameWeaver, CharacterRef)
     generationMode?: VideoGenerationMode; 

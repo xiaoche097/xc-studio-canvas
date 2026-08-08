@@ -518,19 +518,37 @@ export const App = () => {
     }, []);
 
 
+    const calculateStoryboardNodeHeight = (aspectRatioStr = '2:3', gridSizeStr = '3x3', currentWidth = 560) => {
+        const [rw, rh] = (aspectRatioStr || '2:3').split(':').map(Number);
+        const r = (rw && rh) ? (rw / rh) : (2 / 3);
+        const cols = parseInt((gridSizeStr || '3x3').split('x')[0]) || 3;
+        const rows = parseInt((gridSizeStr || '3x3').split('x')[1]) || 3;
+
+        const innerWidth = currentWidth - 32;
+        const gap = 8;
+        const cellWidth = (innerWidth - (cols - 1) * gap) / cols;
+        const cellHeight = cellWidth / r;
+        const gridHeight = rows * cellHeight + (rows - 1) * gap;
+
+        return Math.round(gridHeight + 100);
+    };
+
     const getApproxNodeHeight = (node: AppNode) => {
         if (node.height) return node.height;
-        const width = node.width || 420;
+        const width = node.width || (node.type === NodeType.STORYBOARD_GRID ? 560 : 420);
         if (['PROMPT_INPUT', 'VIDEO_ANALYZER', 'IMAGE_EDITOR'].includes(node.type)) return 360;
         if (node.type === NodeType.AUDIO_GENERATOR) return 200;
+        if (node.type === NodeType.STORYBOARD_GRID) {
+            return calculateStoryboardNodeHeight(node.data.storyboardAspectRatio, node.data.storyboardGridSize, width);
+        }
         const [w, h] = (node.data.aspectRatio || '16:9').split(':').map(Number);
         const extra = (node.type === NodeType.VIDEO_GENERATOR && node.data.generationMode === 'CUT') ? 36 : 0;
         return ((width * h / w) + extra);
     };
 
     const getNodeBounds = (node: AppNode) => {
+        const w = node.width || (node.type === NodeType.STORYBOARD_GRID ? 560 : 420);
         const h = node.height || getApproxNodeHeight(node);
-        const w = node.width || 420;
         return { x: node.x, y: node.y, width: w, height: h, r: node.x + w, b: node.y + h };
     };
 
@@ -880,6 +898,8 @@ export const App = () => {
             generateAudio: type === NodeType.VIDEO_GENERATOR ? true : initialData?.generateAudio,
             imageCount: type === NodeType.IMAGE_GENERATOR ? 1 : initialData?.imageCount,
             textMode: type === NodeType.PROMPT_INPUT ? 'launcher' : undefined,
+            storyboardAspectRatio: initialData?.storyboardAspectRatio || '2:3',
+            storyboardGridSize: initialData?.storyboardGridSize || '3x3',
             ...initialData
         };
 
@@ -889,7 +909,8 @@ export const App = () => {
             [NodeType.VIDEO_GENERATOR]: '文生视频',
             [NodeType.AUDIO_GENERATOR]: '灵感音乐',
             [NodeType.VIDEO_ANALYZER]: '视频分析',
-            [NodeType.IMAGE_EDITOR]: '图像编辑'
+            [NodeType.IMAGE_EDITOR]: '图像编辑',
+            [NodeType.STORYBOARD_GRID]: '分镜格子'
         };
 
         const safeX = x !== undefined ? x : (-pan.x + window.innerWidth / 2) / scale - 210;
@@ -1484,8 +1505,120 @@ export const App = () => {
         e.target.value = ''; setContextMenu(null); replacementTargetRef.current = null;
     };
 
+    const handleComposeStoryboard = useCallback(async (sourceNode: AppNode) => {
+        const storyboardAspectRatio = sourceNode.data.storyboardAspectRatio || '2:3';
+        const storyboardGridSize = sourceNode.data.storyboardGridSize || '3x3';
+        const cells = sourceNode.data.storyboardCells || [];
+
+        const [rw, rh] = storyboardAspectRatio.split(':').map(Number);
+        const r = (rw && rh) ? (rw / rh) : (2 / 3);
+        const cols = parseInt(storyboardGridSize.split('x')[0]) || 3;
+        const rows = parseInt(storyboardGridSize.split('x')[1]) || 3;
+
+        const cellWidth = 600;
+        const cellHeight = Math.round(cellWidth / r);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = cols * cellWidth;
+        canvas.height = rows * cellHeight;
+        const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
+
+        if (!ctx) return;
+
+        ctx.fillStyle = '#1c1c1f';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const loadAndDrawImage = (src: string, dx: number, dy: number, dw: number, dh: number) => {
+            return new Promise<void>((resolve) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    const imgRatio = img.width / img.height;
+                    const targetRatio = dw / dh;
+                    let sx = 0, sy = 0, sw = img.width, sh = img.height;
+                    if (imgRatio > targetRatio) {
+                        sw = img.height * targetRatio;
+                        sx = (img.width - sw) / 2;
+                    } else {
+                        sh = img.width / targetRatio;
+                        sy = (img.height - sh) / 2;
+                    }
+                    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+                    resolve();
+                };
+                img.onerror = () => resolve();
+                img.src = src;
+            });
+        };
+
+        const drawPromises: Promise<void>[] = [];
+
+        for (let rIdx = 0; rIdx < rows; rIdx++) {
+            for (let cIdx = 0; cIdx < cols; cIdx++) {
+                const cellIdx = rIdx * cols + cIdx;
+                const x = cIdx * cellWidth;
+                const y = rIdx * cellHeight;
+                const cell = cells[cellIdx];
+
+                if (cell?.image) {
+                    drawPromises.push(loadAndDrawImage(cell.image, x, y, cellWidth, cellHeight));
+                } else {
+                    ctx.fillStyle = '#262629';
+                    ctx.fillRect(x, y, cellWidth, cellHeight);
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.moveTo(x + cellWidth / 2 - 20, y + cellHeight / 2);
+                    ctx.lineTo(x + cellWidth / 2 + 20, y + cellHeight / 2);
+                    ctx.moveTo(x + cellWidth / 2, y + cellHeight / 2 - 20);
+                    ctx.lineTo(x + cellWidth / 2, y + cellHeight / 2 + 20);
+                    ctx.stroke();
+                }
+
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, cellWidth, cellHeight);
+            }
+        }
+
+        await Promise.all(drawPromises);
+
+        const composedDataUrl = canvas.toDataURL('image/png');
+        const targetX = sourceNode.x + (sourceNode.width || 560) + 80;
+        const targetY = sourceNode.y;
+
+        const composedNode: AppNode = {
+            id: `node-composed-${Date.now()}`,
+            type: NodeType.IMAGE_GENERATOR,
+            title: '合成',
+            x: targetX,
+            y: targetY,
+            width: 420,
+            status: NodeStatus.SUCCESS,
+            data: {
+                image: composedDataUrl,
+                aspectRatio: storyboardAspectRatio,
+                model: 'gemini-3.1-flash-image-preview',
+                generationMode: 'DEFAULT',
+                prompt: `分镜合成图像 (${storyboardGridSize})`
+            },
+            inputs: [sourceNode.id]
+        };
+
+        setNodes(prev => [...prev, composedNode]);
+        setConnections(prev => [...prev, { id: `c-${sourceNode.id}-${composedNode.id}`, from: sourceNode.id, to: composedNode.id }]);
+        handleAssetGenerated('image', composedDataUrl, '合成');
+    }, [handleAssetGenerated]);
+
     const handleNodeAction = useCallback(async (id: string, promptOverride?: string): Promise<boolean> => {
         const node = nodesRef.current.find(n => n.id === id); if (!node) return false;
+        
+        if (promptOverride === 'compose-storyboard' || node.type === NodeType.STORYBOARD_GRID) {
+            await handleComposeStoryboard(node);
+            setNodes(p => p.map(n => n.id === id ? { ...n, status: NodeStatus.SUCCESS } : n));
+            return true;
+        }
+
         handleNodeUpdate(id, { error: undefined });
         setNodes(p => p.map(n => n.id === id ? { ...n, status: NodeStatus.WORKING } : n));
 
@@ -2039,6 +2172,49 @@ export const App = () => {
         }
     };
 
+    const handleCreateDerivedImageNode = useCallback((sourceNodeId: string, promptInstruction: string, customTitle?: string) => {
+        const sourceNode = nodesRef.current.find(n => n.id === sourceNodeId);
+        if (!sourceNode) return;
+
+        const childWidth = sourceNode.width || 420;
+        const childHeight = sourceNode.height || 560;
+        const posX = sourceNode.x + childWidth + 120;
+        const posY = sourceNode.y;
+        const newNodeId = `n-${Date.now()}`;
+
+        const newNode: AppNode = {
+            id: newNodeId,
+            type: NodeType.IMAGE_GENERATOR,
+            x: posX,
+            y: posY,
+            width: childWidth,
+            height: childHeight,
+            title: customTitle || `${sourceNode.title || '图片'} - 人物调节`,
+            status: NodeStatus.WORKING,
+            data: {
+                model: sourceNode.data.model || 'flux',
+                aspectRatio: sourceNode.data.aspectRatio || '2:3',
+                resolution: sourceNode.data.resolution || '2K',
+                prompt: promptInstruction,
+                imageCount: 1,
+            },
+            inputs: [sourceNodeId]
+        };
+
+        const newConnection: Connection = {
+            from: sourceNodeId,
+            to: newNodeId
+        };
+
+        setNodes(prev => [...prev, newNode]);
+        setConnections(prev => [...prev, newConnection]);
+        setSelectedNodeIds([newNodeId]);
+
+        window.setTimeout(() => {
+            handleNodeAction(newNodeId, promptInstruction);
+        }, 50);
+    }, [handleNodeAction]);
+
     useEffect(() => {
         const style = document.createElement('style');
         style.innerHTML = ` .cursor-grab-override, .cursor-grab-override * { cursor: grab !important; } .cursor-grab-override:active, .cursor-grab-override:active * { cursor: grabbing !important; } `;
@@ -2353,6 +2529,7 @@ export const App = () => {
                     {visibleNodes.map(node => (
                         <Node
                             key={node.id} node={node} onUpdate={handleNodeUpdate} onAction={handleNodeAction} onDelete={(id) => deleteNodes([id])} onExpand={setExpandedMedia} onCrop={(id, img) => { setCroppingNodeId(id); setImageToCrop(img); }} onAddToAgent={handleAddImageToAgent}
+                            onCreateDerivedNode={handleCreateDerivedImageNode}
                             onTextQuickAction={handleTextQuickAction}
                             onFocusNode={handleFocusNode}
                             onNodeMouseDown={(e, id) => {
@@ -2596,7 +2773,7 @@ export const App = () => {
 
                                     {/* 分镜格子 Item */}
                                     <button 
-                                        onClick={() => { setIsMultiFrameOpen(!isMultiFrameOpen); setContextMenu(null); }}
+                                        onClick={() => { addNode(NodeType.STORYBOARD_GRID, (contextMenu.x - pan.x) / scale, (contextMenu.y - pan.y) / scale); setContextMenu(null); }}
                                         className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
                                     >
                                         <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">

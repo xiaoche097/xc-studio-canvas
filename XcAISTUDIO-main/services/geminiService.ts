@@ -274,7 +274,7 @@ const convertImageToCompatibleFormat = async (base64Str: string): Promise<{ data
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
             canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
             if (!ctx) { reject(new Error("Canvas context failed")); return; }
             ctx.drawImage(img, 0, 0);
             const pngDataUrl = canvas.toDataURL('image/png');
@@ -298,7 +298,7 @@ export const extractLastFrame = (videoSrc: string): Promise<string> => {
                 const canvas = document.createElement('canvas');
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
                 if (ctx) {
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     resolve(canvas.toDataURL('image/png'));
@@ -526,7 +526,11 @@ export const generateImageFromText = async (
         parts.push({ inlineData: { data: cleanBase64, mimeType } });
     }
 
-    parts.push({ text: prompt });
+    // 防止 Gemini 多模态生图产生洋红偏与暖红色偏 (Magenta & Red Tint Protection)
+    const colorProtection = ", natural balanced colors, clean neutral white balance, no magenta color cast, no reddish tint";
+    const finalPrompt = prompt.toLowerCase().includes("color balance") ? prompt : `${prompt}${colorProtection}`;
+
+    parts.push({ text: finalPrompt });
 
     const generateOne = async (): Promise<string> => {
         const response = await ai.models.generateContent({

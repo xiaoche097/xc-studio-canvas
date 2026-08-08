@@ -2,10 +2,11 @@
 
 // ... existing imports
 import { AppNode, NodeStatus, NodeType } from '../types';
-import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings, SlidersHorizontal, Grid3X3, Rotate3D, SunMedium, Bot, Replace } from 'lucide-react';
+import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings, SlidersHorizontal, Grid3X3, Rotate3D, SunMedium, Bot, Replace, Eye, LogOut, User } from 'lucide-react';
 import { SceneDirectorOverlay } from './VideoNodeModules';
 import React, { memo, useRef, useState, useEffect, useCallback } from 'react';
 import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
+import { FacialControlModal } from './FacialControlModal';
 import * as mammoth from 'mammoth/mammoth.browser';
 
 // ... (keep constants and helper functions: arePropsEqual, safePlay, safePause, InputThumbnails, AudioVisualizer) ...
@@ -25,6 +26,7 @@ interface NodeProps {
     onExpand?: (data: { type: 'image' | 'video', src: string, rect: DOMRect, images?: string[], initialIndex?: number }) => void;
     onCrop?: (id: string, imageBase64: string) => void;
     onAddToAgent?: (image: string, title: string) => void;
+    onCreateDerivedNode?: (sourceNodeId: string, prompt: string, title?: string) => void;
     onNodeMouseDown: (e: React.MouseEvent, id: string) => void;
     onPortMouseDown: (e: React.MouseEvent, id: string, type: 'input' | 'output') => void;
     onPortMouseUp: (e: React.MouseEvent, id: string, type: 'input' | 'output') => void;
@@ -401,7 +403,7 @@ const prepareUploadedImage = async (file: File) => {
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
 
     if (!ctx) {
         bitmap.close();
@@ -437,7 +439,7 @@ const getFittedImageNodeSize = (imageWidth: number, imageHeight: number, current
 };
 
 const NodeComponent: React.FC<NodeProps> = ({
-    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1, dragOffset, suppressNodeChrome
+    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onCreateDerivedNode, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1, dragOffset, suppressNodeChrome
 }) => {
     const isWorking = node.status === NodeStatus.WORKING;
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -472,6 +474,18 @@ const NodeComponent: React.FC<NodeProps> = ({
     const isResizingInput = useRef(false);
     const inputStartDragY = useRef(0);
     const inputStartHeight = useRef(0);
+
+    const isStoryboardNode = node.type === NodeType.STORYBOARD_GRID;
+    const storyboardAspectRatio = node.data.storyboardAspectRatio || '2:3';
+    const storyboardGridSize = node.data.storyboardGridSize || '3x3';
+    const [isRatioDropdownOpen, setIsRatioDropdownOpen] = useState(false);
+    const [isGridDropdownOpen, setIsGridDropdownOpen] = useState(false);
+    const [isPersonAdjustOpen, setIsPersonAdjustOpen] = useState(false);
+    const [isFacialControlOpen, setIsFacialControlOpen] = useState(false);
+    const activeCellIndexRef = useRef<number>(0);
+    const cellFileInputRef = useRef<HTMLInputElement>(null);
+    const [draggedCellIndex, setDraggedCellIndex] = useState<number | null>(null);
+    const [dragOverCellIndex, setDragOverCellIndex] = useState<number | null>(null);
 
     useEffect(() => { setLocalPrompt(node.data.prompt || ''); }, [node.data.prompt]);
     useEffect(() => {
@@ -708,22 +722,43 @@ const NodeComponent: React.FC<NodeProps> = ({
             case NodeType.AUDIO_GENERATOR: return { icon: Mic2, color: 'text-pink-400', border: 'border-pink-500/30' };
             case NodeType.VIDEO_ANALYZER: return { icon: FileSearch, color: 'text-emerald-400', border: 'border-emerald-500/30' };
             case NodeType.IMAGE_EDITOR: return { icon: Edit, color: 'text-rose-400', border: 'border-rose-500/30' };
+            case NodeType.STORYBOARD_GRID: return { icon: Film, color: 'text-amber-400', border: 'border-amber-500/30' };
             default: return { icon: Type, color: 'text-slate-400', border: 'border-white/10' };
         }
     };
     const { icon: NodeIcon, color: iconColor } = getNodeConfig();
 
+    const calculateStoryboardNodeHeight = (aspectRatioStr = '2:3', gridSizeStr = '3x3', currentWidth = 560) => {
+        const [rw, rh] = (aspectRatioStr || '2:3').split(':').map(Number);
+        const r = (rw && rh) ? (rw / rh) : (2 / 3);
+        const cols = parseInt((gridSizeStr || '3x3').split('x')[0]) || 3;
+        const rows = parseInt((gridSizeStr || '3x3').split('x')[1]) || 3;
+
+        const innerWidth = Math.max(200, currentWidth - 32);
+        const gap = 8;
+        const cellWidth = (innerWidth - (cols - 1) * gap) / cols;
+        const cellHeight = cellWidth / r;
+        const gridHeight = rows * cellHeight + (rows - 1) * gap;
+
+        return Math.round(gridHeight + 100);
+    };
+
+    const nodeWidth = node.width || (isStoryboardNode ? 560 : DEFAULT_NODE_WIDTH);
+
     const getNodeHeight = () => {
+        if (isStoryboardNode) {
+            if (node.data.isCollapsed) return 120;
+            return calculateStoryboardNodeHeight(node.data.storyboardAspectRatio, node.data.storyboardGridSize, nodeWidth);
+        }
         if (node.height) return node.height;
         if (node.type === NodeType.VIDEO_ANALYZER || node.type === NodeType.IMAGE_EDITOR || node.type === NodeType.PROMPT_INPUT) return DEFAULT_FIXED_HEIGHT;
         if (node.type === NodeType.AUDIO_GENERATOR) return AUDIO_NODE_HEIGHT;
         const ratio = node.data.aspectRatio || '16:9';
         const [w, h] = ratio.split(':').map(Number);
         const extra = (node.type === NodeType.VIDEO_GENERATOR && generationMode === 'CUT') ? 36 : 0;
-        return ((node.width || DEFAULT_NODE_WIDTH) * h / w) + extra;
+        return (nodeWidth * h / w) + extra;
     };
     const nodeHeight = getNodeHeight();
-    const nodeWidth = node.width || DEFAULT_NODE_WIDTH;
     const hasInputs = inputAssets && inputAssets.length > 0;
     const inputImageCount = inputAssets?.filter(asset => asset.type === 'image').length || 0;
     const inputVideoCount = inputAssets?.filter(asset => asset.type === 'video').length || 0;
@@ -786,7 +821,11 @@ const NodeComponent: React.FC<NodeProps> = ({
         }
     }, [isVideoNode, generationMode, inputImageCount, inputVideoCount, inputAudioCount]);
 
-    const applyImageToolPrompt = (instruction: string) => {
+    const applyImageToolPrompt = (instruction: string, customTitle?: string) => {
+        if (onCreateDerivedNode) {
+            onCreateDerivedNode(node.id, instruction, customTitle);
+            return;
+        }
         const currentPrompt = localPrompt.trim();
         const nextPrompt = currentPrompt ? `${currentPrompt}\n${instruction}` : instruction;
         setLocalPrompt(nextPrompt);
@@ -811,17 +850,59 @@ const NodeComponent: React.FC<NodeProps> = ({
                 onClick={e => e.stopPropagation()}
                 onDoubleClick={e => e.stopPropagation()}
             >
-                <label className={`${imageToolButtonClass} cursor-pointer`}>
-                    <Scaling size={13} />
-                    <select
-                        value={detectedAspectRatio}
-                        onChange={e => handleAspectRatioSelect(e.target.value)}
-                        className="cursor-pointer appearance-none bg-transparent pr-1 text-[10px] font-bold text-zinc-300 outline-none"
-                        title="画面比例"
+                {/* 黑白极简 Xc Logo 按钮 */}
+                <button 
+                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-black text-white font-black text-[11px] border border-white/20 hover:bg-white hover:text-black transition-all shadow-md mr-1 active:scale-95" 
+                    title="Xc AI Studio"
+                    onClick={() => onAddToAgent?.(node.data.image!, node.title)}
+                >
+                    Xc
+                </button>
+
+                {/* [👤 人物调节 ∨] 下拉菜单按钮 */}
+                <div className="relative group/personadjust">
+                    <button 
+                        className={`${imageToolButtonClass} ${isPersonAdjustOpen ? 'bg-white/10 text-white' : ''}`} 
+                        title="人物调节" 
+                        onClick={() => setIsPersonAdjustOpen(open => !open)}
                     >
-                        {IMAGE_ASPECT_RATIOS.map(ratio => <option key={ratio} value={ratio} className="bg-[#252527]">{ratio}</option>)}
-                    </select>
-                </label>
+                        <User size={13} />
+                        <span>人物调节</span>
+                        <ChevronDown size={10} className={`transition-transform duration-200 ${isPersonAdjustOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isPersonAdjustOpen && (
+                        <div className="absolute left-0 top-full z-[500] mt-2 w-32 rounded-2xl border border-white/15 bg-[#141416]/98 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.65)] backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150">
+                            <button 
+                                className="flex h-8 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-200 transition-colors hover:bg-emerald-400/15 hover:text-emerald-100" 
+                                onClick={() => {
+                                    setIsPersonAdjustOpen(false);
+                                    setIsFacialControlOpen(true);
+                                }}
+                            >
+                                <span>面部控制</span>
+                            </button>
+                            <button 
+                                className="flex h-8 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-200 transition-colors hover:bg-cyan-400/15 hover:text-cyan-100" 
+                                onClick={() => {
+                                    setIsPersonAdjustOpen(false);
+                                    applyImageToolPrompt('调整人物动作姿态、肢体语言与身体线条，保持主体外貌一致。');
+                                }}
+                            >
+                                <span>姿态调整</span>
+                            </button>
+                            <button 
+                                className="flex h-8 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-200 transition-colors hover:bg-purple-400/15 hover:text-purple-100" 
+                                onClick={() => {
+                                    setIsPersonAdjustOpen(false);
+                                    applyImageToolPrompt('设定人物身份属性、服饰造型与整体形象质感。');
+                                }}
+                            >
+                                <span>形象设定</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
                 <button className={imageToolButtonClass} title="增强画面细节" onClick={() => applyImageToolPrompt('增强画面清晰度、材质细节与光影层次，保持主体和构图不变。')}>
                     <SlidersHorizontal size={13} />增强
                 </button>
@@ -862,9 +943,143 @@ const NodeComponent: React.FC<NodeProps> = ({
                 <button className={imageToolButtonClass} title="放大预览" onClick={handleExpand}>
                     <Maximize2 size={13} />
                 </button>
-                <div className="mx-1 h-5 w-px shrink-0 bg-white/10" />
-                <button className={`${imageToolButtonClass} pr-3`} title="将图片加入右侧 Agent" onClick={() => onAddToAgent?.(node.data.image!, node.title)}>
-                    <Bot size={13} />加入 Agent
+            </div>
+        );
+    };
+
+    const renderStoryboardGridToolbar = () => {
+        if (!isStoryboardNode || (!isSelected && !isHovered)) return null;
+        const toolbarScale = 1 / Math.max(0.2, canvasScale);
+
+        return (
+            <div
+                className="absolute bottom-full left-1/2 z-[300] mb-5 flex flex-row items-center gap-2 rounded-2xl border border-white/10 bg-[#1a1a1d]/95 px-3.5 py-2 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-2xl text-xs font-semibold text-zinc-300 whitespace-nowrap shrink-0 pointer-events-auto"
+                style={{
+                    transform: `translateX(-50%) scale(${toolbarScale})`,
+                    transformOrigin: 'bottom center',
+                }}
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                onDoubleClick={e => e.stopPropagation()}
+            >
+                {/* 比例 下拉菜单 */}
+                <div className="relative flex flex-row items-center shrink-0">
+                    <button
+                        onClick={() => { setIsRatioDropdownOpen(!isRatioDropdownOpen); setIsGridDropdownOpen(false); }}
+                        className="flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white hover:border-cyan-400/40 transition-all active:scale-95 whitespace-nowrap shrink-0"
+                    >
+                        <span>比例 {storyboardAspectRatio}</span>
+                        <ChevronDown size={12} className={`transition-transform duration-200 ${isRatioDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isRatioDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-2 w-28 rounded-xl border border-white/10 bg-[#1c1c1e] p-1 shadow-2xl z-[350] space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
+                            {['2:3', '16:9', '9:16', '3:4', '4:3', '1:1'].map((ratio) => (
+                                <button
+                                    key={ratio}
+                                    onClick={() => {
+                                        const nextHeight = calculateStoryboardNodeHeight(ratio, storyboardGridSize, nodeWidth);
+                                        onUpdate(node.id, { storyboardAspectRatio: ratio }, { height: nextHeight });
+                                        setIsRatioDropdownOpen(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center justify-between whitespace-nowrap ${storyboardAspectRatio === ratio ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-zinc-300 hover:bg-white/5 hover:text-white'}`}
+                                >
+                                    <span>{ratio}</span>
+                                    {ratio === '2:3' && <span className="text-[9px] text-cyan-400 bg-cyan-500/10 px-1 rounded">默认</span>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* 网格 下拉菜单 */}
+                <div className="relative flex flex-row items-center shrink-0">
+                    <button
+                        onClick={() => { setIsGridDropdownOpen(!isGridDropdownOpen); setIsRatioDropdownOpen(false); }}
+                        className="flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white hover:border-cyan-400/40 transition-all active:scale-95 whitespace-nowrap shrink-0"
+                    >
+                        <span>网格 {storyboardGridSize.replace('x', '×')}</span>
+                        <ChevronDown size={12} className={`transition-transform duration-200 ${isGridDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isGridDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-2 w-24 rounded-xl border border-white/10 bg-[#1c1c1e] p-1 shadow-2xl z-[350] space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
+                            {['2x2', '3x3', '4x4', '5x5'].map((grid) => (
+                                <button
+                                    key={grid}
+                                    onClick={() => {
+                                        const nextHeight = calculateStoryboardNodeHeight(storyboardAspectRatio, grid, nodeWidth);
+                                        onUpdate(node.id, { storyboardGridSize: grid }, { height: nextHeight });
+                                        setIsGridDropdownOpen(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${storyboardGridSize === grid ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-zinc-300 hover:bg-white/5 hover:text-white'}`}
+                                >
+                                    {grid.replace('x', '×')}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="h-4 w-px bg-white/15 my-auto mx-1 shrink-0" />
+
+                {/* 编辑 / 退出 按钮 (参考图3) */}
+                <button
+                    onClick={() => {
+                        const isEditing = !node.data.isEditingStoryboard;
+                        onUpdate(node.id, { isEditingStoryboard: isEditing });
+                        onAction(node.id, isEditing ? 'edit-storyboard' : 'exit-edit-storyboard');
+                    }}
+                    className={`flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${
+                        node.data.isEditingStoryboard
+                            ? 'bg-white/20 border-white/30 text-white font-bold shadow-md'
+                            : 'hover:bg-white/10 border-transparent text-zinc-300 hover:text-white'
+                    }`}
+                    title={node.data.isEditingStoryboard ? "退出分镜编辑" : "编辑分镜排序"}
+                >
+                    {node.data.isEditingStoryboard ? (
+                        <>
+                            <LogOut size={13} className="rotate-180 shrink-0 text-cyan-300" />
+                            <span>退出</span>
+                        </>
+                    ) : (
+                        <>
+                            <Edit size={13} className="shrink-0" />
+                            <span>编辑</span>
+                        </>
+                    )}
+                </button>
+
+                {/* 合成 按钮 */}
+                <button
+                    onClick={() => onAction(node.id, 'compose-storyboard')}
+                    className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-zinc-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap shrink-0 active:scale-95"
+                    title="合成分镜"
+                >
+                    <Layers size={13} className="shrink-0" />
+                    <span>合成</span>
+                </button>
+
+                {/* 清空 按钮 */}
+                <button
+                    onClick={() => onUpdate(node.id, { storyboardCells: [] })}
+                    className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-xl hover:bg-red-500/20 text-zinc-300 hover:text-red-300 transition-colors cursor-pointer whitespace-nowrap shrink-0 active:scale-95"
+                    title="清空分镜内容"
+                >
+                    <Trash2 size={13} className="shrink-0" />
+                    <span>清空</span>
+                </button>
+
+                {/* 折叠 按钮 */}
+                <button
+                    onClick={() => {
+                        const nextCollapsed = !node.data.isCollapsed;
+                        const nextHeight = nextCollapsed ? 120 : calculateStoryboardNodeHeight(storyboardAspectRatio, storyboardGridSize, nodeWidth);
+                        onUpdate(node.id, { isCollapsed: nextCollapsed }, { height: nextHeight });
+                    }}
+                    className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-zinc-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap shrink-0 active:scale-95"
+                    title="折叠/展开网格"
+                >
+                    <Grid3X3 size={13} className="shrink-0" />
+                    <span>{node.data.isCollapsed ? '展开' : '折叠'}</span>
                 </button>
             </div>
         );
@@ -946,6 +1161,234 @@ const NodeComponent: React.FC<NodeProps> = ({
     };
 
     const renderMediaContent = () => {
+        if (node.type === NodeType.STORYBOARD_GRID) {
+            const storyboardAspectRatio = node.data.storyboardAspectRatio || '2:3';
+            const storyboardGridSize = node.data.storyboardGridSize || '3x3';
+
+            const gridColsMap: Record<string, string> = {
+                '2x2': 'grid-cols-2',
+                '3x3': 'grid-cols-3',
+                '4x4': 'grid-cols-4',
+                '5x5': 'grid-cols-5',
+            };
+            const cellCountMap: Record<string, number> = {
+                '2x2': 4,
+                '3x3': 9,
+                '4x4': 16,
+                '5x5': 25,
+            };
+
+            const colsClass = gridColsMap[storyboardGridSize] || 'grid-cols-3';
+            const totalCells = cellCountMap[storyboardGridSize] || 9;
+
+            const ratioAspectMap: Record<string, string> = {
+                '2:3': 'aspect-[2/3]',
+                '16:9': 'aspect-[16/9]',
+                '9:16': 'aspect-[9/16]',
+                '3:4': 'aspect-[3/4]',
+                '4:3': 'aspect-[4/3]',
+                '1:1': 'aspect-[1/1]',
+            };
+            const aspectClass = ratioAspectMap[storyboardAspectRatio] || 'aspect-[2/3]';
+            const cells = node.data.storyboardCells || [];
+
+            const handleCellClick = (index: number) => {
+                activeCellIndexRef.current = index;
+                cellFileInputRef.current?.click();
+            };
+
+            const handleCellFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                try {
+                    const prepared = await prepareUploadedImage(file);
+                    const nextCells = [...cells];
+                    while (nextCells.length < totalCells) {
+                        nextCells.push({ id: `cell-${Date.now()}-${Math.random()}` });
+                    }
+                    nextCells[activeCellIndexRef.current] = {
+                        ...nextCells[activeCellIndexRef.current],
+                        image: prepared.dataUrl,
+                    };
+                    onUpdate(node.id, { storyboardCells: nextCells });
+                } catch (err) {
+                    console.error('Cell upload failed:', err);
+                }
+            };
+
+            const isEditing = Boolean(node.data.isEditingStoryboard);
+
+            return (
+                <div
+                    onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        if (!isEditing) {
+                            onUpdate(node.id, { isEditingStoryboard: true });
+                            onAction(node.id, 'edit-storyboard');
+                        }
+                    }}
+                    className={`w-full h-full p-4 flex flex-col justify-between bg-[#222225]/95 backdrop-blur-2xl rounded-3xl relative select-none border transition-all duration-300 shadow-2xl overflow-hidden ${
+                        isEditing ? 'ring-2 ring-cyan-400/80 border-cyan-500/40 shadow-[0_0_35px_rgba(6,182,212,0.25)]' : 'border-white/10'
+                    }`}
+                >
+                    {/* 左上角标题标示 (参考图3) */}
+                    <div className="text-[13px] font-bold text-zinc-200/90 mb-3 px-1 tracking-wide flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span>分镜格子</span>
+                            {isEditing && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30 animate-pulse">
+                                    编辑聚焦中
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 卡片主网格 (参考图3：无缝外包大圆角框 + 内部 gap-px 细线分割) */}
+                    {!node.data.isCollapsed ? (
+                        <div
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className={`grid ${colsClass} gap-px bg-white/10 rounded-2xl border border-white/10 overflow-hidden shadow-inner flex-1 bg-[#1a1a1c]`}
+                        >
+                            {Array.from({ length: totalCells }).map((_, idx) => {
+                                const cellData = cells[idx];
+                                const isDraggingThis = draggedCellIndex === idx;
+                                const isDragOverThis = dragOverCellIndex === idx;
+
+                                return (
+                                    <div
+                                        key={idx}
+                                        draggable={isEditing && Boolean(cellData?.image)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onDragStart={(e) => {
+                                            if (!isEditing) return;
+                                            e.stopPropagation();
+                                            setDraggedCellIndex(idx);
+                                            e.dataTransfer.setData('text/plain', String(idx));
+                                            e.dataTransfer.effectAllowed = 'move';
+                                        }}
+                                        onDragEnd={(e) => {
+                                            e.stopPropagation();
+                                            setDraggedCellIndex(null);
+                                            setDragOverCellIndex(null);
+                                        }}
+                                        onDragOver={(e) => {
+                                            if (!isEditing) return;
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            e.dataTransfer.dropEffect = 'move';
+                                            if (dragOverCellIndex !== idx) setDragOverCellIndex(idx);
+                                        }}
+                                        onDragLeave={(e) => {
+                                            e.stopPropagation();
+                                            if (dragOverCellIndex === idx) setDragOverCellIndex(null);
+                                        }}
+                                        onDrop={(e) => {
+                                            if (!isEditing) return;
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setDragOverCellIndex(null);
+                                            const sourceIdxStr = e.dataTransfer.getData('text/plain');
+                                            const sourceIdx = sourceIdxStr !== '' ? parseInt(sourceIdxStr, 10) : draggedCellIndex;
+                                            if (sourceIdx === null || sourceIdx === undefined || sourceIdx === idx) return;
+
+                                            const nextCells = [...cells];
+                                            while (nextCells.length < totalCells) {
+                                                nextCells.push({ id: `cell-${Date.now()}-${Math.random()}` });
+                                            }
+                                            const temp = nextCells[sourceIdx];
+                                            nextCells[sourceIdx] = nextCells[idx] || { id: `cell-${Date.now()}-${Math.random()}` };
+                                            nextCells[idx] = temp;
+
+                                            onUpdate(node.id, { storyboardCells: nextCells });
+                                            setDraggedCellIndex(null);
+                                        }}
+                                        onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!isEditing) {
+                                                onUpdate(node.id, { isEditingStoryboard: true });
+                                            }
+                                            activeCellIndexRef.current = idx;
+                                            cellFileInputRef.current?.click();
+                                        }}
+                                        className={`relative ${aspectClass} bg-[#28282b] transition-all flex items-center justify-center cursor-pointer overflow-hidden group ${
+                                            isEditing ? 'hover:bg-[#303034]' : ''
+                                        } ${
+                                            isDragOverThis ? 'ring-2 ring-emerald-400 bg-emerald-500/20 z-30' : ''
+                                        } ${isDraggingThis ? 'opacity-40 scale-95' : ''}`}
+                                    >
+                                        {cellData?.image ? (
+                                            <>
+                                                <img src={cellData.image} className="w-full h-full object-cover select-none pointer-events-none" alt={`Cell ${idx + 1}`} />
+                                                
+                                                {/* 右上角 3 键控制组: 仅在进入编辑模式后 Hover 显示 (参考图2、图3) */}
+                                                {isEditing && (
+                                                    <div className="absolute top-2 right-2 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity bg-[#2d2d30]/90 backdrop-blur-md p-1 rounded-xl border border-white/15 shadow-xl" onMouseDown={e => e.stopPropagation()}>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                                onExpand?.({ type: 'image', src: cellData.image!, rect });
+                                                            }}
+                                                            className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/20 transition-colors"
+                                                            title="预览图片"
+                                                        >
+                                                            <Eye size={13} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); activeCellIndexRef.current = idx; cellFileInputRef.current?.click(); }}
+                                                            className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/20 transition-colors"
+                                                            title="替换图片"
+                                                        >
+                                                            <Upload size={13} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const nextCells = [...cells];
+                                                                nextCells[idx] = { ...nextCells[idx], image: undefined };
+                                                                onUpdate(node.id, { storyboardCells: nextCells });
+                                                            }}
+                                                            className="p-1 rounded-lg text-zinc-300 hover:text-red-300 hover:bg-red-500/20 transition-colors"
+                                                            title="移除图片"
+                                                        >
+                                                            <X size={13} />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <Plus size={18} className="text-zinc-500/70 group-hover:text-zinc-200 transition-colors" />
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-xs text-zinc-500 bg-[#252528]/50 rounded-2xl border border-white/5 py-6">
+                            已折叠网格（包含 {totalCells} 格）
+                        </div>
+                    )}
+
+                    <input
+                        ref={cellFileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={handleCellFileUpload}
+                    />
+
+                    {/* 底部提示文字 (参考图2/3/4) */}
+                    <div className="mt-3 text-center text-[11px] font-medium tracking-wide select-none">
+                        {isEditing ? (
+                            <span className="text-cyan-300/90 font-bold">编辑模式中 · 双击格子上传/替换图片 · 拖拽格子可排序</span>
+                        ) : (
+                            <span className="text-zinc-400/80 hover:text-zinc-200 transition-colors cursor-pointer">双击以进入分镜编辑排序</span>
+                        )}
+                    </div>
+                </div>
+            );
+        }
         if (node.type === NodeType.PROMPT_INPUT) {
             return (
                 <div className="w-full h-full flex flex-col group/text">
@@ -1318,6 +1761,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     const renderBottomPanel = () => {
         if (suppressNodeChrome) return null;
         const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isImageResolutionOpen || isStylePresetOpen || isImageMoreOpen;
+        if (isStoryboardNode) return null;
         const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);
         if (!isOpen) return null;
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
@@ -1348,7 +1792,7 @@ const NodeComponent: React.FC<NodeProps> = ({
         const displayedAspectRatio = normalizeAspectRatio(node.data.aspectRatio, activeAspectRatios);
 
         return (
-            <div className={`absolute top-full left-1/2 -translate-x-1/2 w-[98%] pt-2 z-50 flex flex-col items-center justify-start transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? `opacity-100 translate-y-0 scale-100` : 'opacity-0 translate-y-[-10px] scale-95 pointer-events-none'}`}>
+            <div className={`absolute top-full left-1/2 -translate-x-1/2 w-full min-w-[440px] pt-2 z-50 flex flex-col items-center justify-start transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? `opacity-100 translate-y-0 scale-100` : 'opacity-0 translate-y-[-10px] scale-95 pointer-events-none'}`}>
                 {/* InputThumbnails: Set strict Z-Index to lower layer */}
                 {hasInputs && onInputReorder && (<div className="w-full flex justify-center mb-2 z-0 relative"><InputThumbnails assets={inputAssets!} onReorder={(newOrder) => onInputReorder(node.id, newOrder)} /></div>)}
                 {/* Glass Panel: Set strict Z-Index to higher layer to overlap thumbnails */}
@@ -1720,24 +2164,44 @@ const NodeComponent: React.FC<NodeProps> = ({
     return (
         <div
             data-canvas-node-id={node.id}
-            className={`absolute group ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'} ${isSelected || isEmptyCreativeNode ? 'ring-1 ring-emerald-400/80 shadow-[0_0_0_1px_rgba(45,212,191,0.12),0_0_42px_-14px_rgba(16,185,129,0.7)] z-30' : 'ring-1 ring-white/10 hover:ring-white/20 z-10'}`}
+            className={`absolute group ${isSelected ? 'z-30' : 'z-10'}`}
             style={{
-                left: node.x, top: node.y, width: nodeWidth, height: nodeHeight,
+                left: node.x, top: node.y, width: nodeWidth, 
                 transform: dragOffset ? `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0)` : undefined,
-                background: isSelected || isEmptyCreativeNode ? 'rgba(28, 28, 30, 0.88)' : 'rgba(28, 28, 30, 0.6)',
-                transition: enableExpensiveEffects ? 'all 0.3s cubic-bezier(0.32, 0.72, 0, 1)' : 'none',
-                backdropFilter: enableExpensiveEffects ? 'blur(18px)' : 'none',
-                boxShadow: isInteracting ? 'none' : undefined,
                 willChange: isInteracting || dragOffset ? 'transform' : 'auto'
             }}
             onMouseDown={(e) => onNodeMouseDown(e, node.id)} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} onContextMenu={(e) => onNodeContextMenu(e, node.id)}
         >
             {!suppressNodeChrome && renderImageSelectionToolbar()}
+            {!suppressNodeChrome && renderStoryboardGridToolbar()}
             {renderTopBar()}
             {!suppressNodeChrome && <div className={`absolute -left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-cyan-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'input'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'input')} title="Input"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>}
             {!suppressNodeChrome && <div className={`absolute -right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border ${isEmptyCreativeNode ? 'border-emerald-300/45 bg-[#101615] shadow-[0_0_18px_rgba(16,185,129,0.28)]' : 'border-white/20 bg-[#1c1c1e]'} flex items-center justify-center transition-all duration-300 hover:scale-125 cursor-crosshair z-50 shadow-md select-none ${isConnecting ? 'ring-2 ring-purple-400 animate-pulse' : ''}`} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onPortMouseDown(e, node.id, 'output'); }} onMouseUp={(e) => onPortMouseUp(e, node.id, 'output')} title="Output"><Plus size={10} strokeWidth={3} className={isEmptyCreativeNode ? 'text-emerald-200/80' : 'text-white/50'} /></div>}
-            <div className={`w-full h-full flex flex-col relative overflow-hidden bg-zinc-900 ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'}`}><div className="flex-1 min-h-0 relative bg-zinc-900">{renderMediaContent()}</div></div>
-            {renderBottomPanel()}
+            
+            {/* 节点卡片主体 (绿框选区专属只包裹图片节点卡片) */}
+            <div 
+                className={`w-full relative flex flex-col overflow-hidden bg-zinc-900 ${isTextNode || isImageNode || isVideoNode ? 'rounded-[18px]' : 'rounded-[24px]'} ${isSelected || isEmptyCreativeNode ? 'ring-1 ring-emerald-400/80 shadow-[0_0_0_1px_rgba(45,212,191,0.12),0_0_42px_-14px_rgba(16,185,129,0.7)]' : 'ring-1 ring-white/10 hover:ring-white/20'}`}
+                style={{
+                    height: (isImageNode && isFacialControlOpen) ? 'fit-content' : nodeHeight,
+                    background: isSelected || isEmptyCreativeNode ? 'rgba(28, 28, 30, 0.88)' : 'rgba(28, 28, 30, 0.6)',
+                    backdropFilter: enableExpensiveEffects ? 'blur(18px)' : 'none',
+                }}
+            >
+                <div className="flex-1 min-h-0 relative bg-zinc-900">
+                    {renderMediaContent()}
+                </div>
+                {!isFacialControlOpen && renderBottomPanel()}
+            </div>
+
+            {/* 面部控制面板 (独立悬挂于节点卡片正下方 12px 处，零绿框侵扰) */}
+            <FacialControlModal 
+                isOpen={isFacialControlOpen} 
+                onClose={() => setIsFacialControlOpen(false)} 
+                currentImage={node.data.image}
+                canvasScale={canvasScale}
+                onApply={(params) => applyImageToolPrompt(`调整面部特征：情绪(${params.emotion})，视线(${params.gaze})，嘴巴(${params.mouth})。保持人物脸型与身份一致。`)}
+            />
+
             {!suppressNodeChrome && <div className="absolute -bottom-3 -right-3 w-6 h-6 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100 z-50" onMouseDown={(e) => onResizeMouseDown(e, node.id, nodeWidth, nodeHeight)}><div className="w-1.5 h-1.5 rounded-full bg-current" /></div>}
         </div>
     );

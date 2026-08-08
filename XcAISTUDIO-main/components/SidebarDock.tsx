@@ -5,9 +5,10 @@ import {
     ImageIcon, Video as VideoIcon, Film, Save, FolderPlus, 
     Edit, Trash2, Box, ScanFace, Brush, Type, Workflow as WorkflowIcon,
     Clapperboard, Mic2, Settings, Globe, Layers, Upload, Volume2,
-    Eye, Sparkles, Search
+    Eye, Sparkles, Search, ChevronLeft
 } from 'lucide-react';
 import { NodeType, Workflow } from '../types';
+import { OFFICIAL_MODELS, modelLibrary, ModelItem } from '../../Cyzx4/services/modelLibrary';
 
 // 素材库精选假数据
 const MOCK_MATERIALS = [
@@ -30,23 +31,27 @@ const MOCK_MATERIALS = [
     { id: 'm11', title: '无缝透明绿植卡片', src: 'https://images.unsplash.com/photo-1463936575829-25148e1db1b8?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '抠图' }
 ];
 
-// 虚拟人像库写实假数据
-const MOCK_AVATARS = [
-    { id: 'a1', title: '顾北辰校服少年', src: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a2', title: '雀斑米色钩针发带女孩', src: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a3', title: '长发女子绿发绳', src: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a4', title: '黑色羽绒服男生', src: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a5', title: '黑西装男士挂镜', src: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a6', title: '黑裙长发女子人像', src: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a7', title: '黑衣男子人像', src: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色套装' },
-    { id: 'a8', title: '黑白夹克男生', src: 'https://images.unsplash.com/photo-1504257400765-171198072249?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' },
-    { id: 'a9', title: '黑裤黑卫衣男子', src: 'https://images.unsplash.com/photo-1513956589380-bad6acb9b9d4?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' },
-    { id: 'a10', title: '黑戴灰背心打底', src: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' },
-    { id: 'a11', title: '黑外套男士', src: 'https://images.unsplash.com/photo-1499996860823-5214fcc65f8f?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' },
-    { id: 'a12', title: '吊带珍珠项链女子', src: 'https://images.unsplash.com/photo-1534751516642-a131ffd10b7f?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' },
-    { id: 'a13', title: '黑发少女', src: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' },
-    { id: 'a14', title: '黑发女孩唇红齿白', src: 'https://images.unsplash.com/photo-1554151228-14d9def656e4?auto=format&fit=crop&w=400&h=400&q=80', type: 'image', category: '角色' }
-];
+// 初始化创意中心模特库的官方标准模特数据源 (Gabi, Clara, Anna)
+const DEFAULT_AVATAR_SUITES = OFFICIAL_MODELS.map(model => ({
+    id: `suite-${model.id}`,
+    title: `${model.name} (官方固定)`,
+    src: model.preview,
+    type: 'image',
+    category: '角色套图',
+    items: [
+        { id: `suite-${model.id}-1`, title: `${model.name} - 正面特写`, src: model.preview, type: 'image' },
+        { id: `suite-${model.id}-2`, title: `${model.name} - 全身商拍`, src: model.preview, type: 'image' },
+        { id: `suite-${model.id}-3`, title: `${model.name} - 姿势视图`, src: model.preview, type: 'image' }
+    ]
+}));
+
+const DEFAULT_AVATARS = OFFICIAL_MODELS.map(model => ({
+    id: `avatar-${model.id}`,
+    title: `${model.name} (官方固定)`,
+    src: model.preview,
+    type: 'image',
+    category: '角色'
+}));
 
 interface SidebarDockProps {
     onAddNode: (type: NodeType) => void;
@@ -144,8 +149,49 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
     const [activeMainTab, setActiveMainTab] = useState<'material' | 'avatar' | 'my_asset'>('material');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedMaterialCategory, setSelectedMaterialCategory] = useState('视频');
-    const [selectedAvatarCategory, setSelectedAvatarCategory] = useState('角色套装');
+    const [selectedAvatarCategory, setSelectedAvatarCategory] = useState('角色套图');
+    const [selectedAvatarSuite, setSelectedAvatarSuite] = useState<any | null>(null);
     const [selectedMyAssetCategory, setSelectedMyAssetCategory] = useState('全部');
+
+    const [avatarSuites, setAvatarSuites] = useState<any[]>(DEFAULT_AVATAR_SUITES);
+    const [avatars, setAvatars] = useState<any[]>(DEFAULT_AVATARS);
+
+    useEffect(() => {
+        let isMounted = true;
+        async function loadModelLibrary() {
+            try {
+                const models = await modelLibrary.list();
+                if (!isMounted) return;
+                const suites = models.map(model => ({
+                    id: `suite-${model.id}`,
+                    title: `${model.name} ${model.isOfficial ? '(官方固定)' : '(自定义模特)'}`,
+                    src: model.preview,
+                    type: 'image',
+                    category: '角色套图',
+                    items: [
+                        { id: `suite-${model.id}-1`, title: `${model.name} - 正面特写`, src: model.preview, type: 'image' },
+                        { id: `suite-${model.id}-2`, title: `${model.name} - 全身商拍`, src: model.preview, type: 'image' },
+                        { id: `suite-${model.id}-3`, title: `${model.name} - 姿势视图`, src: model.preview, type: 'image' }
+                    ]
+                }));
+                const singleAvatars = models.map(model => ({
+                    id: `avatar-${model.id}`,
+                    title: `${model.name} ${model.isOfficial ? '(官方固定)' : '(自定义模特)'}`,
+                    src: model.preview,
+                    type: 'image',
+                    category: '角色'
+                }));
+                setAvatarSuites(suites);
+                setAvatars(singleAvatars);
+            } catch (err) {
+                console.error('加载模特库失败:', err);
+            }
+        }
+        if (activePanel === 'history' && activeMainTab === 'avatar') {
+            loadModelLibrary();
+        }
+        return () => { isMounted = false; };
+    }, [activePanel, activeMainTab]);
 
     const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');
     const [activeWorkflowMainTab] = useState<'inspiration' | 'my_workflow'>('my_workflow');
@@ -256,7 +302,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
 
                     {/* 分镜格子 Item */}
                     <button 
-                        onClick={(e) => { e.stopPropagation(); onToggleMultiFrame(); setActivePanel(null); }}
+                        onClick={(e) => { e.stopPropagation(); onAddNode(NodeType.STORYBOARD_GRID); setActivePanel(null); }}
                         className="w-full text-left p-2 rounded-[14px] hover:bg-white/5 flex items-center gap-3 transition-all group duration-200"
                     >
                         <div className="w-9 h-9 bg-zinc-800/40 group-hover:bg-zinc-800/80 rounded-xl flex items-center justify-center text-zinc-400 group-hover:text-zinc-200 transition-colors border border-white/5">
@@ -398,10 +444,14 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                     return matchesCategory && matchesSearch;
                 });
 
-                const filteredAvatars = MOCK_AVATARS.filter(a => {
-                    const matchesCategory = a.category === selectedAvatarCategory;
+                const filteredAvatarSuites = avatarSuites.filter(s => {
+                    const matchesSearch = s.title.toLowerCase().includes(searchQuery.toLowerCase());
+                    return matchesSearch;
+                });
+
+                const filteredAvatars = avatars.filter(a => {
                     const matchesSearch = a.title.toLowerCase().includes(searchQuery.toLowerCase());
-                    return matchesCategory && matchesSearch;
+                    return matchesSearch;
                 });
 
                 const filteredMyAssets = assetHistory.filter(a => {
@@ -441,6 +491,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                                 onClick={() => {
                                                     setActiveMainTab(tab.id as any);
                                                     setSearchQuery(''); // 切换时清空搜索
+                                                    setSelectedAvatarSuite(null);
                                                 }}
                                                 className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-300 ${activeMainTab === tab.id ? 'bg-white/10 text-emerald-400 shadow-md scale-105 border border-white/5' : 'text-zinc-400 hover:text-zinc-200'}`}
                                             >
@@ -506,10 +557,13 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                 ))}
                                 
                                 {/* 虚拟人像小标签 */}
-                                {activeMainTab === 'avatar' && ['角色套装', '角色'].map(cat => (
+                                {activeMainTab === 'avatar' && ['角色套图', '角色'].map(cat => (
                                     <button
                                         key={cat}
-                                        onClick={() => setSelectedAvatarCategory(cat)}
+                                        onClick={() => {
+                                            setSelectedAvatarCategory(cat);
+                                            setSelectedAvatarSuite(null);
+                                        }}
                                         className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-all duration-300 ${selectedAvatarCategory === cat ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-sm' : 'bg-transparent text-zinc-500 border-white/5 hover:text-zinc-300 hover:border-white/10'}`}
                                     >
                                         {cat}
@@ -569,59 +623,151 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                                     )
                                 )}
 
-                                {/* 虚拟人像库面板 */}
+                                {/* 虚拟人像库 / 模特库面板 */}
                                 {activeMainTab === 'avatar' && (
-                                    filteredAvatars.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center py-20 text-zinc-500 opacity-60 select-none">
-                                            <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
-                                                <ScanFace size={24} className="text-zinc-400" />
-                                            </div>
-                                            <span className="text-xs font-semibold tracking-wider text-zinc-400 uppercase">无匹配人像</span>
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                                            {filteredAvatars.map(a => (
-                                                <div 
-                                                    key={a.id}
-                                                    className="relative aspect-[3/4] rounded-2xl overflow-hidden border border-white/5 bg-zinc-900/50 hover:border-emerald-500/50 transition-all duration-300 group shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-1"
+                                    selectedAvatarSuite ? (
+                                        /* 模特套图查看详情页 View (图3 细节) */
+                                        <div className="flex flex-col gap-6">
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    onClick={() => setSelectedAvatarSuite(null)}
+                                                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all border border-white/10 shadow-md active:scale-95"
                                                 >
-                                                    <img src={a.src} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100" alt={a.title} />
-                                                    
-                                                    {/* Hover 磨砂按钮覆盖层 */}
-                                                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-3 p-4">
-                                                        <button 
-                                                            onClick={(e) => { 
-                                                                e.stopPropagation(); 
-                                                                onHistoryItemClick(a); 
-                                                            }}
-                                                            className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-xs font-bold text-white transition-all shadow-md active:scale-95 animate-in slide-in-from-bottom-2 duration-300"
-                                                        >
-                                                            查看人像
-                                                        </button>
-                                                        <button 
-                                                            onClick={(e) => { 
-                                                                e.stopPropagation(); 
-                                                                onHistoryItemClick(a); 
-                                                                setActivePanel(null); // 添加到画布后关闭弹窗
-                                                            }}
-                                                            className="px-4 py-2 rounded-full bg-emerald-500/80 hover:bg-emerald-500 border border-emerald-400/30 text-xs font-bold text-white transition-all shadow-lg shadow-emerald-500/10 active:scale-95 animate-in slide-in-from-bottom-2 duration-300 delay-75"
-                                                        >
-                                                            添加到画布
-                                                        </button>
+                                                    <ChevronLeft size={16} />
+                                                    <span>{selectedAvatarSuite.title}</span>
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-6">
+                                                {selectedAvatarSuite.items.map((item: any) => (
+                                                    <div 
+                                                        key={item.id}
+                                                        onClick={() => {
+                                                            onHistoryItemClick(item);
+                                                            setActivePanel(null);
+                                                        }}
+                                                        className="relative aspect-[3/4] rounded-2xl overflow-hidden border border-white/5 bg-zinc-900/50 hover:border-emerald-500/50 transition-all duration-300 group cursor-pointer shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-1"
+                                                    >
+                                                        <img src={item.src} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100" alt={item.title} />
+                                                        
+                                                        {/* Hover 磨砂按钮覆盖层 */}
+                                                        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center p-4">
+                                                            <button 
+                                                                onClick={(e) => { 
+                                                                    e.stopPropagation(); 
+                                                                    onHistoryItemClick(item); 
+                                                                    setActivePanel(null);
+                                                                }}
+                                                                className="px-5 py-2.5 rounded-full bg-emerald-500/80 hover:bg-emerald-500 border border-emerald-400/30 text-xs font-bold text-white transition-all shadow-lg shadow-emerald-500/10 active:scale-95 animate-in slide-in-from-bottom-2 duration-300"
+                                                            >
+                                                                添加到画布
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        {/* 类别/图片 标签 */}
+                                                        <div className="absolute bottom-10 left-3 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[9px] font-bold text-white/80 border border-white/5 flex items-center gap-1">
+                                                            <ImageIcon size={10} />
+                                                            <span>图片</span>
+                                                        </div>
+                                                        
+                                                        {/* 底部信息高光条 */}
+                                                        <div className="absolute bottom-0 left-0 w-full p-3 bg-gradient-to-t from-black/95 via-black/50 to-transparent text-[11px] font-semibold text-zinc-200 group-hover:text-white truncate">
+                                                            {item.title}
+                                                        </div>
                                                     </div>
-                                                    
-                                                    {/* 类别标签 */}
-                                                    <div className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[9px] font-bold text-white/70 border border-white/5">
-                                                        👤 角色
-                                                    </div>
-                                                    
-                                                    {/* 底部信息高光条 */}
-                                                    <div className="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black/95 via-black/50 to-transparent text-[11px] font-semibold text-zinc-200 group-hover:text-white truncate flex items-center">
-                                                        {a.title}
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                ))}
+                                            </div>
                                         </div>
+                                    ) : selectedAvatarCategory === '角色套图' ? (
+                                        /* 角色套图主列表 (图2 细节) */
+                                        filteredAvatarSuites.length === 0 ? (
+                                            <div className="flex flex-col items-center justify-center py-20 text-zinc-500 opacity-60 select-none">
+                                                <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                                                    <ScanFace size={24} className="text-zinc-400" />
+                                                </div>
+                                                <span className="text-xs font-semibold tracking-wider text-zinc-400 uppercase">无匹配角色套图</span>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                                                {filteredAvatarSuites.map(suite => (
+                                                    <div 
+                                                        key={suite.id}
+                                                        className="relative aspect-[3/4] rounded-2xl overflow-hidden border border-white/5 bg-zinc-900/50 hover:border-emerald-500/50 transition-all duration-300 group shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-1"
+                                                    >
+                                                        <img src={suite.src} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100" alt={suite.title} />
+                                                        
+                                                        {/* Hover 磨砂按钮双按键覆盖层 (查看 & 全部添加到画布) */}
+                                                        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-3 p-3">
+                                                            <button 
+                                                                onClick={(e) => { 
+                                                                    e.stopPropagation(); 
+                                                                    setSelectedAvatarSuite(suite); 
+                                                                }}
+                                                                className="w-36 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-xs font-bold text-white transition-all shadow-md active:scale-95 animate-in slide-in-from-bottom-2 duration-300"
+                                                            >
+                                                                查看
+                                                            </button>
+                                                            <button 
+                                                                onClick={(e) => { 
+                                                                    e.stopPropagation(); 
+                                                                    suite.items.forEach(item => {
+                                                                        onHistoryItemClick(item);
+                                                                    });
+                                                                    setActivePanel(null); // 添加后自动关闭弹窗
+                                                                }}
+                                                                className="w-36 py-2 rounded-full bg-emerald-500/80 hover:bg-emerald-500 border border-emerald-400/30 text-xs font-bold text-white transition-all shadow-lg shadow-emerald-500/10 active:scale-95 animate-in slide-in-from-bottom-2 duration-300 delay-75"
+                                                            >
+                                                                全部添加到画布
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        {/* 底部信息高光条 */}
+                                                        <div className="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black/95 via-black/50 to-transparent text-[11px] font-semibold text-zinc-200 group-hover:text-white truncate flex items-center">
+                                                            {suite.title}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )
+                                    ) : (
+                                        /* 角色单图列表 */
+                                        filteredAvatars.length === 0 ? (
+                                            <div className="flex flex-col items-center justify-center py-20 text-zinc-500 opacity-60 select-none">
+                                                <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                                                    <ScanFace size={24} className="text-zinc-400" />
+                                                </div>
+                                                <span className="text-xs font-semibold tracking-wider text-zinc-400 uppercase">无匹配角色</span>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                                                {filteredAvatars.map(a => (
+                                                    <div 
+                                                        key={a.id}
+                                                        className="relative aspect-[3/4] rounded-2xl overflow-hidden border border-white/5 bg-zinc-900/50 hover:border-emerald-500/50 transition-all duration-300 group shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-1"
+                                                    >
+                                                        <img src={a.src} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100" alt={a.title} />
+                                                        
+                                                        {/* Hover 磨砂按钮覆盖层 */}
+                                                        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center p-4">
+                                                            <button 
+                                                                onClick={(e) => { 
+                                                                    e.stopPropagation(); 
+                                                                    onHistoryItemClick(a); 
+                                                                    setActivePanel(null);
+                                                                }}
+                                                                className="px-5 py-2.5 rounded-full bg-emerald-500/80 hover:bg-emerald-500 border border-emerald-400/30 text-xs font-bold text-white transition-all shadow-lg shadow-emerald-500/10 active:scale-95 animate-in slide-in-from-bottom-2 duration-300"
+                                                            >
+                                                                添加到画布
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        {/* 底部信息高光条 */}
+                                                        <div className="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black/95 via-black/50 to-transparent text-[11px] font-semibold text-zinc-200 group-hover:text-white truncate flex items-center">
+                                                            {a.title}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )
                                     )
                                 )}
 
