@@ -5,9 +5,10 @@ import {
   Clock, Plus, AtSign, FileText, Globe, ArrowUp, ChevronDown, ChevronRight, RotateCcw,
   ArrowLeftRight, Camera, Crop, Expand, Film, ImagePlus, Layers3, PackageCheck, Paintbrush,
   ScanSearch, Scissors, Store, UserRoundCog, Check, Send, LayoutTemplate, BookOpen, MessageSquareQuote,
-  SlidersHorizontal, CheckCircle2, Circle, Settings2, Upload
+  SlidersHorizontal, CheckCircle2, Circle, Settings2, Upload, ListChecks, ShieldCheck, AlertCircle,
+  ThumbsUp, ThumbsDown, LocateFixed, Quote
 } from 'lucide-react';
-import { sendChatMessage } from '../services/geminiService';
+import { sendChatMessageStream } from '../services/geminiService';
 import { XIAOCHE_AVATAR_BASE64 } from '../services/avatarData';
 import {
   executeAgentSkill,
@@ -17,12 +18,30 @@ import {
 } from '../services/agentSkillExecutor';
 
 interface Message {
+  id?: string;
   role: 'user' | 'model';
   text: string;
   isConfirmationStep?: boolean;
   skillId?: string;
   skillTitle?: string;
   assets?: AgentSkillResult[];
+  isStreaming?: boolean;
+  trace?: AgentTraceStep[];
+}
+
+interface AgentMemoryPoint {
+  id: string;
+  label: string;
+  text: string;
+  createdAt: number;
+}
+
+type MessageFeedback = 'up' | 'down';
+
+interface AgentFeedbackEntry {
+  rating: MessageFeedback;
+  text: string;
+  createdAt: number;
 }
 
 interface AssistantPanelProps {
@@ -31,6 +50,7 @@ interface AssistantPanelProps {
   attachments?: { id: string; src: string; title: string }[];
   onRemoveAttachment?: (id: string) => void;
   onInsertAssetToCanvas?: (url: string, title: string, mediaType?: 'image' | 'video') => void;
+  onLocateAssetOnCanvas?: (url: string) => boolean;
 }
 
 export interface AgentSkill {
@@ -40,6 +60,25 @@ export interface AgentSkill {
   prompt: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   color: string;
+}
+
+type AgentPhase = 'idle' | 'intake' | 'review' | 'executing' | 'complete' | 'error';
+type TraceStatus = 'pending' | 'active' | 'done' | 'error';
+
+interface AgentTraceStep {
+  id: string;
+  label: string;
+  detail: string;
+  status: TraceStatus;
+}
+
+interface SkillGuide {
+  minAssets: number;
+  recommendedAssets: number;
+  assetRules: string[];
+  questions: string[];
+  quickReplies: string[];
+  plan: string[];
 }
 
 export const ALL_AGENT_SKILLS: AgentSkill[] = [
@@ -108,6 +147,90 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
     color: 'text-blue-400',
   },
 ];
+
+const SKILL_GUIDES: Record<AgentSkillId, SkillGuide> = {
+  UNIVERSAL_TRY_ON: {
+    minAssets: 1,
+    recommendedAssets: 2,
+    assetRules: ['@1 商品图：建议白底、无遮挡、结构清晰', '@2 模特/真人图：可选；上传后会锁定人物身份与姿势'],
+    questions: ['商品要穿戴在哪个部位？', '希望保留原模特、自动匹配模特，还是只做局部展示？', '目标平台与画面风格是什么？'],
+    quickReplies: ['自动匹配模特，商业棚拍', '保留原模特与姿势', 'UGC 生活方式实拍'],
+    plan: ['识别商品结构与穿戴关系', '校验人物/商品素材顺序', '锁定身份、商品细节和构图', '生成并插入画布'],
+  },
+  SINGLE_ITEM_TRY_ON: {
+    minAssets: 2,
+    recommendedAssets: 2,
+    assetRules: ['@1 单品商品图：白底或干净背景', '@2 真人/模特图：正面清晰、身体无遮挡', '多角度商品图可从 @3 起继续添加'],
+    questions: ['这是上装、下装、鞋靴还是配饰？', '是否严格保留人物脸、姿势与背景？', '需要自然日常、棚拍还是街拍效果？'],
+    quickReplies: ['严格保留人物与背景', '自然日常穿搭', '高级商业棚拍'],
+    plan: ['分辨人物图与单品图', '分析版型、遮挡和穿着关系', '锁定人物身份与商品结构', '合成试穿效果并插入画布'],
+  },
+  RETOUCHING: {
+    minAssets: 1,
+    recommendedAssets: 1,
+    assetRules: ['上传 1–8 张待精修商品图', '建议商品完整、边缘清晰、避免严重遮挡'],
+    questions: ['背景需要纯白 #FFFFFF 还是保留轻微地面阴影？', '是否必须保留包装文字与 Logo？', '更偏真实棚拍还是精致 3D 商业质感？'],
+    quickReplies: ['纯白底 + 轻微接触阴影', '严格保留文字与 Logo', '真实高级棚拍'],
+    plan: ['逐张校验商品边缘与完整性', '锁定 SKU、颜色、文字和 Logo', '清理瑕疵并重建商业光影', '逐张输出并插入画布'],
+  },
+  PRODUCT_VIDEO: {
+    minAssets: 1,
+    recommendedAssets: 2,
+    assetRules: ['至少 1 张清晰产品主图', '推荐补充细节图或不同角度图，避免视频中产品变形'],
+    questions: ['投放平台与横竖屏是什么？', '最想强调的 1 个卖点是什么？', '希望镜头是环绕、推进、悬浮还是场景演示？'],
+    quickReplies: ['9:16 竖屏电商短视频', '环绕展示 + 英雄收尾', '高级极简商业广告'],
+    plan: ['识别产品与核心卖点', '设计镜头运动和节奏', '锁定产品一致性与首尾画面', '生成视频并插入画布'],
+  },
+  MODEL_SCENE_FISSION: {
+    minAssets: 1,
+    recommendedAssets: 1,
+    assetRules: ['上传清晰的模特成片', '人物脸部、服装轮廓和光线关系需可辨认'],
+    questions: ['希望裂变哪些场景？', '是否保留当前姿势与机位？', '目标市场、季节和品牌调性是什么？'],
+    quickReplies: ['都市街拍 + 咖啡馆', '海边度假生活方式', '保留人物与服装，仅换场景'],
+    plan: ['提取人物与服装视觉 DNA', '规划差异化商业场景', '锁定人物和服装一致性', '生成场景变体并插入画布'],
+  },
+  MODEL_POSE_FISSION: {
+    minAssets: 1,
+    recommendedAssets: 1,
+    assetRules: ['上传一张清晰完整的模特参考图', '手脚尽量完整，服装图案和配饰清晰可见'],
+    questions: ['希望生成全身、中景还是近景姿势？', '动作偏静态展示、行走还是互动？', '背景和机位是否保持不变？'],
+    quickReplies: ['全身静态商业姿势', '自然行走抓拍', '背景不变，只改变姿势'],
+    plan: ['识别人物骨架与服装约束', '规划自然且有差异的动作', '锁定脸、身材、服装与场景', '生成姿势变体并插入画布'],
+  },
+  ECOMMERCE_HERO: {
+    minAssets: 1,
+    recommendedAssets: 2,
+    assetRules: ['至少 1 张准确的商品主图', '包装、标签或细节图可继续补充，帮助锁定 SKU'],
+    questions: ['目标平台是 Amazon、淘宝、SHEIN 还是独立站？', '主打卖点与目标人群是什么？', '是否需要文案留白、角标或纯视觉主图？'],
+    quickReplies: ['Amazon 主图，纯白合规', '淘宝高转化主图，预留文案区', '独立站高级极简主视觉'],
+    plan: ['识别商品身份与平台规则', '提炼视觉焦点和转化卖点', '规划构图、留白与光影', '生成主图并插入画布'],
+  },
+  IMAGE_CLEAN: {
+    minAssets: 1,
+    recommendedAssets: 1,
+    assetRules: ['上传需要增强的原始主图', '原图角度与商品主体应符合最终需求'],
+    questions: ['只增强清晰度，还是同时重建光影与质感？', '背景、构图与比例是否严格锁定？', '是否需要清理灰尘、压缩噪点和边缘瑕疵？'],
+    quickReplies: ['严格锁定构图，只增强质感', '清理瑕疵并重建光影', '保留全部文字与商品细节'],
+    plan: ['检测清晰度与画面缺陷', '锁定构图、产品和文字', '增强纹理、边缘与层次', '生成高清主图并插入画布'],
+  },
+};
+
+const ASSISTANT_SYSTEM_INSTRUCTION = `你是“小彻智能助手”，一名电商视觉创作 Agent。你的任务不是立刻生成，而是帮助用户把需求变成可执行方案。
+回答必须使用简洁中文，并遵循：
+1. 先复述你理解到的目标；
+2. 指出当前已有信息和仍缺少的信息；
+3. 如果已选择技能，围绕该技能的素材、平台、风格、比例和关键约束追问，最多追问 3 项；
+4. 明确告诉用户：方案确认后才会调用生成引擎；
+5. 不要声称展示内部思维链，只提供可核验的“研判摘要”和下一步建议。`;
+
+const readLocalJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) as T : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 const parseInlineStyles = (text: string): React.ReactNode[] => {
   const parts = text.split(/(\*\*.*?\*\*)/g);
@@ -179,7 +302,41 @@ const renderFormattedMessage = (text: string) => {
     );
   });
 
-  return <div className="space-y-0.5 select-text cursor-text">{elements}</div>;
+  return <div className="space-y-0.5 break-words select-text cursor-text">{elements}</div>;
+};
+
+const AgentTraceView: React.FC<{ steps: AgentTraceStep[]; title?: string }> = ({ steps, title = 'Agent 工作过程' }) => {
+  if (!steps.length) return null;
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-black/25 p-3" aria-label={title}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-400">
+        <Brain className="h-3.5 w-3.5 text-orange-400" />
+        {title}
+        <span className="ml-auto font-medium normal-case tracking-normal text-zinc-600">可核验执行摘要</span>
+      </div>
+      <div className="space-y-2">
+        {steps.map((step, index) => (
+          <div key={step.id} className="flex items-start gap-2.5">
+            <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-black ${
+              step.status === 'done'
+                ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-300'
+                : step.status === 'active'
+                  ? 'border-orange-400/50 bg-orange-400/10 text-orange-300'
+                  : step.status === 'error'
+                    ? 'border-red-400/40 bg-red-400/10 text-red-300'
+                    : 'border-white/10 bg-white/[0.03] text-zinc-600'
+            }`}>
+              {step.status === 'done' ? <Check className="h-3 w-3" /> : step.status === 'active' ? <Loader2 className="h-3 w-3 animate-spin" /> : step.status === 'error' ? <X className="h-3 w-3" /> : index + 1}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className={`text-[11px] font-bold ${step.status === 'pending' ? 'text-zinc-500' : 'text-zinc-200'}`}>{step.label}</p>
+              <p className="mt-0.5 text-[9px] leading-4 text-zinc-500">{step.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 export const AssistantPanel: React.FC<AssistantPanelProps> = ({
@@ -188,6 +345,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   attachments = [],
   onRemoveAttachment,
   onInsertAssetToCanvas,
+  onLocateAssetOnCanvas,
 }) => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'model', text: '你好！我是您的小彻智能助手。今天想创作些什么？' },
@@ -199,6 +357,12 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const [uploadedAttachments, setUploadedAttachments] = useState<AgentSkillAsset[]>([]);
   const [generationStatus, setGenerationStatus] = useState('');
   const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle');
+  const [agentTrace, setAgentTrace] = useState<AgentTraceStep[]>([]);
+  const [memoryPoints, setMemoryPoints] = useState<AgentMemoryPoint[]>(() => readLocalJson('xiaoche_agent_memory_points', []));
+  const [activeMemoryQuote, setActiveMemoryQuote] = useState<AgentMemoryPoint | null>(null);
+  const [messageFeedback, setMessageFeedback] = useState<Record<string, AgentFeedbackEntry>>(() => readLocalJson('xiaoche_agent_feedback', {}));
+  const [actionNotice, setActionNotice] = useState<{ messageId: string; text: string } | null>(null);
 
   // 底部弹窗下拉菜单状态
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
@@ -238,44 +402,155 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }).slice(0, 8);
   }, [attachments, uploadedAttachments]);
 
+  const selectedGuide = selectedSkill ? SKILL_GUIDES[selectedSkill.id] : null;
+  const hasRequiredAssets = Boolean(selectedGuide && activeAttachments.length >= selectedGuide.minAssets);
+
+  const updateTrace = (id: string, status: TraceStatus, detail?: string) => {
+    setAgentTrace((current) => current.map((step) => step.id === id
+      ? { ...step, status, detail: detail || step.detail }
+      : step));
+  };
+
+  const streamLocalMessage = async (messageId: string, text: string) => {
+    const chunks = text.match(/.{1,5}/gs) || [text];
+    let fullText = '';
+    for (const chunk of chunks) {
+      fullText += chunk;
+      setMessages((current) => current.map((message) => message.id === messageId
+        ? { ...message, text: fullText, isStreaming: true }
+        : message));
+      await new Promise((resolve) => window.setTimeout(resolve, 12));
+    }
+    setMessages((current) => current.map((message) => message.id === messageId
+      ? { ...message, text, isStreaming: false }
+      : message));
+  };
+
+  const showActionNotice = (messageId: string, text: string) => {
+    setActionNotice({ messageId, text });
+    window.setTimeout(() => {
+      setActionNotice((current) => current?.messageId === messageId ? null : current);
+    }, 1800);
+  };
+
+  const copyMessage = async (messageId: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showActionNotice(messageId, '已复制回复');
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+      showActionNotice(messageId, '已复制回复');
+    }
+  };
+
+  const rememberMessage = (messageId: string, text: string) => {
+    const existingIndex = memoryPoints.findIndex((point) => point.text === text);
+    const nextIndex = existingIndex >= 0 ? existingIndex : memoryPoints.length;
+    const nextPoint: AgentMemoryPoint = existingIndex >= 0
+      ? memoryPoints[existingIndex]
+      : { id: crypto.randomUUID(), label: `记忆点${nextIndex + 1}`, text: text.slice(0, 2400), createdAt: Date.now() };
+    const nextPoints = existingIndex >= 0 ? memoryPoints : [...memoryPoints, nextPoint].slice(-20);
+    setMemoryPoints(nextPoints);
+    setActiveMemoryQuote(nextPoint);
+    localStorage.setItem('xiaoche_agent_memory_points', JSON.stringify(nextPoints));
+    textareaRef.current?.focus();
+    showActionNotice(messageId, `已引用为 @${nextPoint.label}`);
+  };
+
+  const rateMessage = (messageId: string, text: string, rating: MessageFeedback) => {
+    const next = { ...messageFeedback };
+    if (next[messageId]?.rating === rating) delete next[messageId];
+    else next[messageId] = { rating, text: text.slice(0, 1600), createdAt: Date.now() };
+    setMessageFeedback(next);
+    localStorage.setItem('xiaoche_agent_feedback', JSON.stringify(next));
+    showActionNotice(messageId, rating === 'up' ? '已记住：继续保持这类回答' : '已记住：后续避免这类回答');
+  };
+
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
   }, [messages, isLoading, isOpen]);
 
+  useEffect(() => {
+    if (!selectedSkill || !selectedGuide || agentPhase === 'executing' || agentPhase === 'complete') return;
+    const ready = activeAttachments.length >= selectedGuide.minAssets;
+    setAgentPhase(ready ? 'review' : 'intake');
+    setAgentTrace((current) => current.map((step, index) => index === 0
+      ? {
+          ...step,
+          status: ready ? 'done' : 'pending',
+          detail: ready
+            ? `已准备 ${activeAttachments.length} 张素材，可进入方案确认`
+            : `当前 ${activeAttachments.length}/${selectedGuide.minAssets} 张必需素材`,
+        }
+      : step));
+  }, [activeAttachments.length, selectedGuide, selectedSkill, agentPhase]);
+
   const handleSelectSkillFlow = (skill: AgentSkill) => {
+    const guide = SKILL_GUIDES[skill.id];
     setSelectedSkill(skill);
-    setSkillBrief(skill.prompt);
+    setSkillBrief(askMode === 'auto'
+      ? `${skill.prompt}\n非关键项由 Agent 使用推荐默认值补齐，关键素材和最终方案仍需用户确认。`
+      : skill.prompt);
     setIsSkillBookOpen(false);
+    setAgentPhase(activeAttachments.length >= guide.minAssets ? 'review' : 'intake');
+    setAgentTrace(guide.plan.map((label, index) => ({
+      id: `plan-${index}`,
+      label,
+      detail: index === 0 ? '等待素材与创作要求确认' : '将在前一步完成后执行',
+      status: 'pending',
+    })));
 
-    if (askMode === 'auto') {
-      void handleConfirmAndExecuteSkill(skill);
-      return;
-    }
-
-    const confirmPrompt = `已为您选择技能：**【${skill.title}】**\n\n📌 **真实执行流程**：\n确认后将在当前聊天中调用创意中心的真实生成引擎；完成的结果会显示在这里，并自动插入左侧画布。\n\n当前已准备 **${activeAttachments.length} 张参考图**。你可以继续上传素材或补充要求，然后回复**“确认开始”**。`;
+    const confirmPrompt = `## 已进入「${skill.title}」Agent\n\n**研判摘要**：这项任务需要先确认素材角色与创作目标，不能只上传图片就直接生成。${askMode === 'auto' ? ' 当前为 Auto 模式，我会自动补齐非关键参数，但关键素材和最终执行仍会请你确认。' : ''}\n\n**请按顺序准备素材**\n${guide.assetRules.map((rule) => `- ${rule}`).join('\n')}\n\n**还需要你确认**\n${guide.questions.map((question, index) => `- ${index + 1}. ${question}`).join('\n')}\n\n当前检测到 **${activeAttachments.length} 张素材**，最低需要 **${guide.minAssets} 张**。你可以上传素材并直接描述要求；信息齐备后，我会先给出执行方案，由你最后确认再生成。`;
+    const messageId = `skill-guide-${Date.now()}`;
 
     setMessages((prev) => [
       ...prev,
       { role: 'user', text: `选择技能：${skill.title}` },
       {
+        id: messageId,
         role: 'model',
-        text: confirmPrompt,
+        text: '',
         isConfirmationStep: true,
         skillId: skill.id,
         skillTitle: skill.title,
       },
     ]);
+    void streamLocalMessage(messageId, confirmPrompt);
   };
 
   const handleConfirmAndExecuteSkill = async (skill: AgentSkill, appendUserConfirmation = true) => {
     if (isLoading) return;
+    const guide = SKILL_GUIDES[skill.id];
+    if (activeAttachments.length < guide.minAssets) {
+      const missing = guide.minAssets - activeAttachments.length;
+      const messageId = `missing-assets-${Date.now()}`;
+      const warning = `## 暂时不能开始生成\n\n还缺少 **${missing} 张必需素材**。${guide.assetRules.slice(activeAttachments.length, guide.minAssets).map((rule) => `\n- ${rule}`).join('')}\n\n上传后我会自动更新素材检查状态，再请你确认方案。`;
+      setAgentPhase('intake');
+      setMessages((prev) => [...prev, { id: messageId, role: 'model', text: '', skillTitle: skill.title }]);
+      void streamLocalMessage(messageId, warning);
+      return;
+    }
     if (appendUserConfirmation) {
       setMessages((prev) => [...prev, { role: 'user', text: `确认开始制作【${skill.title}】` }]);
     }
     setIsLoading(true);
+    setAgentPhase('executing');
     setGenerationStatus('正在准备真实生成任务…');
+    setAgentTrace(guide.plan.map((label, index) => ({
+      id: `plan-${index}`,
+      label,
+      detail: index === 0 ? '正在检查输入素材与任务约束' : '等待执行',
+      status: index === 0 ? 'active' : 'pending',
+    })));
 
     try {
       const results = await executeAgentSkill({
@@ -292,19 +567,38 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           videoDuration,
           videoModel,
         },
-        onProgress: setGenerationStatus,
+        onProgress: (progress) => {
+          setGenerationStatus(progress);
+          if (progress.includes('读取') || progress.includes('校验')) {
+            updateTrace('plan-0', 'active', progress);
+          } else if (progress.includes('调用')) {
+            updateTrace('plan-0', 'done', '素材角色、数量与格式已通过校验');
+            updateTrace('plan-1', 'done', `已根据「${skill.title}」组装执行方案`);
+            updateTrace('plan-2', 'active', progress);
+          } else if (progress.includes('完成')) {
+            updateTrace('plan-2', 'done', '真实生成引擎已返回可用资产');
+            updateTrace('plan-3', 'active', progress);
+          }
+        },
       });
 
+      setAgentTrace((current) => current.map((step) => ({ ...step, status: 'done', detail: step.id === 'plan-3' ? '结果已保存并插入左侧工作区' : step.detail })));
+      setAgentPhase('complete');
       setMessages((prev) => [...prev, {
         role: 'model',
-        text: `🎉 **【${skill.title}】生成完成！**\n\n已生成 ${results.length} 个真实资产，并自动插入当前工作区画布。`,
+        text: `## 【${skill.title}】生成完成\n\n已生成 **${results.length} 个真实资产**，保存到项目历史并插入左侧画布。你可以继续告诉我“调整光影”“换一个场景”或“再生成一版”，我会沿用本次已确认的约束。`,
         assets: results,
         skillTitle: skill.title,
+        trace: guide.plan.map((label, index) => ({ id: `done-${index}`, label, detail: '已完成', status: 'done' })),
       }]);
       results.forEach((result) => {
         onInsertAssetToCanvas?.(result.url, result.title, result.mediaType);
       });
     } catch (error: unknown) {
+      setAgentPhase('error');
+      setAgentTrace((current) => current.map((step) => step.status === 'active'
+        ? { ...step, status: 'error', detail: error instanceof Error ? error.message : '执行失败' }
+        : step));
       setMessages((prev) => [...prev, {
         role: 'model',
         text: `**【${skill.title}】执行失败**\n\n${error instanceof Error ? error.message : '生成服务发生未知错误，请重试。'}`,
@@ -388,7 +682,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
     const userText = input.trim();
+    const quotedMemory = activeMemoryQuote;
     setInput('');
+    setActiveMemoryQuote(null);
 
     setMessages((prev) => [...prev, { role: 'user', text: userText }]);
 
@@ -400,20 +696,45 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
     if (selectedSkill) {
       setSkillBrief((current) => `${current}\n用户补充要求：${userText}`.trim());
+      setAgentPhase(hasRequiredAssets ? 'review' : 'intake');
     }
 
     setIsLoading(true);
+    setGenerationStatus(selectedSkill ? '正在理解补充要求并更新执行方案…' : '正在理解你的创作意图…');
+    const responseId = `assistant-stream-${Date.now()}`;
+    setMessages((prev) => [...prev, { id: responseId, role: 'model', text: '', isStreaming: true, skillTitle: selectedSkill?.title }]);
 
     try {
       const history = messages.map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
-      const responseText = await sendChatMessage(history, userText, {});
-      setMessages((prev) => [...prev, { role: 'model', text: responseText }]);
+      const guideContext = selectedSkill && selectedGuide
+        ? `\n\n当前技能：${selectedSkill.title}\n当前素材数：${activeAttachments.length}，最低需要：${selectedGuide.minAssets}\n素材规则：${selectedGuide.assetRules.join('；')}\n待确认问题：${selectedGuide.questions.join('；')}\n当前用户简报：${skillBrief || selectedSkill.prompt}`
+        : '';
+      const memoryContext = memoryPoints.length
+        ? `\n\n用户主动引用的长期记忆点（需要持续遵守）：\n${memoryPoints.slice(-12).map((point) => `- ${point.label}：${point.text}`).join('\n')}`
+        : '';
+      const activeQuoteContext = quotedMemory
+        ? `\n\n本轮用户明确引用的内容（本轮回答优先围绕它理解与回应）：\n${quotedMemory.label}：${quotedMemory.text}`
+        : '';
+      const feedbackEntries = Object.values(messageFeedback).slice(-12);
+      const feedbackContext = feedbackEntries.length
+        ? `\n\n用户对历史回答的反馈：\n${feedbackEntries.map((entry) => entry.rating === 'up'
+          ? `- 正向示例，延续其准确度与表达方式：${entry.text}`
+          : `- 负向示例，不要重复其中的错误、假设或表达方式：${entry.text}`).join('\n')}`
+        : '';
+      await sendChatMessageStream(history, userText, (_chunk, fullText) => {
+        setMessages((prev) => prev.map((message) => message.id === responseId
+          ? { ...message, text: fullText, isStreaming: true }
+          : message));
+      }, { systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION + guideContext + memoryContext + activeQuoteContext + feedbackContext });
+      setMessages((prev) => prev.map((message) => message.id === responseId
+        ? { ...message, isStreaming: false }
+        : message));
     } catch (error: any) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'model', text: error.message || '连接错误，请稍后重试。' },
-      ]);
+      setMessages((prev) => prev.map((message) => message.id === responseId
+        ? { ...message, text: error.message || '连接错误，请稍后重试。', isStreaming: false }
+        : message));
     } finally {
+      setGenerationStatus('');
       setIsLoading(false);
     }
   };
@@ -421,6 +742,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const handleClearChat = () => {
     setMessages([{ role: 'model', text: '你好！我是您的小彻智能助手。今天想创作些什么？' }]);
     setSelectedSkill(null);
+    setSkillBrief('');
+    setAgentPhase('idle');
+    setAgentTrace([]);
+    setGenerationStatus('');
+    setActiveMemoryQuote(null);
   };
 
   return (
@@ -434,7 +760,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       onDoubleClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
-      className={`assistant-panel-container fixed right-0 top-0 bottom-0 h-screen w-[560px] bg-[#0d0d0f]/98 border-l border-white/10 shadow-2xl z-40 flex flex-col overflow-hidden transition-all duration-300 ${
+      className={`assistant-panel-container fixed right-0 top-0 bottom-0 h-[100dvh] w-full sm:w-[560px] sm:max-w-full bg-[#0d0d0f]/98 border-l border-white/10 shadow-2xl z-40 flex flex-col overflow-hidden transition-all duration-300 ${
         isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
       }`}
     >
@@ -448,8 +774,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
             <span className="text-sm font-bold text-zinc-100 tracking-wide flex items-center gap-2">
               小彻智能助手
             </span>
-            <span className="text-[9px] text-zinc-500 font-semibold tracking-wider font-mono">
-              sess-663...663092
+            <span className="text-[9px] text-zinc-500 font-semibold tracking-wider">
+              {agentPhase === 'idle' ? '等待创作任务' : agentPhase === 'intake' ? '正在补齐创作信息' : agentPhase === 'review' ? '方案待确认' : agentPhase === 'executing' ? '正在执行工作流' : agentPhase === 'complete' ? '任务已完成' : '需要检查任务'}
             </span>
           </div>
         </div>
@@ -458,7 +784,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           <button
             type="button"
             onClick={handleClearChat}
-            className="p-1.5 hover:bg-white/5 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-zinc-500 hover:bg-white/5 hover:text-zinc-300 transition-colors"
             title="重置对话"
           >
             <RotateCcw size={16} />
@@ -466,7 +792,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 hover:bg-white/5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
             title="关闭面板"
           >
             <ChevronRight size={20} />
@@ -475,7 +801,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       </div>
 
       {/* 2. 主体区 (添加 max-w-[440px] mx-auto 精细居中，防止过度拉宽) */}
-      <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-[#0d0d0f]">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 custom-scrollbar bg-[#0d0d0f]">
         <div className="max-w-[440px] mx-auto w-full">
         {messages.length === 1 && messages[0].text === '你好！我是您的小彻智能助手。今天想创作些什么？' ? (
           <div className="flex flex-col items-start pt-2 pb-16 animate-in fade-in duration-500">
@@ -519,14 +845,21 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           </div>
         ) : (
           <div className="space-y-5 pb-20">
-            {messages.map((m, i) => (
-              <div key={i} className={`flex w-full ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`flex flex-col max-w-[92%] gap-1.5 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+            {messages.map((m, i) => {
+              const messageId = m.id || `message-${i}`;
+              const feedback = messageFeedback[messageId]?.rating;
+              const locatableAsset = m.assets?.[0];
+              return (
+              <div key={messageId} className={`flex w-full ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`flex flex-col gap-1.5 ${m.role === 'user' ? 'max-w-[88%] items-end' : 'w-full items-start'}`}>
                   <div className="flex items-center gap-2 px-1">
                     {m.role === 'model' && (
-                      <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">
-                        小彻智能助手
-                      </span>
+                      <>
+                        <span className="h-5 w-5 overflow-hidden rounded-full border border-orange-400/30 bg-orange-400/10">
+                          <img src={XIAOCHE_AVATAR_BASE64} alt="" className="h-full w-full object-cover" />
+                        </span>
+                        <span className="text-[10px] font-bold text-zinc-400 tracking-wider">小彻智能助手</span>
+                      </>
                     )}
                     {m.role === 'user' && (
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
@@ -536,35 +869,21 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                   </div>
 
                   <div
-                    className={`relative px-4 py-3 rounded-2xl shadow-sm border ${
+                    className={`relative ${
                       m.role === 'user'
-                        ? 'bg-[#2c2c2e] border-white/10 text-slate-100 rounded-tr-sm'
-                        : 'bg-[#1c1c1e] border-white/5 text-slate-300 rounded-tl-sm w-full'
+                        ? 'rounded-2xl rounded-tr-sm border border-white/10 bg-[#242428] px-4 py-3 text-slate-100 shadow-sm'
+                        : 'w-full px-1 py-1 text-slate-200'
                     }`}
                   >
                     {m.role === 'model' ? (
                       <div>
                         {renderFormattedMessage(m.text)}
 
-                        {m.isConfirmationStep && selectedSkill && (
-                          <div className="mt-3.5 pt-3 border-t border-white/10 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void handleConfirmAndExecuteSkill(selectedSkill)}
-                              disabled={isLoading}
-                              className="flex items-center gap-1.5 rounded-xl bg-orange-500 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-orange-400 transition shadow-lg shadow-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <Check className="h-3.5 w-3.5 stroke-[3]" />
-                              🚀 确认无误，开始生成
-                            </button>
+                        {m.isStreaming && <span className="ml-1 inline-block h-4 w-1 animate-pulse rounded-full bg-orange-400 align-middle" aria-label="正在流式输出" />}
 
-                            <button
-                              type="button"
-                              onClick={handleClearChat}
-                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-300 hover:bg-white/10 transition"
-                            >
-                              重新选择
-                            </button>
+                        {m.trace && m.trace.length > 0 && (
+                          <div className="mt-3">
+                            <AgentTraceView steps={m.trace} title="本次任务执行记录" />
                           </div>
                         )}
 
@@ -591,6 +910,66 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                             ))}
                           </div>
                         )}
+
+                        {!m.isStreaming && m.text && (
+                          <div className="mt-2 flex min-h-11 w-full items-center gap-0.5 text-zinc-600" aria-label="回复操作">
+                            <button
+                              type="button"
+                              onClick={() => void copyMessage(messageId, m.text)}
+                              className="flex h-11 w-11 items-center justify-center rounded-xl transition hover:bg-white/[0.05] hover:text-zinc-300"
+                              title="复制回复"
+                              aria-label="复制回复"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => rememberMessage(messageId, m.text)}
+                              className="flex h-11 w-11 items-center justify-center rounded-xl transition hover:bg-white/[0.05] hover:text-orange-300"
+                              title="引用为记忆点"
+                              aria-label="引用为记忆点"
+                            >
+                              <Quote className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!locatableAsset || !onLocateAssetOnCanvas}
+                              onClick={() => {
+                                if (!locatableAsset || !onLocateAssetOnCanvas) return;
+                                const found = onLocateAssetOnCanvas(locatableAsset.url);
+                                if (!found) showActionNotice(messageId, '画布中未找到对应资产');
+                              }}
+                              className="flex h-11 w-11 items-center justify-center rounded-xl transition hover:bg-white/[0.05] hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-25"
+                              title={locatableAsset ? '在画布中定位' : '这条回复没有画布资产'}
+                              aria-label="在画布中定位"
+                            >
+                              <LocateFixed className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => rateMessage(messageId, m.text, 'up')}
+                              className={`flex h-11 w-11 items-center justify-center rounded-xl transition hover:bg-white/[0.05] hover:text-emerald-300 ${feedback === 'up' ? 'bg-emerald-400/10 text-emerald-300' : ''}`}
+                              title="这个回答是对的"
+                              aria-label="点赞，这个回答是对的"
+                              aria-pressed={feedback === 'up'}
+                            >
+                              <ThumbsUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => rateMessage(messageId, m.text, 'down')}
+                              className={`flex h-11 w-11 items-center justify-center rounded-xl transition hover:bg-white/[0.05] hover:text-red-300 ${feedback === 'down' ? 'bg-red-400/10 text-red-300' : ''}`}
+                              title="这个回答需要改进"
+                              aria-label="差评，这个回答需要改进"
+                              aria-pressed={feedback === 'down'}
+                            >
+                              <ThumbsDown className="h-3.5 w-3.5" />
+                            </button>
+                            {actionNotice?.messageId === messageId && (
+                              <span className="ml-1 text-[9px] font-bold text-zinc-400 animate-in fade-in">{actionNotice.text}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <p className="leading-6 text-xs whitespace-pre-wrap">{m.text}</p>
@@ -598,13 +977,105 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
 
-            {isLoading && (
+            {selectedSkill && selectedGuide && agentPhase !== 'executing' && agentPhase !== 'complete' && (
+              <section className="overflow-hidden rounded-3xl border border-orange-500/25 bg-gradient-to-b from-[#1d1b1a] to-[#141416] shadow-[0_18px_50px_rgba(0,0,0,0.28)]">
+                <div className="border-b border-white/[0.06] px-4 py-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-orange-400">
+                        <ListChecks className="h-3.5 w-3.5" />
+                        {hasRequiredAssets ? '阶段 2/3 · 方案确认' : '阶段 1/3 · 信息收集'}
+                      </div>
+                      <h3 className="mt-1 text-sm font-black text-white">{selectedSkill.title}</h3>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black ${hasRequiredAssets ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-300' : 'border-amber-400/25 bg-amber-400/10 text-amber-300'}`}>
+                      {hasRequiredAssets ? '素材检查通过' : `素材 ${activeAttachments.length}/${selectedGuide.minAssets}`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-4 p-4">
+                  <div className="rounded-2xl border border-white/[0.06] bg-black/20 p-3">
+                    <div className="mb-2 flex items-center gap-2 text-[10px] font-black text-zinc-400">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />素材角色检查
+                    </div>
+                    <div className="space-y-1.5">
+                      {selectedGuide.assetRules.map((rule, index) => {
+                        const checked = index < activeAttachments.length || index >= selectedGuide.minAssets;
+                        return (
+                          <div key={rule} className="flex items-start gap-2 text-[10px] leading-4">
+                            {checked ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" /> : <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-600" />}
+                            <span className={checked ? 'text-zinc-300' : 'text-zinc-500'}>{rule}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-zinc-500">快捷补充创作方向</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedGuide.quickReplies.map((reply) => (
+                        <button
+                          key={reply}
+                          type="button"
+                          onClick={() => {
+                            setInput((current) => `${current}${current ? '；' : ''}${reply}`);
+                            textareaRef.current?.focus();
+                          }}
+                          className="min-h-9 rounded-xl border border-white/[0.07] bg-white/[0.04] px-2.5 text-[10px] font-bold text-zinc-300 transition hover:border-orange-400/35 hover:bg-orange-400/10 hover:text-orange-200"
+                        >
+                          + {reply}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <AgentTraceView steps={agentTrace} title="计划中的 Agent 工作流" />
+
+                  <div className="rounded-xl bg-white/[0.035] px-3 py-2.5 text-[9px] leading-4 text-zinc-500">
+                    输出偏好：{selectedSkill.id === 'PRODUCT_VIDEO' ? `${videoRatio} · ${videoResolution} · ${videoDuration} · ${videoModel}` : `${imageRatio} · ${imageResolution} · ${imageModel}`}
+                  </div>
+
+                  {!hasRequiredAssets && (
+                    <div className="flex items-start gap-2 rounded-xl border border-amber-400/15 bg-amber-400/[0.06] px-3 py-2.5 text-[10px] leading-4 text-amber-200/80">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      请先在下方上传缺少的素材。Agent 不会在输入不完整时直接生成。
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPreferenceOpen(true)}
+                      className="min-h-11 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-zinc-300 transition hover:bg-white/[0.08]"
+                    >
+                      调整生成参数
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmAndExecuteSkill(selectedSkill)}
+                      disabled={!hasRequiredAssets || isLoading}
+                      className="min-h-11 rounded-xl bg-orange-500 px-3 text-xs font-black text-white shadow-lg shadow-orange-500/15 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
+                    >
+                      {hasRequiredAssets ? '确认方案，开始生成' : '等待必需素材'}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {isLoading && !messages.some((message) => message.isStreaming) && (
               <div className="flex justify-start w-full">
-                <div className="flex items-center gap-2 px-4 py-3 bg-[#1c1c1e] border border-white/5 rounded-2xl text-xs text-orange-400">
-                  <Loader2 size={15} className="animate-spin" />
-                  <span>{generationStatus || '正在调度创意中心真实生成引擎…'}</span>
+                <div className="w-full space-y-3 rounded-2xl border border-white/5 bg-[#1c1c1e] px-4 py-3 text-xs text-orange-400">
+                  <div className="flex items-center gap-2">
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>{generationStatus || '正在流式组织回复…'}</span>
+                  </div>
+                  {selectedSkill && agentPhase === 'executing' && <AgentTraceView steps={agentTrace} />}
                 </div>
               </div>
             )}
@@ -766,7 +1237,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                 <SlidersHorizontal className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-bold text-white">Auto</p>
-                  <p className="text-[10px] text-zinc-400">无需确认直接生成</p>
+                  <p className="text-[10px] text-zinc-400">自动补齐非关键项，生成前仍确认</p>
                 </div>
               </div>
               {askMode === 'auto' && <Check className="h-4 w-4 text-emerald-400 shrink-0" />}
@@ -1003,6 +1474,25 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               </div>
             </div>
           )}
+          {activeMemoryQuote && (
+            <div className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.055] pl-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] animate-in fade-in slide-in-from-bottom-1">
+              <span className="h-6 w-0.5 shrink-0 rounded-full bg-emerald-400" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[10px] leading-5 text-zinc-400" title={activeMemoryQuote.text}>
+                  {activeMemoryQuote.text.replace(/\s+/g, ' ')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMemoryQuote(null)}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
+                title="取消引用"
+                aria-label="取消引用"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           {activeAttachments.length > 0 && (
             <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar" aria-label="已引用素材">
               {activeAttachments.map((asset, index) => (
@@ -1045,7 +1535,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
             <textarea
               ref={textareaRef as any}
               className="flex-1 bg-transparent border-0 resize-none py-2 px-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-0 leading-5 custom-scrollbar min-h-[42px] max-h-[100px]"
-              placeholder="点击、粘贴或拖拽图片，再用 @ 引用并输入想法..."
+              placeholder="先上传参考图，再用 @ 引用，输入你的想法..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

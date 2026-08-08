@@ -430,11 +430,11 @@ const HELP_ME_WRITE_INSTRUCTION = `
 export const sendChatMessage = async (
     history: { role: 'user' | 'model', parts: { text: string }[] }[],
     newMessage: string,
-    options?: { isThinkingMode?: boolean, isStoryboard?: boolean, isHelpMeWrite?: boolean }
+    options?: { isThinkingMode?: boolean, isStoryboard?: boolean, isHelpMeWrite?: boolean, systemInstruction?: string }
 ): Promise<string> => {
     const ai = getClient();
 
-    let systemInstruction = SYSTEM_INSTRUCTION;
+    let systemInstruction = options?.systemInstruction || SYSTEM_INSTRUCTION;
 
     if (options?.isStoryboard) {
         systemInstruction = STORYBOARD_INSTRUCTION;
@@ -451,6 +451,53 @@ export const sendChatMessage = async (
         config: { systemInstruction },
     });
     return result.text || "No response";
+};
+
+export const sendChatMessageStream = async (
+    history: { role: 'user' | 'model', parts: { text: string }[] }[],
+    newMessage: string,
+    onChunk: (chunk: string, fullText: string) => void,
+    options?: {
+        isThinkingMode?: boolean;
+        isStoryboard?: boolean;
+        isHelpMeWrite?: boolean;
+        systemInstruction?: string;
+    }
+): Promise<string> => {
+    const ai = getClient();
+
+    let systemInstruction = options?.systemInstruction || SYSTEM_INSTRUCTION;
+    if (options?.isStoryboard) {
+        systemInstruction = STORYBOARD_INSTRUCTION;
+    } else if (options?.isHelpMeWrite) {
+        systemInstruction = HELP_ME_WRITE_INSTRUCTION;
+    }
+
+    try {
+        const stream = await ai.models.generateContentStream({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: [
+                ...history,
+                { role: 'user', parts: [{ text: newMessage }] },
+            ],
+            config: { systemInstruction },
+        });
+
+        let fullText = '';
+        for await (const response of stream) {
+            const chunk = response.text || '';
+            if (!chunk) continue;
+            fullText += chunk;
+            onChunk(chunk, fullText);
+        }
+
+        return fullText || '我已经理解你的需求，请继续补充素材或选择一个技能。';
+    } catch (streamError) {
+        console.warn('[AssistantStream] Streaming failed, falling back to a standard response.', streamError);
+        const fallback = await sendChatMessage(history, newMessage, options);
+        onChunk(fallback, fallback);
+        return fallback;
+    }
 };
 
 export const generateImageFromText = async (

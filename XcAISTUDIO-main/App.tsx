@@ -2826,6 +2826,19 @@ export const App = () => {
                                 : { image: url, imagePreview: url, prompt: `Agent【${title}】生成的图片资产` },
                         );
                     }}
+                    onLocateAssetOnCanvas={(url) => {
+                        const targetNode = [...nodesRef.current].reverse().find(node => (
+                            node.data.image === url
+                            || node.data.imagePreview === url
+                            || node.data.videoUri === url
+                            || node.data.images?.includes(url)
+                            || node.data.videoUris?.includes(url)
+                        ));
+                        if (!targetNode) return false;
+                        setIsChatOpen(false);
+                        window.setTimeout(() => handleFocusNode(targetNode.id), 80);
+                        return true;
+                    }}
                 />
 
                 {/* Canvas Mini-map (Dynamic Scale Projection) */}
