@@ -17,8 +17,10 @@ declare global {
         aistudio: any;
     }
 }
-import { AppNode, NodeType, NodeStatus, Connection, ContextMenuState, Group, Workflow, SmartSequenceItem } from './types';
-import { generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio } from './services/geminiService';
+import { AppNode, NodeType, NodeStatus, Connection, ContextMenuState, Group, Workflow, SmartSequenceItem, StoryboardOptionType, GridCropConfig } from './types';
+import { generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio, generateStoryboardGridImages, cropGridCellCanvas } from './services/geminiService';
+
+
 import { getGenerationStrategy } from './services/videoStrategies';
 import { saveToStorage, loadFromStorage } from './services/storage';
 import {
@@ -1610,6 +1612,221 @@ export const App = () => {
         handleAssetGenerated('image', composedDataUrl, '合成');
     }, [handleAssetGenerated]);
 
+    const handleStoryboardOption = useCallback(async (sourceNodeId: string, optionType: StoryboardOptionType) => {
+        const sourceNode = nodesRef.current.find(n => n.id === sourceNodeId);
+        if (!sourceNode) return;
+
+        // 1. 获取/检测原图节点的比例尺寸
+        let detectedAspectRatio = sourceNode.data.aspectRatio || '2:3';
+        if (!sourceNode.data.aspectRatio && sourceNode.data.image) {
+            try {
+                const img = new Image();
+                img.src = sourceNode.data.image;
+                if (img.naturalWidth && img.naturalHeight) {
+                    const ratios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+                    const r = img.naturalWidth / img.naturalHeight;
+                    let minDiff = Infinity;
+                    ratios.forEach(ratio => {
+                        const [w, h] = ratio.split(':').map(Number);
+                        const targetR = w / h;
+                        const diff = Math.abs(r - targetR);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            detectedAspectRatio = ratio;
+                        }
+                    });
+                }
+            } catch { }
+        }
+
+        // 2. 根据所选功能确定网格规格与标题
+        let gridSize = '3x3';
+        let optionTitle = '分镜大师';
+        if (optionType === 'MODEL_SCENE_FISSION') {
+            gridSize = '3x3';
+            optionTitle = '模特场景图裂变';
+        } else if (optionType === 'MULTI_ANGLE_9GRID') {
+            gridSize = '3x3';
+            optionTitle = '多机位九宫格';
+        } else if (optionType === 'STORY_DEDUCTION_4GRID') {
+            gridSize = '2x2';
+            optionTitle = '剧情推演四宫格';
+        } else if (optionType === 'CONTINUOUS_25GRID') {
+            gridSize = '5x5';
+            optionTitle = '25宫格连贯分镜';
+        }
+
+        const cols = parseInt(gridSize.split('x')[0]) || 3;
+        const rows = parseInt(gridSize.split('x')[1]) || 3;
+        const totalCells = cols * rows;
+
+        const targetX = sourceNode.x + (sourceNode.width || 420) + 80;
+        const targetY = sourceNode.y;
+        const gridNodeId = `node-storyboard-${Date.now()}`;
+
+        // 3. 实例化分镜格子节点，自动设定为对应原图的比例尺寸
+        const gridNode: AppNode = {
+            id: gridNodeId,
+            type: NodeType.STORYBOARD_GRID,
+            title: optionTitle,
+            x: targetX,
+            y: targetY,
+            width: optionType === 'CONTINUOUS_25GRID' ? 640 : 560,
+            status: NodeStatus.WORKING,
+            data: {
+                storyboardAspectRatio: detectedAspectRatio,
+                storyboardGridSize: gridSize,
+                storyboardCells: Array.from({ length: totalCells }).map((_, i) => ({
+                    id: `cell-placeholder-${i + 1}`,
+                    prompt: `${optionTitle} 镜头 ${i + 1}`,
+                })),
+                prompt: `${optionTitle} (${gridSize})`,
+            },
+            inputs: [sourceNodeId],
+        };
+
+        // 4. 自动建立连线与更新看板
+        setNodes(prev => [...prev, gridNode]);
+        setConnections(prev => [...prev, { id: `c-${sourceNodeId}-${gridNodeId}`, from: sourceNodeId, to: gridNodeId }]);
+
+        // 5. 异步调用 AI 批量生成镜头画面填入分镜单元
+        try {
+            const sourceImg = sourceNode.data.image || '';
+            const generatedCells = await generateStoryboardGridImages(
+                sourceImg,
+                optionType,
+                detectedAspectRatio
+            );
+
+            handleNodeUpdate(
+                gridNodeId,
+                {
+                    storyboardCells: generatedCells,
+                }
+            );
+            setNodes(prev => prev.map(n => n.id === gridNodeId ? { ...n, status: NodeStatus.SUCCESS } : n));
+        } catch (err: any) {
+            console.error("Storyboard grid generation error:", err);
+            handleNodeUpdate(gridNodeId, { error: err?.message || '分镜格子生成失败' });
+            setNodes(prev => prev.map(n => n.id === gridNodeId ? { ...n, status: NodeStatus.ERROR } : n));
+        }
+    }, [handleNodeUpdate]);
+
+    const handleGridCropOption = useCallback(async (sourceNodeId: string, config: GridCropConfig) => {
+        const sourceNode = nodesRef.current.find(n => n.id === sourceNodeId);
+        if (!sourceNode || !sourceNode.data.image) return;
+
+        const sourceImage = sourceNode.data.image;
+        const rows = config.rows || 2;
+        const cols = config.cols || 2;
+
+        // 1. 检测原图节点的比例尺寸
+        let detectedAspectRatio = sourceNode.data.aspectRatio || '2:3';
+        if (!sourceNode.data.aspectRatio) {
+            try {
+                const img = new Image();
+                img.src = sourceImage;
+                if (img.naturalWidth && img.naturalHeight) {
+                    const ratios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+                    const r = img.naturalWidth / img.naturalHeight;
+                    let minDiff = Infinity;
+                    ratios.forEach(ratio => {
+                        const [w, h] = ratio.split(':').map(Number);
+                        const targetR = w / h;
+                        const diff = Math.abs(r - targetR);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            detectedAspectRatio = ratio;
+                        }
+                    });
+                }
+            } catch { }
+        }
+
+        // 2. 切割整图成 rows x cols 张局部图片
+        const slicedCells: string[] = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const cellUrl = await cropGridCellCanvas(sourceImage, r, c, rows, cols);
+                slicedCells.push(cellUrl);
+            }
+        }
+
+        // 模式 A：创建分镜格子节点 (自动填充到分镜节点)
+        if (config.mode === 'storyboard') {
+            const gridSizeStr = `${cols}x${rows}`;
+            const targetX = sourceNode.x + (sourceNode.width || 420) + 80;
+            const targetY = sourceNode.y;
+            const gridNodeId = `node-gridcrop-sb-${Date.now()}`;
+
+            const gridNode: AppNode = {
+                id: gridNodeId,
+                type: NodeType.STORYBOARD_GRID,
+                title: config.title || `${cols}×${rows} 宫格分镜`,
+                x: targetX,
+                y: targetY,
+                width: cols >= 5 ? 640 : 560,
+                status: NodeStatus.SUCCESS,
+                data: {
+                    storyboardAspectRatio: detectedAspectRatio,
+                    storyboardGridSize: gridSizeStr,
+                    storyboardCells: slicedCells.map((img, idx) => ({
+                        id: `cell-crop-${Date.now()}-${idx + 1}`,
+                        image: img,
+                        prompt: `${config.title || '宫格裁剪'} 单元 ${idx + 1}`,
+                    })),
+                    prompt: `${config.title || '宫格裁剪'} (${gridSizeStr})`,
+                },
+                inputs: [sourceNodeId],
+            };
+
+            setNodes(prev => [...prev, gridNode]);
+            setConnections(prev => [...prev, { id: `c-${sourceNodeId}-${gridNodeId}`, from: sourceNodeId, to: gridNodeId }]);
+            handleAssetGenerated('image', slicedCells[0], config.title || '宫格分镜');
+        } else {
+            // 模式 B：仅裁剪 (创建独立图片节点，单个单个放)
+            const newNodes: AppNode[] = [];
+            const newConnections: Connection[] = [];
+            const childWidth = 320;
+            const gapX = 30;
+            const gapY = 30;
+            const startX = sourceNode.x + (sourceNode.width || 420) + 80;
+            const startY = sourceNode.y;
+
+            slicedCells.forEach((cellImg, index) => {
+                const r = Math.floor(index / cols);
+                const c = index % cols;
+                const posX = startX + c * (childWidth + gapX);
+                const posY = startY + r * (360 + gapY);
+                const newNodeId = `node-gridcrop-single-${Date.now()}-${index + 1}`;
+
+                newNodes.push({
+                    id: newNodeId,
+                    type: NodeType.IMAGE_GENERATOR,
+                    title: `${config.title || '宫格裁剪'} (${r + 1},${c + 1})`,
+                    x: posX,
+                    y: posY,
+                    width: childWidth,
+                    status: NodeStatus.SUCCESS,
+                    data: {
+                        image: cellImg,
+                        aspectRatio: detectedAspectRatio,
+                        prompt: `${config.title || '宫格局部'} (${r + 1},${c + 1})`,
+                    },
+                    inputs: [sourceNodeId],
+                });
+
+                newConnections.push({ id: `c-${sourceNodeId}-${newNodeId}`, from: sourceNodeId, to: newNodeId });
+            });
+
+            setNodes(prev => [...prev, ...newNodes]);
+            setConnections(prev => [...prev, ...newConnections]);
+            handleAssetGenerated('image', slicedCells[0], config.title || '宫格局部');
+        }
+    }, [handleAssetGenerated]);
+
+
+
     const handleNodeAction = useCallback(async (id: string, promptOverride?: string): Promise<boolean> => {
         const node = nodesRef.current.find(n => n.id === id); if (!node) return false;
         
@@ -2192,12 +2409,13 @@ export const App = () => {
             title: customTitle || `${sourceNode.title || '图片'} - 人物调节`,
             status: NodeStatus.WORKING,
             data: {
-                model: sourceNode.data.model || 'flux',
+                model: sourceNode.data.model || 'gemini-3.1-flash-image-preview',
                 aspectRatio: sourceNode.data.aspectRatio || '2:3',
                 resolution: sourceNode.data.resolution || '2K',
                 prompt: promptInstruction,
                 imageCount: 1,
             },
+
             inputs: [sourceNodeId]
         };
 
@@ -2626,7 +2844,11 @@ export const App = () => {
                             canvasScale={scale}
                             inputAssets={nodeInputAssetsById.get(node.id)}
                             onInputReorder={(nodeId, newOrder) => { const targetNode = nodeById.get(nodeId); if (targetNode) { setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, inputs: newOrder } : n)); } }}
+                            onStoryboardOption={handleStoryboardOption}
+                            onGridCropOption={handleGridCropOption}
+
                             suppressNodeChrome={selectedNodeIds.length > 1 && selectedNodeIdSet.has(node.id)}
+
                             isDragging={draggingNodeId === node.id} isResizing={resizingNodeId === node.id} isConnecting={!!connectionStart} isGroupDragging={activeGroupNodeIdSet.has(node.id)}
                         />
                     ))}

@@ -1,7 +1,8 @@
 
 
 import { GoogleGenAI, GenerateContentResponse, Type, Modality, Part, FunctionDeclaration } from "@google/genai";
-import { SmartSequenceItem, VideoGenerationMode } from "../types";
+import { SmartSequenceItem, VideoGenerationMode, StoryboardOptionType, ColorAdjustments } from "../types";
+
 import { generateContentWithAnalysisFallback, getApiConfig, getVideoApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
 import { getXiaocheVideoImageLimit, resolveXiaocheVideoModel } from "../../Cyzx4/utils/xiaocheModels";
 import { generateSeedanceVideo, generateWanVideo } from "./externalVideoProviders";
@@ -937,3 +938,196 @@ export const connectLiveSession = async (
     });
     return sessionPromise;
 };
+
+export const getCssFilterString = (adj?: ColorAdjustments): string => {
+    if (!adj) return 'none';
+
+    const exposure = adj.exposure ?? 0;
+    const contrast = adj.contrast ?? 0;
+    const saturation = adj.saturation ?? 0;
+    const vibrance = adj.vibrance ?? 0;
+    const tint = adj.tint ?? 0;
+    const temperature = adj.temperature ?? 0;
+    const fade = adj.fade ?? 0;
+    const blur = adj.blur ?? 0;
+    const dehaze = adj.dehaze ?? 0;
+
+    const brightnessVal = 100 + exposure * 0.8;
+    const contrastVal = 100 + contrast * 0.8 + dehaze * 0.3;
+    const satVal = 100 + saturation * 1.0 + vibrance * 0.6;
+    const hueVal = tint * 0.5;
+    const sepiaVal = (temperature > 0 ? temperature * 0.3 : 0) + fade * 0.3;
+    const blurVal = (blur / 100) * 8;
+
+    const filters: string[] = [];
+    if (brightnessVal !== 100) filters.push(`brightness(${brightnessVal}%)`);
+    if (contrastVal !== 100) filters.push(`contrast(${contrastVal}%)`);
+    if (satVal !== 100) filters.push(`saturate(${Math.max(0, satVal)}%)`);
+    if (hueVal !== 0) filters.push(`hue-rotate(${hueVal}deg)`);
+    if (sepiaVal > 0) filters.push(`sepia(${Math.min(100, sepiaVal)}%)`);
+    if (blurVal > 0) filters.push(`blur(${blurVal}px)`);
+
+    return filters.length > 0 ? filters.join(' ') : 'none';
+};
+
+export const applyColorAdjustmentsToCanvas = (
+    sourceDataUrl: string,
+    adj?: ColorAdjustments
+): Promise<string> => {
+    if (!adj) return Promise.resolve(sourceDataUrl);
+
+    const filterStr = getCssFilterString(adj);
+    if (filterStr === 'none' && (!adj.vignette || adj.vignette === 0)) {
+        return Promise.resolve(sourceDataUrl);
+    }
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { resolve(sourceDataUrl); return; }
+
+            ctx.filter = filterStr;
+            ctx.drawImage(img, 0, 0);
+
+            if (adj.vignette && adj.vignette !== 0) {
+                const v = adj.vignette / 100;
+                const radius = Math.max(canvas.width, canvas.height) * 0.75;
+                const grad = ctx.createRadialGradient(
+                    canvas.width / 2, canvas.height / 2, radius * 0.4,
+                    canvas.width / 2, canvas.height / 2, radius
+                );
+                grad.addColorStop(0, 'rgba(0,0,0,0)');
+                grad.addColorStop(1, `rgba(0,0,0,${Math.min(0.85, Math.abs(v))})`);
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            try {
+                resolve(canvas.toDataURL('image/png', 0.95));
+            } catch {
+                resolve(sourceDataUrl);
+            }
+        };
+        img.onerror = () => resolve(sourceDataUrl);
+        img.src = sourceDataUrl;
+    });
+};
+
+export const cropGridCellCanvas = (
+
+    sourceDataUrl: string,
+    row: number,
+    col: number,
+    rows: number,
+    cols: number
+): Promise<string> => {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const w = img.width;
+            const h = img.height;
+            const cellW = w / cols;
+            const cellH = h / rows;
+            const sx = col * cellW;
+            const sy = row * cellH;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(128, Math.round(cellW));
+            canvas.height = Math.max(128, Math.round(cellH));
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { resolve(sourceDataUrl); return; }
+
+            ctx.drawImage(img, sx, sy, cellW, cellH, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/png', 0.95));
+        };
+        img.onerror = () => resolve(sourceDataUrl);
+        img.src = sourceDataUrl;
+    });
+};
+
+export const generateStoryboardGridImages = async (
+    sourceImage: string,
+    optionType: StoryboardOptionType,
+    aspectRatio: string = '2:3'
+): Promise<{ id: string; image: string; prompt: string }[]> => {
+    let rows = 3;
+    let cols = 3;
+    let optionTitle = '分镜大师';
+    let promptDetail = '';
+
+    if (optionType === 'MODEL_SCENE_FISSION') {
+        rows = 3; cols = 3;
+        optionTitle = '模特场景图裂变';
+        promptDetail = `Create a clean 3x3 high-definition fashion photoshoot contact sheet grid matching ${aspectRatio} aspect ratio. 
+STRICT REQUIREMENT - MODEL IDENTITY & OUTFIT LOCK: Preserving the exact model face, facial features, hair style, skin tone, and outfit from the reference image.
+Generate 9 distinct commercial scene environments (such as luxury hotel lobby, sunlit street, beach resort, modern architecture, cafe terrace, studio gradient background, evening city lights).
+No text, no labels, no numbers, pure photorealistic commercial photography grid.`;
+    } else if (optionType === 'MULTI_ANGLE_9GRID') {
+        rows = 3; cols = 3;
+        optionTitle = '多机位九宫格';
+        promptDetail = `Create a clean 3x3 high-definition fashion camera angle contact sheet grid matching ${aspectRatio} aspect ratio. 
+Lock model face and background scene environment from reference image. 
+Panel 1: Full body front view. Panel 2: 45-degree walking pose. Panel 3: Close-up face portrait. Panel 4: Over the shoulder look back. Panel 5: Seated posture. Panel 6: Low angle dynamic shot. Panel 7: High angle perspective. Panel 8: Fabric texture close-up. Panel 9: Atmospheric wide angle.
+No text or numbers anywhere, pure photorealistic photography.`;
+    } else if (optionType === 'STORY_DEDUCTION_4GRID') {
+        rows = 2; cols = 2;
+        optionTitle = '剧情推演四宫格';
+        promptDetail = `Create a clean 2x2 high-definition storytelling contact sheet grid matching ${aspectRatio} aspect ratio. 
+Lock character appearance and outfit. 
+Panel 1: Arriving at the location with curiosity. Panel 2: Turning around and looking at something surprising. Panel 3: Emotional close-up portrait. Panel 4: Elegant walking away into the distance.
+No text or watermarks, clean photorealistic cinema stills.`;
+    } else if (optionType === 'CONTINUOUS_25GRID') {
+        rows = 5; cols = 5;
+        optionTitle = '25宫格连贯分镜';
+        promptDetail = `Create a clean 5x5 high-definition contact sheet grid containing 25 continuous panels matching ${aspectRatio} aspect ratio. 
+Lock model identity, clothing and visual style. 25 sequential cinematographic shots showing micro-expressions, pose variations, camera angle shifts and movement details.
+No text, no numbers, pure high fashion photography contact sheet.`;
+    }
+
+    const totalCells = rows * cols;
+    const inputImages = sourceImage ? [sourceImage] : [];
+
+    try {
+        const generatedSheet = await generateImageFromText(
+            promptDetail,
+            'gemini-3.1-flash-image-preview',
+            inputImages,
+            { aspectRatio, resolution: '2K', count: 1 }
+        );
+
+        const sheetUrl = generatedSheet[0];
+        if (!sheetUrl) throw new Error("生成画板图片为空");
+
+        const cells: { id: string; image: string; prompt: string }[] = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const cellIndex = r * cols + c + 1;
+                const croppedCellUrl = await cropGridCellCanvas(sheetUrl, r, c, rows, cols);
+                cells.push({
+                    id: `cell-${Date.now()}-${cellIndex}`,
+                    image: croppedCellUrl,
+                    prompt: `${optionTitle} - 镜头 ${cellIndex}`,
+                });
+            }
+        }
+        return cells;
+    } catch (error) {
+        console.warn(`[StoryboardGrid] Batch grid generation failed, fallback to multi-image fallback:`, error);
+        const fallbackCells: { id: string; image: string; prompt: string }[] = [];
+        for (let i = 0; i < totalCells; i++) {
+            fallbackCells.push({
+                id: `cell-fallback-${Date.now()}-${i + 1}`,
+                image: sourceImage,
+                prompt: `${optionTitle} - 镜头 ${i + 1}`,
+            });
+        }
+        return fallbackCells;
+    }
+};
+

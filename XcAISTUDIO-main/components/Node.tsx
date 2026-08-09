@@ -1,13 +1,20 @@
 
 
 // ... existing imports
-import { AppNode, NodeStatus, NodeType } from '../types';
-import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings, SlidersHorizontal, Grid3X3, Rotate3D, SunMedium, Bot, Replace, Eye, LogOut, User } from 'lucide-react';
+import { AppNode, NodeStatus, NodeType, StoryboardOptionType, GridCropConfig } from '../types';
+import { RefreshCw, Play, Image as ImageIcon, Video as VideoIcon, Type, AlertCircle, CheckCircle, Plus, Maximize2, Download, MoreHorizontal, Wand2, Scaling, FileSearch, Edit, Loader2, Layers, Trash2, X, Upload, Scissors, Film, MousePointerClick, Crop as CropIcon, ChevronDown, ChevronUp, GripHorizontal, Link, Copy, Monitor, Music, Pause, Volume2, Mic2, Settings, SlidersHorizontal, Grid3X3, Rotate3D, SunMedium, Bot, Replace, Eye, LogOut, User, Camera, Grid, LayoutGrid, ArrowLeft } from 'lucide-react';
+
+
 import { SceneDirectorOverlay } from './VideoNodeModules';
 import React, { memo, useRef, useState, useEffect, useCallback } from 'react';
 import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
 import { FacialControlModal } from './FacialControlModal';
+import { ColorAdjustmentModal } from './ColorAdjustmentModal';
+import { LightingControlModal, LightingParams } from './LightingControlModal';
+import { getCssFilterString } from '../services/geminiService';
 import * as mammoth from 'mammoth/mammoth.browser';
+
+
 
 // ... (keep constants and helper functions: arePropsEqual, safePlay, safePause, InputThumbnails, AudioVisualizer) ...
 
@@ -37,6 +44,10 @@ interface NodeProps {
     onInputReorder?: (nodeId: string, newOrder: string[]) => void;
     onTextQuickAction?: (nodeId: string, action: TextQuickActionId) => void;
     onFocusNode?: (nodeId: string) => void;
+    onStoryboardOption?: (nodeId: string, optionType: StoryboardOptionType) => void;
+    onGridCropOption?: (nodeId: string, config: GridCropConfig) => void;
+
+
 
     isDragging?: boolean;
     isGroupDragging?: boolean;
@@ -439,7 +450,7 @@ const getFittedImageNodeSize = (imageWidth: number, imageHeight: number, current
 };
 
 const NodeComponent: React.FC<NodeProps> = ({
-    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onCreateDerivedNode, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1, dragOffset, suppressNodeChrome
+    node, onUpdate, onAction, onDelete, onExpand, onCrop, onAddToAgent, onCreateDerivedNode, onNodeMouseDown, onPortMouseDown, onPortMouseUp, onNodeContextMenu, onMediaContextMenu, onResizeMouseDown, inputAssets, onInputReorder, onTextQuickAction, onFocusNode, onStoryboardOption, onGridCropOption, isDragging, isGroupDragging, isSelected, isResizing, isConnecting, canvasScale = 1, dragOffset, suppressNodeChrome
 }) => {
     const isWorking = node.status === NodeStatus.WORKING;
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -481,7 +492,21 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isRatioDropdownOpen, setIsRatioDropdownOpen] = useState(false);
     const [isGridDropdownOpen, setIsGridDropdownOpen] = useState(false);
     const [isPersonAdjustOpen, setIsPersonAdjustOpen] = useState(false);
+    const [isStoryboardMenuOpen, setIsStoryboardMenuOpen] = useState(false);
+    const [isGridCropMenuOpen, setIsGridCropMenuOpen] = useState(false);
+    const [gridCropStep, setGridCropStep] = useState<'select-grid' | 'select-mode' | 'custom'>('select-grid');
+    const [selectedGridOption, setSelectedGridOption] = useState<{ name: string; rows: number; cols: number }>({ name: '4宫格裁剪', rows: 2, cols: 2 });
+    const [customRows, setCustomRows] = useState(3);
+    const [customCols, setCustomCols] = useState(3);
     const [isFacialControlOpen, setIsFacialControlOpen] = useState(false);
+    const [isColorAdjustOpen, setIsColorAdjustOpen] = useState(false);
+    const [isComparingColor, setIsComparingColor] = useState(false);
+    const [isLightingControlOpen, setIsLightingControlOpen] = useState(false);
+    const [previewLightingParams, setPreviewLightingParams] = useState<LightingParams | null>(null);
+
+
+
+
     const activeCellIndexRef = useRef<number>(0);
     const cellFileInputRef = useRef<HTMLInputElement>(null);
     const [draggedCellIndex, setDraggedCellIndex] = useState<number | null>(null);
@@ -909,24 +934,339 @@ const NodeComponent: React.FC<NodeProps> = ({
                 <button className={imageToolButtonClass} title="编辑画面元素" onClick={() => applyImageToolPrompt('编辑画面中的指定元素，保持未指定区域、主体身份和整体风格不变。')}>
                     <Layers size={13} />编辑元素
                 </button>
-                <button className={imageToolButtonClass} title="生成分镜方案" onClick={() => applyImageToolPrompt('以当前图片为视觉基准，设计一组镜头连贯、主体一致的专业分镜。')}>
-                    <Film size={13} />分镜大师
-                </button>
-                <button className={imageToolButtonClass} title="生成宫格构图" onClick={() => applyImageToolPrompt('将当前主题扩展为构图统一、视角丰富的九宫格画面方案。')}>
-                    <Grid3X3 size={13} />宫格裁剪
-                </button>
+                {/* [🎬 分镜大师 ∨] 下拉菜单按钮 */}
+                <div className="relative group/storyboard">
+                    <button 
+                        className={`${imageToolButtonClass} ${isStoryboardMenuOpen ? 'bg-white/10 text-white' : ''}`} 
+                        title="分镜大师" 
+                        onClick={() => { setIsStoryboardMenuOpen(open => !open); setIsGridCropMenuOpen(false); }}
+                    >
+                        <Film size={13} />
+                        <span>分镜大师</span>
+                        <ChevronDown size={10} className={`transition-transform duration-200 ${isStoryboardMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isStoryboardMenuOpen && (
+                        <div className="absolute left-0 top-full z-[600] mt-2 w-52 rounded-2xl border border-white/15 bg-[#1c1c1e] p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] animate-in fade-in zoom-in-95 duration-150">
+                            {/* 1. 模特场景图裂变 (来自于技能) */}
+                            <button 
+                                className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
+                                onClick={() => {
+                                    setIsStoryboardMenuOpen(false);
+                                    if (onStoryboardOption) onStoryboardOption(node.id, 'MODEL_SCENE_FISSION');
+                                    else applyImageToolPrompt('进行模特场景图裂变，海量不同商业场景构图与氛围批量裂变。');
+                                }}
+                            >
+                                <Camera size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">模特场景图裂变</span>
+                                    <span className="text-[9px] text-zinc-400 truncate">海量商业场景构图与氛围批量裂变</span>
+                                </div>
+                            </button>
+
+                            {/* 2. 多机位九宫格 (图3) */}
+                            <button 
+                                className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
+                                onClick={() => {
+                                    setIsStoryboardMenuOpen(false);
+                                    if (onStoryboardOption) onStoryboardOption(node.id, 'MULTI_ANGLE_9GRID');
+                                    else applyImageToolPrompt('生成多机位九宫格画面方案，包含多视角与不同景别。');
+                                }}
+                            >
+                                <Grid3X3 size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">多机位九宫格</span>
+                                    <span className="text-[9px] text-zinc-400 truncate">多视角镜头与景别丰富构图</span>
+                                </div>
+                            </button>
+
+                            {/* 3. 剧情推演四宫格 (图3) */}
+                            <button 
+                                className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
+                                onClick={() => {
+                                    setIsStoryboardMenuOpen(false);
+                                    if (onStoryboardOption) onStoryboardOption(node.id, 'STORY_DEDUCTION_4GRID');
+                                    else applyImageToolPrompt('生成剧情推演四宫格，按时间顺序推进故事连贯情节。');
+                                }}
+                            >
+                                <LayoutGrid size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">剧情推演四宫格</span>
+                                    <span className="text-[9px] text-zinc-400 truncate">连贯故事叙事与剧情发展</span>
+                                </div>
+                            </button>
+
+                            {/* 4. 25宫格连贯分镜 (图3) */}
+                            <button 
+                                className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
+                                onClick={() => {
+                                    setIsStoryboardMenuOpen(false);
+                                    if (onStoryboardOption) onStoryboardOption(node.id, 'CONTINUOUS_25GRID');
+                                    else applyImageToolPrompt('设计25宫格超大连贯分镜，细腻展现丰富镜头动作细节。');
+                                }}
+                            >
+                                <Grid size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">25宫格连贯分镜</span>
+                                    <span className="text-[9px] text-zinc-400 truncate">25宫格大连贯商业镜头展示</span>
+                                </div>
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* [▦ 宫格裁剪 ∨] 下拉菜单按钮 (实现仅裁剪 / 创建分镜格子) */}
+                <div className="relative group/gridcrop">
+                    <button 
+                        className={`${imageToolButtonClass} ${isGridCropMenuOpen ? 'bg-white/10 text-white' : ''}`} 
+                        title="宫格裁剪" 
+                        onClick={() => {
+                            setIsGridCropMenuOpen(open => !open);
+                            setIsStoryboardMenuOpen(false);
+                            setGridCropStep('select-grid');
+                        }}
+                    >
+                        <Grid3X3 size={13} />
+                        <span>宫格裁剪</span>
+                        <ChevronDown size={10} className={`transition-transform duration-200 ${isGridCropMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isGridCropMenuOpen && (
+                        <div className="absolute left-0 top-full z-[600] mt-2 w-56 rounded-2xl border border-white/15 bg-[#1c1c1e] p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] animate-in fade-in zoom-in-95 duration-150">
+                            {/* 第一级菜单：选择宫格规格 (参考图1) */}
+                            {gridCropStep === 'select-grid' && (
+                                <div className="space-y-1">
+                                    <button 
+                                        className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item"
+                                        onClick={() => {
+                                            setSelectedGridOption({ name: '4宫格裁剪', rows: 2, cols: 2 });
+                                            setGridCropStep('select-mode');
+                                        }}
+                                    >
+                                        <LayoutGrid size={15} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">4宫格裁剪</span>
+                                            <span className="text-[9px] text-zinc-400">2×2 网格</span>
+                                        </div>
+                                    </button>
+
+                                    <button 
+                                        className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item"
+                                        onClick={() => {
+                                            setSelectedGridOption({ name: '9宫格裁剪', rows: 3, cols: 3 });
+                                            setGridCropStep('select-mode');
+                                        }}
+                                    >
+                                        <Grid3X3 size={15} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">9宫格裁剪</span>
+                                            <span className="text-[9px] text-zinc-400">3×3 网格</span>
+                                        </div>
+                                    </button>
+
+                                    <button 
+                                        className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item"
+                                        onClick={() => {
+                                            setSelectedGridOption({ name: '16宫格裁剪', rows: 4, cols: 4 });
+                                            setGridCropStep('select-mode');
+                                        }}
+                                    >
+                                        <Grid size={15} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">16宫格裁剪</span>
+                                            <span className="text-[9px] text-zinc-400">4×4 网格</span>
+                                        </div>
+                                    </button>
+
+                                    <button 
+                                        className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item"
+                                        onClick={() => {
+                                            setSelectedGridOption({ name: '25宫格裁剪', rows: 5, cols: 5 });
+                                            setGridCropStep('select-mode');
+                                        }}
+                                    >
+                                        <Grid size={15} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">25宫格裁剪</span>
+                                            <span className="text-[9px] text-zinc-400">5×5 网格</span>
+                                        </div>
+                                    </button>
+
+                                    <button 
+                                        className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item border-t border-white/10 pt-1 mt-1"
+                                        onClick={() => setGridCropStep('custom')}
+                                    >
+                                        <SlidersHorizontal size={15} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">自定义宫格裁剪</span>
+                                            <span className="text-[9px] text-zinc-400">自定义行 × 列</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 第二级菜单：选择裁剪模式 (参考图2) */}
+                            {gridCropStep === 'select-mode' && (
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center gap-2 pb-1 border-b border-white/10 px-1 text-zinc-200">
+                                        <button 
+                                            onClick={() => setGridCropStep('select-grid')}
+                                            className="p-1 rounded-lg hover:bg-white/10 text-zinc-300 hover:text-white transition-colors"
+                                            title="返回"
+                                        >
+                                            <ArrowLeft size={13} />
+                                        </button>
+                                        <span className="text-[11px] font-bold text-zinc-100">{selectedGridOption.name}</span>
+                                    </div>
+
+                                    {/* 仅裁剪 (独立图片节点) */}
+                                    <button 
+                                        className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item border border-white/5 bg-white/[0.02]"
+                                        onClick={() => {
+                                            setIsGridCropMenuOpen(false);
+                                            setGridCropStep('select-grid');
+                                            if (onGridCropOption) {
+                                                onGridCropOption(node.id, {
+                                                    rows: selectedGridOption.rows,
+                                                    cols: selectedGridOption.cols,
+                                                    mode: 'independent',
+                                                    title: selectedGridOption.name,
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <LayoutGrid size={16} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">仅裁剪</span>
+                                            <span className="text-[9px] text-zinc-400">创建独立图片节点</span>
+                                        </div>
+                                    </button>
+
+                                    {/* 创建分镜格子 (自动填充分镜格子) */}
+                                    <button 
+                                        className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item border border-white/5 bg-white/[0.02]"
+                                        onClick={() => {
+                                            setIsGridCropMenuOpen(false);
+                                            setGridCropStep('select-grid');
+                                            if (onGridCropOption) {
+                                                onGridCropOption(node.id, {
+                                                    rows: selectedGridOption.rows,
+                                                    cols: selectedGridOption.cols,
+                                                    mode: 'storyboard',
+                                                    title: selectedGridOption.name,
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <Grid size={16} className="text-zinc-300 group-hover/item:text-white shrink-0" />
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] font-bold text-zinc-100 group-hover/item:text-white">创建分镜格子</span>
+                                            <span className="text-[9px] text-zinc-400">自动填充到分镜节点</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 自定义模式菜单 */}
+                            {gridCropStep === 'custom' && (
+                                <div className="space-y-2 p-1">
+                                    <div className="flex items-center gap-2 pb-1 border-b border-white/10 text-zinc-200">
+                                        <button 
+                                            onClick={() => setGridCropStep('select-grid')}
+                                            className="p-1 rounded-lg hover:bg-white/10 text-zinc-300 hover:text-white transition-colors"
+                                            title="返回"
+                                        >
+                                            <ArrowLeft size={13} />
+                                        </button>
+                                        <span className="text-[11px] font-bold text-zinc-100">自定义宫格</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-300">
+                                        <div className="flex flex-col gap-1">
+                                            <span className="font-semibold text-zinc-400">行数 (Rows)</span>
+                                            <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg p-1">
+                                                <button onClick={() => setCustomRows(r => Math.max(1, r - 1))} className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white font-bold">-</button>
+                                                <span className="flex-1 text-center font-bold text-zinc-100">{customRows}</span>
+                                                <button onClick={() => setCustomRows(r => Math.min(10, r + 1))} className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white font-bold">+</button>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="font-semibold text-zinc-400">列数 (Cols)</span>
+                                            <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg p-1">
+                                                <button onClick={() => setCustomCols(c => Math.max(1, c - 1))} className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white font-bold">-</button>
+                                                <span className="flex-1 text-center font-bold text-zinc-100">{customCols}</span>
+                                                <button onClick={() => setCustomCols(c => Math.min(10, c + 1))} className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white font-bold">+</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-1 space-y-1">
+                                        <button 
+                                            className="w-full py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-100 text-[10px] font-bold transition-all"
+                                            onClick={() => {
+                                                setIsGridCropMenuOpen(false);
+                                                setGridCropStep('select-grid');
+                                                if (onGridCropOption) {
+                                                    onGridCropOption(node.id, {
+                                                        rows: customRows,
+                                                        cols: customCols,
+                                                        mode: 'independent',
+                                                        title: `自定义 ${customRows}×${customCols} 仅裁剪`,
+                                                    });
+                                                }
+                                            }}
+                                        >
+                                            仅裁剪 (平铺独立图片)
+                                        </button>
+                                        <button 
+                                            className="w-full py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-bold transition-all"
+                                            onClick={() => {
+                                                setIsGridCropMenuOpen(false);
+                                                setGridCropStep('select-grid');
+                                                if (onGridCropOption) {
+                                                    onGridCropOption(node.id, {
+                                                        rows: customRows,
+                                                        cols: customCols,
+                                                        mode: 'storyboard',
+                                                        title: `自定义 ${customRows}×${customCols} 分镜`,
+                                                    });
+                                                }
+                                            }}
+                                        >
+                                            创建分镜格子
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 <button className={imageToolButtonClass} title="调整拍摄角度" onClick={() => applyImageToolPrompt('调整拍摄角度和透视关系，保持主体造型、材质和场景一致。')}>
                     <Rotate3D size={13} />角度
                 </button>
-                <button className={imageToolButtonClass} title="调整画面打光" onClick={() => applyImageToolPrompt('重新设计专业摄影打光，提升主体轮廓、层次和商业质感。')}>
+                <button 
+                    className={`${imageToolButtonClass} ${isLightingControlOpen ? 'bg-white/10 text-white font-bold' : ''}`} 
+                    title="3D 摄影打光" 
+                    onClick={() => {
+                        setIsLightingControlOpen(open => !open);
+                        setIsColorAdjustOpen(false);
+                        setIsStoryboardMenuOpen(false);
+                        setIsGridCropMenuOpen(false);
+                    }}
+                >
                     <SunMedium size={13} />打光
                 </button>
+
                 <div className="relative">
                     <button className={`${imageToolButtonClass} ${isImageMoreOpen ? 'bg-white/10 text-white' : ''}`} title="更多图片工具" onClick={() => setIsImageMoreOpen(open => !open)}>
                         <MoreHorizontal size={13} />更多
                     </button>
                     {isImageMoreOpen && (
                         <div className="absolute left-0 top-full z-[500] mt-2 min-w-[140px] rounded-2xl border border-white/15 bg-[#101114]/95 p-2 shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-black/40 backdrop-blur-2xl">
+                            <button className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-100 transition-colors hover:bg-white/10 hover:text-white" onClick={() => { setIsColorAdjustOpen(true); setIsImageMoreOpen(false); }}>
+                                <SlidersHorizontal size={13} />调色
+                            </button>
                             <button className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-[11px] font-bold text-zinc-100 transition-colors hover:bg-cyan-400/15 hover:text-cyan-100" onClick={() => { onCrop?.(node.id, node.data.image!); setIsImageMoreOpen(false); }}>
                                 <CropIcon size={13} />裁剪图片
                             </button>
@@ -935,6 +1275,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             </button>
                         </div>
                     )}
+
                 </div>
                 <div className="mx-1 h-5 w-px shrink-0 bg-white/10" />
                 <button className={imageToolButtonClass} title="下载图片" onClick={handleDownload}>
@@ -1484,7 +1825,28 @@ const NodeComponent: React.FC<NodeProps> = ({
                         </div>
                     </div>
                 )}
-                {!hasContent ? (
+                {(node.status === NodeStatus.ERROR || node.data.error) ? (
+                    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-[#181214] border border-red-500/35 rounded-[18px] text-center backdrop-blur-md animate-in fade-in duration-200">
+                        <div className="w-11 h-11 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 mb-2.5 shadow-lg">
+                            <AlertCircle size={22} />
+                        </div>
+                        <h4 className="text-xs font-bold text-red-200 mb-1">生成失败</h4>
+                        <p className="text-[11px] font-medium text-red-300/80 mb-3 max-w-[280px] break-words line-clamp-3 leading-relaxed">
+                            {node.data.error || '生成遇到错误，请检查 API Key 配置、网络连接或提示词'}
+                        </p>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onAction?.(node.id);
+                            }}
+                            className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/40 text-xs font-bold text-red-100 transition-all active:scale-95 shadow-md"
+                        >
+                            <RefreshCw size={12} />
+                            <span>重新尝试生成</span>
+                        </button>
+                    </div>
+                ) : !hasContent ? (
+
                     isImageNode ? (
                         isReferencedEmptyNode ? (
                             <div className="absolute inset-0 overflow-hidden bg-[#1b1c1e]">
@@ -1569,7 +1931,12 @@ const NodeComponent: React.FC<NodeProps> = ({
                                     draggable={false}
                                     loading="lazy"
                                     decoding="async"
-                                    style={{ filter: showImageGrid && canvasScale >= 0.65 ? 'blur(8px)' : 'none' }}
+                                    style={{
+                                        filter: isComparingColor 
+                                            ? (showImageGrid && canvasScale >= 0.65 ? 'blur(8px)' : 'none')
+                                            : [getCssFilterString(node.data.colorAdjustments) !== 'none' ? getCssFilterString(node.data.colorAdjustments) : '', showImageGrid && canvasScale >= 0.65 ? 'blur(8px)' : ''].filter(Boolean).join(' ') || 'none'
+                                    }}
+
                                     onContextMenu={(e) => onMediaContextMenu?.(e, node.id, 'image', node.data.image!)}
                                 />
                                 <input type="file" ref={replaceImageInputRef} className="hidden" accept="image/*" onChange={handleUploadImage} />
@@ -2201,6 +2568,32 @@ const NodeComponent: React.FC<NodeProps> = ({
                 canvasScale={canvasScale}
                 onApply={(params) => applyImageToolPrompt(`调整面部特征：情绪(${params.emotion})，视线(${params.gaze})，嘴巴(${params.mouth})。保持人物脸型与身份一致。`)}
             />
+
+            {/* 调色控制面板 */}
+            <ColorAdjustmentModal
+                isOpen={isColorAdjustOpen}
+                onClose={() => setIsColorAdjustOpen(false)}
+                adjustments={node.data.colorAdjustments}
+                onChange={(newAdjustments) => onUpdate(node.id, { colorAdjustments: newAdjustments })}
+                onCompareChange={(isComparing) => setIsComparingColor(isComparing)}
+            />
+
+            {/* 3D 摄影打光控制面板 */}
+            <LightingControlModal
+                isOpen={isLightingControlOpen}
+                onClose={() => setIsLightingControlOpen(false)}
+                currentImage={node.data.image}
+                onChange={(params) => setPreviewLightingParams(params)}
+                onApply={(params) => {
+                    const directionName = params.azimuth < -45 ? '左侧' : params.azimuth > 45 ? '右侧' : '前方';
+                    const elName = params.elevation > 40 ? '高位' : params.elevation < -40 ? '低位' : '平视';
+                    const lightPrompt = `重新设计专业商业摄影打光：主光源位于${directionName}${elName}（方位角 ${params.azimuth}°，高度角 ${params.elevation}°），光线强度 ${params.intensity}%，灯光颜色 ${params.color}。呈现通透真实的立体光影、轮廓高光与柔和阴影，保持主体人物造型与材质一致。`;
+                    applyImageToolPrompt(lightPrompt);
+                    onUpdate(node.id, { lightingParams: params });
+                }}
+            />
+
+
 
             {!suppressNodeChrome && <div className="absolute -bottom-3 -right-3 w-6 h-6 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100 z-50" onMouseDown={(e) => onResizeMouseDown(e, node.id, nodeWidth, nodeHeight)}><div className="w-1.5 h-1.5 rounded-full bg-current" /></div>}
         </div>

@@ -18,6 +18,57 @@ export enum NodeStatus {
 
 export type VideoGenerationMode = 'DEFAULT' | 'CONTINUE' | 'CUT' | 'FIRST_LAST_FRAME' | 'CHARACTER_REF';
 
+export type StoryboardOptionType =
+  | 'MODEL_SCENE_FISSION'
+  | 'MULTI_ANGLE_9GRID'
+  | 'STORY_DEDUCTION_4GRID'
+  | 'CONTINUOUS_25GRID';
+
+export interface GridCropConfig {
+  rows: number;
+  cols: number;
+  mode: 'independent' | 'storyboard';
+  title?: string;
+}
+
+export interface ColorAdjustments {
+  // 光线 (Light)
+  exposure?: number;       // -100 ~ 100
+  contrast?: number;       // -100 ~ 100
+  highlights?: number;     // -100 ~ 100
+  shadows?: number;        // -100 ~ 100
+  whites?: number;         // -100 ~ 100
+  blacks?: number;         // -100 ~ 100
+  
+  // 颜色 (Color)
+  temperature?: number;    // -100 ~ 100
+  tint?: number;           // -100 ~ 100
+  vibrance?: number;       // -100 ~ 100
+  saturation?: number;     // -100 ~ 100
+  
+  // 细节 (Detail)
+  texture?: number;        // -100 ~ 100
+  clarity?: number;        // -100 ~ 100
+  sharpen?: number;        // 0 ~ 100
+  noiseReduction?: number; // 0 ~ 100
+  colorNoiseReduction?: number; // 0 ~ 100
+  
+  // 效果 (Effects)
+  dehaze?: number;         // -100 ~ 100
+  vignette?: number;       // -100 ~ 100
+  grain?: number;          // 0 ~ 100
+  fade?: number;           // 0 ~ 100
+  blur?: number;           // 0 ~ 100
+}
+
+export interface LightingParams {
+  azimuth: number;
+  elevation: number;
+  intensity: number;
+  color: string;
+  viewMode: 'perspective' | 'front';
+}
+
 export interface AppNode {
   id: string;
   type: NodeType;
@@ -31,6 +82,10 @@ export interface AppNode {
     prompt?: string;
     model?: string; // Selected AI model
     image?: string; // Base64 (The currently displayed main image)
+    colorAdjustments?: ColorAdjustments; // 调色参数
+    lightingParams?: LightingParams; // 3D打光参数
+
+
     imagePreview?: string; // Lightweight WebP preview used by the canvas
     imagePreviewSource?: string; // Compact fingerprint of the original image
     images?: string[]; // Array of Base64 strings (for multiple generations)
