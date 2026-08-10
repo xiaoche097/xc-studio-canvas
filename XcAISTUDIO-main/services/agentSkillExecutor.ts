@@ -16,7 +16,8 @@ export type AgentSkillId =
   | 'MODEL_SCENE_FISSION'
   | 'MODEL_POSE_FISSION'
   | 'ECOMMERCE_HERO'
-  | 'IMAGE_CLEAN';
+  | 'IMAGE_CLEAN'
+  | 'REFERENCE_EDIT';
 
 export interface AgentSkillAsset {
   id: string;
@@ -84,6 +85,10 @@ DYNAMIC UN-FIXED POSES & ANGLES MANDATE: Every generation MUST be unique and non
     workflowHint: 'main-angle-lock',
     instruction: `Rebuild the supplied product image as a polished high-resolution ecommerce main image. Preserve exact product identity, silhouette, construction, color, material, logo, print, camera angle and count. Improve edge quality, texture, tonal separation, lighting and overall commercial finish while removing compression artifacts and distracting defects. Do not redesign, duplicate or replace the product.`,
   },
+  REFERENCE_EDIT: {
+    workflowHint: 'face-lock',
+    instruction: `Perform one precise edit on Image 1 according to the USER DIRECTION. Image 1 is the immutable source of truth for every element not explicitly targeted. Preserve the exact subject identity, face, body proportions, product or garment structure, materials, colors, logos, readable text, background, lighting, camera angle, subject scale, placement and crop unless the user directly requests that specific attribute to change. Make the requested change clearly visible, localized, anatomically and physically plausible, and seamlessly integrated. Output one edited image only, never a collage, comparison, caption or watermark.`,
+  },
 };
 
 type ImageAgentSkillId = keyof typeof IMAGE_SKILL_PROMPTS;
@@ -117,6 +122,7 @@ const resolveImageResolution = (value: string): ImageResolution => {
 };
 
 const resolveImageModel = (value: string) => {
+  if (['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview', 'imagen-3.0-generate-002'].includes(value)) return value;
   if (value.includes('Banana Pro')) return 'gemini-3-pro-image-preview';
   if (value.includes('GPT Image')) return 'gpt-image-2';
   if (value.includes('Midjourney')) return 'mj_imagine';

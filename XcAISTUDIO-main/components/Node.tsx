@@ -694,13 +694,14 @@ const NodeComponent: React.FC<NodeProps> = ({
                     images: undefined,
                     croppedFrame: undefined,
                     aspectRatio: detectedRatio,
+                    assetOrigin: 'uploaded',
                 },
                 nextSize
             );
         } catch (error) {
             console.error('Image upload failed:', error);
             const reader = new FileReader();
-            reader.onload = (event) => onUpdate(node.id, { image: event.target?.result as string });
+            reader.onload = (event) => onUpdate(node.id, { image: event.target?.result as string, assetOrigin: 'uploaded' });
             reader.readAsDataURL(file);
         } finally {
             setIsPreparingImageUpload(false);
@@ -816,6 +817,16 @@ const NodeComponent: React.FC<NodeProps> = ({
     const isEmptyVideoNode = isVideoNode && !node.data.videoUri && !node.data.image;
     const isEmptyCreativeNode = isEmptyTextNode || isEmptyImageNode || isEmptyVideoNode;
     const isReferencedEmptyNode = Boolean(hasInputs && isEmptyCreativeNode);
+    const legacyImagePrompt = (node.data.prompt || '').trim();
+    const isLegacyUserUpload = !node.data.assetOrigin
+        && node.status !== NodeStatus.SUCCESS
+        && !node.data.images?.length
+        && (!legacyImagePrompt || legacyImagePrompt === 'Clipboard image' || /\.(avif|gif|jpe?g|png|webp)$/i.test(legacyImagePrompt));
+    const isUserUploadedImage = Boolean(
+        isImageNode
+        && node.data.image
+        && (node.data.assetOrigin === 'uploaded' || isLegacyUserUpload)
+    );
     const styleCategories = ['全部', ...Array.from(new Set(STYLE_PRESETS.map(preset => preset.category)))];
     const visibleStylePresets = styleCategory === '全部'
         ? STYLE_PRESETS
@@ -2163,7 +2174,7 @@ const NodeComponent: React.FC<NodeProps> = ({
     };
 
     const renderBottomPanel = () => {
-        if (suppressNodeChrome) return null;
+        if (suppressNodeChrome || isUserUploadedImage) return null;
         const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isImageResolutionOpen || isStylePresetOpen || isImageMoreOpen;
         if (isStoryboardNode) return null;
         const isOpen = (isSelected || isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);

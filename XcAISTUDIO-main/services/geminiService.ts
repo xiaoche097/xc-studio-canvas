@@ -1,6 +1,6 @@
 
 
-import { GoogleGenAI, GenerateContentResponse, Type, Modality, Part, FunctionDeclaration } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Modality, Part, FunctionDeclaration } from "@google/genai";
 import { SmartSequenceItem, VideoGenerationMode, StoryboardOptionType, ColorAdjustments } from "../types";
 
 import { generateContentWithAnalysisFallback, getApiConfig, getVideoApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
@@ -334,6 +334,159 @@ You are a video prompt engineering expert.
 Your task is to create a seamless video generation prompt that bridges a sequence of images.
 Analyze the provided images and the user's intent to create a prompt that describes the motion and transition.
 `;
+
+const IMAGE_PROMPT_PLANNER_INSTRUCTION = `
+You are the visual prompt director inside XcAISTUDIO. Turn a user's short request into one production-ready image prompt.
+
+Core method:
+- Analyze every supplied reference image before writing. Distinguish the primary subject, identity-defining features, pose, clothing or product structure, environment, camera, lighting and visual style.
+- Put the primary subject and requested action/change first.
+- Use only the relevant parts of this seven-element structure: subject, action/state, environment, style, lighting, camera/composition, quality.
+- Keep the English generation prompt concrete, internally consistent and between 70 and 160 words. Do not pad it with empty hype or conflicting styles.
+- Write a scene-specific negative prompt. For people, protect anatomy, hands, face and identity. For products, protect structure, materials, logos and readable text.
+- In edit mode, apply only the requested change. Everything not requested must remain visually consistent with the reference image. Never invent a new identity, garment, product structure, logo, background or color treatment unless requested.
+- Respect the requested aspect ratio and resolution through composition language, but never invent unsupported API parameters.
+- Do not ask follow-up questions when the request is already actionable. Make conservative professional defaults.
+
+Return JSON only. The Chinese title must describe the real task in 6-18 Chinese characters and must never append an unrelated word such as “发型”. The Chinese summary should state what you optimized in one concise sentence.
+`;
+
+export interface ImagePromptPlan {
+    title: string;
+    summary: string;
+    prompt: string;
+    negativePrompt: string;
+    usedVision: boolean;
+}
+
+interface ImagePromptPlanInput {
+    userIntent: string;
+    referenceImages?: string[];
+    aspectRatio?: string;
+    resolution?: string;
+    mode?: 'generate' | 'edit';
+}
+
+const buildImagePromptFallback = ({
+    userIntent,
+    referenceImages = [],
+    aspectRatio = '2:3',
+    resolution = '2k',
+    mode = referenceImages.length > 0 ? 'edit' : 'generate',
+}: ImagePromptPlanInput): ImagePromptPlan => {
+    const intent = userIntent.trim() || '生成一张专业、高质量、构图完整的视觉作品';
+    const isPoseEdit = /姿势|姿态|动作|站姿|坐姿|休闲|随意|放松|松弛|僵硬|板正|重心|手势/.test(intent);
+    const isBackgroundEdit = /背景|场景|环境|白底|换景/.test(intent);
+    const isClothingEdit = /服装|衣服|上衣|裤子|裙子|穿搭|换装/.test(intent);
+    const isHairEdit = /头发|发型|刘海|卷发|直发/.test(intent);
+    const isLightingEdit = /光线|光影|灯光|曝光|明暗|色调|调色|冷色|暖色/.test(intent);
+
+    if (mode === 'edit' && isPoseEdit) {
+        return {
+            title: '调整为自然休闲姿势',
+            summary: `已把“${intent}”细化为可执行的重心、肩线、躯干和手臂动作，并锁定原图构图。`,
+            prompt: `Edit Image 1 only. Keep the exact same person, facial identity, expression, hairstyle, body proportions, outfit, garment construction, colors, accessories, background, lighting, camera angle, subject scale, placement, and original crop. Change only the body pose so it feels naturally relaxed and casual rather than stiff: shift the body weight gently onto one leg, soften and slightly offset the shoulder line, introduce a subtle natural hip and torso angle, relax the elbows, and place the arms and hands in an effortless position compatible with the existing clothing and visible frame. The pose change should be clearly visible but restrained, anatomically correct, balanced, and suitable for a premium lifestyle fashion photograph. Keep the complete visible subject inside the original ${aspectRatio} composition; do not zoom or reframe.`,
+            negativePrompt: 'rigid symmetrical stance, military posture, near-identical pose, exaggerated contrapposto, extreme body twist, changed face, changed expression, changed outfit, altered garment details, changed background, changed camera angle, zoomed crop, cut-off head or limbs, bad anatomy, malformed hands, extra fingers, floating feet, duplicate person, blur, watermark, text',
+            usedVision: false,
+        };
+    }
+
+    const editFocus = isBackgroundEdit
+        ? 'Change only the requested background or environment while preserving the subject at the exact same scale, pose, edge detail and lighting integration.'
+        : isClothingEdit
+          ? 'Change only the requested garment region. Preserve the person, pose, anatomy, face, hair, scene and every non-target clothing item.'
+          : isHairEdit
+            ? 'Change only the requested hairstyle. Preserve facial identity, head shape, expression, body, outfit, scene, lighting and crop.'
+            : isLightingEdit
+              ? 'Change only the requested lighting and color treatment. Preserve every person, object, pose, texture, camera and composition detail.'
+              : 'Apply only the explicitly requested visual change and keep every unrelated pixel-level attribute consistent with Image 1.';
+    const editLead = mode === 'edit'
+        ? `Precisely edit Image 1. User request: ${intent}. ${editFocus}`
+        : `Create this image: ${intent}.`;
+    const preservation = mode === 'edit'
+        ? ' Preserve the exact subject identity, facial features, body proportions, clothing or product structure, materials, colors, logos, readable text, camera viewpoint, subject scale and crop unless explicitly targeted.'
+        : '';
+
+    return {
+        title: isBackgroundEdit ? '精准调整背景' : isClothingEdit ? '精准修改服装' : isHairEdit ? '精准调整发型' : isLightingEdit ? '精准调整光影' : (intent.length > 18 ? `${intent.slice(0, 18)}…` : intent),
+        summary: `已将原始要求细化为局部修改指令，并锁定未要求改变的主体、构图与画面元素，适配 ${aspectRatio}、${resolution.toUpperCase()} 输出。`,
+        prompt: `${editLead}${preservation} Maintain coherent perspective, physically correct boundaries and occlusion, natural balanced lighting, accurate textures and clean professional image quality. Output one seamless ${aspectRatio} image, not a collage or comparison layout.`,
+        negativePrompt: 'identity drift, unintended changes, changed camera angle, changed crop, subject scale shift, bad anatomy, malformed hands, extra fingers, distorted proportions, blurry details, incorrect text, altered logo, watermark, duplicate objects, oversaturated colors, magenta cast',
+        usedVision: false,
+    };
+};
+
+const parseImagePromptPlan = (text: string): Partial<ImagePromptPlan> => {
+    const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const objectStart = cleaned.indexOf('{');
+    const objectEnd = cleaned.lastIndexOf('}');
+    const json = objectStart >= 0 && objectEnd > objectStart
+        ? cleaned.slice(objectStart, objectEnd + 1)
+        : cleaned;
+    return JSON.parse(json) as Partial<ImagePromptPlan>;
+};
+
+export const planImagePrompt = async (input: ImagePromptPlanInput): Promise<ImagePromptPlan> => {
+    const fallback = buildImagePromptFallback(input);
+    const referenceImages = (input.referenceImages || []).filter((image) => image.startsWith('data:image/'));
+    const mode = input.mode || (referenceImages.length > 0 ? 'edit' : 'generate');
+
+    let ai: ReturnType<typeof getClient>;
+    try {
+        ai = getClient();
+    } catch (error) {
+        console.warn('[ImagePromptPlanner] Visual planning client is unavailable; using intent-specific fallback.', error);
+        return fallback;
+    }
+    const parts: Part[] = referenceImages.map((image) => {
+            const mimeType = image.match(/^data:(image\/[^;]+);base64,/)?.[1] || 'image/png';
+            return {
+                inlineData: {
+                    data: image.replace(/^data:image\/[^;]+;base64,/, ''),
+                    mimeType,
+                },
+            };
+        });
+    parts.push({
+        text: [
+            `Task mode: ${mode}`,
+            `User intent: ${input.userIntent.trim() || fallback.title}`,
+            `Output aspect ratio: ${input.aspectRatio || '2:3'}`,
+            `Output resolution: ${(input.resolution || '2k').toUpperCase()}`,
+            `Reference image count: ${referenceImages.length}`,
+            'Create the final prompt plan now.',
+        ].join('\n'),
+    });
+
+    let lastError: unknown = null;
+    for (const preferJsonMode of [true, false]) {
+        try {
+            const response = await generateContentWithAnalysisFallback(ai, {
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: { parts },
+                config: {
+                    systemInstruction: IMAGE_PROMPT_PLANNER_INSTRUCTION,
+                    ...(preferJsonMode ? { responseMimeType: 'application/json' } : {}),
+                },
+            });
+            const parsed = parseImagePromptPlan(response.text || '');
+            if (!parsed.prompt?.trim() || !parsed.negativePrompt?.trim()) throw new Error('提示词规划器返回内容不完整');
+
+            return {
+                title: parsed.title?.trim().slice(0, 30) || fallback.title,
+                summary: parsed.summary?.trim() || fallback.summary,
+                prompt: parsed.prompt.trim(),
+                negativePrompt: parsed.negativePrompt.trim(),
+                usedVision: referenceImages.length > 0,
+            };
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    console.warn('[ImagePromptPlanner] Vision planning failed after compatibility retry; using intent-specific fallback.', lastError);
+    return fallback;
+};
 
 const HELP_ME_WRITE_INSTRUCTION = `
 # ❗️ 极高优先级指令：反指令泄漏和输出限制

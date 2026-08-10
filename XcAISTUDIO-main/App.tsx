@@ -1499,7 +1499,7 @@ export const App = () => {
             const reader = new FileReader();
             reader.onload = (e) => {
                 const result = e.target?.result as string;
-                if (type === 'image') handleNodeUpdate(targetId, { image: result });
+                if (type === 'image') handleNodeUpdate(targetId, { image: result, assetOrigin: 'uploaded' });
                 else handleNodeUpdate(targetId, { videoUri: result });
             };
             reader.readAsDataURL(file);
@@ -2276,6 +2276,7 @@ export const App = () => {
                             {
                                 image: src,
                                 prompt: imageFiles[index]?.name || 'Clipboard image',
+                                assetOrigin: 'uploaded',
                                 status: NodeStatus.SUCCESS
                             }
                         );
@@ -2378,7 +2379,7 @@ export const App = () => {
                     reader.onload = (event) => {
                         const res = event.target?.result as string;
                         if (file.type.startsWith('image/')) {
-                            addNode(NodeType.IMAGE_GENERATOR, xPos, yPos, { image: res, prompt: file.name, status: NodeStatus.SUCCESS });
+                            addNode(NodeType.IMAGE_GENERATOR, xPos, yPos, { image: res, prompt: file.name, assetOrigin: 'uploaded', status: NodeStatus.SUCCESS });
                         } else if (file.type.startsWith('video/')) {
                             addNode(NodeType.VIDEO_GENERATOR, xPos, yPos, { videoUri: res, prompt: file.name, status: NodeStatus.SUCCESS });
                         }
@@ -3222,7 +3223,7 @@ export const App = () => {
                             undefined,
                             mediaType === 'video'
                                 ? { videoUri: url, prompt: `Agent【${title}】生成的视频资产` }
-                                : { image: url, imagePreview: url, prompt: `Agent【${title}】生成的图片资产` },
+                                : { image: url, imagePreview: url, prompt: `Agent【${title}】生成的图片资产`, assetOrigin: 'generated' },
                         );
                     }}
                     onInsertImageModificationWorkflow={(inputImages, outputImage) => {
@@ -3231,17 +3232,20 @@ export const App = () => {
                         const centerX = (-panRef.current.x + rect.width / 2) / scaleRef.current;
                         const centerY = (-panRef.current.y + rect.height / 2) / scaleRef.current;
 
-                        // 1. 原图输入节点 (包含原始参考图片)
-                        const sourceNodeId = addNode(
+                        // 1. 每张参考图都编译为独立来源节点；单图时保持原有位置。
+                        const sourceSpacingY = 680;
+                        const sourceStartY = centerY - 150 - ((Math.max(1, inputImages.length) - 1) * sourceSpacingY) / 2;
+                        const sourceNodeIds = inputImages.map((inputImage, index) => addNode(
                             NodeType.IMAGE_GENERATOR,
                             centerX - 300,
-                            centerY - 150,
+                            sourceStartY + index * sourceSpacingY,
                             {
-                                image: inputImages[0]?.url,
-                                imagePreview: inputImages[0]?.url,
-                                prompt: `原图参考【${inputImages[0]?.title || '图片'}】`,
+                                image: inputImage.url,
+                                imagePreview: inputImage.url,
+                                prompt: `原图参考【${inputImage.title || `图片${index + 1}`}】`,
+                                assetOrigin: 'uploaded',
                             }
-                        );
+                        )).filter((nodeId): nodeId is string => Boolean(nodeId));
 
                         // 2. AI 调整生成节点 (包含修改后生成的成果图)
                         const outputNodeId = addNode(
@@ -3252,13 +3256,19 @@ export const App = () => {
                                 image: outputImage.url,
                                 imagePreview: outputImage.url,
                                 prompt: outputImage.prompt,
+                                assetOrigin: 'generated',
                             }
                         );
 
-                        // 3. 建立输入 -> 输出贝塞尔连线与节点依附关系
-                        if (sourceNodeId && outputNodeId) {
-                            setConnections(prev => [...prev, { from: sourceNodeId, to: outputNodeId }]);
-                            setNodes(prev => prev.map(n => n.id === outputNodeId ? { ...n, inputs: [...n.inputs, sourceNodeId] } : n));
+                        // 3. 按画布计划建立所有参考输入 -> 输出连接与节点依附关系。
+                        if (sourceNodeIds.length > 0 && outputNodeId) {
+                            setConnections(prev => [
+                                ...prev,
+                                ...sourceNodeIds.map(sourceNodeId => ({ from: sourceNodeId, to: outputNodeId })),
+                            ]);
+                            setNodes(prev => prev.map(n => n.id === outputNodeId
+                                ? { ...n, inputs: [...n.inputs, ...sourceNodeIds] }
+                                : n));
                             handleFocusNode(outputNodeId);
                         }
                     }}
