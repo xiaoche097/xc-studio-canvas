@@ -5247,7 +5247,7 @@ export const generateUniversalTryOn = async (
     signal?: AbortSignal;
   } = {}
 ): Promise<string[]> => {
-  const { aspectRatio = "3:4", resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", lockCropping = true, signal } = options;
+  const { aspectRatio = AspectRatio.PORTRAIT_2_3, resolution = "2K", count = 1, model = "gemini-3.1-flash-image-preview", lockCropping = true, signal } = options;
   const { ai, config: imageApiConfig } = getImageGenerationContext(model, aspectRatio, resolution);
   throwIfAborted(signal);
 
