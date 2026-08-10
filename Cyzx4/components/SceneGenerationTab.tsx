@@ -389,6 +389,9 @@ const styleSummary = (record: SceneGenerationRecord, customStyles: EcommerceCust
 const buildAnalysisPrompt = (record: SceneGenerationRecord, styleName: string, stylePrompt: string) => {
   const board = SCENE_BOARD_CONFIGS[record.boardType];
   const cropConfig = cropFramingById(record.cropFraming);
+  const lowerBodyPlanningRule = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
+    ? `- LOWER-BODY POSE RULE: Every image plan must keep the legs and feet uncrossed. Keep each leg on its own side of the body's centerline, with both shoes/feet separately visible and a clear gap between the ankles. Use a stable hip-width stance or a naturally separated stride. Never plan crossed legs, crossed ankles, a scissor stance, overlapping calves/shoes, one foot placed across the other, or a toe-point crossover. Create pose variety with the arms, gaze, torso angle and camera position instead of crossing the legs.`
+    : '';
   const refSceneText = record.referenceSceneImage
     ? `Image ${record.productImages.length + 1} is a REFERENCE SCENE & POSE IMAGE. Extract its exact background environment, lighting, composition, camera perspective, and model pose/action. Create visual plans that faithfully replicate this scene style and pose for the product.`
     : 'No reference scene image provided.';
@@ -426,6 +429,7 @@ RULES
 - ATMOSPHERE IS NOT A DECORATION. Reverse-engineer the emotional weather of the screenshots: exact time-of-day feeling, light direction and hardness, highlight roll-off, shadow color, air/wind movement, tactile architecture/nature, foreground-midground-background depth, candid human micro-moment, film stock/texture and intentional exposure imperfections.
 - Avoid reducing the reference to nouns such as "white wall", "street" or "villa". Describe the sensory relationship among light, air, skin, fabric, surfaces and space.
 - Reject sterile catalog posing, centered full-body sidewalk shots, generic luxury hotels, empty studio backdrops and evenly lit commercial scenes unless those traits recur clearly in the uploaded screenshots.
+${lowerBodyPlanningRule}
 - Recommend exact board type from: main, aplus, social, story, asset, mobile.
 - If user does NOT provide product size, infer exact realistic product size & fit dimensions in Chinese based on product images, apparel silhouette/style, category standards, and real-world proportions (e.g. "裙长约 115cm（中长款流线型）", "裤长约 100cm（修身长裤）", "常规手提包约 28x20cm"). Output this as "estimatedProductSize".
 - Plan exactly ${record.outputCount} distinct, high-converting commercial lifestyle image plans.
@@ -477,6 +481,16 @@ const buildGenerationPrompt = (
   const board = SCENE_BOARD_CONFIGS[record.boardType];
   const cropConfig = cropFramingById(record.cropFraming);
   const productEnd = record.productImages.length;
+  const lowerBodyPoseLock = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
+    ? `
+LOWER-BODY POSE LOCK — MANDATORY
+- Use an uncrossed, anatomically stable lower-body pose. Each leg must remain on its own side of the body's vertical centerline from hip to foot.
+- Keep both lower legs and both shoes/feet independently readable, with visible lateral separation between the ankles and no overlap in the image plane.
+- Use either a relaxed hip-width parallel stance or a natural stride whose left and right feet remain laterally separated. Both feet must have believable ground contact and aligned hips, knees and ankles.
+- NEVER use crossed legs, crossed ankles, a scissor stance, touching ankles, overlapping calves or shoes, one foot placed across the other, or a toe-point crossover pose.
+- Express candid energy through the arms, hands, gaze, torso angle, hair/fabric movement and camera timing — never by crossing the legs or feet.
+`
+    : '';
 
   let refSceneNote = '';
   if (record.referenceSceneImage) {
@@ -533,6 +547,7 @@ SCENE & BOARD SYSTEM
 - Camera / Device: ${analysis.cameraDevice}
 - Shot Type: ${analysis.shotType}
 - Model Persona: ${analysis.modelPersonaPreset} (${analysis.modelEthnicity}, ${analysis.modelAgeGroup}, ${analysis.modelLifestyle})
+${lowerBodyPoseLock}
 
 STYLE DIRECTION
 - Selected Style: ${styleName}
