@@ -11,7 +11,7 @@ import { STYLE_PRESETS, StylePreset } from '../../Cyzx4/constants/stylePresets';
 import { FacialControlModal } from './FacialControlModal';
 import { ColorAdjustmentModal } from './ColorAdjustmentModal';
 import { LightingControlModal, LightingParams } from './LightingControlModal';
-import { getCssFilterString } from '../services/geminiService';
+import { getCssFilterString, applyColorAdjustmentsToCanvas } from '../services/geminiService';
 import * as mammoth from 'mammoth/mammoth.browser';
 
 
@@ -1573,6 +1573,22 @@ const NodeComponent: React.FC<NodeProps> = ({
                         isEditing ? 'ring-2 ring-cyan-400/80 border-cyan-500/40 shadow-[0_0_35px_rgba(6,182,212,0.25)]' : 'border-white/10'
                     }`}
                 >
+                    {/* 处于 WORKING 状态时的加裁/生成全屏遮罩 */}
+                    {isWorking && (
+                        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#151518]/92 p-6 backdrop-blur-md animate-in fade-in duration-200 select-none">
+                            <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-cyan-400/15 text-cyan-300 ring-1 ring-cyan-300/40 shadow-[0_0_30px_rgba(6,182,212,0.3)] mb-4">
+                                <Loader2 size={28} className="animate-spin text-cyan-400" />
+                            </div>
+                            <h4 className="text-sm font-black text-white tracking-wide">{node.title || 'AI 分镜大师'}生成中...</h4>
+                            <p className="mt-1.5 text-xs font-medium text-cyan-200/70 text-center max-w-[260px] leading-relaxed">
+                                正在调用创意中心 AI 引擎，智能分解镜号与批量渲染宫格画面...
+                            </p>
+                            <div className="mt-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-zinc-400">
+                                <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
+                                后台并发合成中
+                            </div>
+                        </div>
+                    )}
                     {/* 左上角标题标示 (参考图3) */}
                     <div className="text-[13px] font-bold text-zinc-200/90 mb-3 px-1 tracking-wide flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -1662,41 +1678,58 @@ const NodeComponent: React.FC<NodeProps> = ({
                                             <>
                                                 <img src={cellData.image} className="w-full h-full object-cover select-none pointer-events-none" alt={`Cell ${idx + 1}`} />
                                                 
-                                                {/* 右上角 3 键控制组: 仅在进入编辑模式后 Hover 显示 (参考图2、图3) */}
-                                                {isEditing && (
-                                                    <div className="absolute top-2 right-2 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity bg-[#2d2d30]/90 backdrop-blur-md p-1 rounded-xl border border-white/15 shadow-xl" onMouseDown={e => e.stopPropagation()}>
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                                                onExpand?.({ type: 'image', src: cellData.image!, rect });
-                                                            }}
-                                                            className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/20 transition-colors"
-                                                            title="预览图片"
-                                                        >
-                                                            <Eye size={13} />
-                                                        </button>
-                                                        <button 
-                                                            onClick={(e) => { e.stopPropagation(); activeCellIndexRef.current = idx; cellFileInputRef.current?.click(); }}
-                                                            className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/20 transition-colors"
-                                                            title="替换图片"
-                                                        >
-                                                            <Upload size={13} />
-                                                        </button>
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const nextCells = [...cells];
-                                                                nextCells[idx] = { ...nextCells[idx], image: undefined };
-                                                                onUpdate(node.id, { storyboardCells: nextCells });
-                                                            }}
-                                                            className="p-1 rounded-lg text-zinc-300 hover:text-red-300 hover:bg-red-500/20 transition-colors"
-                                                            title="移除图片"
-                                                        >
-                                                            <X size={13} />
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                {/* 右上角控制组: Hover 显示预览、下载与编辑组件 */}
+                                                <div className="absolute top-2 right-2 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity bg-[#2d2d30]/90 backdrop-blur-md p-1 rounded-xl border border-white/15 shadow-xl" onMouseDown={e => e.stopPropagation()}>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                            onExpand?.({ type: 'image', src: cellData.image!, rect });
+                                                        }}
+                                                        className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/20 transition-colors"
+                                                        title="预览图片"
+                                                    >
+                                                        <Eye size={13} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const link = document.createElement('a');
+                                                            link.href = cellData.image!;
+                                                            link.download = `${node.title || '分镜'}-镜头${idx + 1}.png`;
+                                                            document.body.appendChild(link);
+                                                            link.click();
+                                                            document.body.removeChild(link);
+                                                        }}
+                                                        className="p-1 rounded-lg text-zinc-300 hover:text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+                                                        title="下载此单格小图"
+                                                    >
+                                                        <Download size={13} />
+                                                    </button>
+                                                    {isEditing && (
+                                                        <>
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); activeCellIndexRef.current = idx; cellFileInputRef.current?.click(); }}
+                                                                className="p-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/20 transition-colors"
+                                                                title="替换图片"
+                                                            >
+                                                                <Upload size={13} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const nextCells = [...cells];
+                                                                    nextCells[idx] = { ...nextCells[idx], image: undefined };
+                                                                    onUpdate(node.id, { storyboardCells: nextCells });
+                                                                }}
+                                                                className="p-1 rounded-lg text-zinc-300 hover:text-red-300 hover:bg-red-500/20 transition-colors"
+                                                                title="移除图片"
+                                                            >
+                                                                <X size={13} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </>
                                         ) : (
                                             <Plus size={18} className="text-zinc-500/70 group-hover:text-zinc-200 transition-colors" />
@@ -1981,7 +2014,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 style={{ filter: showImageGrid ? 'blur(10px)' : 'none' }} // Pass Style
                             />
                         }
-                        {node.status === NodeStatus.ERROR && <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20"><AlertCircle className="text-red-500 mb-2" /><span className="text-xs text-red-200">{node.data.error}</span></div>}
+                        {(node.status as NodeStatus) === NodeStatus.ERROR && <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20"><AlertCircle className="text-red-500 mb-2" /><span className="text-xs text-red-200">{node.data.error}</span></div>}
                         {showImageGrid && (node.data.images || node.data.videoUris) && (
                             <div className="absolute inset-0 bg-black/40 z-10 grid grid-cols-2 gap-2 p-2 animate-in fade-in duration-200">
                                 {node.data.images ? node.data.images.map((img, idx) => (
@@ -2004,14 +2037,18 @@ const NodeComponent: React.FC<NodeProps> = ({
                     </>
                 )}
                 {isWorking && (isImageNode || isVideoNode) && (
-                    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]">
-                        <div className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-300/25 bg-[#111615]/85 px-5 py-4 text-center shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
-                            <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-300/25">
-                                <Loader2 size={22} className="animate-spin" />
+                    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6 backdrop-blur-[3px] rounded-2xl">
+                        <div className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-300/30 bg-[#111615]/90 px-6 py-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.6)]">
+                            <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-300/30">
+                                <Loader2 size={24} className="animate-spin text-emerald-400" />
                             </div>
                             <div>
-                                <p className="text-[13px] font-black text-emerald-100">{hasContent ? '重新生成中...' : '生成中...'}</p>
-                                <p className="mt-1 text-[10px] font-medium text-emerald-100/55">{hasContent ? '正在替换为新的结果' : '结果会显示在这里'}</p>
+                                <p className="text-sm font-black text-emerald-100">
+                                    {isStoryboardNode ? 'AI 分镜大师生成中...' : hasContent ? '重新生成中...' : '生成中...'}
+                                </p>
+                                <p className="mt-1 text-[11px] font-medium text-emerald-200/70">
+                                    {isStoryboardNode ? '正在智能分解镜号与渲染多宫格画面...' : hasContent ? '正在替换为新的结果' : '结果会显示在这里'}
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -2576,6 +2613,35 @@ const NodeComponent: React.FC<NodeProps> = ({
                 adjustments={node.data.colorAdjustments}
                 onChange={(newAdjustments) => onUpdate(node.id, { colorAdjustments: newAdjustments })}
                 onCompareChange={(isComparing) => setIsComparingColor(isComparing)}
+                onApplyToImage={async (finalAdjustments) => {
+                    const sourceUrl = node.data.image || node.data.imagePreview;
+                    if (sourceUrl) {
+                        try {
+                            const bakedUrl = await applyColorAdjustmentsToCanvas(sourceUrl, finalAdjustments);
+                            onUpdate(node.id, {
+                                image: bakedUrl,
+                                imagePreview: bakedUrl,
+                                colorAdjustments: undefined,
+                            });
+                            setIsColorAdjustOpen(false);
+                        } catch (err) {
+                            console.error("Failed to apply color adjustments:", err);
+                        }
+                    }
+                }}
+                onSaveAsNewNode={async (finalAdjustments) => {
+                    const sourceUrl = node.data.image || node.data.imagePreview;
+                    if (sourceUrl) {
+                        try {
+                            const bakedUrl = await applyColorAdjustmentsToCanvas(sourceUrl, finalAdjustments);
+                            if (onCreateDerivedNode) {
+                                onCreateDerivedNode(node.id, `调色导出图`, `${node.title || '节点'}-调色图`);
+                            }
+                        } catch (err) {
+                            console.error("Failed to export color adjustments:", err);
+                        }
+                    }
+                }}
             />
 
             {/* 3D 摄影打光控制面板 */}

@@ -66,7 +66,11 @@ Fit only that product onto Image 1 with correct anatomy, perspective, scale, con
   },
   MODEL_SCENE_FISSION: {
     workflowHint: 'pose-fission',
-    instruction: `Create a new commercial fashion scene variation from the supplied model reference. Lock the same model face, body proportions, hairstyle, garment identity, colors, prints and accessories. Keep photorealistic anatomy and coherent lighting while changing the environment, camera angle and pose into a distinct campaign-ready composition. Do not add text, collage panels or watermark.`,
+    instruction: `[ROLE: Senior Fashion Model & Commercial Scene Fission Director]
+Transform the reference model into a campaign-ready commercial fashion photoshoot fission.
+STRICT SCENE ENVIRONMENT CONSISTENCY (HIGHEST PRIORITY): Lock and maintain the reference image's background scene environment (architectural style, stone facade, color palette, daylight, and ambient mood). All variations MUST remain inside or around this SAME consistent environment. DO NOT switch to unrelated indoor stores, cafes, sofa living rooms, beaches, dusk streets, or plain studio walls.
+STRICT IDENTITY & OUTFIT LOCK: Lock the exact model face features, body proportions, hairstyle, skin tone, and complete outfit identity (garment cut, fabric, color, prints, handbag, footwear, and accessories).
+DYNAMIC UN-FIXED POSES & ANGLES MANDATE: Every generation MUST be unique and non-templated. Dynamically vary body poses, head directions, torso rotations, camera angles (high/low/profile/front), and framings (close-up/waist/full-body/detail) within the SAME scene environment. Do not add text, captions, or watermark.`,
   },
   MODEL_POSE_FISSION: {
     workflowHint: 'pose-fission',

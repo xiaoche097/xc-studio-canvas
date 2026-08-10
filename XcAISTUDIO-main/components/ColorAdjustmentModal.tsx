@@ -8,6 +8,8 @@ interface ColorAdjustmentModalProps {
     adjustments?: ColorAdjustments;
     onChange: (newAdjustments: ColorAdjustments) => void;
     onCompareChange?: (isComparing: boolean) => void;
+    onApplyToImage?: (newAdjustments: ColorAdjustments) => void;
+    onSaveAsNewNode?: (newAdjustments: ColorAdjustments) => void;
 }
 
 const DEFAULT_ADJUSTMENTS: ColorAdjustments = {
@@ -42,6 +44,8 @@ export const ColorAdjustmentModal: React.FC<ColorAdjustmentModalProps> = ({
     adjustments = {},
     onChange,
     onCompareChange,
+    onApplyToImage,
+    onSaveAsNewNode,
 }) => {
     const [activeTab, setActiveTab] = useState<'light' | 'color' | 'detail' | 'effects'>('light');
 
@@ -107,9 +111,9 @@ export const ColorAdjustmentModal: React.FC<ColorAdjustmentModalProps> = ({
 
     return (
         <div 
-            className="absolute left-[calc(100%+16px)] top-0 z-[600] w-72 bg-[#1c1c1e] border border-white/15 rounded-[22px] shadow-[0_24px_60px_rgba(0,0,0,0.9)] p-4 text-zinc-100 animate-in fade-in zoom-in-95 duration-150 select-none pointer-events-auto"
+            className="absolute left-[calc(100%+16px)] top-0 z-[600] w-72 bg-[#1c1c1e] border border-white/15 rounded-[22px] shadow-[0_24px_60px_rgba(0,0,0,0.9)] p-4 text-zinc-100 animate-in fade-in zoom-in-95 duration-150 select-none pointer-events-auto flex flex-col"
             style={{
-                maxHeight: '580px',
+                maxHeight: '640px',
             }}
             onMouseDown={(e) => e.stopPropagation()}
         >
@@ -199,7 +203,7 @@ export const ColorAdjustmentModal: React.FC<ColorAdjustmentModalProps> = ({
             </div>
 
             {/* Scrollable Sliders */}
-            <div className="overflow-y-auto max-h-[55vh] pr-1 space-y-3 custom-scrollbar">
+            <div className="overflow-y-auto max-h-[42vh] pr-1 space-y-3 custom-scrollbar flex-1">
                 {activeTab === 'light' && (
                     <div className="space-y-1">
                         <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">光线</div>
@@ -242,6 +246,26 @@ export const ColorAdjustmentModal: React.FC<ColorAdjustmentModalProps> = ({
                         {renderSlider('褪色', 'fade')}
                         {renderSlider('模糊', 'blur', 0, 100)}
                     </div>
+                )}
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="pt-3 border-t border-white/10 mt-3 flex flex-col gap-2 shrink-0">
+                <button
+                    type="button"
+                    onClick={() => onApplyToImage?.(current)}
+                    className="w-full py-2 px-3 bg-[#00c985] hover:bg-[#00b377] text-white font-bold text-xs rounded-xl shadow-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                    应用并保存到原图
+                </button>
+                {onSaveAsNewNode && (
+                    <button
+                        type="button"
+                        onClick={() => onSaveAsNewNode(current)}
+                        className="w-full py-1.5 px-3 bg-white/10 hover:bg-white/20 text-zinc-200 font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                        另存调色图为新节点
+                    </button>
                 )}
             </div>
         </div>

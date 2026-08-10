@@ -1064,10 +1064,47 @@ export const generateStoryboardGridImages = async (
     if (optionType === 'MODEL_SCENE_FISSION') {
         rows = 3; cols = 3;
         optionTitle = '模特场景图裂变';
-        promptDetail = `Create a clean 3x3 high-definition fashion photoshoot contact sheet grid matching ${aspectRatio} aspect ratio. 
-STRICT REQUIREMENT - MODEL IDENTITY & OUTFIT LOCK: Preserving the exact model face, facial features, hair style, skin tone, and outfit from the reference image.
-Generate 9 distinct commercial scene environments (such as luxury hotel lobby, sunlit street, beach resort, modern architecture, cafe terrace, studio gradient background, evening city lights).
-No text, no labels, no numbers, pure photorealistic commercial photography grid.`;
+
+        const poseAnglePool = [
+            'full body front walking stride with a confident editorial gaze',
+            '45-degree angle stride turning towards the camera',
+            'side profile pose leaning gracefully against the architectural wall',
+            'over-the-shoulder glance back highlighting garment rear tailoring',
+            'relaxed seated or stooped posture on a stone step/ledge within the scene',
+            'hand-in-pocket standing pose with subtle torso tilt',
+            'dynamic motion turn with natural garment motion blur accent',
+            'high-fashion facial portrait with dramatic eyes and soft background bokeh',
+            'low-angle perspective crop highlighting leg silhouetting and footwear',
+            'macro close-up on fabric weave, lapel stitching, and accessory detail',
+            'three-quarter standing pose looking slightly away from lens',
+            'close-up waist shot with hands touching lapel'
+        ];
+        const shuffledPoses = [...poseAnglePool].sort(() => Math.random() - 0.5).slice(0, 9);
+        const dynamicPanelsPrompt = shuffledPoses.map((p, idx) => `${idx + 1}. Panel ${idx + 1}: ${p} within the reference architectural scene.`).join('\n');
+        const dynamicSeed = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+        promptDetail = `[ROLE: Senior Fashion Model & Commercial Scene Fission Director]
+[RANDOM GENERATION SEED: ${dynamicSeed}]
+Create a masterwork 3x3 high-definition fashion photoshoot contact sheet grid matching ${aspectRatio} aspect ratio.
+
+CRITICAL REQUIREMENT 1 - SCENE & ENVIRONMENT CONSISTENCY (HIGHEST PRIORITY):
+- STRICTLY PRESERVE & LOCK the background scene environment from the reference image (architectural style, stone facade/walls, background structures, warm neutral tones, lighting, and ambient atmosphere).
+- ALL 9 PANELS MUST TAKE PLACE WITHIN THIS SAME CONSISTENT SCENE ENVIRONMENT. DO NOT CHANGE THE SCENE into unrelated indoor shops, cafes, sofa living rooms, beaches, dusk streets, or plain studio walls.
+
+CRITICAL REQUIREMENT 2 - MODEL IDENTITY & OUTFIT LOCK:
+- Lock the exact model face features, hair style, hair color, skin tone, and body proportions from the reference image.
+- Lock every garment detail: fabric texture, blazer cut, shorts/pants, color, handbag, footwear, and accessories. Do not alter or redesign the clothing.
+
+CRITICAL REQUIREMENT 3 - DYNAMIC & UN-FIXED POSES AND CAMERA ANGLES (VARY ON EVERY GENERATION):
+- The 9 panels MUST be dynamic and unique for this generation run. Do NOT output fixed static templates.
+- Dynamically randomize camera heights (low angle, eye level, high angle), framing (extreme close-up, waist shot, full body, wide angle), torso rotation, and body poses.
+
+9-PANEL DYNAMIC POSE & CAMERA ANGLE COMBINATIONS (DYNAMICALLY GENERATED FOR THIS RUN):
+${dynamicPanelsPrompt}
+
+QUALITY & COMPOSITION SPECIFICATION:
+- Professional editorial fashion campaign photography, consistent daylight, ultra-realistic skin and fabric texture, 8k resolution.
+- Absolute Zero text, no captions, no panel borders, no watermarks, no labels, pure photorealistic commercial contact sheet.`;
     } else if (optionType === 'MULTI_ANGLE_9GRID') {
         rows = 3; cols = 3;
         optionTitle = '多机位九宫格';

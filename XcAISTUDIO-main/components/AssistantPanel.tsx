@@ -302,7 +302,8 @@ const parseInlineStyles = (text: string): React.ReactNode[] => {
   });
 };
 
-const renderFormattedMessage = (text: string) => {
+const renderFormattedMessage = (text?: string) => {
+  if (!text) return null;
   const lines = text.split('\n');
   const elements: React.ReactNode[] = [];
 

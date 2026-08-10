@@ -1816,7 +1816,7 @@ export const App = () => {
                     inputs: [sourceNodeId],
                 });
 
-                newConnections.push({ id: `c-${sourceNodeId}-${newNodeId}`, from: sourceNodeId, to: newNodeId });
+                newConnections.push({ from: sourceNodeId, to: newNodeId });
             });
 
             setNodes(prev => [...prev, ...newNodes]);
