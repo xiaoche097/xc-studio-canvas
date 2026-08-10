@@ -2166,7 +2166,7 @@ const NodeComponent: React.FC<NodeProps> = ({
         if (suppressNodeChrome) return null;
         const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isImageResolutionOpen || isStylePresetOpen || isImageMoreOpen;
         if (isStoryboardNode) return null;
-        const isOpen = (isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);
+        const isOpen = (isSelected || isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);
         if (!isOpen) return null;
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
         const promptPlaceholder = node.type === NodeType.AUDIO_GENERATOR
@@ -2594,8 +2594,10 @@ const NodeComponent: React.FC<NodeProps> = ({
                 <div className="flex-1 min-h-0 relative bg-zinc-900">
                     {renderMediaContent()}
                 </div>
-                {!isFacialControlOpen && renderBottomPanel()}
             </div>
+
+            {/* 属性输入面板必须位于 overflow-hidden 的节点卡片之外，否则 top-full 内容会被裁掉。 */}
+            {!isFacialControlOpen && renderBottomPanel()}
 
             {/* 面部控制面板 (独立悬挂于节点卡片正下方 12px 处，零绿框侵扰) */}
             <FacialControlModal 

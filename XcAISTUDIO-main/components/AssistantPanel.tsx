@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
-import { 
+import {
   X, Eraser, Copy, CornerDownLeft, Loader2, Sparkles, Brain, PenLine, Wand2,
   Shirt, Palette, Award, Home, MessageSquare, Clapperboard, Megaphone, ScanFace, Zap,
   Clock, Plus, AtSign, FileText, Globe, ArrowUp, ChevronDown, ChevronRight, RotateCcw,
@@ -16,6 +16,8 @@ import {
   type AgentSkillId,
   type AgentSkillResult,
 } from '../services/agentSkillExecutor';
+
+const ATTACHMENT_MENTION_MARKER = '\uFFFC';
 
 export interface ImageModificationCardData {
   title: string;
@@ -463,6 +465,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   // 底部弹窗下拉菜单状态
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [selectedAgentMode, setSelectedAgentMode] = useState<'agent' | 'image' | 'video' | 'pose'>('agent');
+  const [isAttachmentMentionOpen, setIsAttachmentMentionOpen] = useState(false);
+  const [attachmentMentionSegmentIndex, setAttachmentMentionSegmentIndex] = useState<number | null>(null);
+  const [selectedAttachmentReferenceIds, setSelectedAttachmentReferenceIds] = useState<string[]>([]);
   const [isSkillBookOpen, setIsSkillBookOpen] = useState(false);
   const [isAskMenuOpen, setIsAskMenuOpen] = useState(false);
   const [askMode, setAskMode] = useState<'ask' | 'auto'>('ask');
@@ -485,7 +490,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLInputElement>(null);
+  const composerSegmentRefs = useRef<Array<HTMLInputElement | null>>([]);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
 
@@ -497,6 +503,28 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       return true;
     }).slice(0, 10);
   }, [attachments, uploadedAttachments]);
+
+  const composerSegments = input.split(ATTACHMENT_MENTION_MARKER);
+  const attachmentMentionQuery = attachmentMentionSegmentIndex === null
+    ? ''
+    : composerSegments[attachmentMentionSegmentIndex]?.match(/@([^\s@]*)$/)?.[1]?.toLowerCase() || '';
+  const attachmentMentionOptions = activeAttachments
+    .map((asset, index) => ({ asset, index, label: `图片${index + 1}`, referenceLabel: `参考图${index + 1}` }))
+    .filter((option) => option.label.toLowerCase().includes(attachmentMentionQuery) || option.referenceLabel.toLowerCase().includes(attachmentMentionQuery));
+  const selectedAttachmentReferences = selectedAttachmentReferenceIds.flatMap((id) => {
+    const index = activeAttachments.findIndex((asset) => asset.id === id);
+    return index >= 0 ? [{ asset: activeAttachments[index], index }] : [];
+  });
+
+  const focusComposerSegment = (segmentIndex: number, caret: 'start' | 'end' = 'end') => {
+    window.setTimeout(() => {
+      const element = composerSegmentRefs.current[segmentIndex];
+      if (!element) return;
+      element.focus();
+      const position = caret === 'start' ? 0 : element.value.length;
+      element.setSelectionRange(position, position);
+    }, 0);
+  };
 
   const selectedGuide = selectedSkill ? SKILL_GUIDES[selectedSkill.id] : null;
   const hasRequiredAssets = Boolean(selectedGuide && activeAttachments.length >= selectedGuide.minAssets);
@@ -839,6 +867,18 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   };
 
   const removeActiveAttachment = (id: string) => {
+    const referenceIndexes = selectedAttachmentReferenceIds.reduce<number[]>((indexes, referenceId, index) => {
+      if (referenceId === id) indexes.push(index);
+      return indexes;
+    }, []);
+    if (referenceIndexes.length > 0) {
+      const segments = input.split(ATTACHMENT_MENTION_MARKER);
+      for (const referenceIndex of [...referenceIndexes].reverse()) {
+        segments.splice(referenceIndex, 2, `${segments[referenceIndex] || ''}${segments[referenceIndex + 1] || ''}`);
+      }
+      setInput(segments.join(ATTACHMENT_MENTION_MARKER));
+      setSelectedAttachmentReferenceIds((current) => current.filter((referenceId) => referenceId !== id));
+    }
     if (uploadedAttachments.some((asset) => asset.id === id)) {
       setUploadedAttachments((current) => current.filter((asset) => asset.id !== id));
     } else {
@@ -846,11 +886,62 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
   };
 
+  const insertAttachmentMention = (index: number) => {
+    const asset = activeAttachments[index];
+    if (!asset) return;
+    if (selectedAttachmentReferenceIds.includes(asset.id)) {
+      const existingIndex = selectedAttachmentReferenceIds.indexOf(asset.id);
+      setIsAttachmentMentionOpen(false);
+      setAttachmentMentionSegmentIndex(null);
+      focusComposerSegment(existingIndex + 1, 'start');
+      return;
+    }
+    const segments = input.split(ATTACHMENT_MENTION_MARKER);
+    const segmentIndex = attachmentMentionSegmentIndex !== null && attachmentMentionSegmentIndex < segments.length
+      ? attachmentMentionSegmentIndex
+      : segments.length - 1;
+    segments[segmentIndex] = (segments[segmentIndex] || '').replace(/@([^\s@]*)$/, '').replace(/\s+$/, '');
+    segments.splice(segmentIndex + 1, 0, '');
+    setInput(segments.join(ATTACHMENT_MENTION_MARKER));
+    setSelectedAttachmentReferenceIds((current) => [
+      ...current.slice(0, segmentIndex),
+      asset.id,
+      ...current.slice(segmentIndex),
+    ]);
+    setIsAttachmentMentionOpen(false);
+    setAttachmentMentionSegmentIndex(null);
+    focusComposerSegment(segmentIndex + 1, 'start');
+  };
+
+  const removeAttachmentMention = (referenceIndex: number) => {
+    const segments = input.split(ATTACHMENT_MENTION_MARKER);
+    if (referenceIndex < 0 || referenceIndex >= selectedAttachmentReferenceIds.length) return;
+    segments.splice(referenceIndex, 2, `${segments[referenceIndex] || ''}${segments[referenceIndex + 1] || ''}`);
+    setInput(segments.join(ATTACHMENT_MENTION_MARKER));
+    setSelectedAttachmentReferenceIds((current) => current.filter((_, index) => index !== referenceIndex));
+    setIsAttachmentMentionOpen(false);
+    setAttachmentMentionSegmentIndex(null);
+    focusComposerSegment(referenceIndex);
+  };
+
   const handleSendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-    const userText = input.trim();
+    if ((!input.replaceAll(ATTACHMENT_MENTION_MARKER, '').trim() && selectedAttachmentReferences.length === 0) || isLoading) return;
+    const messageSegments = input.split(ATTACHMENT_MENTION_MARKER);
+    const serializedParts: string[] = [];
+    messageSegments.forEach((segment, index) => {
+      if (segment.trim()) serializedParts.push(segment.trim());
+      const referenceId = selectedAttachmentReferenceIds[index];
+      if (referenceId) {
+        const attachmentIndex = activeAttachments.findIndex((asset) => asset.id === referenceId);
+        if (attachmentIndex >= 0) serializedParts.push(`@参考图${attachmentIndex + 1}`);
+      }
+    });
+    const userText = serializedParts.join(' ').replace(/\s+/g, ' ').trim();
     const quotedMemory = activeMemoryQuote;
     setInput('');
+    setIsAttachmentMentionOpen(false);
+    setAttachmentMentionSegmentIndex(null);
+    setSelectedAttachmentReferenceIds([]);
     setActiveMemoryQuote(null);
 
     setMessages((prev) => [...prev, { role: 'user', text: userText }]);
@@ -909,7 +1000,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         ? `\n\n当前技能：${selectedSkill.title}\n当前素材数：${activeAttachments.length}，最低需要：${selectedGuide.minAssets}\n素材规则：${selectedGuide.assetRules.join('；')}\n待确认问题：${selectedGuide.questions.join('；')}\n当前用户简报：${skillBrief || selectedSkill.prompt}`
         : '';
       const attachmentContext = activeAttachments.length > 0
-        ? `\n\n【关键已知信息：用户已在当前对话面板中成功上传并提供了 ${activeAttachments.length} 张原图素材/照片】：\n${activeAttachments.map((att, idx) => `- 素材照片 @${idx + 1}：${att.title}`).join('\n')}\n系统已感知到此素材，绝对不要认为或告知用户“未获取到照片”或“缺少原图素材”。请基于已上传的原图素材回应用户。`
+        ? `\n\n【关键已知信息：用户已在当前对话面板中成功上传并提供了 ${activeAttachments.length} 张原图素材/照片】：\n${activeAttachments.map((att, idx) => `- @参考图${idx + 1}：${att.title}`).join('\n')}\n系统已感知到此素材，绝对不要认为或告知用户“未获取到照片”或“缺少原图素材”。请按用户输入的 @参考图编号准确理解引用关系。`
         : '\n\n【用户当前暂未上传任何参考照片素材】';
       const memoryContext = memoryPoints.length
         ? `\n\n用户主动引用的长期记忆点（需要持续遵守）：\n${memoryPoints.slice(-12).map((point) => `- ${point.label}：${point.text}`).join('\n')}`
@@ -1003,7 +1094,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     setMessages([DEFAULT_INITIAL_MESSAGE]);
     setSelectedSkill(null);
     setSkillBrief('');
+    setInput('');
     setUploadedAttachments([]);
+    setSelectedAttachmentReferenceIds([]);
+    setIsAttachmentMentionOpen(false);
+    setAttachmentMentionSegmentIndex(null);
     setAgentPhase('idle');
     setAgentTrace([]);
     setGenerationStatus('');
@@ -1035,7 +1130,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
     setAgentPhase(target.agentPhase || 'idle');
     setSkillBrief('');
+    setInput('');
     setUploadedAttachments([]);
+    setSelectedAttachmentReferenceIds([]);
+    setIsAttachmentMentionOpen(false);
+    setAttachmentMentionSegmentIndex(null);
     setGenerationStatus('');
     setActiveMemoryQuote(null);
     setIsHistoryOpen(false);
@@ -1104,6 +1203,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const handleClearChat = () => {
     handleCreateNewSession();
   };
+
+  const isWelcomeState = messages.length === 1 && messages[0].text === '你好！我是您的小彻智能助手。今天想创作些什么？';
 
   return (
     <div
@@ -1298,10 +1399,10 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       ) : (
         <>
           {/* 2. 主体区 (添加 max-w-[440px] mx-auto 精细居中，防止过度拉宽) */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-5 custom-scrollbar bg-[#0d0d0f]">
-        <div className="max-w-[440px] mx-auto w-full">
-        {messages.length === 1 && messages[0].text === '你好！我是您的小彻智能助手。今天想创作些什么？' ? (
-          <div className="flex flex-col items-start pt-2 pb-16 animate-in fade-in duration-500">
+          <div className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 custom-scrollbar bg-[#0d0d0f] ${isWelcomeState ? 'flex' : ''}`}>
+        <div className={`max-w-[440px] mx-auto w-full ${isWelcomeState ? 'my-auto' : ''}`}>
+        {isWelcomeState ? (
+          <div className="flex flex-col items-start py-6 animate-in fade-in duration-500">
             {/* 头像 + 问候语 横向 Flex 并列 */}
             <div className="flex items-center gap-3.5 mb-6">
               <div className="w-12 h-12 rounded-full overflow-hidden border border-orange-500/50 shadow-[0_0_20px_rgba(249,115,22,0.5)] relative shrink-0">
@@ -2024,6 +2125,27 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               : 'border-white/[0.04] focus-within:border-orange-500/30'
           }`}
         >
+          {isAttachmentMentionOpen && activeAttachments.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 z-40 mb-2 rounded-2xl border border-white/10 bg-[#202023]/98 p-2 shadow-2xl backdrop-blur-xl">
+              <p className="px-2 pb-1.5 text-[10px] font-medium text-zinc-500">可能的内容</p>
+              <div className="max-h-52 space-y-1 overflow-y-auto custom-scrollbar">
+                {attachmentMentionOptions.length > 0 ? attachmentMentionOptions.map(({ asset, index, label }) => (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertAttachmentMention(index)}
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-xs text-zinc-200 transition hover:bg-white/[0.07]"
+                  >
+                    <img src={asset.src} alt={label} className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+                    <span className="font-medium">{label}</span>
+                  </button>
+                )) : (
+                  <p className="px-3 py-4 text-center text-xs text-zinc-500">没有匹配的参考图</p>
+                )}
+              </div>
+            </div>
+          )}
           {isDraggingImages && (
             <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[20px] bg-[#18181c]/90 backdrop-blur-sm">
               <div className="flex items-center gap-2 rounded-xl border border-orange-400/40 bg-orange-500/10 px-4 py-2 text-xs font-semibold text-orange-200">
@@ -2051,33 +2173,62 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               </button>
             </div>
           )}
-          {activeAttachments.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar" aria-label="已引用素材">
-              {activeAttachments.map((asset, index) => (
-                <div key={asset.id} className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/40">
-                  <img src={asset.src} alt={asset.title} className="h-full w-full object-cover" />
-                  <span className="absolute bottom-0 left-0 rounded-tr-md bg-black/70 px-1 text-[8px] font-bold text-white">@{index + 1}</span>
+          <div className="flex gap-2.5 items-center">
+            {activeAttachments.length > 0 ? (
+              <div className="flex shrink-0 items-center pl-1" aria-label={`已上传 ${activeAttachments.length} 张参考图`}>
+                {activeAttachments.slice(0, 3).map((asset, index) => (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    onClick={() => insertAttachmentMention(index)}
+                    style={{ zIndex: 10 - index }}
+                    className={`group relative h-14 w-12 shrink-0 overflow-hidden rounded-xl border border-white/15 bg-black/40 text-left shadow-lg ${index > 0 ? '-ml-3' : ''}`}
+                    title={`引用 @参考图${index + 1}`}
+                  >
+                    <img src={asset.src} alt={`参考图${index + 1}`} className="h-full w-full object-cover" />
+                    <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[8px] font-bold text-white">参考图{index + 1}</span>
+                    {index === 2 && activeAttachments.length > 3 && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-[11px] font-bold text-white">+{activeAttachments.length - 3}</span>
+                    )}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(event) => { event.stopPropagation(); removeActiveAttachment(asset.id); }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          removeActiveAttachment(asset.id);
+                        }
+                      }}
+                      className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-white opacity-0 transition group-hover:opacity-100"
+                      aria-label={`移除参考图${index + 1}`}
+                    >
+                      <X size={11} />
+                    </span>
+                  </button>
+                ))}
+                {activeAttachments.length < 10 && (
                   <button
                     type="button"
-                    onClick={() => removeActiveAttachment(asset.id)}
-                    className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-white opacity-0 transition group-hover:opacity-100"
-                    aria-label={`移除 ${asset.title}`}
+                    onClick={() => uploadInputRef.current?.click()}
+                    className="relative z-20 -ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[#242429] text-zinc-500 shadow-lg transition hover:bg-white/10 hover:text-white"
+                    title="继续上传参考图"
                   >
-                    <X size={11} />
+                    <Plus size={13} />
                   </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2.5 items-start">
-            <button
-              type="button"
-              onClick={() => uploadInputRef.current?.click()}
-              className="relative w-[42px] h-[42px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer shrink-0"
-              title="点击、粘贴或拖拽上传参考图"
-            >
-              <Upload size={17} />
-            </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => uploadInputRef.current?.click()}
+                className="relative w-[42px] h-[42px] rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer shrink-0"
+                title="点击、粘贴或拖拽上传参考图"
+              >
+                <Upload size={17} />
+              </button>
+            )}
             <input
               ref={uploadInputRef}
               type="file"
@@ -2090,20 +2241,91 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               }}
             />
 
-            <textarea
-              ref={textareaRef as any}
-              className="flex-1 bg-transparent border-0 resize-none py-2 px-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-0 leading-5 custom-scrollbar min-h-[42px] max-h-[100px]"
-              placeholder="先上传参考图，再用 @ 引用，输入你的想法..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              rows={1}
-            />
+            <div className="flex min-h-[42px] min-w-0 flex-1 flex-wrap items-center gap-1 py-1">
+              {composerSegments.map((segment, segmentIndex) => {
+                const referenceId = selectedAttachmentReferenceIds[segmentIndex];
+                const attachmentIndex = referenceId ? activeAttachments.findIndex((asset) => asset.id === referenceId) : -1;
+                const referencedAsset = attachmentIndex >= 0 ? activeAttachments[attachmentIndex] : null;
+                const isLastSegment = segmentIndex === composerSegments.length - 1;
+                return (
+                  <React.Fragment key={`composer-segment-${segmentIndex}-${referenceId || 'tail'}`}>
+                    <input
+                      ref={(element) => {
+                        composerSegmentRefs.current[segmentIndex] = element;
+                        if (isLastSegment) textareaRef.current = element;
+                      }}
+                      type="text"
+                      className={`${isLastSegment ? 'min-w-[100px] flex-1' : 'min-w-[14px] max-w-full'} h-8 bg-transparent border-0 px-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-0`}
+                      style={isLastSegment ? undefined : { width: `${Math.max(14, Math.min(320, (segment.length + 1) * 7))}px` }}
+                      placeholder={composerSegments.length === 1 && !segment ? '先上传参考图，再用 @ 引用，输入你的想法...' : undefined}
+                      value={segment}
+                      onFocus={() => {
+                        if (!/@([^\s@]*)$/.test(segment)) setIsAttachmentMentionOpen(false);
+                      }}
+                      onChange={(event) => {
+                        const segments = input.split(ATTACHMENT_MENTION_MARKER);
+                        segments[segmentIndex] = event.target.value;
+                        setInput(segments.join(ATTACHMENT_MENTION_MARKER));
+                        const shouldOpen = activeAttachments.length > 0 && /@([^\s@]*)$/.test(event.target.value);
+                        setAttachmentMentionSegmentIndex(shouldOpen ? segmentIndex : null);
+                        setIsAttachmentMentionOpen(shouldOpen);
+                      }}
+                      onKeyDown={(event) => {
+                        const target = event.currentTarget;
+                        const selectionStart = target.selectionStart ?? 0;
+                        const selectionEnd = target.selectionEnd ?? selectionStart;
+                        if (event.key === 'Escape' && isAttachmentMentionOpen) {
+                          event.preventDefault();
+                          setIsAttachmentMentionOpen(false);
+                          return;
+                        }
+                        if (event.key === 'ArrowLeft' && selectionStart === 0 && selectionEnd === 0 && segmentIndex > 0) {
+                          event.preventDefault();
+                          focusComposerSegment(segmentIndex - 1, 'end');
+                          return;
+                        }
+                        if (event.key === 'ArrowRight' && selectionStart === segment.length && selectionEnd === segment.length && !isLastSegment) {
+                          event.preventDefault();
+                          focusComposerSegment(segmentIndex + 1, 'start');
+                          return;
+                        }
+                        if (event.key === 'Backspace' && selectionStart === 0 && selectionEnd === 0 && segmentIndex > 0) {
+                          event.preventDefault();
+                          removeAttachmentMention(segmentIndex - 1);
+                          return;
+                        }
+                        if (event.key === 'Delete' && selectionStart === segment.length && selectionEnd === segment.length && !isLastSegment) {
+                          event.preventDefault();
+                          removeAttachmentMention(segmentIndex);
+                          return;
+                        }
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                    />
+                    {referencedAsset && (
+                      <span
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-lime-400/10 px-1.5 text-[11px] font-bold text-lime-300"
+                        title={`发送时引用 @参考图${attachmentIndex + 1}`}
+                      >
+                        <img src={referencedAsset.src} alt="" className="h-4 w-4 rounded object-cover" />
+                        图片{attachmentIndex + 1}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachmentMention(segmentIndex)}
+                          className="ml-0.5 text-lime-200/50 transition hover:text-white"
+                          aria-label={`取消引用图片${attachmentIndex + 1}`}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </div>
 
           {/* 底栏控制条 (包含 AUTO 生成偏好参数按钮，完全还原参考图 1) */}
@@ -2135,8 +2357,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                     uploadInputRef.current?.click();
                     return;
                   }
-                  const refs = activeAttachments.map((_, index) => `@${index + 1}`).join(' ');
-                  setInput((current) => `${current}${current ? ' ' : ''}${refs}`);
+                  setInput((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@`);
+                  setAttachmentMentionSegmentIndex(input.split(ATTACHMENT_MENTION_MARKER).length - 1);
+                  setIsAttachmentMentionOpen(true);
                   textareaRef.current?.focus();
                 }}
                 className="p-1.5 text-zinc-500 hover:text-zinc-300 transition"
@@ -2208,9 +2431,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
             <button
               type="button"
               onClick={handleSendMessage}
-              disabled={!input.trim() || isLoading}
+              disabled={(!input.trim() && selectedAttachmentReferences.length === 0) || isLoading}
               className={`w-7 h-7 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer ${
-                input.trim() && !isLoading
+                (input.trim() || selectedAttachmentReferences.length > 0) && !isLoading
                   ? 'bg-orange-500 text-white hover:bg-orange-400 shadow-md'
                   : 'bg-white/5 text-zinc-600 cursor-not-allowed'
               }`}
