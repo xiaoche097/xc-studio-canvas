@@ -1019,7 +1019,6 @@ export const applyColorAdjustmentsToCanvas = (
 };
 
 export const cropGridCellCanvas = (
-
     sourceDataUrl: string,
     row: number,
     col: number,
@@ -1034,16 +1033,22 @@ export const cropGridCellCanvas = (
             const h = img.height;
             const cellW = w / cols;
             const cellH = h / rows;
-            const sx = col * cellW;
-            const sy = row * cellH;
+
+            // Trim 1.2% inset off edges to shave off any white/rounded border lines baked by AI
+            const insetX = cellW * 0.012;
+            const insetY = cellH * 0.012;
+            const sx = col * cellW + insetX;
+            const sy = row * cellH + insetY;
+            const sw = cellW - insetX * 2;
+            const sh = cellH - insetY * 2;
 
             const canvas = document.createElement('canvas');
-            canvas.width = Math.max(128, Math.round(cellW));
-            canvas.height = Math.max(128, Math.round(cellH));
+            canvas.width = Math.max(128, Math.round(sw));
+            canvas.height = Math.max(128, Math.round(sh));
             const ctx = canvas.getContext('2d');
             if (!ctx) { resolve(sourceDataUrl); return; }
 
-            ctx.drawImage(img, sx, sy, cellW, cellH, 0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
             resolve(canvas.toDataURL('image/png', 0.95));
         };
         img.onerror = () => resolve(sourceDataUrl);
@@ -1098,6 +1103,9 @@ CRITICAL REQUIREMENT 2 - MODEL IDENTITY & OUTFIT LOCK:
 CRITICAL REQUIREMENT 3 - DYNAMIC & UN-FIXED POSES AND CAMERA ANGLES (VARY ON EVERY GENERATION):
 - The 9 panels MUST be dynamic and unique for this generation run. Do NOT output fixed static templates.
 - Dynamically randomize camera heights (low angle, eye level, high angle), framing (extreme close-up, waist shot, full body, wide angle), torso rotation, and body poses.
+
+CRITICAL REQUIREMENT 4 - ZERO BORDERS, NO MARGINS, NO ROUNDED CELL FRAMES:
+- ABSOLUTELY NO WHITE BORDERS, NO WHITE GUTTERS, NO MARGINS, NO PADDING, NO ROUNDED CORNER FRAMES AROUND PANELS. Each panel image must extend edge-to-edge flush with zero white spacing or border lines between panels.
 
 9-PANEL DYNAMIC POSE & CAMERA ANGLE COMBINATIONS (DYNAMICALLY GENERATED FOR THIS RUN):
 ${dynamicPanelsPrompt}

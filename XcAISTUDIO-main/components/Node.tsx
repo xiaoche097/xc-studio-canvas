@@ -1601,11 +1601,11 @@ const NodeComponent: React.FC<NodeProps> = ({
                         </div>
                     </div>
 
-                    {/* 卡片主网格 (参考图3：无缝外包大圆角框 + 内部 gap-px 细线分割) */}
+                    {/* 卡片主网格 (无缝纯净无白边，无内框圆角) */}
                     {!node.data.isCollapsed ? (
                         <div
                             onMouseDown={(e) => e.stopPropagation()}
-                            className={`grid ${colsClass} gap-px bg-white/10 rounded-2xl border border-white/10 overflow-hidden shadow-inner flex-1 bg-[#1a1a1c]`}
+                            className={`grid ${colsClass} gap-0.5 bg-[#141416] rounded-xl border border-white/10 overflow-hidden shadow-2xl flex-1`}
                         >
                             {Array.from({ length: totalCells }).map((_, idx) => {
                                 const cellData = cells[idx];
