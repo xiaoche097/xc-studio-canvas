@@ -3216,6 +3216,29 @@ export const App = () => {
                     onClose={() => setIsChatOpen(false)}
                     attachments={agentAttachments}
                     onRemoveAttachment={(id) => setAgentAttachments(prev => prev.filter(item => item.id !== id))}
+                    onEnsureReferencesOnCanvas={(images) => {
+                        const canvas = canvasRef.current;
+                        const rect = canvas ? canvas.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+                        const centerX = (-panRef.current.x + rect.width / 2) / scaleRef.current;
+                        const centerY = (-panRef.current.y + rect.height / 2) / scaleRef.current;
+                        const missingImages = images.filter(image => !nodesRef.current.some(node => (
+                            node.data.image === image.url || node.data.imagePreview === image.url
+                        )));
+
+                        missingImages.forEach((image, index) => {
+                            addNode(
+                                NodeType.IMAGE_GENERATOR,
+                                centerX - 420,
+                                centerY - 180 + index * 620,
+                                {
+                                    image: image.url,
+                                    imagePreview: image.url,
+                                    prompt: image.title,
+                                    assetOrigin: 'uploaded',
+                                },
+                            );
+                        });
+                    }}
                     onInsertAssetToCanvas={(url, title, mediaType = 'image') => {
                         addNode(
                             mediaType === 'video' ? NodeType.VIDEO_GENERATOR : NodeType.IMAGE_GENERATOR,
@@ -3232,33 +3255,61 @@ export const App = () => {
                         const centerX = (-panRef.current.x + rect.width / 2) / scaleRef.current;
                         const centerY = (-panRef.current.y + rect.height / 2) / scaleRef.current;
 
-                        // 1. 每张参考图都编译为独立来源节点；单图时保持原有位置。
+                        // 1. 优先复用用户已经放在画布上的参考图节点；只有聊天框
+                        // 本地上传且画布中不存在的图片，才补建来源节点，避免重复。
                         const sourceSpacingY = 680;
                         const sourceStartY = centerY - 150 - ((Math.max(1, inputImages.length) - 1) * sourceSpacingY) / 2;
-                        const sourceNodeIds = inputImages.map((inputImage, index) => addNode(
-                            NodeType.IMAGE_GENERATOR,
-                            centerX - 300,
-                            sourceStartY + index * sourceSpacingY,
-                            {
-                                image: inputImage.url,
-                                imagePreview: inputImage.url,
-                                prompt: `原图参考【${inputImage.title || `图片${index + 1}`}】`,
-                                assetOrigin: 'uploaded',
-                            }
-                        )).filter((nodeId): nodeId is string => Boolean(nodeId));
+                        const firstExistingSource = nodesRef.current.find(node => (
+                            node.data.image === inputImages[0]?.url || node.data.imagePreview === inputImages[0]?.url
+                        ));
+                        const sourceNodeIds = inputImages.map((inputImage, index) => {
+                            const existingNode = [...nodesRef.current].reverse().find(node => (
+                                node.data.image === inputImage.url || node.data.imagePreview === inputImage.url
+                            ));
+                            if (existingNode) return existingNode.id;
 
-                        // 2. AI 调整生成节点 (包含修改后生成的成果图)
+                            return addNode(
+                                NodeType.IMAGE_GENERATOR,
+                                centerX - 300,
+                                sourceStartY + index * sourceSpacingY,
+                                {
+                                    image: inputImage.url,
+                                    imagePreview: inputImage.url,
+                                    prompt: `原图参考【${inputImage.title || `图片${index + 1}`}】`,
+                                    assetOrigin: 'uploaded',
+                                }
+                            );
+                        }).filter((nodeId): nodeId is string => Boolean(nodeId));
+
+                        // 2. Agent 给出提示词方案时便创建已连线的空节点。确认前为
+                        // IDLE 待执行，用户点击确认后才切换为 WORKING。
+                        const outputX = firstExistingSource
+                            ? firstExistingSource.x + (firstExistingSource.width || 420) + 120
+                            : centerX + 200;
+                        const outputY = firstExistingSource?.y ?? centerY - 150;
                         const outputNodeId = addNode(
                             NodeType.IMAGE_GENERATOR,
-                            centerX + 200,
-                            centerY - 150,
+                            outputX,
+                            outputY,
                             {
-                                image: outputImage.url,
-                                imagePreview: outputImage.url,
+                                image: outputImage.url || undefined,
+                                imagePreview: outputImage.url || undefined,
                                 prompt: outputImage.prompt,
+                                aspectRatio: outputImage.aspectRatio,
                                 assetOrigin: 'generated',
+                                progress: outputImage.phase === 'working' ? '正在准备图片生成任务…' : '方案已就绪，等待确认执行',
                             }
                         );
+
+                        if (outputNodeId) {
+                            setNodes(prev => prev.map(n => n.id === outputNodeId
+                                ? {
+                                    ...n,
+                                    title: outputImage.title,
+                                    status: outputImage.phase === 'working' ? NodeStatus.WORKING : NodeStatus.IDLE,
+                                }
+                                : n));
+                        }
 
                         // 3. 按画布计划建立所有参考输入 -> 输出连接与节点依附关系。
                         if (sourceNodeIds.length > 0 && outputNodeId) {
@@ -3271,6 +3322,73 @@ export const App = () => {
                                 : n));
                             handleFocusNode(outputNodeId);
                         }
+
+                        return outputNodeId;
+                    }}
+                    onUpdateImageModificationWorkflow={(outputNodeId, update) => {
+                        if (update.status === 'ready') {
+                            setNodes(prev => prev.map(n => n.id === outputNodeId
+                                ? {
+                                    ...n,
+                                    title: update.title || n.title,
+                                    status: NodeStatus.IDLE,
+                                    data: {
+                                        ...n.data,
+                                        prompt: update.prompt || n.data.prompt,
+                                        aspectRatio: update.aspectRatio || n.data.aspectRatio,
+                                        progress: update.progress || '方案已就绪，等待确认执行',
+                                        error: undefined,
+                                    },
+                                }
+                                : n));
+                            return;
+                        }
+
+                        if (update.status === 'working') {
+                            setNodes(prev => prev.map(n => n.id === outputNodeId
+                                ? {
+                                    ...n,
+                                    title: update.title || n.title,
+                                    status: NodeStatus.WORKING,
+                                    data: {
+                                        ...n.data,
+                                        prompt: update.prompt || n.data.prompt,
+                                        aspectRatio: update.aspectRatio || n.data.aspectRatio,
+                                        progress: update.progress,
+                                        error: undefined,
+                                    },
+                                }
+                                : n));
+                            return;
+                        }
+
+                        if (update.status === 'error') {
+                            setNodes(prev => prev.map(n => n.id === outputNodeId
+                                ? {
+                                    ...n,
+                                    status: NodeStatus.ERROR,
+                                    data: { ...n.data, progress: undefined, error: update.error || '生成失败' },
+                                }
+                                : n));
+                            return;
+                        }
+
+                        if (update.url) {
+                            handleNodeUpdate(
+                                outputNodeId,
+                                {
+                                    image: update.url,
+                                    assetOrigin: 'generated',
+                                    progress: undefined,
+                                    error: undefined,
+                                },
+                                undefined,
+                                update.title,
+                            );
+                        }
+                        setNodes(prev => prev.map(n => n.id === outputNodeId
+                            ? { ...n, status: NodeStatus.SUCCESS }
+                            : n));
                     }}
                     onLocateAssetOnCanvas={(url) => {
                         const targetNode = [...nodesRef.current].reverse().find(node => (

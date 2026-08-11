@@ -26,6 +26,8 @@ import {
   type AgentRuntimeState,
   type CanvasWorkflowPlan,
 } from '../services/agentOrchestrator';
+import { loadFromStorage, saveToStorage } from '../services/storage';
+import { selectPoseFromAgentLibrary } from '../../Cyzx4/services/poseLibrarySelector';
 
 const ATTACHMENT_MENTION_MARKER = '\uFFFC';
 const COMPOSER_MIN_HEIGHT = 32;
@@ -46,6 +48,31 @@ const resizeComposerTextarea = (element: HTMLTextAreaElement | null) => {
   element.style.overflowY = element.scrollHeight > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden';
 };
 
+const getClosestSupportedImageRatio = (width: number, height: number) => {
+  if (!width || !height) return '1:1';
+  const target = width / height;
+  return IMAGE_RATIO_OPTIONS.reduce((closest, ratio) => {
+    const [ratioWidth, ratioHeight] = ratio.split(':').map(Number);
+    const [closestWidth, closestHeight] = closest.split(':').map(Number);
+    return Math.abs((ratioWidth / ratioHeight) - target) < Math.abs((closestWidth / closestHeight) - target)
+      ? ratio
+      : closest;
+  }, IMAGE_RATIO_OPTIONS[0] as string);
+};
+
+const detectImageRatio = (source?: string): Promise<string> => {
+  if (!source) return Promise.resolve('1:1');
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(getClosestSupportedImageRatio(
+      image.naturalWidth || image.width,
+      image.naturalHeight || image.height,
+    ));
+    image.onerror = () => resolve('1:1');
+    image.src = source;
+  });
+};
+
 export interface ImageModificationCardData {
   title: string;
   promptPreview: string;
@@ -58,7 +85,12 @@ export interface ImageModificationCardData {
   nodeName: string;
   workflowHint: string;
   imageCount: number;
+  aspectRatio?: string;
+  agentRouteLabel?: string;
+  poseLibraryLabel?: string;
+  poseName?: string;
   canvasPlan?: CanvasWorkflowPlan;
+  canvasOutputNodeId?: string;
   isConfirmed?: boolean;
   isExecuting?: boolean;
   isCompleted?: boolean;
@@ -71,8 +103,11 @@ const compileImagePrompt = (card: Pick<ImageModificationCardData, 'promptPreview
 );
 
 const resolveImageModificationSkillId = (intent: string): AgentSkillId => {
-  if (/姿势|姿态|动作|站姿|坐姿|休闲|随意|放松|松弛|僵硬|板正|重心|手势/.test(intent)) {
+  if (/姿势|姿态|动作|站姿|坐姿|走路|行走|迈步|回头|回眸|倚靠|插兜|抬手|抬臂|转身|休闲|随意|放松|松弛|僵硬|板正|重心|手势|pose|posture|walking/i.test(intent)) {
     return 'MODEL_POSE_FISSION';
+  }
+  if (/场景|环境|背景|换景|置景|棚景|外景|室内|户外|海边|街景|咖啡馆|商场|scene|background|environment/i.test(intent)) {
+    return 'SCENE_GENERATION';
   }
   if (/白底|纯白背景/.test(intent)) return 'RETOUCHING';
   return 'REFERENCE_EDIT';
@@ -159,9 +194,22 @@ interface AssistantPanelProps {
   onRemoveAttachment?: (id: string) => void;
   onInsertAssetToCanvas?: (url: string, title: string, mediaType?: 'image' | 'video') => void;
   onLocateAssetOnCanvas?: (url: string) => boolean;
+  onEnsureReferencesOnCanvas?: (images: { url: string; title: string }[]) => void;
   onInsertImageModificationWorkflow?: (
     inputImages: { url: string; title: string }[],
-    outputImage: { url: string; title: string; prompt: string },
+    outputImage: { url: string; title: string; prompt: string; aspectRatio?: string; phase?: 'ready' | 'working' },
+  ) => string | undefined;
+  onUpdateImageModificationWorkflow?: (
+    outputNodeId: string,
+    update: {
+      status: 'ready' | 'working' | 'success' | 'error';
+      url?: string;
+      title?: string;
+      prompt?: string;
+      aspectRatio?: string;
+      progress?: string;
+      error?: string;
+    },
   ) => void;
 }
 
@@ -399,6 +447,36 @@ const readLocalJson = <T,>(key: string, fallback: T): T => {
   }
 };
 
+const CHAT_SESSIONS_STORAGE_KEY = 'xiaoche_agent_chat_sessions_v2';
+const LEGACY_CHAT_SESSION_KEYS = ['xiaoche_agent_chat_sessions', 'xiaoche_agent_chat_session'] as const;
+
+const safeSetLocalStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    // localStorage is intentionally best-effort. A full browser quota must never
+    // be able to take down the assistant UI.
+    console.warn(`[AssistantPanel] Unable to persist small setting "${key}".`, error);
+    return false;
+  }
+};
+
+let chatSessionWriteQueue: Promise<void> = Promise.resolve();
+
+const persistChatSessions = (sessions: ChatSession[]) => {
+  // Serialize IndexedDB writes so a slower, older render cannot overwrite the
+  // latest chat snapshot. IndexedDB is used because generated base64 images can
+  // easily exceed localStorage's roughly 5-10 MB per-origin quota.
+  chatSessionWriteQueue = chatSessionWriteQueue
+    .catch(() => undefined)
+    .then(() => saveToStorage(CHAT_SESSIONS_STORAGE_KEY, sessions))
+    .catch((error) => {
+      console.error('[AssistantPanel] Failed to persist chat sessions to IndexedDB.', error);
+    });
+  return chatSessionWriteQueue;
+};
+
 const parseInlineStyles = (text: string): React.ReactNode[] => {
   const parts = text.split(/(\*\*.*?\*\*)/g);
   return parts.map((part, i) => {
@@ -556,8 +634,12 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   onRemoveAttachment,
   onInsertAssetToCanvas,
   onLocateAssetOnCanvas,
+  onEnsureReferencesOnCanvas,
   onInsertImageModificationWorkflow,
+  onUpdateImageModificationWorkflow,
 }) => {
+  const [isSessionStorageHydrated, setIsSessionStorageHydrated] = useState(false);
+
   // 历史对话 Session 管理
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const saved = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
@@ -667,6 +749,57 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     sessions.find((session) => session.id === currentSessionId)?.runtimeState || null
   ));
 
+  // Full chat history (especially generated image data URLs) belongs in
+  // IndexedDB. Hydrate it once, then remove legacy localStorage payloads after
+  // a successful migration so users with older builds recover automatically.
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateChatSessions = async () => {
+      try {
+        const storedSessions = await loadFromStorage<ChatSession[]>(CHAT_SESSIONS_STORAGE_KEY);
+        const nextSessions = storedSessions?.length ? storedSessions : sessions;
+
+        if (!storedSessions?.length) {
+          // Do not delete the legacy copy unless this first migration write is
+          // confirmed successful.
+          await saveToStorage(CHAT_SESSIONS_STORAGE_KEY, nextSessions);
+        }
+        if (cancelled) return;
+
+        const savedId = localStorage.getItem('xiaoche_agent_current_session_id');
+        const nextSessionId = savedId && nextSessions.some((session) => session.id === savedId)
+          ? savedId
+          : nextSessions[0].id;
+        const nextSession = nextSessions.find((session) => session.id === nextSessionId) || nextSessions[0];
+
+        setSessions(nextSessions);
+        setCurrentSessionId(nextSession.id);
+        setMessages(nextSession.messages?.length ? nextSession.messages : [DEFAULT_INITIAL_MESSAGE]);
+        setSelectedSkill(nextSession.skillId
+          ? ALL_AGENT_SKILLS.find((skill) => skill.id === nextSession.skillId) || null
+          : null);
+        setAgentPhase(nextSession.agentPhase || 'idle');
+        setAgentRuntimeState(nextSession.runtimeState || null);
+
+        LEGACY_CHAT_SESSION_KEYS.forEach((key) => localStorage.removeItem(key));
+      } catch (error) {
+        // Keep the already-loaded in-memory/legacy session usable if IndexedDB
+        // is unavailable (private mode, browser policy, etc.).
+        console.error('[AssistantPanel] Failed to hydrate chat sessions from IndexedDB.', error);
+      } finally {
+        if (!cancelled) setIsSessionStorageHydrated(true);
+      }
+    };
+
+    void hydrateChatSessions();
+    return () => {
+      cancelled = true;
+    };
+    // Initial state is a migration fallback and must only be captured once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     composerSegmentRefs.current.forEach(resizeComposerTextarea);
   }, [input]);
@@ -738,7 +871,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     const nextPoints = existingIndex >= 0 ? memoryPoints : [...memoryPoints, nextPoint].slice(-20);
     setMemoryPoints(nextPoints);
     setActiveMemoryQuote(nextPoint);
-    localStorage.setItem('xiaoche_agent_memory_points', JSON.stringify(nextPoints));
+    safeSetLocalStorage('xiaoche_agent_memory_points', JSON.stringify(nextPoints));
     textareaRef.current?.focus();
     showActionNotice(messageId, `已引用为 @${nextPoint.label}`);
   };
@@ -748,7 +881,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     if (next[messageId]?.rating === rating) delete next[messageId];
     else next[messageId] = { rating, text: text.slice(0, 1600), createdAt: Date.now() };
     setMessageFeedback(next);
-    localStorage.setItem('xiaoche_agent_feedback', JSON.stringify(next));
+    safeSetLocalStorage('xiaoche_agent_feedback', JSON.stringify(next));
     showActionNotice(messageId, rating === 'up' ? '已记住：继续保持这类回答' : '已记住：后续避免这类回答');
   };
 
@@ -925,35 +1058,69 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     setIsLoading(true);
     setGenerationStatus('Agent 正在重新读取参考图并撰写提示词…');
     try {
+      const detectedAspectRatio = await detectImageRatio(referenceAssets[0]?.src);
+      const executionSkillId = resolveImageModificationSkillId(originalIntent);
+      const poseSelection = executionSkillId === 'MODEL_POSE_FISSION'
+        ? selectPoseFromAgentLibrary(originalIntent)
+        : null;
+      const routedUserIntent = poseSelection
+        ? `${originalIntent}\n\n${poseSelection.directive}`
+        : executionSkillId === 'SCENE_GENERATION'
+          ? `${originalIntent}\n\nSCENE AGENT ROUTE: Use the Scene Generation Agent and preserve the source subject exactly.`
+          : originalIntent;
       const referenceImages = (await Promise.all(referenceAssets.map(async (asset) => (
         asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
       )))).filter(Boolean);
       const promptPlan = await planImagePrompt({
-        userIntent: originalIntent,
+        userIntent: routedUserIntent,
         referenceImages,
-        aspectRatio: imageRatio,
+        aspectRatio: detectedAspectRatio,
         resolution: imageResolution,
         mode: 'edit',
       });
+      const finalPromptPreview = poseSelection
+        ? `${promptPlan.prompt}\n\n${poseSelection.directive}`
+        : promptPlan.prompt;
       const rewrittenCard: ImageModificationCardData = {
         ...card,
         title: promptPlan.title,
         nodeName: promptPlan.title,
-        promptPreview: promptPlan.prompt,
-        promptSummary: promptPlan.summary,
+        promptPreview: finalPromptPreview,
+        promptSummary: poseSelection
+          ? `${promptPlan.summary} 已从「${poseSelection.libraryLabel}」匹配动作「${poseSelection.poseName}」。`
+          : executionSkillId === 'SCENE_GENERATION'
+            ? `${promptPlan.summary} 本任务将由场景图生成 Agent 执行。`
+            : promptPlan.summary,
         negativePrompt: promptPlan.negativePrompt,
         wasVisuallyAnalyzed: promptPlan.usedVision,
         originalIntent,
-        executionSkillId: resolveImageModificationSkillId(originalIntent),
+        executionSkillId,
+        agentRouteLabel: executionSkillId === 'SCENE_GENERATION'
+          ? '场景图生成 Agent'
+          : executionSkillId === 'MODEL_POSE_FISSION'
+            ? 'AI 模特姿势裂变 Agent'
+            : '参考图修改 Agent',
+        poseLibraryLabel: poseSelection?.libraryLabel,
+        poseName: poseSelection?.poseName,
         referencedAssetIds: referenceAssets.map((asset) => asset.id),
+        aspectRatio: detectedAspectRatio,
         canvasPlan: buildImageModificationCanvasPlan(
           referenceAssets.map((asset) => asset.id),
-          compileImagePrompt({ promptPreview: promptPlan.prompt, negativePrompt: promptPlan.negativePrompt }),
+          compileImagePrompt({ promptPreview: finalPromptPreview, negativePrompt: promptPlan.negativePrompt }),
         ),
         isConfirmed: false,
         isExecuting: false,
         isCompleted: false,
       };
+      if (card.canvasOutputNodeId) {
+        onUpdateImageModificationWorkflow?.(card.canvasOutputNodeId, {
+          status: 'ready',
+          title: promptPlan.title,
+          prompt: compileImagePrompt({ promptPreview: finalPromptPreview, negativePrompt: promptPlan.negativePrompt }),
+          aspectRatio: detectedAspectRatio,
+          progress: '提示词已更新，等待确认执行',
+        });
+      }
       setMessages((current) => current.map((message) => message.id === messageId
         ? { ...message, text: '已重新理解修改意图并改写为可执行提示词。', imageModCard: rewrittenCard }
         : message));
@@ -978,6 +1145,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       setMessages((prev) => [...prev, { role: 'model', text: '本次引用的参考图已不存在，请重新添加图片后再生成。' }]);
       return;
     }
+    const executionAspectRatio = card.aspectRatio || await detectImageRatio(executionAssets[0]?.src);
     if (card.canvasPlan) {
       const planCheck = validateCanvasWorkflowPlan(card.canvasPlan);
       if (agentRuntimeState) setAgentRuntimeState(attachSelfCheck(agentRuntimeState, planCheck));
@@ -997,6 +1165,23 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     setIsLoading(true);
     setGenerationStatus(`正在执行【${card.title}】图像修改工作流…`);
 
+    // Confirmation is the commit point: immediately materialize the user's
+    // references and a connected working node on canvas. The generated image
+    // is filled into this same node later instead of creating a second node.
+    const workflowOutputNodeId = card.canvasOutputNodeId || onInsertImageModificationWorkflow?.(
+      executionAssets.map((asset) => ({ url: asset.src, title: asset.title })),
+      { url: '', title: card.title, prompt: compileImagePrompt(card), aspectRatio: executionAspectRatio, phase: 'working' },
+    );
+    if (workflowOutputNodeId) {
+      onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
+        status: 'working',
+        title: card.title,
+        prompt: compileImagePrompt(card),
+        aspectRatio: executionAspectRatio,
+        progress: '用户已确认，正在启动图片生成…',
+      });
+    }
+
     const statusMessageId = `status-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
@@ -1015,7 +1200,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         prompt: compileImagePrompt(card),
         assets: executionAssets,
         preferences: {
-          imageRatio,
+          imageRatio: executionAspectRatio,
           imageResolution,
           imageModel,
           videoRatio,
@@ -1023,7 +1208,15 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           videoDuration,
           videoModel,
         },
-        onProgress: (prog) => setGenerationStatus(prog),
+        onProgress: (prog) => {
+          setGenerationStatus(prog);
+          if (workflowOutputNodeId) {
+            onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
+              status: 'working',
+              progress: prog,
+            });
+          }
+        },
       });
 
       setMessages((current) => current.map((m) => m.id === messageId
@@ -1041,12 +1234,14 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         },
       ]);
 
-      const primaryInput = executionAssets[0] || { src: '', title: '原图' };
       const primaryOutput = results[0] || { url: '', title: card.title };
-      onInsertImageModificationWorkflow?.(
-        [{ url: primaryInput.src, title: primaryInput.title }],
-        { url: primaryOutput.url, title: card.title, prompt: compileImagePrompt(card) }
-      );
+      if (workflowOutputNodeId) {
+        onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
+          status: 'success',
+          url: primaryOutput.url,
+          title: card.title,
+        });
+      }
     } catch (err: any) {
       setMessages((current) => current.map((m) => m.id === messageId
         ? { ...m, imageModCard: { ...m.imageModCard!, isExecuting: false } }
@@ -1055,6 +1250,12 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         ...prev,
         { role: 'model', text: `**【${card.title}】执行失败**\n\n${err.message || '生成错误，请重试。'}` },
       ]);
+      if (workflowOutputNodeId) {
+        onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
+          status: 'error',
+          error: err.message || '生成错误，请重试。',
+        });
+      }
     } finally {
       setIsLoading(false);
       setGenerationStatus('');
@@ -1232,6 +1433,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       }]);
       return;
     }
+    if (submittedReferenceAssets.length > 0) {
+      onEnsureReferencesOnCanvas?.(
+        submittedReferenceAssets.map((asset) => ({ url: asset.src, title: asset.title })),
+      );
+    }
     const quotedMemory = activeMemoryQuote;
     setInput('');
     setIsAttachmentMentionOpen(false);
@@ -1250,13 +1456,16 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       setIsLoading(true);
       setGenerationStatus('Agent 正在理解画面并撰写专业提示词…');
       try {
+        const effectiveImageRatio = submittedReferenceAssets.length > 0
+          ? await detectImageRatio(submittedReferenceAssets[0]?.src)
+          : imageRatio;
         const referenceImages = (await Promise.all(submittedReferenceAssets.map(async (asset) => (
           asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
         )))).filter(Boolean);
         const promptPlan = await planImagePrompt({
           userIntent: imagePrompt,
           referenceImages,
-          aspectRatio: imageRatio,
+          aspectRatio: effectiveImageRatio,
           resolution: imageResolution,
           mode: referenceImages.length > 0 ? 'edit' : 'generate',
         });
@@ -1266,7 +1475,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         });
         setGenerationStatus(`提示词已完成，正在使用 ${IMAGE_MODEL_OPTIONS.find((model) => model.value === imageModel)?.label || '图片模型'} 生成…`);
         const generated = await generateImageFromText(optimizedPrompt, imageModel, referenceImages, {
-          aspectRatio: imageRatio,
+          aspectRatio: effectiveImageRatio,
           resolution: imageResolution,
           count: 1,
         });
@@ -1278,7 +1487,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         generatedAssets.forEach((asset) => onInsertAssetToCanvas?.(asset.url, asset.title, asset.mediaType));
         setMessages((prev) => [...prev, {
           role: 'model',
-          text: `## 图片生成完成\n\n${promptPlan.summary}\n\n**Agent 实际使用的提示词**\n\n${promptPlan.prompt}\n\n**排除项**\n\n${promptPlan.negativePrompt}\n\n已按 **${imageRatio} · ${imageResolution.toUpperCase()}** 完成生成。`,
+          text: `## 图片生成完成\n\n${promptPlan.summary}\n\n**Agent 实际使用的提示词**\n\n${promptPlan.prompt}\n\n**排除项**\n\n${promptPlan.negativePrompt}\n\n已按 **${effectiveImageRatio} · ${imageResolution.toUpperCase()}** 完成生成。`,
           assets: generatedAssets,
         }]);
       } catch (error) {
@@ -1301,18 +1510,31 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       setIsLoading(true);
       setGenerationStatus('Agent 正在分析参考图并撰写可直接生成的提示词…');
       try {
+        const detectedAspectRatio = await detectImageRatio(submittedReferenceAssets[0]?.src);
+        const executionSkillId = resolveImageModificationSkillId(imagePrompt);
+        const poseSelection = executionSkillId === 'MODEL_POSE_FISSION'
+          ? selectPoseFromAgentLibrary(imagePrompt)
+          : null;
+        const routedUserIntent = poseSelection
+          ? `${imagePrompt}\n\n${poseSelection.directive}`
+          : executionSkillId === 'SCENE_GENERATION'
+            ? `${imagePrompt}\n\nSCENE AGENT ROUTE: Use the Scene Generation Agent. Preserve the source subject exactly and build only the requested environment with coherent perspective, scale, lighting, contact and occlusion.`
+            : imagePrompt;
         const referenceImages = (await Promise.all(submittedReferenceAssets.map(async (asset) => (
           asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
         )))).filter(Boolean);
         const promptPlan = await planImagePrompt({
-          userIntent: imagePrompt,
+          userIntent: routedUserIntent,
           referenceImages,
-          aspectRatio: imageRatio,
+          aspectRatio: detectedAspectRatio,
           resolution: imageResolution,
           mode: 'edit',
         });
+        const finalPromptPreview = poseSelection
+          ? `${promptPlan.prompt}\n\n${poseSelection.directive}`
+          : promptPlan.prompt;
         const executionPrompt = compileImagePrompt({
-          promptPreview: promptPlan.prompt,
+          promptPreview: finalPromptPreview,
           negativePrompt: promptPlan.negativePrompt,
         });
         const canvasPlan = buildImageModificationCanvasPlan(
@@ -1330,19 +1552,42 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         }
 
         const cardId = `mod-card-${Date.now()}`;
+        const canvasOutputNodeId = onInsertImageModificationWorkflow?.(
+          submittedReferenceAssets.map((asset) => ({ url: asset.src, title: asset.title })),
+          {
+            url: '',
+            title: promptPlan.title,
+            prompt: executionPrompt,
+            aspectRatio: detectedAspectRatio,
+            phase: 'ready',
+          },
+        );
         const cardData: ImageModificationCardData = {
           title: promptPlan.title,
-          promptPreview: promptPlan.prompt,
-          promptSummary: promptPlan.summary,
+          promptPreview: finalPromptPreview,
+          promptSummary: poseSelection
+            ? `${promptPlan.summary} 已由 AI 模特姿势裂变 Agent 从「${poseSelection.libraryLabel}」匹配动作「${poseSelection.poseName}」。`
+            : executionSkillId === 'SCENE_GENERATION'
+              ? `${promptPlan.summary} 本任务将由场景图生成 Agent 执行。`
+              : promptPlan.summary,
           negativePrompt: promptPlan.negativePrompt,
           wasVisuallyAnalyzed: promptPlan.usedVision,
           originalIntent: imagePrompt,
-          executionSkillId: resolveImageModificationSkillId(imagePrompt),
+          executionSkillId,
+          agentRouteLabel: executionSkillId === 'SCENE_GENERATION'
+            ? '场景图生成 Agent'
+            : executionSkillId === 'MODEL_POSE_FISSION'
+              ? 'AI 模特姿势裂变 Agent'
+              : '参考图修改 Agent',
+          poseLibraryLabel: poseSelection?.libraryLabel,
+          poseName: poseSelection?.poseName,
           referencedAssetIds: submittedReferenceAssets.map((asset) => asset.id),
           nodeName: promptPlan.title,
           workflowHint: '图生图',
           imageCount: submittedReferenceAssets.length,
+          aspectRatio: detectedAspectRatio,
           canvasPlan,
+          canvasOutputNodeId,
         };
 
         setMessages((prev) => [
@@ -1413,9 +1658,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
   };
 
-  // 自动将当前对话与状态同步到 Session 列表与 localStorage
+  // 自动将当前对话与状态同步到 Session 列表与 IndexedDB
   useEffect(() => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || !isSessionStorageHydrated) return;
 
     const firstUserMsg = messages.find(m => m.role === 'user');
     let sessionTitle = '你好';
@@ -1453,11 +1698,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         newSessions = [updatedSession, ...prevSessions];
       }
 
-      localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify(newSessions));
-      localStorage.setItem('xiaoche_agent_current_session_id', currentSessionId);
+      void persistChatSessions(newSessions);
+      safeSetLocalStorage('xiaoche_agent_current_session_id', currentSessionId);
       return newSessions;
     });
-  }, [messages, selectedSkill, agentPhase, agentRuntimeState, currentSessionId]);
+  }, [messages, selectedSkill, agentPhase, agentRuntimeState, currentSessionId, isSessionStorageHydrated]);
 
   const handleCreateNewSession = () => {
     if (isLoading) return;
@@ -1488,8 +1733,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     setActiveMemoryQuote(null);
     setIsHistoryOpen(false);
 
-    localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify(updatedSessions));
-    localStorage.setItem('xiaoche_agent_current_session_id', newId);
+    void persistChatSessions(updatedSessions);
+    safeSetLocalStorage('xiaoche_agent_current_session_id', newId);
     showActionNotice('new-session', '已开启新对话');
   };
 
@@ -1523,7 +1768,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     setActiveMemoryQuote(null);
     setIsHistoryOpen(false);
 
-    localStorage.setItem('xiaoche_agent_current_session_id', targetSessionId);
+    safeSetLocalStorage('xiaoche_agent_current_session_id', targetSessionId);
   };
 
   const handleDeleteSession = (sessionIdToDelete: string, e: React.MouseEvent) => {
@@ -1545,11 +1790,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       setSelectedSkill(null);
       setAgentPhase('idle');
       setAgentRuntimeState(null);
-      localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify([newSession]));
-      localStorage.setItem('xiaoche_agent_current_session_id', newId);
+      void persistChatSessions([newSession]);
+      safeSetLocalStorage('xiaoche_agent_current_session_id', newId);
     } else {
       setSessions(filtered);
-      localStorage.setItem('xiaoche_agent_chat_sessions', JSON.stringify(filtered));
+      void persistChatSessions(filtered);
 
       if (sessionIdToDelete === currentSessionId) {
         const nextSession = filtered[0];
@@ -1563,7 +1808,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         }
         setAgentPhase(nextSession.agentPhase || 'idle');
         setAgentRuntimeState(nextSession.runtimeState || null);
-        localStorage.setItem('xiaoche_agent_current_session_id', nextSession.id);
+        safeSetLocalStorage('xiaoche_agent_current_session_id', nextSession.id);
       }
     }
     showActionNotice('delete-session', '会话已删除');
@@ -1578,12 +1823,14 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
   };
 
-  const handleRefreshHistory = () => {
-    const saved = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
-    if (saved.length > 0) {
-      setSessions(saved);
+  const handleRefreshHistory = async () => {
+    try {
+      const saved = await loadFromStorage<ChatSession[]>(CHAT_SESSIONS_STORAGE_KEY);
+      if (saved?.length) setSessions(saved);
+      showActionNotice('refresh-history', '历史对话已同步');
+    } catch {
+      showActionNotice('refresh-history', '历史对话同步失败');
     }
-    showActionNotice('refresh-history', '历史对话已同步');
   };
 
   const handleClearChat = () => {
@@ -1983,6 +2230,18 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
                       {/* 2. 生成提示词区域 */}
                       <div className="mt-3.5 space-y-2">
+                        {m.imageModCard.agentRouteLabel && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[9px] font-bold text-emerald-300">
+                              {m.imageModCard.agentRouteLabel}
+                            </span>
+                            {m.imageModCard.poseLibraryLabel && (
+                              <span className="rounded-lg border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[9px] font-bold text-violet-300">
+                                {m.imageModCard.poseLibraryLabel} · {m.imageModCard.poseName}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-3">
                           <div className="text-[11px] font-bold text-zinc-400">
                             Agent 优化后的生成提示词

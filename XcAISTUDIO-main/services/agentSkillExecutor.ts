@@ -209,10 +209,16 @@ const executeImageSkill = async (
   }
   const config = IMAGE_SKILL_PROMPTS[input.skillId];
   const isSceneGeneration = input.skillId === 'SCENE_GENERATION';
-  const sceneReference = isSceneGeneration ? images[1] : undefined;
-  const modelReference = isSceneGeneration ? images[2] : undefined;
+  const isSingleCompositeSceneReference = isSceneGeneration && images.length === 1;
+  const sceneReference = isSceneGeneration && !isSingleCompositeSceneReference ? images[1] : undefined;
+  const modelReference = isSceneGeneration
+    ? (isSingleCompositeSceneReference ? images[0] : images[2])
+    : undefined;
   const productImages = isSceneGeneration
-    ? [images[0], ...images.slice(3)].filter((image): image is ApiImage => Boolean(image))
+    ? (isSingleCompositeSceneReference
+        ? [images[0]]
+        : [images[0], ...images.slice(3)]
+      ).filter((image): image is ApiImage => Boolean(image))
     : [];
   const orderedImages = isSceneGeneration
     ? [

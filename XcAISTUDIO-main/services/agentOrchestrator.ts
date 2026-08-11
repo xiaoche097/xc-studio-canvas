@@ -66,7 +66,7 @@ export interface CanvasWorkflowPlan {
   requiresConfirmation: boolean;
 }
 
-const IMAGE_MODIFICATION_PATTERN = /换|改|调整|修|发型|背景|服装|衣服|头发|变|替换|白底|精修|增强|生成/;
+const IMAGE_MODIFICATION_PATTERN = /换|改|调整|修|发型|背景|场景|环境|换景|服装|衣服|头发|姿势|姿态|动作|站姿|坐姿|走路|行走|迈步|回头|回眸|倚靠|插兜|抬手|抬臂|转身|放松|松弛|变|替换|白底|精修|增强|生成|scene|background|pose|posture|walking/i;
 const WORKFLOW_COMPLEXITY_PATTERN = /工作流|分镜|批量|系列|多场景|多镜头|首尾帧|一致性|完整方案|全套|视频脚本|镜头表/i;
 const GUIDED_COMPLEXITY_PATTERN = /帮我|优化|高级|好看|专业|有质感|随便|你决定|自动/i;
 
