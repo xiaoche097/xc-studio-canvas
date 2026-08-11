@@ -50,12 +50,17 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
         if (!isOpen) return;
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                onClose();
+                if (isSelectionMode) {
+                    setIsSelectionMode(false);
+                    setSelectedIds(new Set());
+                } else {
+                    onClose();
+                }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, onClose]);
+    }, [isOpen, isSelectionMode, onClose]);
 
     // 当关闭弹窗或切换 Tab 时，停止音频播放
     useEffect(() => {
@@ -74,7 +79,17 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     if (!isOpen) return null;
 
     // 过滤出当前 Tab 类型对应的历史数据
-    const filteredItems = assetHistory.filter(item => item.type === activeTab);
+    const filteredItems = assetHistory
+        .filter(item => item.type === activeTab)
+        .sort((a, b) => b.timestamp - a.timestamp);
+    const groupedItems = filteredItems.reduce<Array<{ dateKey: string; label: string; items: HistoryItem[] }>>((groups, item) => {
+        const date = new Date(item.timestamp);
+        const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const existing = groups.find(group => group.dateKey === dateKey);
+        if (existing) existing.items.push(item);
+        else groups.push({ dateKey, label: dateKey, items: [item] });
+        return groups;
+    }, []);
 
     // 切换单个项目的选择状态
     const toggleSelectItem = (id: string) => {
@@ -213,21 +228,21 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md transition-all duration-300 animate-in fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/78 p-4 sm:p-7 backdrop-blur-lg transition-all duration-300 animate-in fade-in">
             {/* 弹窗主体内容卡片 */}
             <div 
-                className="relative w-full max-w-5xl h-[80vh] bg-[#0c0c0e]/95 border border-white/10 rounded-[28px] shadow-[0_25px_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300"
+                className="relative w-full max-w-[1500px] h-[86vh] min-h-[600px] bg-[radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.08),transparent_34%),linear-gradient(145deg,#1b1b1e,#151517_72%)] border border-white/[0.09] rounded-[24px] shadow-[0_32px_100px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* 顶部头部导航区域 */}
-                <div className="p-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                        <h2 className="text-xl font-bold text-white tracking-wider flex items-center gap-2">
-                            <span className="text-emerald-400">✨</span> 历史记录
+                <div className="px-5 sm:px-7 pt-5 pb-4 border-b border-white/[0.055] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-center gap-5">
+                        <h2 className="hidden text-base font-black text-white lg:block">
+                            历史记录
                         </h2>
                         
                         {/* Tab 栏切换按钮组 */}
-                        <div className="flex bg-white/5 p-1 rounded-full border border-white/5">
+                        <div className="flex bg-black/25 p-1 rounded-xl border border-white/[0.08]">
                             {[
                                 { id: 'image', label: '图片历史', icon: ImageIcon },
                                 { id: 'video', label: '视频历史', icon: Film },
@@ -242,14 +257,15 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                             setActiveTab(tab.id as TabType);
                                             handleExitSelectionMode();
                                         }}
-                                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all border ${
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
                                             isActive 
-                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-sm' 
-                                                : 'bg-transparent text-zinc-400 border-transparent hover:text-zinc-200'
+                                                ? 'bg-[#2a2c31] text-white shadow-[0_4px_16px_rgba(0,0,0,0.3)] ring-1 ring-white/5' 
+                                                : 'text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200'
                                         }`}
                                     >
                                         <Icon size={13} />
                                         {tab.label}
+                                        <span className={`text-[9px] ${isActive ? 'text-lime-300' : 'text-zinc-700'}`}>{assetHistory.filter(item => item.type === tab.id).length}</span>
                                     </button>
                                 );
                             })}
@@ -257,16 +273,16 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                     </div>
 
                     {/* 右侧操作按钮组（普通状态 vs 批量状态） */}
-                    <div className="flex items-center gap-3 self-end md:self-auto">
+                    <div className="flex items-center gap-2 self-end md:self-auto">
                         {isSelectionMode ? (
-                            <div className="flex items-center gap-3 animate-in slide-in-from-right-4 duration-300">
-                                <span className="text-xs text-emerald-400 font-semibold bg-emerald-400/10 px-3 py-1.5 rounded-full border border-emerald-400/20">
+                            <div className="flex items-center gap-2 animate-in slide-in-from-right-4 duration-300">
+                                <span className="text-xs text-lime-300 font-bold bg-lime-400/10 px-3 py-2 rounded-lg border border-lime-400/20">
                                     已选 {selectedIds.size} 项
                                 </span>
                                 
                                 <button
                                     onClick={handleToggleSelectAll}
-                                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-full border border-white/5 text-xs text-zinc-300 font-medium transition-all"
+                                    className="px-3 py-2 bg-white/[0.07] hover:bg-white/10 rounded-lg border border-white/[0.07] text-xs text-zinc-300 font-bold transition-all"
                                 >
                                     {selectedIds.size === filteredItems.length && filteredItems.length > 0 ? '取消全选' : '全选本页'}
                                 </button>
@@ -274,7 +290,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                 <button
                                     onClick={handleConfirmBatchDelete}
                                     disabled={selectedIds.size === 0}
-                                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                                    className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold border transition-all ${
                                         selectedIds.size > 0
                                             ? 'bg-red-500/20 border-red-500/30 hover:bg-red-500/30 text-red-400'
                                             : 'bg-zinc-800/40 border-zinc-800/60 text-zinc-600 cursor-not-allowed'
@@ -286,7 +302,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
                                 <button
                                     onClick={handleExitSelectionMode}
-                                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-full text-xs text-zinc-200 font-semibold transition-all"
+                                    className="px-3 py-2 bg-white/[0.07] hover:bg-white/10 rounded-lg text-xs text-zinc-300 font-bold transition-all"
                                 >
                                     取消
                                 </button>
@@ -295,7 +311,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                             filteredItems.length > 0 && (
                                 <button
                                     onClick={() => setIsSelectionMode(true)}
-                                    className="flex items-center gap-1.5 px-4 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-full border border-white/5 text-xs font-semibold transition-all hover:scale-105"
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-white/[0.08] hover:bg-white/[0.13] text-zinc-200 rounded-lg border border-white/[0.08] text-xs font-bold transition-all"
                                 >
                                     <CheckSquare size={13} className="text-emerald-400" />
                                     批量操作
@@ -307,8 +323,11 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
                         {/* 关闭按钮 */}
                         <button
-                            onClick={onClose}
-                            className="p-2 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-full border border-white/5 transition-all hover:rotate-90 duration-300"
+                            onClick={() => {
+                                handleExitSelectionMode();
+                                onClose();
+                            }}
+                            className="p-2 text-zinc-500 hover:text-white hover:bg-white/[0.07] rounded-full transition-all"
                             title="关闭"
                         >
                             <X size={16} />
@@ -317,14 +336,22 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 </div>
 
                 {/* 历史卡片列表区域 */}
-                <div className="flex-1 overflow-y-auto p-8 no-scrollbar bg-[#09090b]/40">
+                <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 custom-scrollbar">
                     {filteredItems.length > 0 ? (
-                        <div className={`grid gap-5 ${
-                            activeTab === 'audio' 
-                                ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' 
-                                : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
-                        }`}>
-                            {filteredItems.map(item => {
+                        <div className="space-y-8">
+                            {groupedItems.map(group => (
+                            <section key={group.dateKey}>
+                                <div className="mb-3 flex items-center gap-2.5">
+                                    <span className="text-xs font-bold text-zinc-400">{group.label}</span>
+                                    <span className="rounded-md bg-white/[0.045] px-2 py-0.5 text-[9px] font-bold text-zinc-600">{group.items.length} 项</span>
+                                    <div className="h-px flex-1 bg-white/[0.045]" />
+                                </div>
+                                <div className={`grid gap-3.5 ${
+                                    activeTab === 'audio'
+                                        ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                                        : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+                                }`}>
+                            {group.items.map(item => {
                                 const isSelected = selectedIds.has(item.id);
                                 return (
                                     <div
@@ -336,7 +363,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                                 onHistoryItemClick(item);
                                             }
                                         }}
-                                        className={`group relative flex flex-col bg-[#111115]/80 border rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 ${
+                                        className={`group relative flex flex-col bg-[#111115]/80 border rounded-[14px] overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-0.5 ${
                                             isSelected 
                                                 ? 'border-emerald-500/80 shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/30' 
                                                 : 'border-white/5 hover:border-white/20 hover:shadow-[0_10px_25px_rgba(0,0,0,0.5)]'
@@ -344,7 +371,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                     >
                                         {/* 1. 图片或视频卡片布局 */}
                                         {activeTab !== 'audio' ? (
-                                            <div className="relative aspect-square bg-zinc-950 flex items-center justify-center overflow-hidden">
+                                            <div className="relative aspect-[4/3] bg-zinc-950 flex items-center justify-center overflow-hidden">
                                                 {activeTab === 'image' ? (
                                                     <img 
                                                         src={item.src} 
@@ -498,6 +525,9 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                                     </div>
                                 );
                             })}
+                                </div>
+                            </section>
+                            ))}
                         </div>
                     ) : (
                         // 3. 高颜值空状态样式
