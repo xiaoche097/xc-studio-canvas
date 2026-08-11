@@ -386,16 +386,28 @@ const styleSummary = (record: SceneGenerationRecord, customStyles: EcommerceCust
   };
 };
 
-const buildAnalysisPrompt = (record: SceneGenerationRecord, styleName: string, stylePrompt: string) => {
+const buildAnalysisPrompt = (
+  record: SceneGenerationRecord,
+  styleName: string,
+  stylePrompt: string,
+  selectedModel?: ModelItem,
+) => {
   const board = SCENE_BOARD_CONFIGS[record.boardType];
   const cropConfig = cropFramingById(record.cropFraming);
   const lowerBodyPlanningRule = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
     ? `- LOWER-BODY POSE RULE: Every image plan must keep the legs and feet uncrossed. Keep each leg on its own side of the body's centerline, with both shoes/feet separately visible and a clear gap between the ankles. Use a stable hip-width stance or a naturally separated stride. Never plan crossed legs, crossed ankles, a scissor stance, overlapping calves/shoes, one foot placed across the other, or a toe-point crossover. Create pose variety with the arms, gaze, torso angle and camera position instead of crossing the legs.`
     : '';
-  const refSceneText = record.referenceSceneImage
-    ? `Image ${record.productImages.length + 1} is a REFERENCE SCENE & POSE IMAGE. Extract its exact background environment, lighting, composition, camera perspective, and model pose/action. Create visual plans that faithfully replicate this scene style and pose for the product.`
+  const modelIndex = selectedModel ? record.productImages.length + 1 : null;
+  const sceneIndex = record.referenceSceneImage
+    ? record.productImages.length + (selectedModel ? 1 : 0) + 1
+    : null;
+  const selectedModelText = selectedModel && modelIndex
+    ? `Image ${modelIndex} is the USER-SELECTED MODEL IDENTITY ANCHOR named "${selectedModel.name}". This image defines the mandatory person identity only: exact face geometry, facial features, skin tone/texture, hair identity, apparent age and body proportions. The final person must be recognizably this same model. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from this image. Plan new pose, action, expression and camera angle for the target garment and scene.`
+    : 'No fixed model was selected. Recommend a suitable adult model persona.';
+  const refSceneText = record.referenceSceneImage && sceneIndex
+    ? `Image ${sceneIndex} is the USER-SELECTED SCENE AND PERFORMANCE ANCHOR. Treat its recognizable location identity, architecture/nature, spatial layout, surface materials, weather/season, light direction, color temperature and atmosphere as mandatory. Also extract the reference person's gaze direction, attention target, head turn/tilt, expression intensity, shoulder line and candid body energy as PERFORMANCE CUES. Apply those cues to the selected model while preserving the selected model's own identity. Any reference person identity, garment, accessories, bag, jewelry, sunglasses, text or logo is non-authoritative and must not be copied. Adapt the exact limbs and camera crop only when needed for the target garment and physical scene compatibility.`
     : 'No reference scene image provided.';
-  const instagramStart = record.productImages.length + (record.referenceSceneImage ? 1 : 0) + 1;
+  const instagramStart = record.productImages.length + (selectedModel ? 1 : 0) + (record.referenceSceneImage ? 1 : 0) + 1;
   const instagramEnd = instagramStart + record.instagramReferences.length - 1;
   const instagramText = record.instagramReferences.length
     ? `Instagram source label: ${record.instagramUrl || 'not provided'}\nImages ${instagramStart}-${instagramEnd} are USER-PROVIDED SCREENSHOTS of an Instagram grid/posts. They are the only verified Instagram visual evidence. Ignore browser chrome, Instagram navigation, profile avatars, story highlights, recommendation cards, captions, logos, likes, icons and all text. Analyze only the actual fashion-post tiles. Find recurring evidence across multiple tiles: palette, locations, natural/artificial light, framing distance, camera height, styling mood, model movement, candid/editorial balance and negative space. Do not infer unseen posts and do not copy a specific person or garment.`
@@ -405,6 +417,7 @@ const buildAnalysisPrompt = (record: SceneGenerationRecord, styleName: string, s
 You are an expert commercial scene director and product analyst.
 
 Analyze Images 1-${record.productImages.length} as multiple views/angles of ONE identical product SKU.
+${selectedModelText}
 ${refSceneText}
 ${instagramText}
 
@@ -420,7 +433,11 @@ CURRENT SETTINGS
 - Style Direction: ${stylePrompt}
 
 RULES
+- PRIORITY ORDER: (1) target product identity, (2) user-selected model identity when present, (3) reference-scene location identity when present, (4) agent-planned pose/action/camera, (5) other style guidance.
 - Extract absolute product identity (silhouette, texture, colors, key features).
+- When a fixed model is selected, every image plan must use that exact same model. Never substitute a lookalike, change ethnicity, face shape, hairstyle identity, apparent age, skin tone or body proportions.
+- When a fixed model is selected, use clean accessory-free styling by default: no sunglasses or eyeglasses, jewelry, necklaces, earrings, bracelets, watches, hats, handbags, shoulder bags, scarves, gloves, phones or handheld props. Ignore and remove those items even if they appear in the model or scene reference. Only retain an accessory if it is the uploaded target product itself or an inseparable construction detail of that product.
+- A reference scene is a location plus performance anchor, not a person-identity or accessory source. Preserve enough exact location cues that the result is visibly the same scene. Reuse its gaze direction, attention target, head angle, expression energy and candid body rhythm so the selected model does not default to a stiff front-facing camera gaze.
 - Match the scene to the uploaded garment first. Instagram references guide visual language, but must never override garment identity, fit, length, material or color.
 - Analyze the product BEFORE evaluating the Instagram references. Determine garment category, silhouette, season, occasion, target wearer, styling compatibility and movement needs first.
 - Evaluate every Instagram reference against that product profile. Use only compatible references; reject scenes, poses or styling that conflict with the garment's season, length, structure, intended occasion or target customer.
@@ -453,9 +470,9 @@ ${lowerBodyPlanningRule}
   "atmosphereBlueprint":"Chinese sensory atmosphere direction combining emotional tone, time, weather, environment and material contrast",
   "lightAndAir":"Chinese exact light direction/hardness, exposure behavior, shadow tone, breeze/air movement and how they affect hair and fabric",
   "spatialDepth":"Chinese foreground, subject plane, architectural/natural midground and distant background relationship; include lens distance and crop",
-  "modelMoment":"Chinese candid micro-action, gaze, posture, interaction with environment and what must avoid looking posed",
+  "modelMoment":"Chinese performance direction. When a reference scene exists, explicitly state its gaze direction, attention target, head turn/tilt, expression energy and body rhythm to transfer onto the selected model without copying identity",
   "filmTexture":"Chinese capture medium, grain, highlight roll-off, color response, skin texture and tasteful imperfection",
-  "modelPersonaPreset":"recommended persona preset name",
+  "modelPersonaPreset":"${selectedModel ? `必须使用已选固定模特：${selectedModel.name}` : 'recommended persona preset name'}",
   "modelEthnicity":"ethnicity",
   "modelAgeGroup":"age group",
   "modelFamilyStructure":"family structure",
@@ -476,101 +493,92 @@ const buildGenerationPrompt = (
   styleName: string,
   stylePrompt: string,
   styleReferenceCount: number,
-  modelPersonaPrompt?: string,
+  selectedModel?: ModelItem,
 ) => {
-  const board = SCENE_BOARD_CONFIGS[record.boardType];
   const cropConfig = cropFramingById(record.cropFraming);
   const productEnd = record.productImages.length;
-  const lowerBodyPoseLock = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
-    ? `
-LOWER-BODY POSE LOCK — MANDATORY
-- Use an uncrossed, anatomically stable lower-body pose. Each leg must remain on its own side of the body's vertical centerline from hip to foot.
-- Keep both lower legs and both shoes/feet independently readable, with visible lateral separation between the ankles and no overlap in the image plane.
-- Use either a relaxed hip-width parallel stance or a natural stride whose left and right feet remain laterally separated. Both feet must have believable ground contact and aligned hips, knees and ankles.
-- NEVER use crossed legs, crossed ankles, a scissor stance, touching ankles, overlapping calves or shoes, one foot placed across the other, or a toe-point crossover pose.
-- Express candid energy through the arms, hands, gaze, torso angle, hair/fabric movement and camera timing — never by crossing the legs or feet.
-`
-    : '';
 
-  let refSceneNote = '';
-  if (record.referenceSceneImage) {
-    refSceneNote = `- Image ${productEnd + 1} is a REFERENCE SCENE & POSE IMAGE. Replicate its exact scene setting, background composition, lighting mood, camera perspective, and subject pose/gestures faithfully, placing the target product into that replicated scene and pose.`;
-  }
-
-  const instagramStart = productEnd + (record.referenceSceneImage ? 1 : 0) + 1;
+  let nextImageIndex = productEnd + 1;
+  const modelStart = selectedModel ? nextImageIndex : null;
+  const modelEnd = selectedModel ? nextImageIndex + 1 : null;
+  if (selectedModel) nextImageIndex += 2;
+  const sceneIndex = record.referenceSceneImage ? nextImageIndex++ : null;
+  const instagramStart = nextImageIndex;
   const instagramEnd = instagramStart + record.instagramReferences.length - 1;
-  const instagramRefNote = record.instagramReferences.length
-    ? `- Images ${instagramStart}-${instagramEnd} are verified user screenshots of Instagram grids/posts. Treat them strictly as STYLE EVIDENCE: ignore all app/browser UI and every garment shown there. Transfer only recurring scene types, palette, lighting, camera distance, framing rhythm, model energy and editorial mood. The garment in Images 1-${productEnd} is the ONLY clothing identity. Never render a social-media grid, interface, caption, logo, watermark, text, reference person or reference garment.`
-    : `- No verified Instagram visual reference is available. Do not pretend the URL supplied visual information.`;
+  nextImageIndex += record.instagramReferences.length;
+  const styleStart = nextImageIndex;
+  const styleEnd = styleStart + styleReferenceCount - 1;
 
-  const styleEnd = productEnd + (record.referenceSceneImage ? 1 : 0) + record.instagramReferences.length;
-  let styleRefNote = styleReferenceCount
-    ? `- Images ${styleEnd + 1}-${styleEnd + styleReferenceCount} are visual style references for color and lighting ONLY.`
-    : '- No separate style reference image provided.';
-
-  let modelPersonaNote = '';
-  if (modelPersonaPrompt) {
-    modelPersonaNote = `
-MODEL CONSISTENCY & REFERENCE LOCK:
-- Use the selected reference model as the sole standard for facial features, contour, hair, skin texture, and body proportions.
-- ${modelPersonaPrompt}
-- Prohibit face-swapping, changing facial structure, over-beautifying, or altering hair/skin identity.
-`;
-  }
+  const referenceMap = [
+    `Images 1-${productEnd} = the exact target product; preserve its design and construction.`,
+    selectedModel && modelStart && modelEnd
+      ? `Images ${modelStart}-${modelEnd} = two copies of ONE selected adult model (${selectedModel.name}); use only this exact person's face, hair, skin and body proportions. Identity is fixed, pose is free.`
+      : '',
+    record.referenceSceneImage && sceneIndex
+      ? `Image ${sceneIndex} = scene and performance anchor; keep its recognizable location and transfer only its person's gaze direction, attention target, head angle, expression energy and candid body rhythm. Do not copy that person's identity, clothing or accessories.`
+      : '',
+    record.instagramReferences.length
+      ? `Images ${instagramStart}-${instagramEnd} = mood references only: palette, light and candid energy.`
+      : '',
+    styleReferenceCount
+      ? `Images ${styleStart}-${styleEnd} = color and lighting references only.`
+      : '',
+  ].filter(Boolean).map((line) => `- ${line}`).join('\n');
+  const styleDirection = styleName === '默认平台风格'
+    ? 'photorealistic lifestyle fashion photography, premium commercial editorial quality'
+    : `${styleName}; ${stylePrompt}`;
+  const stablePose = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
+    ? ' Use a natural uncrossed stance or stride with separated feet and believable ground contact.'
+    : '';
+  const environmentDirection = record.referenceSceneImage && sceneIndex
+    ? `Use the exact environment in Image ${sceneIndex}; retain enough distinctive cues that it is unmistakably the same location.`
+    : analysis.backgroundComposition;
+  const performanceDirection = record.referenceSceneImage && sceneIndex
+    ? `Performance: follow the reference person's gaze direction, attention target, head turn/tilt, expression energy and candid body rhythm from Image ${sceneIndex}; apply them to the selected model without changing identity. ${analysis.modelMoment}`
+    : `Performance: ${analysis.modelMoment}`;
 
   return `
-Create ONE premium commercial scene image, variation ${index + 1} of ${record.outputCount}.
+Create one ${record.aspectRatio} premium, photorealistic commercial lifestyle fashion photograph.
 
-IMAGE ROUTING
-- Images 1-${productEnd}: multiple views/details of ONE identical product SKU (Identity lock).
-${refSceneNote}
-${instagramRefNote}
-${styleRefNote}
+REFERENCE MAP
+${referenceMap}
 
-PRODUCT IDENTITY LOCK
-- Product: ${analysis.productIdentity}
-- Category: ${analysis.productCategory}
-- Material/Color: ${analysis.materialColor}
-- Size Category: ${analysis.sizeCategory} (Product physical size: ${record.productSize || 'Natural proportion'})
-- Preserve exact silhouette, details, textures, branding and construction.
-${modelPersonaNote}
-SCENE & BOARD SYSTEM
-- Board: ${board.label} (${board.description})
-- Mandatory Crop Framing: ${cropConfig.label} (${cropConfig.description}) - ${cropConfig.promptRule}
-- Strategy: ${analysis.boardVisualStrategy}
-- Background & Composition: ${analysis.backgroundComposition}
-- Verified Reference Style Fingerprint: ${analysis.referenceStyleFingerprint}
-- Why It Fits This Product: ${analysis.referenceCompatibilityReason}
-- Mandatory Reference Rules: ${analysis.referenceSceneRules.join('; ') || 'Use the verified recurring screenshot style traits.'}
-- Explicit Avoid Rules: ${analysis.referenceAvoidRules.join('; ') || 'No social UI, copied reference garments, text or logos.'}
-- Image Plan: ${analysis.imagePlans[index] || analysis.imagePlans[0]}
-- Camera / Device: ${analysis.cameraDevice}
-- Shot Type: ${analysis.shotType}
-- Model Persona: ${analysis.modelPersonaPreset} (${analysis.modelEthnicity}, ${analysis.modelAgeGroup}, ${analysis.modelLifestyle})
-${lowerBodyPoseLock}
+SUBJECT
+${selectedModel && modelStart && modelEnd ? `The exact selected model from Images ${modelStart}-${modelEnd}` : analysis.modelPersonaPreset} wears the exact ${analysis.productCategory} from Images 1-${productEnd}: ${analysis.productIdentity} Material and color: ${analysis.materialColor}. Keep the garment's silhouette, length, fit, knit texture, trims and construction unchanged.
 
-STYLE DIRECTION
-- Selected Style: ${styleName}
-- Style Prompt: ${stylePrompt}
+ACTION AND ENVIRONMENT
+${analysis.imagePlans[index] || analysis.modelMoment}${stablePose}
+${performanceDirection}
+${environmentDirection}
 
-ATMOSPHERE LOCK — EQUAL PRIORITY TO PRODUCT IDENTITY
-- Master Atmosphere: ${analysis.atmosphereBlueprint}
-- Light & Air Movement: ${analysis.lightAndAir}
-- Spatial Depth & Lens Distance: ${analysis.spatialDepth}
-- Candid Human Moment: ${analysis.modelMoment}
-- Film / Sensor Texture: ${analysis.filmTexture}
-- Atmosphere must be visible through at least four concrete cues in the final pixels: directional light behavior, moving air on hair/fabric, tactile environmental surfaces, layered depth, candid body language, or filmic exposure/color texture.
-- Do not substitute atmosphere with a generic location label. A plain sidewalk, clean wall, centered catalog stance or uniformly lit background is a FAILURE unless explicitly demanded by the verified screenshots.
-- Preserve natural highlight clipping, textured shadows, environmental color bounce and small photographic imperfections when supported by the reference. Do not over-polish into sterile e-commerce CGI.
+LIGHT, CAMERA AND STYLE
+${analysis.lightAndAir} ${cropConfig.promptRule} ${analysis.shotType}; ${analysis.spatialDepth}. ${styleDirection}. ${analysis.filmTexture}. Natural skin texture, crisp garment detail, authentic candid moment, professional high-resolution photography.
 
-USER HINT
-${record.userHint.trim() || 'No extra hint.'}
-
-ABSOLUTE POLICY
-- Do NOT render added text, logos, overlays, price tags or watermarks.
-- Maintain photorealistic, high-conversion commercial photography quality, exact proportions and true lighting.
-- Canvas Aspect Ratio: ${record.aspectRatio}.
+${record.userHint.trim() ? `USER DIRECTION\n${record.userHint.trim()}` : ''}
 `.trim();
+};
+
+const buildGenerationNegativePrompt = (
+  record: SceneGenerationRecord,
+  analysis: SceneHeroAnalysis,
+  selectedModel?: ModelItem,
+) => {
+  const userExclusion = /不要|禁止|避免|不得|without|\bno\b/i.test(record.userHint) ? record.userHint.trim() : '';
+  return [
+    'wrong product, redesigned garment, changed color, changed material, changed silhouette, changed length, missing buttons or trims',
+    selectedModel
+      ? 'different person, lookalike, changed face, changed ethnicity, changed hair identity, changed age, changed body proportions, duplicate person'
+      : 'duplicate person',
+    record.referenceSceneImage
+      ? 'generic substitute location, different location, redesigned background, copied person identity or clothing from scene reference, gaze direction inconsistent with scene reference'
+      : '',
+    selectedModel
+      ? 'sunglasses, eyeglasses, earrings, necklace, jewelry, bracelet, watch, hat, handbag, shoulder bag, scarf, gloves, phone, cup, handheld prop'
+      : '',
+    ...analysis.referenceAvoidRules,
+    userExclusion,
+    'stiff front-facing catalog pose, passport-photo pose, forced direct eye contact, blank expression, mannequin-like posture, bad anatomy, bad proportions, extra limbs, extra fingers, malformed hands, crossed legs, crossed ankles, blurry, low resolution, over-smoothed skin, plastic skin, CGI, 3D render, cartoon, text, watermark, logo, border, collage',
+  ].filter(Boolean).join(', ');
 };
 
 const readUploadedFiles = async (files: File[], max: number, currentCount: number) => {
@@ -1139,6 +1147,10 @@ Return ONLY JSON:
     if (!record.analysis) throw new Error('缺少可用的 Agent 规划方案。');
     const style = styleSummary(record, customStyles);
     const selectedModel = modelPersonas.find((m) => m.id === record.selectedModelPersonaId);
+    if (record.selectedModelPersonaId && (!selectedModel?.base64 || !selectedModel.mime)) {
+      throw new Error('所选模特参考图未能加载，请重新选择模特后再生成。');
+    }
+    const selectedModelReference = selectedModel?.base64 && selectedModel.mime ? selectedModel : undefined;
     const prompt = buildGenerationPrompt(
       record,
       record.analysis,
@@ -1146,16 +1158,19 @@ Return ONLY JSON:
       style.name,
       style.prompt,
       style.references.length,
-      selectedModel?.prompt,
+      selectedModelReference,
     );
     updateResult(record.id, result.id, { status: 'submitting', prompt, error: undefined });
 
     const inputImages = [...record.productImages.map(toApiImage)];
+    if (selectedModelReference) {
+      inputImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
+      // Repeat the identity reference deliberately so image models weight the selected person
+      // more strongly than scene/style people without treating pose or accessories as locked.
+      inputImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
+    }
     if (record.referenceSceneImage) inputImages.push(toApiImage(record.referenceSceneImage));
     record.instagramReferences.forEach((ref) => inputImages.push(toApiImage(ref)));
-    if (selectedModel?.base64 && selectedModel?.mime) {
-      inputImages.push({ base64: selectedModel.base64, mimeType: selectedModel.mime });
-    }
     style.references.forEach((ref) => inputImages.push(toApiImage(ref)));
 
     const [rawImage] = await generateImageToImage(
@@ -1166,6 +1181,8 @@ Return ONLY JSON:
         resolution: record.resolution,
         modelId: record.modelId,
         workflowHint: 'scene-product-lock',
+        hasModelRef: Boolean(selectedModelReference),
+        negativePrompt: buildGenerationNegativePrompt(record, record.analysis, selectedModelReference),
         signal,
         onStatus: (status) => updateResult(record.id, result.id, { status: status === 'submitting' ? 'submitting' : 'processing' }),
       },
@@ -1222,7 +1239,7 @@ Return ONLY JSON:
       assertCurrentGenerationTask(taskId, signal);
       const finalResults = settled.map((outcome, index): SceneHeroResult => outcome.status === 'fulfilled'
         ? outcome.value
-        : { ...initialResults[index], status: isAbortError(outcome.reason) ? 'cancelled' : 'error', prompt: buildGenerationPrompt(snapshot, snapshot.analysis!, index, generationStyle.name, generationStyle.prompt, generationStyle.references.length), error: isAbortError(outcome.reason) ? '任务已取消' : getErrorMessage(outcome.reason) });
+        : { ...initialResults[index], status: isAbortError(outcome.reason) ? 'cancelled' : 'error', prompt: buildGenerationPrompt(snapshot, snapshot.analysis!, index, generationStyle.name, generationStyle.prompt, generationStyle.references.length, modelPersonas.find((model) => model.id === snapshot.selectedModelPersonaId)), error: isAbortError(outcome.reason) ? '任务已取消' : getErrorMessage(outcome.reason) });
       updateRecord(snapshot.id, (record) => ({ ...record, step: 'complete', results: finalResults, error: finalResults.every((result) => result.status !== 'done') ? '本次任务未生成成功，可尝试重试。' : '' }));
       await saveRecord(snapshot, finalResults);
     } catch (error) {
@@ -1247,12 +1264,23 @@ Return ONLY JSON:
     updateRecord(snapshot.id, (record) => ({ ...record, step: 'analyzing', analysis: null, results: [], error: '', createdAt: Date.now() }));
     try {
       const apiImages = [...snapshot.productImages.map(toApiImage)];
+      const selectedModel = modelPersonas.find((model) => model.id === snapshot.selectedModelPersonaId);
+      if (snapshot.selectedModelPersonaId && (!selectedModel?.base64 || !selectedModel.mime)) {
+        throw new Error('所选模特参考图未能加载，请重新选择模特后再分析。');
+      }
+      const selectedModelReference = selectedModel?.base64 && selectedModel.mime ? selectedModel : undefined;
+      if (selectedModelReference) {
+        apiImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
+      }
       if (snapshot.referenceSceneImage) apiImages.push(toApiImage(snapshot.referenceSceneImage));
       snapshot.instagramReferences.forEach((ref) => apiImages.push(toApiImage(ref)));
 
-      const text = await generateText(apiImages, buildAnalysisPrompt(snapshot, analysisStyle.name, analysisStyle.prompt));
+      const text = await generateText(apiImages, buildAnalysisPrompt(snapshot, analysisStyle.name, analysisStyle.prompt, selectedModelReference));
       assertCurrentGenerationTask(taskId, signal);
-      const analysis = parseSceneAnalysis(text, snapshot.outputCount, snapshot.boardType, snapshot.productSize);
+      const parsedAnalysis = parseSceneAnalysis(text, snapshot.outputCount, snapshot.boardType, snapshot.productSize);
+      const analysis = selectedModelReference
+        ? { ...parsedAnalysis, modelPersonaPreset: `固定模特：${selectedModelReference.name}` }
+        : parsedAnalysis;
       const resolved: SceneGenerationRecord = {
         ...snapshot,
         analysis,
@@ -1551,7 +1579,7 @@ Return ONLY JSON:
                   </span>
                 )}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-pastel-muted">自动分析并同步构图、姿势动作与光影方案</p>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">强锁场景地点与光影，参考人物的视线、头部角度和松弛动态；人物身份仍以模特库为准</p>
             </div>
           </div>
           {activeRecord.referenceSceneImage && (
@@ -1559,7 +1587,7 @@ Return ONLY JSON:
               type="button"
               disabled={isBusy}
               onClick={removeRefSceneImage}
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100"
+              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100"
             >
               <Trash2 className="h-3.5 w-3.5" />
               移除参考图
@@ -1584,7 +1612,7 @@ Return ONLY JSON:
               title="点击放大预览大图"
             />
             <span className="absolute bottom-2 left-2 rounded-lg bg-[#17243c]/90 px-2 py-1 text-xs font-black text-white backdrop-blur-sm pointer-events-none">
-              按此场景与动作复刻
+              锁定场景与视线
             </span>
             {isDraggingRefScene ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#ed6d46]/85 text-white backdrop-blur-xs">
@@ -1657,7 +1685,7 @@ Return ONLY JSON:
             </span>
             <div>
               <h3 className="text-sm font-black">模特库 (可选)</h3>
-              <p className="mt-1 text-xs leading-5 text-pastel-muted">固定模特面部与人体参考，保持高精度一致性生成</p>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">选择后强锁人物身份；动作机位由 Agent 规划，并默认清除墨镜、首饰和包等配饰</p>
             </div>
           </div>
           {activeRecord.selectedModelPersonaId && (
@@ -1665,7 +1693,7 @@ Return ONLY JSON:
               type="button"
               disabled={isBusy}
               onClick={() => patchActive({ selectedModelPersonaId: null })}
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-100"
+              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100"
             >
               <X className="h-3.5 w-3.5" />
               清除选择
@@ -1691,7 +1719,7 @@ Return ONLY JSON:
                   <strong className="block text-sm font-black text-[#17243c]">
                     {modelPersonas.find((m) => m.id === activeRecord.selectedModelPersonaId)?.name}
                   </strong>
-                  <span className="text-[0.68rem] text-pastel-muted">高精度人物一致性开启</span>
+                  <span className="text-[0.68rem] text-emerald-600">人物身份强锁开启 · 无配饰模式</span>
                 </div>
               </>
             ) : (
@@ -1871,6 +1899,22 @@ Return ONLY JSON:
           <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-5 w-5" /></span>
           <div><span className="text-[0.68rem] font-black tracking-[0.14em] text-emerald-600">ANALYSIS READY</span><h2 className="mt-0.5 text-xl font-black">确认生成场景图方案</h2></div>
         </div>
+        {(activeRecord.referenceSceneImage || activeRecord.selectedModelPersonaId) && (
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {activeRecord.selectedModelPersonaId && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-xs leading-5 text-blue-800">
+                <strong className="block">人物身份强锁</strong>
+                固定使用 {modelPersonas.find((model) => model.id === activeRecord.selectedModelPersonaId)?.name || '所选模特'}；只重规划姿势、动作和机位，并清除墨镜、首饰、包等配饰。
+              </div>
+            )}
+            {activeRecord.referenceSceneImage && (
+              <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-3 text-xs leading-5 text-orange-800">
+                <strong className="block">参考场景环境强锁</strong>
+                保留同一地点与光影，并迁移参考人物的视线、头部角度和动态节奏；不复制其身份、服装和配饰。
+              </div>
+            )}
+          </div>
+        )}
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-black text-pastel-muted">产品名称<input value={activeRecord.analysis.productName} onChange={(event) => patchAnalysis({ productName: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm text-pastel-text" /></label>
           <label className="text-xs font-black text-pastel-muted">产品品类<input value={activeRecord.analysis.productCategory} onChange={(event) => patchAnalysis({ productCategory: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-[#fff8f3] border-[#efd9c9] px-3 text-sm text-pastel-text" /></label>

@@ -195,6 +195,14 @@ interface SkillGuide {
 
 export const ALL_AGENT_SKILLS: AgentSkill[] = [
   {
+    id: 'SCENE_GENERATION',
+    title: '场景图生成',
+    desc: '锁定商品与模特身份，复刻参考场景、视线和自然动态',
+    prompt: '请根据商品图生成一张高级商业场景图；严格还原商品，并参考场景图的环境、光影、视线与人物动态。',
+    icon: Camera,
+    color: 'text-emerald-400',
+  },
+  {
     id: 'UNIVERSAL_TRY_ON',
     title: '万物上身与试穿',
     desc: '全套主图 / 详情强化 / UGC 实拍 / AI 造型师',
@@ -261,6 +269,19 @@ export const ALL_AGENT_SKILLS: AgentSkill[] = [
 ];
 
 const SKILL_GUIDES: Record<AgentSkillId, SkillGuide> = {
+  SCENE_GENERATION: {
+    minAssets: 1,
+    recommendedAssets: 3,
+    assetRules: [
+      '@1 商品主图：必需，作为 SKU、颜色、材质和结构的最高事实来源',
+      '@2 场景参考图：可选，锁定地点、构图、光影，并继承人物视线、头部角度和自然动态',
+      '@3 模特参考图：可选，作为脸、发型、肤色与体型的唯一身份来源',
+      '@4 起：可补充同一 SKU 的细节或其他角度；不要混入其他商品',
+    ],
+    questions: ['希望生成什么用途或氛围的场景图？', '是否禁止首饰、包、墨镜及其他非商品配饰？', '希望使用什么画幅与景别？'],
+    quickReplies: ['自然生活方式买家秀，禁止配饰', '严格参考场景人物的视线与动态', '2:3 竖版，头部至膝盖'],
+    plan: ['识别并锁定商品 SKU', '锁定所选模特身份', '提取场景、光影、视线与人物动态', '生成商业成片并插入画布'],
+  },
   UNIVERSAL_TRY_ON: {
     minAssets: 1,
     recommendedAssets: 2,

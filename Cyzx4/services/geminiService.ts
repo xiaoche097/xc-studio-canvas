@@ -1633,6 +1633,20 @@ ${forcedPrompt}`;
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
 ${forcedPrompt}`;
+        } else if (workflowHint === 'scene-product-lock') {
+          gptPrompt = `[ROLE: Commercial lifestyle fashion photographer]
+[TASK: Follow the numbered reference map and create one photorealistic image]
+[PRIORITY]
+1. Product images define the exact garment.
+2. Selected-model images define the exact person identity only; pose remains free.
+3. Scene image defines the exact recognizable environment plus gaze/head/expression/body-energy cues; never its person identity or styling.
+4. Mood/style images affect only palette, light and photographic feel.
+Never mix roles or copy people, clothing or accessories from scene/style references.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}
+${negativePrompt ? `[NEGATIVE PROMPT]\n${negativePrompt}` : ''}`;
         } else if (workflowHint) {
           gptPrompt = `[ROLE: Professional Fashion AI Artist]
 [TASK: Generate a new image based on reference images and the prompt below]
@@ -2299,18 +2313,14 @@ ${forcedPrompt}`;
         `
                   : workflowHint === 'scene-product-lock'
                     ? `
-        **ROLE**: Senior Amazon ecommerce art director and product-fidelity retoucher.
-        **TASK**: Generate a realistic lifestyle/commercial product image from the ordered reference images and the user's detailed mapping prompt.
-        **REFERENCE ROUTING**:
-        - Follow the user's prompt for exact image roles. Do not assume Image 1 is the scene if the prompt says Image 1 is the product asset.
-        - Product reference images are the strict source of truth for product identity, structure, color, fabric, trims, and details.
-        - Scene reference images are SAME-SHOOT LOCATION anchors. Preserve the same location identity, key background cues, color temperature, lighting direction, weather/season, ground/wall/material cues, and overall visual atmosphere.
-        - Allow only conservative real-camera variation: crop, focal length, subject distance, mild parallax, and depth of field. Do not redesign the background or move to a different but similar-looking location.
-        - Do not repeat the identical background crop across batch outputs, but every output must still contain recognizable cues from the uploaded scene reference.
-        - Action/pose references are never scene sources. Do not copy their architecture, walls, floors, pools, beaches, props, plants, furniture, color palette, or lighting.
-        - Enforce real camera geometry: coherent horizon line, vanishing points, ground plane, subject scale, foot/contact placement, shadow direction, lens compression, and depth of field. Subtly correct the uploaded scene reference if needed so the final image obeys physical perspective and camera principles.
-        - Close-up / chest-up / waist-up / detail crops must have realistic shallow depth of field. The scene reference should remain recognizable only through blurred location cues, not a crisp flat background. Full-body and wide shots may show more background detail, but must still obey perspective, lighting, shadow, and lens logic.
-        - Accessories must be batch-consistent. Use only the accessory set authorized by the user's prompt/reference mapping. Do not randomly change necklaces, watches, sunglasses, hats, bags, belts, bracelets, jewelry, or handheld props between outputs.
+        **ROLE**: Commercial lifestyle fashion photographer.
+        **TASK**: Follow the user's numbered reference map and create one photorealistic image.
+        **REFERENCE PRIORITY**:
+        1. Product images define the exact garment.
+        2. Selected-model images define the exact person identity only; pose, action and camera remain free.
+3. Scene image defines the exact recognizable environment plus the reference person's gaze direction, attention target, head angle, expression energy and candid body rhythm. Transfer those performance cues onto the selected model without copying identity or styling.
+        4. Mood/style images affect only palette, light and photographic feel.
+        Never mix image roles or copy people, clothing or accessories from scene/style references. Keep real anatomy, perspective, contact shadows and depth of field.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `

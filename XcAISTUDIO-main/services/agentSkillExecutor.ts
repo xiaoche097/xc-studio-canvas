@@ -9,6 +9,7 @@ import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { generateVideo } from './geminiService';
 
 export type AgentSkillId =
+  | 'SCENE_GENERATION'
   | 'UNIVERSAL_TRY_ON'
   | 'SINGLE_ITEM_TRY_ON'
   | 'RETOUCHING'
@@ -56,6 +57,10 @@ const IMAGE_SKILL_PROMPTS: Record<Exclude<AgentSkillId, 'UNIVERSAL_TRY_ON' | 'PR
   instruction: string;
   workflowHint: WorkflowHint;
 }> = {
+  SCENE_GENERATION: {
+    workflowHint: 'scene-product-lock',
+    instruction: '',
+  },
   SINGLE_ITEM_TRY_ON: {
     workflowHint: 'single-item-try-on',
     instruction: `Image 1 is the target person/body reference. Image 2 and any later product images define the exact item to wear.
@@ -203,11 +208,47 @@ const executeImageSkill = async (
     throw new Error(`技能「${input.skillTitle}」没有可用的图像执行配置。`);
   }
   const config = IMAGE_SKILL_PROMPTS[input.skillId];
-  const orderedImages = input.skillId === 'SINGLE_ITEM_TRY_ON' && images.length > 1
-    ? [images[1], images[0], ...images.slice(2)]
-    : images;
+  const isSceneGeneration = input.skillId === 'SCENE_GENERATION';
+  const sceneReference = isSceneGeneration ? images[1] : undefined;
+  const modelReference = isSceneGeneration ? images[2] : undefined;
+  const productImages = isSceneGeneration
+    ? [images[0], ...images.slice(3)].filter((image): image is ApiImage => Boolean(image))
+    : [];
+  const orderedImages = isSceneGeneration
+    ? [
+        ...productImages,
+        ...(modelReference ? [modelReference, modelReference] : []),
+        ...(sceneReference ? [sceneReference] : []),
+      ]
+    : input.skillId === 'SINGLE_ITEM_TRY_ON' && images.length > 1
+      ? [images[1], images[0], ...images.slice(2)]
+      : images;
+  const productRange = productImages.length > 1 ? `Images 1-${productImages.length}` : 'Image 1';
+  const modelIndex = modelReference ? productImages.length + 1 : null;
+  const modelDuplicateIndex = modelReference ? productImages.length + 2 : null;
+  const sceneIndex = sceneReference ? productImages.length + (modelReference ? 3 : 1) : null;
+  const sceneInstruction = isSceneGeneration ? `Create one premium photorealistic commercial scene image.
+
+REFERENCE MAP
+- ${productRange}: PRODUCT IDENTITY. These images show one identical SKU and are the highest-priority source for exact silhouette, construction, color, material, texture, print, buttons, trims, logo and proportions.
+${modelReference ? `- Images ${modelIndex}-${modelDuplicateIndex}: SELECTED MODEL IDENTITY. They intentionally repeat the same model for stronger identity weight. Use this person as the sole source for face, facial structure, hairstyle, hair color, skin tone/texture, age impression and body proportions. Ignore the model reference's clothing, accessories, pose, gaze, background and lighting.` : '- No selected model reference is supplied. Use a natural adult commercial model appropriate for the product.'}
+${sceneReference ? `- Image ${sceneIndex}: SCENE AND PERFORMANCE ANCHOR. Reproduce its recognizable location, spatial layout, surfaces, season/weather, light direction, color temperature and atmosphere. Transfer the reference person's gaze direction, attention target, head turn/tilt, expression energy, shoulder line and candid body rhythm onto the selected model. Never copy that person's identity, clothing, bag, jewelry, sunglasses, text or logo.` : '- No scene reference is supplied. Design a believable lifestyle environment from the user direction.'}
+
+SUBJECT
+The target product must remain unmistakably the same SKU and fit with natural scale, gravity, folds, occlusion and contact. ${modelReference ? 'The selected model identity is mandatory and must not drift.' : ''}
+
+ACTION AND ENVIRONMENT
+${sceneReference ? 'Preserve the scene identity and performance cues while adapting limbs only for garment fit and physical plausibility.' : 'Use candid, relaxed body language and a purposeful gaze; avoid a centered catalog stance.'} The pose must feel observed in a real moment, not directed into a passport photo.
+
+STYLE
+Realistic premium commercial photography, natural skin pores, tactile materials, coherent directional light, layered depth and crisp product focus. No added text, watermark, collage or border.
+
+AVOID
+Wrong SKU, altered garment structure/color/material, face drift, identity blending, stiff front-facing catalog pose, forced direct eye contact, blank expression, mannequin posture, bad anatomy, malformed hands, extra limbs, plastic skin or CGI.${modelReference ? ' Do not add glasses, sunglasses, jewelry, watch, hat, bag, scarf, gloves, phone, cup or handheld props unless the target product itself is that item.' : ''}` : '';
   const qualityEnhancement = `\n\nIMAGEN 3.0 QUALITY SPECIFICATION:\n- Professional commercial photography, editorial studio lighting, ultra-realistic texture, crisp focus, 8k resolution, photorealistic masterwork.\n- Negative Constraints: Avoid bad anatomy, distorted hands/fingers, blurry edges, extra limbs, noise artifacts, low resolution, watermark, unintended text blur.`;
-  const prompt = `${config.instruction}\n\nUSER DIRECTION:\n${input.prompt}${qualityEnhancement}`;
+  const prompt = isSceneGeneration
+    ? `${sceneInstruction}\n\nUSER DIRECTION:\n${input.prompt}`
+    : `${config.instruction}\n\nUSER DIRECTION:\n${input.prompt}${qualityEnhancement}`;
 
   if (input.skillId === 'RETOUCHING') {
     const batches = await Promise.all(orderedImages.map((image) => generateImageToImage(
@@ -231,7 +272,8 @@ const executeImageSkill = async (
       resolution: resolveImageResolution(input.preferences.imageResolution),
       modelId: resolveImageModel(input.preferences.imageModel),
       workflowHint: config.workflowHint,
-      hasModelRef: ['SINGLE_ITEM_TRY_ON', 'MODEL_SCENE_FISSION', 'MODEL_POSE_FISSION'].includes(input.skillId),
+      hasModelRef: ['SCENE_GENERATION', 'SINGLE_ITEM_TRY_ON', 'MODEL_SCENE_FISSION', 'MODEL_POSE_FISSION'].includes(input.skillId)
+        && (!isSceneGeneration || Boolean(modelReference)),
       sampleCount: 1,
     },
   );
@@ -260,7 +302,9 @@ export const executeAgentSkill = async (input: AgentSkillExecutionInput): Promis
     ? 'VIDEO'
     : input.skillId === 'RETOUCHING'
       ? 'RETOUCHING'
-      : input.skillId === 'MODEL_SCENE_FISSION'
+      : input.skillId === 'SCENE_GENERATION'
+        ? 'MARKETING'
+        : input.skillId === 'MODEL_SCENE_FISSION'
         ? 'MODEL_SCENE_FISSION'
         : input.skillId === 'MODEL_POSE_FISSION'
           ? 'MODEL_POSE_FISSION'
