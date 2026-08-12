@@ -1,8 +1,14 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { executeVirseRequest } from './api/virse-core.js';
 
 const ALLOWED_IMAGE_HOST_SUFFIXES = ['aiproxy.vip', 'apilio.ai'];
+
+const isVirseStorageUrl = (parsed: URL) => (
+  parsed.hostname.toLowerCase() === 'storage.googleapis.com'
+  && parsed.pathname.startsWith('/virse-images/')
+);
 
 const isAllowedImageUrl = (value: string | null): value is string => {
   if (!value) return false;
@@ -10,7 +16,8 @@ const isAllowedImageUrl = (value: string | null): value is string => {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
     const host = parsed.hostname.toLowerCase();
-    return ALLOWED_IMAGE_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+    return isVirseStorageUrl(parsed)
+      || ALLOWED_IMAGE_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
   } catch {
     return false;
   }
@@ -54,15 +61,46 @@ const localImageDownloadPlugin = () => ({
   },
 });
 
+const localVirsePlugin = () => ({
+  name: 'local-virse-mcp-proxy',
+  configureServer(server: any) {
+    server.middlewares.use('/api/virse', (req: any, res: any) => {
+      if (req.method !== 'POST') {
+        res.statusCode = 405;
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+      let raw = '';
+      req.on('data', (chunk: Buffer) => { raw += chunk.toString('utf8'); });
+      req.on('end', async () => {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        try {
+          const result = await executeVirseRequest(JSON.parse(raw || '{}'));
+          res.statusCode = 200;
+          res.end(JSON.stringify(result));
+        } catch (error) {
+          res.statusCode = Number((error as any)?.status) || 502;
+          res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Virse request failed' }));
+        }
+      });
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+    // Server-only: make the local Vite middleware behave like the Vercel
+    // Function without exposing the ImgBB key to browser bundles.
+    if (env.IMGBB_API_KEY) {
+      process.env.IMGBB_API_KEY = env.IMGBB_API_KEY;
+    }
     return {
       base: './',
       server: {
         port: 3000,
         host: '0.0.0.0',
       },
-      plugins: [react(), localImageDownloadPlugin()],
+      plugins: [react(), localImageDownloadPlugin(), localVirsePlugin()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY)

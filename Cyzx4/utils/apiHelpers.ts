@@ -349,6 +349,14 @@ export const getApiConfig = (
     forceIndex?: number,
     includeImageOnlyProviders = false
 ): ApiConfig & { keyCount: number, currentIndex: number } => {
+    const preferredTextProvider = includeImageOnlyProviders
+        ? 'auto'
+        : (localStorage.getItem('text_api_provider') || 'auto');
+    const textProviderAllows = (provider: string) => (
+        includeImageOnlyProviders
+        || preferredTextProvider === 'auto'
+        || preferredTextProvider === provider
+    );
     // Xiaoche relay: explicit opt-in and independent storage keys keep all existing providers unchanged.
     const xiaocheKey = localStorage.getItem("xiaoche_api_key");
     const xiaocheBaseUrl = localStorage.getItem("xiaoche_base_url");
@@ -395,7 +403,8 @@ export const getApiConfig = (
     // RunningHub API
     const runningHubKey = localStorage.getItem("runninghub_api_key");
     const runningHubBaseUrl = localStorage.getItem("runninghub_base_url");
-    const runningHubEnabled = localStorage.getItem("runninghub_enabled") !== "false";
+    const runningHubEnabled = localStorage.getItem("runninghub_enabled") !== "false"
+        && textProviderAllows('runninghub');
 
     if (runningHubKey && runningHubEnabled) {
         const keys = runningHubKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
@@ -435,7 +444,8 @@ export const getApiConfig = (
     // 1. Jijing API
     const jijingKey = localStorage.getItem("jijing_api_key");
     const jijingBaseUrl = localStorage.getItem("jijing_base_url");
-    const jijingEnabled = localStorage.getItem("jijing_enabled") !== "false";
+    const jijingEnabled = localStorage.getItem("jijing_enabled") !== "false"
+        && textProviderAllows('jijing');
 
     if (jijingKey && jijingEnabled) {
         const no1ImageBaseUrls = orderedNo1ImageUrls(jijingBaseUrl);
@@ -475,7 +485,8 @@ export const getApiConfig = (
     // 1. Plato API (柏拉图)
     const platoKey = localStorage.getItem("plato_api_key");
     const savedPlatoBaseUrl = localStorage.getItem("plato_base_url");
-    const platoEnabled = localStorage.getItem("plato_enabled") !== "false";
+    const platoEnabled = localStorage.getItem("plato_enabled") !== "false"
+        && textProviderAllows('plato');
 
     if (platoKey && platoEnabled) {
         const keys = platoKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "");
@@ -517,7 +528,8 @@ export const getApiConfig = (
     // 2. Yunwu API
     const yunwuKey = localStorage.getItem("yunwu_api_key");
     const yunwuBaseUrl = localStorage.getItem("yunwu_base_url");
-    const yunwuEnabled = localStorage.getItem("yunwu_enabled") !== "false";
+    const yunwuEnabled = localStorage.getItem("yunwu_enabled") !== "false"
+        && textProviderAllows('yunwu');
 
     if (yunwuKey && yunwuEnabled) {
         // 多 Key 轮询逻辑
@@ -555,7 +567,8 @@ export const getApiConfig = (
 
     // 3. Native Gemini API
     const nativeKey = localStorage.getItem("user_api_key");
-    const nativeEnabled = localStorage.getItem("native_enabled") !== "false";
+    const nativeEnabled = localStorage.getItem("native_enabled") !== "false"
+        && textProviderAllows('native');
 
     if (nativeKey && nativeEnabled) {
         return {
@@ -581,6 +594,9 @@ export const getApiConfig = (
         };
     }
 
+    if (!includeImageOnlyProviders && preferredTextProvider !== 'auto') {
+        throw new Error(`Selected text/Agent provider "${preferredTextProvider}" is not enabled or has no API Key.`);
+    }
     throw new Error("No active API configuration found. Please enable Xiaoche, RunningHub, No.1 Image, Plato, Yunwu or Native API in Settings.");
 };
 
@@ -932,6 +948,12 @@ export const compressImage = async (
 export function getErrorMessage(error: any): string {
     const errorMsg = error?.message || error?.toString() || '';
     const errorStatus = error?.status;
+
+    // Keep image-hosting diagnostics intact. Otherwise an upstream 429 inside
+    // the detailed message is reduced to the generic "too many requests" tip.
+    if (/imgbb|图床|图片已上传到/i.test(errorMsg)) {
+        return `🖼️ 图床上传链路失败\n${errorMsg}`;
+    }
     
     // 安全策略拦截 (高优先级)
     if (errorMsg.includes('safety') || errorMsg.includes('blocked by safety') || errorMsg.includes('SAFETY')) {

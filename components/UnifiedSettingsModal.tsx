@@ -23,7 +23,8 @@ import {
   Copy,
   HelpCircle,
   HardDrive,
-  Database
+  Database,
+  Image as ImageIcon
 } from 'lucide-react';
 import {
   DEEP_THINKING_TEXT_MODELS,
@@ -35,6 +36,14 @@ import {
 import { storageService, CacheStats } from '../services/storageService';
 import { deleteFromStorage } from '../XcAISTUDIO-main/services/storage';
 import {
+  getVirseAccount,
+  getVirseRawToolData,
+  listVirseImageModels,
+  listVirseWorkspaces,
+  VirseImageModel,
+  VirseWorkspace,
+} from '../services/virseService';
+import {
   DEFAULT_XIAOCHE_BASE_URL,
   XIAOCHE_IMAGE_MODELS,
   XIAOCHE_MODELS,
@@ -44,7 +53,7 @@ import {
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'model' | 'agent' | 'cache';
+  initialTab?: 'model' | 'agent' | 'cache' | 'image-host';
 }
 
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
@@ -52,6 +61,8 @@ const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
+const DEFAULT_VIRSE_BASE_URL = 'https://api.virse.ai';
+const VIRSE_DEV_BASE_URL = 'https://dev.virse.ai';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
 const DEFAULT_NO1_IMAGE_BASE_URL = 'https://api.rcouyi.com';
 const NO1_IMAGE_NODES = [
@@ -153,13 +164,14 @@ const testVolcengineConnection = async (
 };
 
 export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOpen, onClose, initialTab = 'model' }) => {
-  const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'cache'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'cache' | 'image-host'>(initialTab);
 
   // Agent Settings State
   const [agentName, setAgentName] = useState('XcAI 首席电商视觉策划师');
   const [agentRole, setAgentRole] = useState('你是一个拥有10年经验的亚马逊/独立站电商视觉总监。你的目标是根据用户提供的产品信息或图片，策划出高转化率的视觉方案。');
   const [agentCapabilities, setAgentCapabilities] = useState('1. 深入分析产品卖点与目标市场\n2. 策划高转化率的电商图片（主图、副图、A+）\n3. 保持专业、精炼的语言风格');
   const [deepThinkingEnabled, setDeepThinkingEnabled] = useState(false);
+  const [textApiProvider, setTextApiProvider] = useState<'auto' | 'plato' | 'yunwu' | 'runninghub' | 'native'>('auto');
 
   // Model Settings State
   const [nativeApiKey, setNativeApiKey] = useState('');
@@ -187,6 +199,16 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isRunningHubKeyVisible, setIsRunningHubKeyVisible] = useState(false);
   const [runningHubEnabled, setRunningHubEnabled] = useState(false);
 
+  const [virseApiKey, setVirseApiKey] = useState('');
+  const [virseBaseUrl, setVirseBaseUrl] = useState(VIRSE_DEV_BASE_URL);
+  const [isVirseKeyVisible, setIsVirseKeyVisible] = useState(false);
+  const [virseEnabled, setVirseEnabled] = useState(false);
+  const [virseWorkspaces, setVirseWorkspaces] = useState<VirseWorkspace[]>([]);
+  const [virseModels, setVirseModels] = useState<VirseImageModel[]>([]);
+  const [virseCanvasId, setVirseCanvasId] = useState('');
+  const [virseSpaceId, setVirseSpaceId] = useState('');
+  const [virseModel, setVirseModel] = useState('nano-banana-2');
+
   const [xiaocheApiKey, setXiaocheApiKey] = useState('');
   const [xiaocheBaseUrl, setXiaocheBaseUrl] = useState(DEFAULT_XIAOCHE_BASE_URL);
   const [isXiaocheKeyVisible, setIsXiaocheKeyVisible] = useState(false);
@@ -209,6 +231,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [runningHubTestStatus, setRunningHubTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [runningHubTestMessage, setRunningHubTestMessage] = useState('');
 
+  const [virseTestStatus, setVirseTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [virseTestMessage, setVirseTestMessage] = useState('');
+  const [virseDiagnostic, setVirseDiagnostic] = useState('');
+
   const [xiaocheTestStatus, setXiaocheTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [xiaocheTestMessage, setXiaocheTestMessage] = useState('');
   
@@ -224,6 +250,11 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [cacheMessage, setCacheMessage] = useState('');
+  const [imageHostProvider, setImageHostProvider] = useState<'none' | 'imgbb'>('imgbb');
+  const [imgbbApiKey, setImgbbApiKey] = useState('');
+  const [isImgbbKeyVisible, setIsImgbbKeyVisible] = useState(false);
+  const [imgbbTestStatus, setImgbbTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [imgbbTestMessage, setImgbbTestMessage] = useState('');
 
   const nativeAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const yunwuAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -263,9 +294,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedName = localStorage.getItem('agentName');
     const savedRole = localStorage.getItem('agentRole');
     const savedCapabilities = localStorage.getItem('agentCapabilities');
+    const savedTextApiProvider = localStorage.getItem('text_api_provider');
     if (savedName) setAgentName(savedName);
     if (savedRole) setAgentRole(savedRole);
     if (savedCapabilities) setAgentCapabilities(savedCapabilities);
+    if (savedTextApiProvider === 'plato' || savedTextApiProvider === 'yunwu' || savedTextApiProvider === 'runninghub' || savedTextApiProvider === 'native') {
+      setTextApiProvider(savedTextApiProvider);
+    } else {
+      setTextApiProvider('auto');
+    }
     setDeepThinkingEnabled(getTextModelPowerMode() === 'deep-thinking');
 
     // Load Model Settings
@@ -310,6 +347,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedRunningHubUrl) setRunningHubBaseUrl(savedRunningHubUrl);
     setRunningHubEnabled(savedRunningHubEnabled === 'true');
 
+    const savedVirseKey = localStorage.getItem('virse_api_key');
+    const savedVirseEnabled = localStorage.getItem('virse_enabled');
+    setVirseApiKey(savedVirseKey || '');
+    setVirseEnabled(savedVirseEnabled === 'true');
+    setVirseBaseUrl(localStorage.getItem('virse_base_url') || VIRSE_DEV_BASE_URL);
+    setVirseSpaceId(localStorage.getItem('virse_space_id') || '');
+    setVirseCanvasId(localStorage.getItem('virse_canvas_id') || '');
+    setVirseModel(localStorage.getItem('virse_model') || 'nano-banana-2');
+
     const savedXiaocheKey = localStorage.getItem('xiaoche_api_key');
     const savedXiaocheUrl = localStorage.getItem('xiaoche_base_url');
     const savedXiaocheEnabled = localStorage.getItem('xiaoche_enabled');
@@ -322,6 +368,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedVolcengineEnabled = localStorage.getItem('seedance_enabled');
     if (savedVolcengineKey) setVolcengineApiKey(savedVolcengineKey);
     setVolcengineEnabled(savedVolcengineEnabled === 'true' || Boolean(savedVolcengineKey));
+
+    const savedImageHostProvider = localStorage.getItem('image_host_provider');
+    setImageHostProvider(savedImageHostProvider === 'none' ? 'none' : 'imgbb');
+    setImgbbApiKey(localStorage.getItem('imgbb_api_key') || '');
     setSettingsLoaded(true);
   }, [isOpen]);
 
@@ -386,6 +436,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('agentName', agentName);
     localStorage.setItem('agentRole', agentRole);
     localStorage.setItem('agentCapabilities', agentCapabilities);
+    localStorage.setItem('text_api_provider', textApiProvider);
     setTextModelPowerMode(deepThinkingEnabled ? 'deep-thinking' : 'low-power');
 
     // Save Model
@@ -411,6 +462,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('runninghub_base_url', runningHubBaseUrl.trim() || DEFAULT_RUNNINGHUB_BASE_URL);
     localStorage.setItem('runninghub_enabled', String(runningHubEnabled));
 
+    localStorage.setItem('virse_api_key', virseApiKey.trim());
+    localStorage.setItem('virse_base_url', virseBaseUrl);
+    localStorage.setItem('virse_enabled', String(virseEnabled));
+    localStorage.setItem('virse_space_id', virseSpaceId);
+    localStorage.setItem('virse_canvas_id', virseCanvasId);
+    localStorage.setItem('virse_model', virseModel);
+
     localStorage.setItem('xiaoche_api_key', xiaocheApiKey.trim());
     localStorage.setItem('xiaoche_base_url', xiaocheBaseUrl.trim() || DEFAULT_XIAOCHE_BASE_URL);
     localStorage.setItem('xiaoche_enabled', String(xiaocheEnabled));
@@ -421,6 +479,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('seedance_base_url', DEFAULT_VOLCENGINE_BASE_URL);
     localStorage.removeItem('seedance_model');
     localStorage.setItem('seedance_enabled', String(volcengineEnabled));
+
+    localStorage.setItem('image_host_provider', imageHostProvider);
+    localStorage.setItem('imgbb_api_key', imgbbApiKey.trim());
 
     window.dispatchEvent(new Event('agent-settings-updated'));
     window.dispatchEvent(new Event('api-settings-updated'));
@@ -518,6 +579,113 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     } catch (e: any) {
       setRunningHubTestStatus('error');
       setRunningHubTestMessage(e?.message || '连接失败');
+    }
+  };
+
+  const handleTestVirse = async () => {
+    const key = virseApiKey.trim();
+    if (!key) {
+      setVirseTestStatus('error');
+      setVirseTestMessage('请输入 virse_sk_ 开头的 API Key');
+      return;
+    }
+    setVirseTestStatus('testing');
+    setVirseTestMessage('正在连接 Virse MCP...');
+    setVirseDiagnostic('');
+    try {
+      const candidates = [virseBaseUrl, virseBaseUrl === VIRSE_DEV_BASE_URL ? DEFAULT_VIRSE_BASE_URL : VIRSE_DEV_BASE_URL];
+      let account: Record<string, any> = {};
+      let workspaces: VirseWorkspace[] = [];
+      let models: VirseImageModel[] = [];
+      let activeBaseUrl = virseBaseUrl;
+      let lastError: any = null;
+      for (const candidate of candidates) {
+        try {
+          const candidateAccount = await getVirseAccount(key, candidate);
+          const [candidateWorkspaces, candidateModels] = await Promise.all([
+            listVirseWorkspaces(key, candidate),
+            listVirseImageModels(key, candidate),
+          ]);
+          account = candidateAccount;
+          workspaces = candidateWorkspaces;
+          models = candidateModels;
+          activeBaseUrl = candidate;
+          if (candidateWorkspaces.length > 0 || candidateModels.length > 0) break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (workspaces.length === 0 && models.length === 0 && lastError) throw lastError;
+      setVirseBaseUrl(activeBaseUrl);
+      if (workspaces.length === 0 && models.length === 0) {
+        const [rawWorkspaces, rawModels] = await Promise.all([
+          getVirseRawToolData(key, activeBaseUrl, 'list_workspaces'),
+          getVirseRawToolData(key, activeBaseUrl, 'list_image_models'),
+        ]);
+        setVirseDiagnostic(JSON.stringify({
+          endpoint: activeBaseUrl,
+          list_workspaces: rawWorkspaces,
+          list_image_models: rawModels,
+        }, null, 2));
+      }
+      setVirseWorkspaces(workspaces);
+      setVirseModels(models);
+
+      const currentWorkspace = workspaces.find((workspace) => workspace.canvas_id === virseCanvasId) || workspaces[0];
+      if (currentWorkspace) {
+        setVirseSpaceId(currentWorkspace.space_id);
+        setVirseCanvasId(currentWorkspace.canvas_id);
+      }
+      if (models.length > 0 && !models.some((model) => model.id === virseModel)) {
+        setVirseModel(models[0].id);
+      }
+
+      const displayName = account?.name || account?.username || account?.user?.name || account?.email || '账户已验证';
+      const balance = account?.balance ?? account?.organization?.balance;
+      const details = [
+        activeBaseUrl.includes('dev.') ? 'Dev 节点' : 'API 节点',
+        String(displayName),
+        `${workspaces.length} 个工作区`,
+        `${models.length} 个图片模型`,
+        balance !== undefined ? `余额 ${balance} CU` : '',
+      ].filter(Boolean).join(' · ');
+      setVirseTestStatus('success');
+      setVirseTestMessage(details);
+    } catch (e: any) {
+      setVirseTestStatus('error');
+      setVirseTestMessage(e?.message || 'Virse 连接失败');
+      setVirseDiagnostic('');
+    }
+  };
+
+  const handleTestImgBb = async () => {
+    const keys = imgbbApiKey.split(/[\n,;]+/).map((key) => key.trim()).filter(Boolean);
+    if (keys.length === 0) {
+      setImgbbTestStatus('error');
+      setImgbbTestMessage('请至少填写一个 ImgBB API Key');
+      return;
+    }
+    setImgbbTestStatus('testing');
+    setImgbbTestMessage(`正在测试 ${keys.length} 个 Key...`);
+    try {
+      const response = await fetch('/api/virse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operation: 'test_imgbb', imgbbApiKey }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+      const total = Number(payload?.data?.total || keys.length);
+      const valid = Number(payload?.data?.valid || 0);
+      const invalid = Number(payload?.data?.invalid || total - valid);
+      if (valid === 0) throw new Error(`0/${total} 个 Key 可用，请检查 Key 是否正确`);
+      setImgbbTestStatus(invalid > 0 ? 'error' : 'success');
+      setImgbbTestMessage(invalid > 0
+        ? `${valid}/${total} 个 Key 可用，${invalid} 个无效；生成时会自动跳过无效 Key`
+        : `连接成功：${valid}/${total} 个 Key 可用，已启用轮询`);
+    } catch (error: any) {
+      setImgbbTestStatus('error');
+      setImgbbTestMessage(error?.message || 'ImgBB 连接测试失败');
     }
   };
 
@@ -732,12 +900,20 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     };
   }, [xiaocheApiKey, xiaocheBaseUrl, xiaocheEnabled, isOpen, settingsLoaded]);
 
-  const activeTitle = activeTab === 'model' ? '模型配置' : activeTab === 'agent' ? '智能体设定' : '缓存磁盘';
+  const activeTitle = activeTab === 'model'
+    ? '模型配置'
+    : activeTab === 'agent'
+      ? '智能体设定'
+      : activeTab === 'cache'
+        ? '缓存磁盘'
+        : '图床服务';
   const activeSubtitle = activeTab === 'model'
     ? '配置 API 中转站与模型参数'
     : activeTab === 'agent'
       ? '定义智能体的角色、身份与核心能力'
-      : '管理本地项目历史与浏览器存储占用';
+      : activeTab === 'cache'
+        ? '管理本地项目历史与浏览器存储占用'
+        : '配置参考图片的临时公网存储服务';
 
   if (!isOpen) return null;
 
@@ -794,6 +970,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
               <span className="text-sm font-bold">缓存磁盘</span>
             </button>
 
+            <button
+              onClick={() => setActiveTab('image-host')}
+              className={`flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${activeTab === 'image-host' ? 'bg-white dark:bg-white/10 shadow-md text-brand-orange' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-white/5'}`}
+            >
+              <ImageIcon className="w-5 h-5" />
+              <span className="text-sm font-bold">图床服务</span>
+            </button>
+
             <div className="mt-auto pt-6 border-t border-gray-200 dark:border-white/5">
               <button
                 onClick={onClose}
@@ -810,18 +994,8 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
             {/* Header */}
             <div className="p-8 lg:p-10 border-b border-gray-100 dark:border-white/5 flex items-center justify-between gap-6">
               <div>
-                {activeTab === 'cache' && (
-                  <>
-                    <h3 className="text-3xl font-black text-gray-900 dark:text-white">缓存磁盘</h3>
-                    <p className="text-base text-gray-500 mt-2">管理本地项目历史与浏览器存储占用</p>
-                  </>
-                )}
-                <h3 className={`text-3xl font-black text-gray-900 dark:text-white ${activeTab === 'cache' ? 'hidden' : ''}`}>
-                  {activeTab === 'model' ? '模型配置' : '智能体设定'}
-                </h3>
-                <p className={`text-base text-gray-500 mt-2 ${activeTab === 'cache' ? 'hidden' : ''}`}>
-                  {activeTab === 'model' ? '配置 API 中转站与模型参数' : '定义智能体的角色、身份与核心能力'}
-                </p>
+                <h3 className="text-3xl font-black text-gray-900 dark:text-white">{activeTitle}</h3>
+                <p className="text-base text-gray-500 mt-2">{activeSubtitle}</p>
               </div>
               <div className="hidden sm:flex items-center gap-3">
                  {activeTab === 'model' && (
@@ -1148,6 +1322,140 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     )}
                   </div>
 
+                  {/* Virse Config */}
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${virseEnabled ? 'bg-white dark:bg-white/5 border-violet-200 dark:border-violet-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-3 rounded-2xl ${virseEnabled ? 'bg-violet-100 text-violet-600' : 'bg-gray-200 text-gray-500'}`}>
+                          <Sparkles className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className={`text-lg font-black ${virseEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>Virse 创意平台</h4>
+                            <span className="px-2 py-0.5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-black">MCP</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">连接 Virse 图片模型、工作区与创意画布</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setVirseEnabled(!virseEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${virseEnabled ? 'bg-violet-500' : 'bg-gray-300'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${virseEnabled ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {virseEnabled && (
+                      <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点</label>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setVirseBaseUrl(VIRSE_DEV_BASE_URL)}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === VIRSE_DEV_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                            >
+                              Dev 节点（认证文档）
+                            </button>
+                            <button
+                              onClick={() => setVirseBaseUrl(DEFAULT_VIRSE_BASE_URL)}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === DEFAULT_VIRSE_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                            >
+                              API 节点（新版）
+                            </button>
+                          </div>
+                          <div className="px-4 py-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 text-xs font-mono text-violet-700 dark:text-violet-300">
+                            {virseBaseUrl}/mcp
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> Virse API Key</label>
+                          <div className="relative">
+                            <textarea
+                              value={virseApiKey}
+                              onChange={(e) => {
+                                setVirseApiKey(e.target.value);
+                                setVirseTestStatus('idle');
+                                setVirseTestMessage('');
+                              }}
+                              rows={3}
+                              style={{ WebkitTextSecurity: isVirseKeyVisible ? 'none' : 'disc' } as React.CSSProperties}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-4 text-base focus:ring-2 focus:ring-violet-500/20 outline-none font-mono resize-none"
+                              placeholder="virse_sk_..."
+                            />
+                            <button onClick={() => setIsVirseKeyVisible(!isVirseKeyVisible)} className="absolute right-3 top-3 text-gray-400">
+                              {isVirseKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-gray-500">在 Virse 获取 API Key；测试连接会同步账户、工作区和实时模型列表。</p>
+                        </div>
+
+                        {virseWorkspaces.length > 0 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-sm font-bold text-gray-500">目标工作区 / 画布</label>
+                              <select
+                                value={virseCanvasId}
+                                onChange={(e) => {
+                                  const workspace = virseWorkspaces.find((item) => item.canvas_id === e.target.value);
+                                  setVirseCanvasId(e.target.value);
+                                  setVirseSpaceId(workspace?.space_id || '');
+                                }}
+                                className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm outline-none"
+                              >
+                                {virseWorkspaces.map((workspace) => (
+                                  <option key={workspace.canvas_id} value={workspace.canvas_id}>
+                                    {workspace.name || workspace.organization_name || workspace.space_id}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-sm font-bold text-gray-500">默认图片模型</label>
+                              <select
+                                value={virseModel}
+                                onChange={(e) => setVirseModel(e.target.value)}
+                                className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm outline-none"
+                              >
+                                {virseModels.map((model) => (
+                                  <option key={model.id} value={model.id}>
+                                    {model.name || model.id}{model.provider ? ` · ${model.provider}` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-4 mt-2">
+                          <div className="flex-1 min-w-0">
+                            {virseTestStatus !== 'idle' && (
+                              <span className={`text-xs font-bold break-words ${virseTestStatus === 'success' ? 'text-green-500' : virseTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                {virseTestMessage}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={handleTestVirse}
+                            disabled={virseTestStatus === 'testing'}
+                            className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-violet-50 dark:hover:bg-violet-500/10 text-gray-500 hover:text-violet-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
+                          >
+                            {virseTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试并同步'}
+                          </button>
+                        </div>
+                        {virseDiagnostic && (
+                          <details className="rounded-2xl border border-amber-200 bg-amber-50/70 dark:bg-amber-500/10 dark:border-amber-500/30 p-4">
+                            <summary className="cursor-pointer text-xs font-bold text-amber-700 dark:text-amber-300">
+                              未识别到列表，展开查看 Virse 原始返回
+                            </summary>
+                            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] leading-5 text-gray-700 dark:text-gray-200 select-text">
+                              {virseDiagnostic}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Native Gemini Config */}
                   <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${nativeEnabled ? 'bg-white dark:bg-white/5 border-blue-200 dark:border-blue-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-center justify-between mb-6">
@@ -1404,6 +1712,118 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     )}
                   </div>
                 </div>
+              ) : activeTab === 'image-host' ? (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-5xl">
+                  <div className="p-6 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
+                    <div className="flex items-center gap-3 pb-5 border-b border-gray-100 dark:border-white/10">
+                      <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 flex items-center justify-center">
+                        <ImageIcon className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-black text-gray-900 dark:text-white">图床服务商</h4>
+                        <p className="text-xs text-gray-500 mt-1">为 Virse 参考图生成临时公网地址</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 mt-6">
+                      <button
+                        type="button"
+                        onClick={() => setImageHostProvider('none')}
+                        className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all ${imageHostProvider === 'none' ? 'border-gray-900 dark:border-white bg-gray-50 dark:bg-white/10' : 'border-gray-200 dark:border-white/10 hover:border-gray-300'}`}
+                      >
+                        <X className="w-5 h-5 text-gray-400" />
+                        <div className="flex-1">
+                          <p className="text-sm font-black text-gray-900 dark:text-white">不启用</p>
+                          <p className="text-xs text-gray-500 mt-0.5">仅使用 Virse 原生上传服务</p>
+                        </div>
+                        {imageHostProvider === 'none' && <Check className="w-5 h-5" />}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setImageHostProvider('imgbb')}
+                        className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all ${imageHostProvider === 'imgbb' ? 'border-gray-900 dark:border-white bg-gray-50 dark:bg-white/10' : 'border-gray-200 dark:border-white/10 hover:border-gray-300'}`}
+                      >
+                        <div className="w-9 h-9 rounded-xl bg-gray-950 text-white flex items-center justify-center">
+                          <ImageIcon className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-black text-gray-900 dark:text-white">ImgBB</p>
+                          <p className="text-xs text-gray-500 mt-0.5">官方 API · 临时图片 10 分钟自动删除</p>
+                        </div>
+                        {imageHostProvider === 'imgbb' && <Check className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={`p-6 rounded-3xl border bg-white dark:bg-white/5 transition-opacity ${imageHostProvider === 'imgbb' ? 'border-gray-200 dark:border-white/10' : 'border-gray-200 dark:border-white/10 opacity-50'}`}>
+                    <div className="flex items-center gap-3 pb-5 border-b border-gray-100 dark:border-white/10">
+                      <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 flex items-center justify-center">
+                        <Key className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+                      </div>
+                      <h4 className="text-lg font-black text-gray-900 dark:text-white">ImgBB 参数</h4>
+                    </div>
+
+                    <div className="mt-6">
+                      <label className="text-xs font-black tracking-wider text-gray-600 dark:text-gray-300">API KEY</label>
+                      <div className="relative mt-2">
+                        <textarea
+                          rows={4}
+                          value={imgbbApiKey}
+                          disabled={imageHostProvider !== 'imgbb'}
+                          onChange={(event) => {
+                            setImgbbApiKey(event.target.value);
+                            setImgbbTestStatus('idle');
+                            setImgbbTestMessage('');
+                          }}
+                          placeholder="输入 ImgBB API Key"
+                          autoComplete="off"
+                          style={isImgbbKeyVisible ? undefined : ({ WebkitTextSecurity: 'disc' } as React.CSSProperties)}
+                          className="w-full resize-none rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-black/20 px-4 py-4 pr-12 text-sm leading-6 text-gray-900 dark:text-white outline-none focus:border-brand-orange disabled:cursor-not-allowed"
+                        />
+                        <button
+                          type="button"
+                          disabled={imageHostProvider !== 'imgbb'}
+                          onClick={() => setIsImgbbKeyVisible((visible) => !visible)}
+                          className="absolute right-4 top-4 text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed"
+                        >
+                          {isImgbbKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {imgbbApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length > 1
+                            ? `已配置 ${imgbbApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length} 个 Key，将按请求轮询使用`
+                            : '支持多个 Key，每行一个；生成时自动轮询并跳过不可用 Key'}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={imageHostProvider !== 'imgbb' || imgbbTestStatus === 'testing'}
+                          onClick={handleTestImgBb}
+                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-black text-gray-700 shadow-sm transition hover:border-brand-orange hover:text-brand-orange disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-gray-200"
+                        >
+                          {imgbbTestStatus === 'testing' && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                          {imgbbTestStatus === 'testing' ? '测试中...' : '测试连接'}
+                        </button>
+                      </div>
+                      {imgbbTestMessage && (
+                        <div className={`mt-3 rounded-xl px-3 py-2.5 text-xs font-bold ${imgbbTestStatus === 'success'
+                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                          : imgbbTestStatus === 'error'
+                            ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'
+                            : 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'}`}
+                        >
+                          {imgbbTestMessage}
+                        </div>
+                      )}
+                      <p className="mt-4 text-xs leading-5 text-gray-500">
+                        Key 仅保存在当前浏览器，并在上传参考图时发送给同源后端。可从{' '}
+                        <a href="https://api.imgbb.com/" target="_blank" rel="noreferrer" className="font-bold text-brand-orange hover:underline">ImgBB API</a>
+                        {' '}获取。
+                      </p>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-8 max-w-3xl">
                   <div className={`rounded-3xl border p-6 transition-all ${deepThinkingEnabled ? 'border-orange-300 bg-gradient-to-br from-orange-50 to-amber-50 dark:border-orange-500/40 dark:from-orange-500/10 dark:to-amber-500/5' : 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/25 dark:bg-emerald-500/5'}`}>
@@ -1450,6 +1870,36 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                             {model}
                           </span>
                         ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-blue-200 bg-blue-50/60 p-6 dark:border-blue-500/25 dark:bg-blue-500/5">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
+                        <Bot className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-base font-black text-gray-900 dark:text-white">文本 / Agent 服务</h4>
+                        <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                          文本对话、提示词优化和图片分析使用这里选择的中转；图片生成仍由 {virseEnabled ? 'Virse' : '当前图像服务'} 处理。
+                        </p>
+                        <select
+                          value={textApiProvider}
+                          onChange={(event) => setTextApiProvider(event.target.value as typeof textApiProvider)}
+                          className="mt-4 w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-blue-500/25 dark:bg-white/5 dark:text-white"
+                        >
+                          <option value="auto">自动选择（按已启用服务优先级）</option>
+                          <option value="plato">柏拉图 API</option>
+                          <option value="yunwu">云雾 API</option>
+                          <option value="runninghub">RunningHub API</option>
+                          <option value="native">Google Gemini 原生 API</option>
+                        </select>
+                        {virseEnabled && (
+                          <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600 dark:bg-violet-500/10 dark:text-violet-300">
+                            当前能力路由：图像 → Virse；文本 / Agent → {textApiProvider === 'auto' ? '自动选择' : textApiProvider}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

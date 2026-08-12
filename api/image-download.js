@@ -1,12 +1,18 @@
 const MAX_IMAGE_BYTES = 40 * 1024 * 1024;
 const ALLOWED_HOST_SUFFIXES = ['aiproxy.vip', 'apilio.ai'];
 
+const isVirseStorageUrl = (parsed) => (
+  parsed.hostname.toLowerCase() === 'storage.googleapis.com'
+  && parsed.pathname.startsWith('/virse-images/')
+);
+
 const isAllowedImageUrl = (value) => {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
     const host = parsed.hostname.toLowerCase();
-    return ALLOWED_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+    return isVirseStorageUrl(parsed)
+      || ALLOWED_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
   } catch {
     return false;
   }
@@ -59,7 +65,7 @@ export default async function handler(req, res) {
     const extension = contentType.includes('jpeg') ? 'jpg' : contentType.includes('webp') ? 'webp' : 'png';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', String(data.byteLength));
-    res.setHeader('Content-Disposition', `attachment; filename="plato-image.${extension}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="generated-image.${extension}"`);
     res.setHeader('Cache-Control', 'private, max-age=300');
     return res.status(200).send(data);
   } catch (error) {

@@ -24,6 +24,7 @@ import {
   API_TIMEOUT_MS
 } from "../utils/apiHelpers";
 import { resolveXiaocheImageModel } from "../utils/xiaocheModels";
+import { generateVirseImage, uploadVirseReference } from "../../services/virseService";
 
 import type {
   GeminiResponse,
@@ -73,6 +74,59 @@ const getImageGenerationContext = (
   aspectRatio: string = '1:1',
   resolution: string = '1K'
 ) => {
+  const virseEnabled = localStorage.getItem('virse_enabled') === 'true'
+    && Boolean(localStorage.getItem('virse_api_key')?.trim());
+  if (virseEnabled) {
+    // Compatibility adapter for legacy image workflows that still expect a
+    // GoogleGenAI-shaped client. All image requests are redirected through the
+    // central Virse pipeline while text/Agent calls keep using getAiClient().
+    const virseImageClient = {
+      models: {
+        generateContent: async (request: any) => {
+          const contents = Array.isArray(request?.contents) ? request.contents : [request?.contents];
+          const parts = contents.flatMap((content: any) => Array.isArray(content?.parts) ? content.parts : []);
+          const images = parts
+            .map((part: any) => part?.inlineData || part?.inline_data)
+            .filter((data: any) => data?.data)
+            .map((data: any) => ({
+              base64: String(data.data).replace(/^data:[^;]+;base64,/, ''),
+              mimeType: data.mimeType || data.mime_type || 'image/png',
+            }));
+          const prompt = parts
+            .map((part: any) => typeof part?.text === 'string' ? part.text : '')
+            .filter(Boolean)
+            .join('\n') || 'Generate a high-quality image from the supplied references.';
+          const urls = await generateImageToImage(images, prompt, {
+            modelId,
+            aspectRatio: aspectRatio as AspectRatio,
+            resolution: resolution as ImageResolution,
+          });
+          return {
+            candidates: [{
+              content: {
+                parts: urls.map((url) => ({ text: url })),
+              },
+              finishReason: 'STOP',
+            }],
+          };
+        },
+      },
+    } as unknown as GoogleGenAI;
+    return {
+      ai: virseImageClient,
+      config: {
+        apiKey: localStorage.getItem('virse_api_key') || '',
+        isYunwu: false,
+        isPlato: false,
+        isJijing: false,
+        isRunningHub: false,
+        isXiaoche: false,
+        keyCount: 1,
+        currentIndex: 0,
+      },
+      model: modelId,
+    };
+  }
   const { ai, config } = getImageAiClient();
   const model = config.isXiaoche
     ? resolveXiaocheImageModel(modelId, aspectRatio, resolution)
@@ -1284,6 +1338,114 @@ export const generateImageToImage = async (
   } = options;
   throwIfAborted(signal);
   onStatus?.('submitting');
+  const virseEnabled = localStorage.getItem('virse_enabled') === 'true';
+  const virseApiKey = localStorage.getItem('virse_api_key')?.trim() || '';
+  if (virseEnabled && virseApiKey) {
+    const virseBaseUrl = localStorage.getItem('virse_base_url') || 'https://dev.virse.ai';
+    const virseSpaceId = localStorage.getItem('virse_space_id') || '';
+    const virseCanvasId = localStorage.getItem('virse_canvas_id') || '';
+    const imageHostProvider = localStorage.getItem('image_host_provider') || 'imgbb';
+    const imgbbApiKey = imageHostProvider === 'imgbb'
+      ? localStorage.getItem('imgbb_api_key')?.trim() || ''
+      : '';
+    if (!virseSpaceId || !virseCanvasId) {
+      throw new Error('Virse 尚未选择工作区/画布，请在模型配置中点击“测试并同步”，选择工作区后保存配置。');
+    }
+    const configuredVirseModel = localStorage.getItem('virse_model') || 'nano-banana-2';
+    const requestedModel = modelId || configuredVirseModel;
+    const virseModelMap: Record<string, string> = {
+      nanobanana2: 'nano-banana-2',
+      standard: 'nano-banana-2',
+      'gemini-3.1-flash-image-preview': 'nano-banana-2',
+      'gemini-3.1-flash-image': 'nano-banana-2',
+      nanobananapro: 'gemini-3-pro-image-preview',
+      pro: 'gemini-3-pro-image-preview',
+      'gemini-3-pro-image': 'gemini-3-pro-image-preview',
+      'gpt-image-2-all': 'gpt-image-2',
+      'gpt-image-2-vip': 'gpt-image-2',
+      mj_imagine: configuredVirseModel,
+    };
+    const virseModel = virseModelMap[requestedModel] || requestedModel || configuredVirseModel;
+    const baseUrlCandidates = [...new Set([
+      virseBaseUrl,
+      virseBaseUrl === 'https://dev.virse.ai' ? 'https://api.virse.ai' : 'https://dev.virse.ai',
+    ])];
+    let activeVirseBaseUrl = virseBaseUrl;
+    let assetIds: string[] = [];
+    let uploadError: any = null;
+    for (let baseIndex = 0; baseIndex < baseUrlCandidates.length; baseIndex += 1) {
+      const candidateBaseUrl = baseUrlCandidates[baseIndex];
+      const candidateAssetIds: string[] = [];
+      try {
+        for (let index = 0; index < images.slice(0, 10).length; index += 1) {
+          throwIfAborted(signal);
+          onStatus?.('submitting');
+          const image = images[index];
+          candidateAssetIds.push(await uploadVirseReference({
+            apiKey: virseApiKey,
+            baseUrl: candidateBaseUrl,
+            spaceId: virseSpaceId,
+            canvasId: virseCanvasId,
+            base64: image.base64,
+            mimeType: image.mimeType || 'image/png',
+            index,
+            imgbbApiKey,
+          }));
+        }
+        activeVirseBaseUrl = candidateBaseUrl;
+        assetIds = candidateAssetIds;
+        uploadError = null;
+        break;
+      } catch (error: any) {
+        uploadError = error;
+        const message = error?.message || String(error);
+        const canTryAlternateNode = /\b429\b|\b50[234]\b|no healthy upstream|service unavailable|bad gateway|rate|too many requests/i.test(message);
+        if (!canTryAlternateNode || baseIndex === baseUrlCandidates.length - 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+    }
+    if (uploadError) {
+      throw new Error(`Virse 参考图上传失败：${uploadError?.message || String(uploadError)}`);
+    }
+    const fullPrompt = negativePrompt
+      ? `${prompt.trim()}\n\nNegative constraints: ${negativePrompt}`
+      : prompt.trim();
+    const modelCandidates = [...new Set([
+      virseModel,
+      configuredVirseModel,
+      'nano-banana-2',
+      'gemini-2.5-flash-image',
+    ].filter(Boolean))];
+    let lastVirseError: any = null;
+    for (let candidateIndex = 0; candidateIndex < modelCandidates.length; candidateIndex += 1) {
+      const candidateModel = modelCandidates[candidateIndex];
+      try {
+        return await generateVirseImage({
+          apiKey: virseApiKey,
+          baseUrl: activeVirseBaseUrl,
+          spaceId: virseSpaceId,
+          canvasId: virseCanvasId,
+          model: candidateModel,
+          prompt: fullPrompt,
+          aspectRatio,
+          resolution,
+          assetIds,
+          numImages: sampleCount,
+          signal,
+          onStatus,
+        });
+      } catch (error: any) {
+        lastVirseError = error;
+        const message = error?.message || String(error);
+        const isTransientUpstreamFailure = /\b50[234]\b|no healthy upstream|service unavailable|bad gateway/i.test(message);
+        if (!isTransientUpstreamFailure || candidateIndex === modelCandidates.length - 1) {
+          throw new Error(`Virse 模型 ${candidateModel} 生成失败：${message}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+    }
+    throw new Error(`Virse 图片生成失败：${lastVirseError?.message || '没有可用的图片模型上游'}`);
+  }
   const retryLimit = 3;
   let lastError: any = null;
   const MODEL_FALLBACKS: Record<string, string> = {
@@ -2664,6 +2826,26 @@ export const generateInpainting = async (
 ) => {
   const { signal } = options;
   throwIfAborted(signal);
+  const virseEnabled = localStorage.getItem('virse_enabled') === 'true'
+    && Boolean(localStorage.getItem('virse_api_key')?.trim());
+  if (virseEnabled) {
+    const references = [
+      sourceImage,
+      maskImage,
+      ...(options.refImages || []),
+      ...(options.fabricRefImages || []),
+      ...(options.colorRefImages || []),
+      ...(options.structureRefImages || []),
+      ...(options.editMapImage ? [options.editMapImage] : []),
+    ];
+    return generateImageToImage(references, `局部重绘任务：${prompt}`, {
+      aspectRatio: options.aspectRatio || AspectRatio.SQUARE,
+      resolution: options.resolution || '2K',
+      modelId: options.modelId,
+      signal,
+      workflowHint: 'inpainting',
+    });
+  }
   const retryLimit = 3;
   let lastError: any = null;
 
