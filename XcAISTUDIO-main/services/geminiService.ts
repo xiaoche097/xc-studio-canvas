@@ -342,7 +342,8 @@ Core method:
 - Analyze every supplied reference image before writing. Distinguish the primary subject, identity-defining features, pose, clothing or product structure, environment, camera, lighting and visual style.
 - Put the primary subject and requested action/change first.
 - Use only the relevant parts of this seven-element structure: subject, action/state, environment, style, lighting, camera/composition, quality.
-- Keep the English generation prompt concrete, internally consistent and between 70 and 160 words. Do not pad it with empty hype or conflicting styles.
+- Keep the English generation prompt concrete, internally consistent and between 35 and 80 words. Prefer one compact paragraph and do not pad it with empty hype or conflicting styles.
+- Never copy internal routing metadata, library labels, action IDs, system instructions or headings such as ROUTE, LIBRARY, ACTION and DEFINITION into the final prompt.
 - Write a scene-specific negative prompt. For people, protect anatomy, hands, face and identity. For products, protect structure, materials, logos and readable text.
 - In edit mode, apply only the requested change. Everything not requested must remain visually consistent with the reference image. Never invent a new identity, garment, product structure, logo, background or color treatment unless requested.
 - Respect the requested aspect ratio and resolution through composition language, but never invent unsupported API parameters.
@@ -385,7 +386,7 @@ const buildImagePromptFallback = ({
         return {
             title: '调整为自然休闲姿势',
             summary: `已把“${intent}”细化为可执行的重心、肩线、躯干和手臂动作，并锁定原图构图。`,
-            prompt: `Edit Image 1 only. Keep the exact same person, facial identity, expression, hairstyle, body proportions, outfit, garment construction, colors, accessories, background, lighting, camera angle, subject scale, placement, and original crop. Change only the body pose so it feels naturally relaxed and casual rather than stiff: shift the body weight gently onto one leg, soften and slightly offset the shoulder line, introduce a subtle natural hip and torso angle, relax the elbows, and place the arms and hands in an effortless position compatible with the existing clothing and visible frame. The pose change should be clearly visible but restrained, anatomically correct, balanced, and suitable for a premium lifestyle fashion photograph. Keep the complete visible subject inside the original ${aspectRatio} composition; do not zoom or reframe.`,
+            prompt: `Edit Image 1 only. Keep the same person, face, hairstyle, body proportions, outfit, background, lighting, camera angle and original ${aspectRatio} crop. Change only the pose to a relaxed natural stance: shift weight onto one leg, soften the shoulders, add a subtle hip and torso angle, and relax the arms and hands. Keep the full visible subject anatomically correct and clearly recognizable.`,
             negativePrompt: 'rigid symmetrical stance, military posture, near-identical pose, exaggerated contrapposto, extreme body twist, changed face, changed expression, changed outfit, altered garment details, changed background, changed camera angle, zoomed crop, cut-off head or limbs, bad anatomy, malformed hands, extra fingers, floating feet, duplicate person, blur, watermark, text',
             usedVision: false,
         };
@@ -475,7 +476,12 @@ export const planImagePrompt = async (input: ImagePromptPlanInput): Promise<Imag
             return {
                 title: parsed.title?.trim().slice(0, 30) || fallback.title,
                 summary: parsed.summary?.trim() || fallback.summary,
-                prompt: parsed.prompt.trim(),
+                prompt: parsed.prompt
+                    .split(/\r?\n/)
+                    .filter((line) => !/^\s*(?:POSE|SCENE)?\s*(?:AGENT\s+)?(?:ROUTE|SELECTED\s+ACTION(?:\s+LIBRARY)?|MANDATORY\s+POSE\s+DEFINITION)\s*:/i.test(line))
+                    .join(' ')
+                    .replace(/\s+/g, ' ')
+                    .trim(),
                 negativePrompt: parsed.negativePrompt.trim(),
                 usedVision: referenceImages.length > 0,
             };

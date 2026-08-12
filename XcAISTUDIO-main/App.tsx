@@ -41,7 +41,7 @@ const VIEWPORT_BUFFER_PX = 320;
 const PREVIEW_MAX_EDGE = 640;
 const GROUP_PADDING_X = 44;
 const GROUP_PADDING_TOP = 72;
-const GROUP_PADDING_BOTTOM = 250;
+const GROUP_PADDING_BOTTOM = 72;
 const IMAGE_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
 
 const getClosestAspectRatio = (width: number, height: number) => {
@@ -330,6 +330,8 @@ export const App = () => {
     const [runningGroupIds, setRunningGroupIds] = useState<Set<string>>(new Set());
     const [groupRunMessages, setGroupRunMessages] = useState<Record<string, string>>({});
     const [groupSaveMessages, setGroupSaveMessages] = useState<Record<string, string>>({});
+    const [layoutMenuTarget, setLayoutMenuTarget] = useState<'selection' | 'group' | null>(null);
+    const [selectionActionMessage, setSelectionActionMessage] = useState('');
 
     // Node Resizing
     const [resizingNodeId, setResizingNodeId] = useState<string | null>(null);
@@ -605,6 +607,16 @@ export const App = () => {
 
     const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
     const activeGroupNodeIdSet = useMemo(() => new Set(activeGroupNodeIds), [activeGroupNodeIds]);
+    const selectedNodesBounds = useMemo(() => {
+        const selected = selectedNodeIds.map(id => nodeById.get(id)).filter(Boolean) as AppNode[];
+        if (selected.length < 2) return null;
+        const bounds = selected.map(getNodeBounds);
+        const minX = Math.min(...bounds.map(item => item.x));
+        const minY = Math.min(...bounds.map(item => item.y));
+        const maxX = Math.max(...bounds.map(item => item.r));
+        const maxY = Math.max(...bounds.map(item => item.b));
+        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }, [selectedNodeIds, nodeById]);
     const nodeInputAssetsById = useMemo(() => {
         const assetsById = new Map<string, {
             id: string;
@@ -838,14 +850,68 @@ export const App = () => {
         if (!fitted) return;
 
         saveHistory();
+        const groupId = `g-${Date.now()}`;
         setGroups(previous => [...previous, {
-            id: `g-${Date.now()}`,
+            id: groupId,
             title: '新建工作流',
             ...fitted,
             nodeIds: memberNodes.map(node => node.id),
         }]);
+        setSelectedNodeIds([]);
         setSelectedGroupId(null);
+        setLayoutMenuTarget(null);
+        return groupId;
     }, [getGroupBoundsForNodes, saveHistory]);
+
+    const arrangeNodeIds = useCallback((nodeIds: string[], layout: 'horizontal' | 'vertical' | 'grid') => {
+        const idSet = new Set(nodeIds);
+        const members = nodesRef.current
+            .filter(node => idSet.has(node.id))
+            .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+        if (members.length < 2) return;
+
+        const bounds = members.map(getNodeBounds);
+        const originX = Math.min(...bounds.map(item => item.x));
+        const originY = Math.min(...bounds.map(item => item.y));
+        const gap = 72;
+        const positions = new Map<string, { x: number; y: number }>();
+
+        if (layout === 'horizontal') {
+            let x = originX;
+            members.forEach(node => {
+                positions.set(node.id, { x, y: originY });
+                x += getNodeBounds(node).width + gap;
+            });
+        } else if (layout === 'vertical') {
+            let y = originY;
+            members.forEach(node => {
+                positions.set(node.id, { x: originX, y });
+                y += getNodeBounds(node).height + gap;
+            });
+        } else {
+            const columns = Math.ceil(Math.sqrt(members.length));
+            const cellWidth = Math.max(...bounds.map(item => item.width)) + gap;
+            const cellHeight = Math.max(...bounds.map(item => item.height)) + gap;
+            members.forEach((node, index) => positions.set(node.id, {
+                x: originX + (index % columns) * cellWidth,
+                y: originY + Math.floor(index / columns) * cellHeight,
+            }));
+        }
+
+        saveHistory();
+        setNodes(previous => previous.map(node => {
+            const position = positions.get(node.id);
+            return position ? { ...node, ...position } : node;
+        }));
+        setLayoutMenuTarget(null);
+    }, [saveHistory]);
+
+    const ungroupNodes = useCallback((groupId: string) => {
+        saveHistory();
+        setGroups(previous => previous.filter(group => group.id !== groupId));
+        setSelectedGroupId(null);
+        setLayoutMenuTarget(null);
+    }, [saveHistory]);
 
     const undo = useCallback(() => {
         const idx = historyIndexRef.current; if (idx > 0) { const prev = historyRef.current[idx - 1]; setNodes(prev.nodes); setConnections(prev.connections); setGroups(prev.groups); setHistoryIndex(idx - 1); }
@@ -1055,6 +1121,42 @@ export const App = () => {
         });
     }, [persistAssetHistory]);
 
+    const createAssetsFromNodeIds = useCallback((nodeIds: string[]) => {
+        const nodeIdSet = new Set(nodeIds);
+        const candidates = nodesRef.current
+            .filter(node => nodeIdSet.has(node.id))
+            .flatMap(node => {
+                const imageSources = [node.data.image, ...(node.data.images || [])].filter(Boolean) as string[];
+                const videoSources = [node.data.videoUri, ...(node.data.videoUris || [])].filter(Boolean) as string[];
+                const audioSources = node.data.audioUri ? [node.data.audioUri] : [];
+                return [
+                    ...imageSources.map(src => ({ type: 'image' as const, src, title: node.title || '图片资产' })),
+                    ...videoSources.map(src => ({ type: 'video' as const, src, title: node.title || '视频资产' })),
+                    ...audioSources.map(src => ({ type: 'audio' as const, src, title: node.title || '音频资产' })),
+                ];
+            });
+
+        const uniqueCandidates = Array.from(new Map(candidates.map(item => [item.src, item])).values());
+        if (uniqueCandidates.length === 0) {
+            setSelectionActionMessage('所选节点暂无可创建的媒体');
+        } else {
+            persistAssetHistory(current => {
+                const existing = new Set(current.map(asset => asset.src));
+                const now = Date.now();
+                const additions = uniqueCandidates
+                    .filter(item => !existing.has(item.src))
+                    .map((item, index) => ({
+                        id: `a-${now}-${index}-${Math.floor(Math.random() * 1000)}`,
+                        ...item,
+                        timestamp: now + index,
+                    }));
+                return additions.length ? [...additions, ...current] : current;
+            });
+            setSelectionActionMessage(`已处理 ${uniqueCandidates.length} 个资产`);
+        }
+        window.setTimeout(() => setSelectionActionMessage(''), 2200);
+    }, [persistAssetHistory]);
+
     const handleSketchResult = (type: 'image' | 'video', result: string, prompt: string) => {
         const centerX = (-pan.x + window.innerWidth / 2) / scale - 210;
         const centerY = (-pan.y + window.innerHeight / 2) / scale - 180;
@@ -1203,6 +1305,39 @@ export const App = () => {
         }
     };
 
+    const updateDraggedConnectionPaths = useCallback((preview: { nodeIds: string[]; dx: number; dy: number }) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const draggedNodeIds = new Set(preview.nodeIds);
+        const currentNodesById = new Map(nodesRef.current.map(node => [node.id, node]));
+
+        canvas.querySelectorAll<SVGGElement>('[data-connection-from][data-connection-to]').forEach(group => {
+            const fromId = group.dataset.connectionFrom;
+            const toId = group.dataset.connectionTo;
+            if (!fromId || !toId || (!draggedNodeIds.has(fromId) && !draggedNodeIds.has(toId))) return;
+
+            const fromNode = currentNodesById.get(fromId);
+            const toNode = currentNodesById.get(toId);
+            if (!fromNode || !toNode) return;
+
+            const fromOffsetX = draggedNodeIds.has(fromId) ? preview.dx : 0;
+            const fromOffsetY = draggedNodeIds.has(fromId) ? preview.dy : 0;
+            const toOffsetX = draggedNodeIds.has(toId) ? preview.dx : 0;
+            const toOffsetY = draggedNodeIds.has(toId) ? preview.dy : 0;
+            const fromHeight = fromNode.height || getApproxNodeHeight(fromNode);
+            const toHeight = toNode.height || getApproxNodeHeight(toNode);
+            const fx = fromNode.x + fromOffsetX + (fromNode.width || 420) + 3;
+            const fy = fromNode.y + fromOffsetY + fromHeight / 2;
+            const tx = toNode.x + toOffsetX - 3;
+            let ty = toNode.y + toOffsetY + toHeight / 2;
+            if (Math.abs(fy - ty) < 0.5) ty += 0.5;
+            const pathData = `M ${fx} ${fy} C ${fx + (tx - fx) * 0.5} ${fy} ${tx - (tx - fx) * 0.5} ${ty} ${tx} ${ty}`;
+
+            group.querySelectorAll<SVGPathElement>('path').forEach(path => path.setAttribute('d', pathData));
+        });
+    }, []);
+
     const handleGlobalMouseMove = useCallback((e: MouseEvent) => {
         if (
             !selectionRect &&
@@ -1288,6 +1423,7 @@ export const App = () => {
                 draggedNodeElements.forEach(({ element }) => {
                     element.style.transform = transform;
                 });
+                updateDraggedConnectionPaths(nextPreview);
 
             } else if (draggingNodeId) {
                 const dx = (clientX - lastMousePosRef.current.x) / scale;
@@ -1300,6 +1436,7 @@ export const App = () => {
                 dragPreviewRef.current = nextPreview;
                 const draggedElement = canvasRef.current?.querySelector<HTMLElement>(`[data-canvas-node-id="${draggingNodeId}"]`);
                 if (draggedElement) draggedElement.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+                updateDraggedConnectionPaths(nextPreview);
                 lastMousePosRef.current = { x: clientX, y: clientY };
             }
 
@@ -1308,7 +1445,7 @@ export const App = () => {
                 setNodes(prev => prev.map(n => n.id === resizingNodeId ? { ...n, width: Math.max(360, initialSize.width + dx), height: Math.max(240, initialSize.height + dy) } : n));
             }
         });
-    }, [selectionRect, isDraggingCanvas, draggingNodeId, resizingNodeId, initialSize, resizeStartPos, scale]);
+    }, [selectionRect, isDraggingCanvas, draggingNodeId, resizingNodeId, initialSize, resizeStartPos, scale, updateDraggedConnectionPaths]);
 
     const handleGlobalMouseUp = useCallback((e?: MouseEvent) => {
         if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
@@ -2625,11 +2762,13 @@ export const App = () => {
                         return (
                             <div
                                 key={g.id}
-                                className={`absolute z-[1] rounded-[32px] border transition-all ${(draggingGroup?.id === g.id || draggingNodeParentGroupId === g.id) ? 'duration-0' : 'duration-300'} ${selectedGroupId === g.id ? 'border-cyan-400/45 bg-cyan-500/[0.055] shadow-[0_0_40px_rgba(34,211,238,0.08)]' : 'border-white/10 bg-white/[0.025]'}`}
+                                className={`absolute z-[1] rounded-xl border transition-colors ${(draggingGroup?.id === g.id || draggingNodeParentGroupId === g.id || resizingGroupId === g.id) ? 'duration-0' : 'duration-200'} ${selectedGroupId === g.id ? 'border-blue-400/80 bg-white/[0.055]' : 'border-white/15 bg-white/[0.045]'}`}
                                 style={{ left: g.x, top: g.y, width: g.width, height: g.height }}
                                 onMouseDown={(e) => {
                                     e.stopPropagation();
+                                    setSelectedNodeIds([]);
                                     setSelectedGroupId(g.id);
+                                    setLayoutMenuTarget(null);
                                     const childNodes = memberIds
                                         .map(id => nodeById.get(id))
                                         .filter(Boolean)
@@ -2648,56 +2787,60 @@ export const App = () => {
                                 }}
                                 onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, id: g.id }); setContextMenuTarget({ type: 'group', id: g.id }); }}
                             >
-                                <div className="absolute left-5 right-5 top-3 flex h-11 items-center justify-between rounded-2xl border border-white/10 bg-[#111216]/90 px-4 shadow-xl backdrop-blur-xl">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2">
-                                            <WorkflowIcon size={14} className="shrink-0 text-cyan-300" />
-                                            <span className="truncate text-xs font-bold text-zinc-200">{g.title}</span>
-                                            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[9px] font-bold text-zinc-500">{memberIds.length} 节点</span>
-                                        </div>
-                                        {(runMessage || saveMessage) && (
-                                            <p className={`mt-0.5 max-w-[360px] truncate text-[9px] ${runMessage?.includes('失败') || runMessage?.includes('循环') ? 'text-red-400' : runMessage?.includes('完成') || saveMessage ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                                                {saveMessage || runMessage}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div className="ml-4 flex shrink-0 items-center gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={memberIds.length === 0}
-                                            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-                                            onClick={event => {
-                                                event.preventDefault();
-                                                event.stopPropagation();
-                                                saveGroupAsWorkflow(g.id);
-                                            }}
-                                            className="flex h-8 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 text-[10px] font-bold text-zinc-200 transition-all hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-                                            title="保存或更新到我的工作流"
-                                        >
-                                            <Save size={12} />
-                                            保存
-                                        </button>
-                                        <button
-                                            type="button"
-                                            disabled={isRunning || memberIds.length === 0}
-                                            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-                                            onClick={event => {
-                                                event.preventDefault();
-                                                event.stopPropagation();
-                                                void runGroupWorkflow(g.id);
-                                            }}
-                                            className={`flex h-8 items-center gap-1.5 rounded-xl px-3 text-[10px] font-bold transition-all ${
-                                                isRunning
-                                                    ? 'cursor-wait bg-cyan-400/10 text-cyan-300'
-                                                    : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:scale-105 hover:shadow-lg hover:shadow-emerald-400/20 active:scale-95'
-                                            } disabled:cursor-not-allowed disabled:opacity-50`}
-                                            title="按连接依赖顺序运行组内工作流"
-                                        >
-                                            {isRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} fill="currentColor" />}
-                                            {isRunning ? '运行中' : '启动'}
-                                        </button>
-                                    </div>
+                                <div className="pointer-events-none absolute -top-11 left-2 max-w-[70%]">
+                                    <div className="truncate text-[20px] font-black tracking-tight text-zinc-200">{g.title}</div>
+                                    {(runMessage || saveMessage) && (
+                                        <p className={`mt-0.5 max-w-[360px] truncate text-[9px] ${runMessage?.includes('失败') || runMessage?.includes('循环') ? 'text-red-400' : runMessage?.includes('完成') || saveMessage ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                            {saveMessage || runMessage}
+                                        </p>
+                                    )}
                                 </div>
+
+                                {selectedGroupId === g.id && (
+                                    <>
+                                        {([
+                                            ['nw', '-left-1.5 -top-1.5 cursor-nwse-resize'],
+                                            ['ne', '-right-1.5 -top-1.5 cursor-nesw-resize'],
+                                            ['sw', '-bottom-1.5 -left-1.5 cursor-nesw-resize'],
+                                            ['se', '-bottom-1.5 -right-1.5 cursor-nwse-resize'],
+                                        ] as const).map(([handle, className]) => (
+                                            <span
+                                                key={handle}
+                                                aria-hidden="true"
+                                                className={`pointer-events-none absolute z-20 h-3 w-3 rounded-sm border border-blue-200 bg-blue-500 shadow ${className.replace(/cursor-[^ ]+/g, '')}`}
+                                            />
+                                        ))}
+                                        {([
+                                            ['n', 'left-1/2 -top-1 h-2 w-16 -translate-x-1/2 cursor-ns-resize'],
+                                            ['s', 'bottom-[-4px] left-1/2 h-2 w-16 -translate-x-1/2 cursor-ns-resize'],
+                                            ['w', 'top-1/2 -left-1 h-16 w-2 -translate-y-1/2 cursor-ew-resize'],
+                                            ['e', 'top-1/2 -right-1 h-16 w-2 -translate-y-1/2 cursor-ew-resize'],
+                                        ] as const).map(([handle, className]) => (
+                                            <span
+                                                key={handle}
+                                                aria-hidden="true"
+                                                className={`pointer-events-none absolute z-20 rounded-sm border border-blue-200 bg-blue-500 shadow ${className.replace(/cursor-[^ ]+/g, '')}`}
+                                            />
+                                        ))}
+                                        {(['left', 'right'] as const).map(side => (
+                                            <button
+                                                key={side}
+                                                type="button"
+                                                title="添加节点"
+                                                className={`absolute top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-500 bg-[#111216] text-zinc-300 shadow-xl hover:border-white hover:text-white ${side === 'left' ? '-left-11' : '-right-11'}`}
+                                                onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+                                                onClick={event => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    setContextMenu({ visible: true, x: event.clientX, y: event.clientY, id: '' });
+                                                    setContextMenuTarget({ type: 'create' });
+                                                }}
+                                            >
+                                                <Plus size={15} />
+                                            </button>
+                                        ))}
+                                    </>
+                                )}
                             </div>
                         );
                     })}
@@ -2713,7 +2856,12 @@ export const App = () => {
                             if (isNaN(fx) || isNaN(fy) || isNaN(tx) || isNaN(ty)) return null;
                             const d = `M ${fx} ${fy} C ${fx + (tx - fx) * 0.5} ${fy} ${tx - (tx - fx) * 0.5} ${ty} ${tx} ${ty}`;
                             return (
-                                <g key={`${conn.from}-${conn.to}`} className="pointer-events-auto group/line">
+                                <g
+                                    key={`${conn.from}-${conn.to}`}
+                                    data-connection-from={conn.from}
+                                    data-connection-to={conn.to}
+                                    className="pointer-events-auto group/line"
+                                >
                                     <path d={d} stroke="url(#gradient)" strokeWidth="3" fill="none" strokeOpacity="0.5" className="transition-colors duration-300 group-hover/line:stroke-white group-hover/line:stroke-opacity-40" />
                                     <path
                                         d={d}
@@ -3058,11 +3206,30 @@ export const App = () => {
                     </div>
                 )}
 
-                {selectedNodeIds.length > 1 && !contextMenu && (
-                    <div className="fixed top-24 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/10 bg-[#1c1c1e]/90 p-1.5 shadow-2xl backdrop-blur-2xl">
-                        <div className="px-3 text-[11px] font-bold text-zinc-400">
-                            已选中 {selectedNodeIds.length} 个节点
-                        </div>
+                {selectedNodesBounds && !contextMenu && (
+                    <div
+                        className="fixed z-[120] flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#1c1c1e]/95 p-1.5 shadow-2xl backdrop-blur-2xl"
+                        style={{
+                            left: pan.x + (selectedNodesBounds.x + selectedNodesBounds.width / 2) * scale,
+                            top: Math.max(18, pan.y + selectedNodesBounds.y * scale - 56),
+                        }}
+                        onMouseDown={event => event.stopPropagation()}
+                    >
+                        <button
+                            type="button"
+                            onMouseDown={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }}
+                            onClick={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                createAssetsFromNodeIds(selectedNodeIds);
+                            }}
+                            className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-zinc-200 transition-all hover:bg-white/10 active:scale-95"
+                        >
+                            <Box size={13} /> 创建资产
+                        </button>
                         <button
                             type="button"
                             onMouseDown={event => {
@@ -3074,27 +3241,84 @@ export const App = () => {
                                 event.stopPropagation();
                                 createWorkflowGroupFromNodeIds(selectedNodeIds);
                             }}
-                            className="flex h-8 items-center gap-1.5 rounded-xl bg-cyan-400/15 px-3 text-[11px] font-bold text-cyan-200 transition-all hover:bg-cyan-400/25 active:scale-95"
+                            className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-zinc-200 transition-all hover:bg-white/10 active:scale-95"
                         >
-                            <WorkflowIcon size={13} /> 组成工作流
+                            <Layers size={13} /> 打组
                         </button>
-                        <button
-                            type="button"
-                            onMouseDown={event => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                            }}
-                            onClick={event => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                deleteNodes(selectedNodeIds);
-                            }}
-                            className="flex h-8 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-red-300 transition-all hover:bg-red-500/20 active:scale-95"
-                        >
-                            <Trash2 size={13} /> 删除
-                        </button>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setLayoutMenuTarget(current => current === 'selection' ? null : 'selection');
+                                }}
+                                className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-zinc-200 transition-all hover:bg-white/10 active:scale-95"
+                            >
+                                <LayoutTemplate size={13} /> 布局 <ChevronRight size={12} className="rotate-90" />
+                            </button>
+                            {layoutMenuTarget === 'selection' && (
+                                <div className="absolute left-1/2 top-11 w-36 -translate-x-1/2 rounded-xl border border-white/10 bg-[#18181b]/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                                    {(['horizontal', 'vertical', 'grid'] as const).map(layout => (
+                                        <button key={layout} type="button" onClick={() => arrangeNodeIds(selectedNodeIds, layout)} className="w-full rounded-lg px-3 py-2 text-left text-[11px] font-bold text-zinc-300 hover:bg-white/10">
+                                            {layout === 'horizontal' ? '横向排列' : layout === 'vertical' ? '纵向排列' : '网格排列'}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        {selectionActionMessage && (
+                            <div className="absolute left-1/2 top-12 -translate-x-1/2 whitespace-nowrap rounded-lg border border-emerald-400/20 bg-emerald-950/95 px-2.5 py-1.5 text-[10px] font-bold text-emerald-300 shadow-xl">
+                                {selectionActionMessage}
+                            </div>
+                        )}
                     </div>
                 )}
+
+                {selectedGroupId && !contextMenu && (() => {
+                    const group = groups.find(item => item.id === selectedGroupId);
+                    if (!group) return null;
+                    const memberIds = getGroupNodeIds(group, nodes);
+                    const isRunning = runningGroupIds.has(group.id);
+                    return (
+                        <div
+                            className="fixed z-[121] flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#1c1c1e]/95 p-1.5 shadow-2xl backdrop-blur-2xl"
+                            style={{
+                                left: pan.x + (group.x + group.width / 2) * scale,
+                                top: Math.max(18, pan.y + group.y * scale - 58),
+                            }}
+                            onMouseDown={event => event.stopPropagation()}
+                        >
+                            <div className="mx-2 h-5 w-5 rounded-full border-2 border-zinc-500 bg-zinc-700/40" title="已选中分组" />
+                            <div className="mx-1 h-5 w-px bg-white/10" />
+                            <div className="relative">
+                                <button type="button" onClick={() => setLayoutMenuTarget(current => current === 'group' ? null : 'group')} className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-zinc-200 hover:bg-white/10">
+                                    <LayoutTemplate size={13} /> 布局 <ChevronRight size={12} className="rotate-90" />
+                                </button>
+                                {layoutMenuTarget === 'group' && (
+                                    <div className="absolute left-1/2 top-11 w-36 -translate-x-1/2 rounded-xl border border-white/10 bg-[#18181b]/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                                        {(['horizontal', 'vertical', 'grid'] as const).map(layout => (
+                                            <button key={layout} type="button" onClick={() => arrangeNodeIds(memberIds, layout)} className="w-full rounded-lg px-3 py-2 text-left text-[11px] font-bold text-zinc-300 hover:bg-white/10">
+                                                {layout === 'horizontal' ? '横向排列' : layout === 'vertical' ? '纵向排列' : '网格排列'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="mx-1 h-5 w-px bg-white/10" />
+                            <button type="button" disabled={isRunning || memberIds.length === 0} onClick={() => void runGroupWorkflow(group.id)} className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-emerald-300 hover:bg-emerald-400/10 disabled:opacity-40">
+                                {isRunning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} fill="currentColor" />} {isRunning ? '执行中' : '整组执行'}
+                            </button>
+                            <div className="mx-1 h-5 w-px bg-white/10" />
+                            <button type="button" onClick={() => saveGroupAsWorkflow(group.id)} className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-zinc-200 hover:bg-white/10">
+                                <Save size={13} /> 创建工作流
+                            </button>
+                            <button type="button" onClick={() => ungroupNodes(group.id)} className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-zinc-400 hover:bg-white/10 hover:text-zinc-100">
+                                <Layers size={13} /> 解组
+                            </button>
+                        </div>
+                    );
+                })()}
 
                 {croppingNodeId && imageToCrop && (
                     <ImageCropper
@@ -3259,7 +3483,7 @@ export const App = () => {
                         // 本地上传且画布中不存在的图片，才补建来源节点，避免重复。
                         const sourceSpacingY = 680;
                         const sourceStartY = centerY - 150 - ((Math.max(1, inputImages.length) - 1) * sourceSpacingY) / 2;
-                        const firstExistingSource = nodesRef.current.find(node => (
+                        const firstExistingSource = [...nodesRef.current].reverse().find(node => (
                             node.data.image === inputImages[0]?.url || node.data.imagePreview === inputImages[0]?.url
                         ));
                         const sourceNodeIds = inputImages.map((inputImage, index) => {
@@ -3283,10 +3507,23 @@ export const App = () => {
 
                         // 2. Agent 给出提示词方案时便创建已连线的空节点。确认前为
                         // IDLE 待执行，用户点击确认后才切换为 WORKING。
-                        const outputX = firstExistingSource
-                            ? firstExistingSource.x + (firstExistingSource.width || 420) + 120
-                            : centerX + 200;
-                        const outputY = firstExistingSource?.y ?? centerY - 150;
+                        const primarySource = firstExistingSource
+                            || nodesRef.current.find(node => node.id === sourceNodeIds[0]);
+                        const fallbackSourceX = centerX - 300;
+                        const fallbackSourceY = sourceStartY;
+                        const [fallbackRatioWidth, fallbackRatioHeight] = (outputImage.aspectRatio || '2:3')
+                            .split(':')
+                            .map(Number);
+                        const fallbackSourceHeight = fallbackRatioWidth && fallbackRatioHeight
+                            ? 420 * fallbackRatioHeight / fallbackRatioWidth
+                            : 630;
+
+                        // Derived edits belong directly below their primary source image.
+                        // Keep the same x-position so the visual parent/child relation is obvious.
+                        const outputX = primarySource?.x ?? fallbackSourceX;
+                        const outputY = (primarySource?.y ?? fallbackSourceY)
+                            + (primarySource ? getApproxNodeHeight(primarySource) : fallbackSourceHeight)
+                            + 100;
                         const outputNodeId = addNode(
                             NodeType.IMAGE_GENERATOR,
                             outputX,
@@ -3296,7 +3533,8 @@ export const App = () => {
                                 imagePreview: outputImage.url || undefined,
                                 prompt: outputImage.prompt,
                                 aspectRatio: outputImage.aspectRatio,
-                                assetOrigin: 'generated',
+                                assetOrigin: 'derived',
+                                derivedFromNodeIds: sourceNodeIds,
                                 progress: outputImage.phase === 'working' ? '正在准备图片生成任务…' : '方案已就绪，等待确认执行',
                             }
                         );
@@ -3315,10 +3553,12 @@ export const App = () => {
                         if (sourceNodeIds.length > 0 && outputNodeId) {
                             setConnections(prev => [
                                 ...prev,
-                                ...sourceNodeIds.map(sourceNodeId => ({ from: sourceNodeId, to: outputNodeId })),
+                                ...sourceNodeIds
+                                    .filter(sourceNodeId => !prev.some(connection => connection.from === sourceNodeId && connection.to === outputNodeId))
+                                    .map(sourceNodeId => ({ from: sourceNodeId, to: outputNodeId })),
                             ]);
                             setNodes(prev => prev.map(n => n.id === outputNodeId
-                                ? { ...n, inputs: [...n.inputs, ...sourceNodeIds] }
+                                ? { ...n, inputs: Array.from(new Set([...n.inputs, ...sourceNodeIds])) }
                                 : n));
                             handleFocusNode(outputNodeId);
                         }
@@ -3378,7 +3618,7 @@ export const App = () => {
                                 outputNodeId,
                                 {
                                     image: update.url,
-                                    assetOrigin: 'generated',
+                                    assetOrigin: 'derived',
                                     progress: undefined,
                                     error: undefined,
                                 },

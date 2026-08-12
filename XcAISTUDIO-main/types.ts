@@ -83,6 +83,7 @@ export interface AppNode {
     model?: string; // Selected AI model
     image?: string; // Base64 (The currently displayed main image)
     assetOrigin?: 'uploaded' | 'generated' | 'derived'; // Distinguishes user imports from generated media
+    derivedFromNodeIds?: string[]; // Source nodes used by a non-destructive Agent derivation
     colorAdjustments?: ColorAdjustments; // 调色参数
     lightingParams?: LightingParams; // 3D打光参数
 

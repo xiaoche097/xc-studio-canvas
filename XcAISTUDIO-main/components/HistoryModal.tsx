@@ -3,6 +3,7 @@ import {
     X, Trash2, Download, Play, Pause, CheckSquare, 
     Square, Music, Film, Image as ImageIcon, Loader2, Volume2, Inbox, RefreshCw 
 } from 'lucide-react';
+import { downloadImageFile } from '../../Cyzx4/utils/imageDownload';
 
 // 历史项的数据结构定义
 interface HistoryItem {
@@ -130,12 +131,21 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     };
 
     // 下载单个资产到本地
-    const handleDownload = (e: React.MouseEvent, item: HistoryItem) => {
+    const handleDownload = async (e: React.MouseEvent, item: HistoryItem) => {
         e.stopPropagation();
         try {
+            const filename = item.title
+                ? `${item.title.substring(0, 20)}.${item.type === 'audio' ? 'mp3' : item.type === 'video' ? 'mp4' : 'png'}`
+                : `aigc-asset-${item.id}.${item.type === 'audio' ? 'mp3' : item.type === 'video' ? 'mp4' : 'png'}`;
+
+            if (item.type === 'image') {
+                await downloadImageFile(item.src, filename);
+                return;
+            }
+
             const link = document.createElement('a');
             link.href = item.src;
-            link.download = item.title ? `${item.title.substring(0, 20)}.${item.type === 'audio' ? 'mp3' : item.type === 'video' ? 'mp4' : 'png'}` : `aigc-asset-${item.id}.${item.type === 'audio' ? 'mp3' : item.type === 'video' ? 'mp4' : 'png'}`;
+            link.download = filename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

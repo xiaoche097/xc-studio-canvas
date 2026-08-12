@@ -82,6 +82,7 @@ export interface ImageModificationCardData {
   originalIntent?: string;
   executionSkillId?: AgentSkillId;
   referencedAssetIds?: string[];
+  referenceAssets?: AgentSkillAsset[];
   nodeName: string;
   workflowHint: string;
   imageCount: number;
@@ -96,10 +97,33 @@ export interface ImageModificationCardData {
   isCompleted?: boolean;
 }
 
-const compileImagePrompt = (card: Pick<ImageModificationCardData, 'promptPreview' | 'negativePrompt'>) => (
-  card.negativePrompt?.trim()
-    ? `${card.promptPreview.trim()}\n\nAvoid: ${card.negativePrompt.trim()}`
-    : card.promptPreview.trim()
+// The execution layer already supplies preservation and quality constraints for
+// each image skill. Keep the user direction concise instead of appending the
+// card's entire negative list and internal Agent metadata to the generation prompt.
+const containsInternalPromptMetadata = (value?: string) => (
+  /(?:POSE|SCENE)?\s*(?:AGENT\s+)?(?:ROUTE|SELECTED\s+ACTION(?:\s+LIBRARY)?|MANDATORY\s+POSE\s+DEFINITION)\s*:/i.test(value || '')
+);
+
+const compileImagePrompt = (
+  card: Pick<ImageModificationCardData, 'promptPreview' | 'negativePrompt'>
+    & Partial<Pick<ImageModificationCardData, 'originalIntent'>>,
+) => {
+  if (containsInternalPromptMetadata(card.promptPreview) && card.originalIntent?.trim()) {
+    return `Edit Image 1 only. ${card.originalIntent.trim()}. Preserve the same person, face, hairstyle, body proportions, outfit, background, lighting, camera angle and crop. Change nothing else. Output one image.`;
+  }
+  return card.promptPreview
+    .split(/\r?\n\s*(?=(?:POSE|SCENE)?\s*(?:AGENT\s+)?ROUTE\s*:)/i)[0]
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const getCompactPoseDirection = (posePrompt: string) => (
+  posePrompt
+    .split(',')
+    .slice(0, 2)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(', ')
 );
 
 const resolveImageModificationSkillId = (intent: string): AgentSkillId => {
@@ -134,6 +158,77 @@ interface Message {
   trace?: AgentTraceStep[];
 }
 
+type AgentTaskStatus = 'active' | 'awaiting-choice' | 'awaiting-confirmation' | 'executing' | 'awaiting-feedback' | 'resolved';
+
+interface AgentDecisionOption {
+  key: string;
+  label: string;
+  description: string;
+}
+
+interface AgentTaskMemory {
+  status: AgentTaskStatus;
+  goal?: string;
+  lastFeedback?: string;
+  pendingOptions?: AgentDecisionOption[];
+  selectedOption?: AgentDecisionOption;
+  lastOutputAssets?: AgentSkillAsset[];
+  updatedAt: number;
+  resolvedAt?: number;
+}
+
+const normalizeDecisionKey = (value: string) => {
+  const normalized = value.trim().toUpperCase().replace(/方案|选项|选择|第|个|\s/g, '');
+  if (/^(A|1|一)$/.test(normalized)) return 'A';
+  if (/^(B|2|二)$/.test(normalized)) return 'B';
+  if (/^(C|3|三)$/.test(normalized)) return 'C';
+  return '';
+};
+
+const extractDecisionOptions = (text: string): AgentDecisionOption[] => {
+  const options: AgentDecisionOption[] = [];
+  text.split('\n').forEach((line) => {
+    const cleanLine = line.replace(/\*\*/g, '');
+    const match = cleanLine.match(/^\s*(?:[-*•]\s*)?(?:方案|选项)\s*([A-CＡ-Ｃ1-3一二三])\s*(?:[（(]([^）)]+)[）)])?\s*[：:]\s*(.+?)\s*$/i);
+    if (!match) return;
+    const key = normalizeDecisionKey(match[1].replace(/[ＡＢＣ]/g, (char) => ({ 'Ａ': 'A', 'Ｂ': 'B', 'Ｃ': 'C' }[char] || char)));
+    if (!key || options.some((option) => option.key === key)) return;
+    options.push({
+      key,
+      label: match[2]?.trim() || `方案 ${key}`,
+      description: match[3].trim(),
+    });
+  });
+  return options;
+};
+
+const resolvePendingDecision = (messages: Message[], userText: string, memory?: AgentTaskMemory | null) => {
+  const key = normalizeDecisionKey(userText.replace(/[！!。.]$/g, ''));
+  if (!key) return null;
+  const latestModelOptions = [...messages]
+    .reverse()
+    .filter((message) => message.role === 'model')
+    .map((message) => extractDecisionOptions(message.text))
+    .find((options) => options.length > 0);
+  const options = memory?.pendingOptions?.length ? memory.pendingOptions : latestModelOptions;
+  return options?.find((option) => option.key === key) || null;
+};
+
+const isNegativeResultFeedback = (text: string) => /不好看|不满意|不对|不是我想要|不是我要的|效果不行|太僵|僵硬|很怪|难看|重做|重新来/i.test(text);
+const isResolvedResultFeedback = (text: string) => /^(满意了|可以了|好了|这版可以|这样就行|就这样|问题解决了|解决了|符合预期|这次对了)[！!。.]?$/i.test(text.trim());
+
+const findLatestGeneratedImageAssets = (messages: Message[]): AgentSkillAsset[] => {
+  const message = [...messages].reverse().find((candidate) => candidate.assets?.some((asset) => asset.mediaType === 'image'));
+  if (!message?.assets) return [];
+  return message.assets
+    .filter((asset) => asset.mediaType === 'image')
+    .map((asset, index) => ({
+      id: `agent-output-${message.id || 'message'}-${index}`,
+      src: asset.url,
+      title: asset.title || `最近生成结果 ${index + 1}`,
+    }));
+};
+
 interface AgentMemoryPoint {
   id: string;
   label: string;
@@ -159,7 +254,25 @@ export interface ChatSession {
   skillTitle?: string;
   agentPhase?: AgentPhase;
   runtimeState?: AgentRuntimeState;
+  taskMemory?: AgentTaskMemory;
+  isCommitted?: boolean;
 }
+
+const hasUserInput = (session: Pick<ChatSession, 'messages' | 'title' | 'isCommitted'>) => {
+  if (session.isCommitted !== undefined) return session.isCommitted;
+  const userMessages = session.messages.filter((message) => (
+    message.role === 'user' && Boolean((message.agentText || message.text).trim())
+  ));
+  if (userMessages.length === 0) return false;
+
+  // Legacy builds could accidentally materialize a synthetic "你好" as a user
+  // message when a blank conversation was created. Remove those ambiguous empty
+  // rows during migration; newly submitted "你好" turns carry isCommitted=true.
+  const onlySyntheticGreeting = userMessages.every((message) => (
+    /^(你好|您好|hello|hi)[！!。.]?$/i.test((message.agentText || message.text).trim())
+  ));
+  return !(onlySyntheticGreeting && /^(你好|您好|新对话)$/i.test(session.title.trim()));
+};
 
 const generateSessionId = () => {
   const ts = Date.now().toString(36);
@@ -436,6 +549,9 @@ const ASSISTANT_SYSTEM_INSTRUCTION = `
 4. 不展示内部思维链或内部元信息块，只展示可核验的研判摘要、用户需要确认的假设和下一步。
 5. 用户要求生成、修改或优化图片时，若意图已经可执行，必须先交付一版完整可用的生成提示词和针对性排除项；不得只复述需求、列检查项或要求用户确认。
 6. 非关键细节由你采用保守、专业且不改变主体身份的默认值补齐。只有会显著改变主体、品牌事实或制作成本的歧义才允许追问。
+7. 用户评价“不好看、不满意、不对”时，评价对象默认是当前任务最近一次真实生成结果。必须继承原任务目标与已确认约束，不能把它当作脱离上下文的新问题。
+8. 若负面反馈仍缺少可执行方向，只提供两个与反馈直接相关的短方案，严格使用“方案 A（名称）：说明”和“方案 B（名称）：说明”的格式；方案不得偏离原目标。用户回复 A/B、1/2 或“第一个/第二个”即表示已完成选择，不得重复询问，必须进入执行准备。
+9. 生成完成后进入验收状态；用户说“这版可以、这样就行、解决了”等，明确收束为已解决，不再继续建议修改。只有真实执行器返回结果后才能把生成任务标记为完成。
 `;
 
 const readLocalJson = <T,>(key: string, fallback: T): T => {
@@ -465,12 +581,13 @@ const safeSetLocalStorage = (key: string, value: string) => {
 let chatSessionWriteQueue: Promise<void> = Promise.resolve();
 
 const persistChatSessions = (sessions: ChatSession[]) => {
+  const committedSessions = sessions.filter(hasUserInput);
   // Serialize IndexedDB writes so a slower, older render cannot overwrite the
   // latest chat snapshot. IndexedDB is used because generated base64 images can
   // easily exceed localStorage's roughly 5-10 MB per-origin quota.
   chatSessionWriteQueue = chatSessionWriteQueue
     .catch(() => undefined)
-    .then(() => saveToStorage(CHAT_SESSIONS_STORAGE_KEY, sessions))
+    .then(() => saveToStorage(CHAT_SESSIONS_STORAGE_KEY, committedSessions))
     .catch((error) => {
       console.error('[AssistantPanel] Failed to persist chat sessions to IndexedDB.', error);
     });
@@ -642,13 +759,14 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
   // 历史对话 Session 管理
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const saved = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
+    const saved = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []).filter(hasUserInput);
     if (saved.length > 0) return saved;
     const initialId = generateSessionId();
     return [{
       id: initialId,
       title: '你好',
       messages: [DEFAULT_INITIAL_MESSAGE],
+      isCommitted: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }];
@@ -656,7 +774,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
     const savedId = localStorage.getItem('xiaoche_agent_current_session_id');
-    const savedSessions = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []);
+    const savedSessions = readLocalJson<ChatSession[]>('xiaoche_agent_chat_sessions', []).filter(hasUserInput);
     if (savedId && savedSessions.some(s => s.id === savedId)) {
       return savedId;
     }
@@ -748,6 +866,10 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const [agentRuntimeState, setAgentRuntimeState] = useState<AgentRuntimeState | null>(() => (
     sessions.find((session) => session.id === currentSessionId)?.runtimeState || null
   ));
+  const [taskMemory, setTaskMemory] = useState<AgentTaskMemory | null>(() => (
+    sessions.find((session) => session.id === currentSessionId)?.taskMemory || null
+  ));
+  const visibleSessions = useMemo(() => sessions.filter(hasUserInput), [sessions]);
 
   // Full chat history (especially generated image data URLs) belongs in
   // IndexedDB. Hydrate it once, then remove legacy localStorage payloads after
@@ -758,12 +880,22 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     const hydrateChatSessions = async () => {
       try {
         const storedSessions = await loadFromStorage<ChatSession[]>(CHAT_SESSIONS_STORAGE_KEY);
-        const nextSessions = storedSessions?.length ? storedSessions : sessions;
+        const committedStoredSessions = (storedSessions || []).filter(hasUserInput);
+        const committedFallbackSessions = sessions.filter(hasUserInput);
+        const committedSessions = committedStoredSessions.length ? committedStoredSessions : committedFallbackSessions;
+        const draftSession = sessions.find((session) => !hasUserInput(session)) || {
+          id: generateSessionId(),
+          title: '新对话',
+          messages: [DEFAULT_INITIAL_MESSAGE],
+          isCommitted: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        const nextSessions = committedSessions.length ? committedSessions : [draftSession];
 
-        if (!storedSessions?.length) {
-          // Do not delete the legacy copy unless this first migration write is
-          // confirmed successful.
-          await saveToStorage(CHAT_SESSIONS_STORAGE_KEY, nextSessions);
+        // Also cleans legacy sessions that only contain the assistant greeting.
+        if (!storedSessions || committedStoredSessions.length !== storedSessions.length) {
+          await saveToStorage(CHAT_SESSIONS_STORAGE_KEY, committedSessions);
         }
         if (cancelled) return;
 
@@ -781,6 +913,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           : null);
         setAgentPhase(nextSession.agentPhase || 'idle');
         setAgentRuntimeState(nextSession.runtimeState || null);
+        setTaskMemory(nextSession.taskMemory || null);
 
         LEGACY_CHAT_SESSION_KEYS.forEach((key) => localStorage.removeItem(key));
       } catch (error) {
@@ -1045,10 +1178,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     if (isLoading) return;
     const referenceAssets = card.referencedAssetIds?.length
       ? card.referencedAssetIds.flatMap((id) => {
-          const asset = activeAttachments.find((candidate) => candidate.id === id);
+          const asset = activeAttachments.find((candidate) => candidate.id === id)
+            || card.referenceAssets?.find((candidate) => candidate.id === id);
           return asset ? [asset] : [];
         })
-      : activeAttachments;
+      : (card.referenceAssets?.length ? card.referenceAssets : activeAttachments);
     if (!referenceAssets.length) {
       setMessages((prev) => [...prev, { role: 'model', text: '请先重新添加这条任务使用的参考图，我才能重新撰写提示词。' }]);
       return;
@@ -1064,10 +1198,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         ? selectPoseFromAgentLibrary(originalIntent)
         : null;
       const routedUserIntent = poseSelection
-        ? `${originalIntent}\n\n${poseSelection.directive}`
-        : executionSkillId === 'SCENE_GENERATION'
-          ? `${originalIntent}\n\nSCENE AGENT ROUTE: Use the Scene Generation Agent and preserve the source subject exactly.`
-          : originalIntent;
+        ? `${originalIntent}\nSpecific pose action: ${getCompactPoseDirection(poseSelection.posePrompt)}`
+        : originalIntent;
       const referenceImages = (await Promise.all(referenceAssets.map(async (asset) => (
         asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
       )))).filter(Boolean);
@@ -1078,9 +1210,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         resolution: imageResolution,
         mode: 'edit',
       });
-      const finalPromptPreview = poseSelection
-        ? `${promptPlan.prompt}\n\n${poseSelection.directive}`
-        : promptPlan.prompt;
+      // Use the planner's visually informed optimization. The routed intent only
+      // contains the compact selected action, so no internal library metadata leaks.
+      const finalPromptPreview = promptPlan.prompt;
       const rewrittenCard: ImageModificationCardData = {
         ...card,
         title: promptPlan.title,
@@ -1103,6 +1235,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         poseLibraryLabel: poseSelection?.libraryLabel,
         poseName: poseSelection?.poseName,
         referencedAssetIds: referenceAssets.map((asset) => asset.id),
+        referenceAssets,
         aspectRatio: detectedAspectRatio,
         canvasPlan: buildImageModificationCanvasPlan(
           referenceAssets.map((asset) => asset.id),
@@ -1133,14 +1266,19 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
   };
 
-  const handleConfirmImageModification = async (messageId: string, card: ImageModificationCardData) => {
-    if (isLoading || activeAttachments.length === 0) return;
+  const handleConfirmImageModification = async (
+    messageId: string,
+    card: ImageModificationCardData,
+    options?: { allowWhileLoading?: boolean; appendUserConfirmation?: boolean },
+  ) => {
+    if (isLoading && !options?.allowWhileLoading) return;
     const executionAssets = card.referencedAssetIds?.length
       ? card.referencedAssetIds.flatMap((id) => {
-          const asset = activeAttachments.find((candidate) => candidate.id === id);
+          const asset = activeAttachments.find((candidate) => candidate.id === id)
+            || card.referenceAssets?.find((candidate) => candidate.id === id);
           return asset ? [asset] : [];
         })
-      : activeAttachments;
+      : (card.referenceAssets?.length ? card.referenceAssets : activeAttachments);
     if (!executionAssets.length) {
       setMessages((prev) => [...prev, { role: 'model', text: '本次引用的参考图已不存在，请重新添加图片后再生成。' }]);
       return;
@@ -1163,6 +1301,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       : m));
 
     setIsLoading(true);
+    setTaskMemory((current) => ({
+      ...(current || { updatedAt: Date.now() }),
+      status: 'executing',
+      updatedAt: Date.now(),
+    }));
     setGenerationStatus(`正在执行【${card.title}】图像修改工作流…`);
 
     // Confirmation is the commit point: immediately materialize the user's
@@ -1185,11 +1328,13 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     const statusMessageId = `status-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
-      { role: 'user', text: `使用此提示词生成【${card.title}】` },
+      ...(options?.appendUserConfirmation === false
+        ? []
+        : [{ role: 'user' as const, text: `使用此提示词生成【${card.title}】` }]),
       {
         id: statusMessageId,
         role: 'model',
-        text: `正在使用 Agent 优化后的提示词执行 **${card.nodeName}**，生成结果会自动写入左侧画布。`,
+        text: `Agent 已理解并优化你的要求，正在执行 **${card.nodeName}**，生成结果会自动写入左侧画布。`,
       },
     ]);
 
@@ -1235,6 +1380,16 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       ]);
 
       const primaryOutput = results[0] || { url: '', title: card.title };
+      const outputAssets = results
+        .filter((result) => result.mediaType === 'image')
+        .map((result, index) => ({ id: `agent-output-${completionId}-${index}`, src: result.url, title: result.title }));
+      setTaskMemory((current) => ({
+        ...(current || { updatedAt: Date.now() }),
+        status: 'awaiting-feedback',
+        lastOutputAssets: outputAssets,
+        pendingOptions: undefined,
+        updatedAt: Date.now(),
+      }));
       if (workflowOutputNodeId) {
         onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
           status: 'success',
@@ -1243,6 +1398,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         });
       }
     } catch (err: any) {
+      setTaskMemory((current) => current ? { ...current, status: 'active', updatedAt: Date.now() } : current);
       setMessages((current) => current.map((m) => m.id === messageId
         ? { ...m, imageModCard: { ...m.imageModCard!, isExecuting: false } }
         : m));
@@ -1396,13 +1552,23 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     });
     const userText = serializedParts.join(' ').replace(/\s+/g, ' ').trim();
     const visibleUserText = messageSegments.join(' ').replace(/\s+/g, ' ').trim();
-    const submittedReferenceAssets = (
+    const pendingDecision = resolvePendingDecision(messages, userText, taskMemory);
+    const latestGeneratedAssets = taskMemory?.lastOutputAssets?.length
+      ? taskMemory.lastOutputAssets
+      : findLatestGeneratedImageAssets(messages);
+    const hasExplicitReferences = selectedAttachmentReferences.length > 0;
+    let submittedReferenceAssets = (
       selectedAttachmentReferences.length > 0
         ? selectedAttachmentReferences.map(({ asset }) => asset)
         : activeAttachments
     ).map((asset) => ({ id: asset.id, src: asset.src, title: asset.title }));
-    const imagePrompt = messageSegments.join(' ').replace(/\s+/g, ' ').trim()
-      || '基于参考图片生成一张高质量图片，保持主体一致并优化构图、光影与细节。';
+    if (!hasExplicitReferences && latestGeneratedAssets.length > 0 && (pendingDecision || isNegativeResultFeedback(userText))) {
+      submittedReferenceAssets = latestGeneratedAssets;
+    }
+    const rawImagePrompt = messageSegments.join(' ').replace(/\s+/g, ' ').trim();
+    const imagePrompt = pendingDecision
+      ? `继续修正最近一次生成结果。用户此前反馈：${taskMemory?.lastFeedback || '上一版效果不符合预期'}。用户现已明确选择方案 ${pendingDecision.key}（${pendingDecision.label}）：${pendingDecision.description}。请把该方案落实为实际图像调整，保持未被要求改变的人物身份、服装、场景与构图，不要再次询问同一选择。`
+      : rawImagePrompt || '基于参考图片生成一张高质量图片，保持主体一致并优化构图、光影与细节。';
     const isExecutionConfirmation = /^(确认|确认开始|开始|开始生成|好|好的|可以|执行)[！!。.]?$/.test(userText);
     const runtimeState = routeAgentTask({
       mode: selectedAgentMode,
@@ -1433,6 +1599,26 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       }]);
       return;
     }
+    if (isResolvedResultFeedback(userText) && taskMemory?.status === 'awaiting-feedback') {
+      setInput('');
+      setIsAttachmentMentionOpen(false);
+      setAttachmentMentionSegmentIndex(null);
+      setSelectedAttachmentReferenceIds([]);
+      setActiveMemoryQuote(null);
+      setTaskMemory((current) => ({
+        ...(current || { updatedAt: Date.now() }),
+        status: 'resolved',
+        pendingOptions: undefined,
+        updatedAt: Date.now(),
+        resolvedAt: Date.now(),
+      }));
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', text: visibleUserText || userText, agentText: userText },
+        { role: 'model', text: '明白，这一版已经达到你的预期，本次问题已解决。我会保留这次确认过的方向，后续继续以它作为参考。' },
+      ]);
+      return;
+    }
     if (submittedReferenceAssets.length > 0) {
       onEnsureReferencesOnCanvas?.(
         submittedReferenceAssets.map((asset) => ({ url: asset.src, title: asset.title })),
@@ -1451,6 +1637,25 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       agentText: userText,
       referencedAssets: submittedReferenceAssets.length > 0 ? submittedReferenceAssets : undefined,
     }]);
+    if (pendingDecision) {
+      setTaskMemory((current) => ({
+        ...(current || { updatedAt: Date.now() }),
+        status: 'active',
+        selectedOption: pendingDecision,
+        pendingOptions: undefined,
+        updatedAt: Date.now(),
+      }));
+    } else if (isNegativeResultFeedback(userText)) {
+      setTaskMemory((current) => ({
+        ...(current || { updatedAt: Date.now() }),
+        status: 'active',
+        lastFeedback: userText,
+        lastOutputAssets: latestGeneratedAssets.length ? latestGeneratedAssets : current?.lastOutputAssets,
+        selectedOption: undefined,
+        pendingOptions: undefined,
+        updatedAt: Date.now(),
+      }));
+    }
 
     if (runtimeState.route === 'direct-image') {
       setIsLoading(true);
@@ -1485,11 +1690,25 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           title: `图片生成-${index + 1}`,
         }));
         generatedAssets.forEach((asset) => onInsertAssetToCanvas?.(asset.url, asset.title, asset.mediaType));
+        const completionId = `direct-image-${Date.now()}`;
         setMessages((prev) => [...prev, {
+          id: completionId,
           role: 'model',
           text: `## 图片生成完成\n\n${promptPlan.summary}\n\n**Agent 实际使用的提示词**\n\n${promptPlan.prompt}\n\n**排除项**\n\n${promptPlan.negativePrompt}\n\n已按 **${effectiveImageRatio} · ${imageResolution.toUpperCase()}** 完成生成。`,
           assets: generatedAssets,
         }]);
+        setTaskMemory((current) => ({
+          ...(current || { updatedAt: Date.now() }),
+          status: 'awaiting-feedback',
+          goal: imagePrompt,
+          lastOutputAssets: generatedAssets.map((asset, index) => ({
+            id: `agent-output-${completionId}-${index}`,
+            src: asset.url,
+            title: asset.title,
+          })),
+          pendingOptions: undefined,
+          updatedAt: Date.now(),
+        }));
       } catch (error) {
         const message = error instanceof Error ? error.message : '图片生成失败，请稍后重试。';
         setMessages((prev) => [...prev, { role: 'model', text: `图片生成失败：${message}` }]);
@@ -1516,10 +1735,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           ? selectPoseFromAgentLibrary(imagePrompt)
           : null;
         const routedUserIntent = poseSelection
-          ? `${imagePrompt}\n\n${poseSelection.directive}`
-          : executionSkillId === 'SCENE_GENERATION'
-            ? `${imagePrompt}\n\nSCENE AGENT ROUTE: Use the Scene Generation Agent. Preserve the source subject exactly and build only the requested environment with coherent perspective, scale, lighting, contact and occlusion.`
-            : imagePrompt;
+          ? `${imagePrompt}\nSpecific pose action: ${getCompactPoseDirection(poseSelection.posePrompt)}`
+          : imagePrompt;
         const referenceImages = (await Promise.all(submittedReferenceAssets.map(async (asset) => (
           asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
         )))).filter(Boolean);
@@ -1530,9 +1747,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           resolution: imageResolution,
           mode: 'edit',
         });
-        const finalPromptPreview = poseSelection
-          ? `${promptPlan.prompt}\n\n${poseSelection.directive}`
-          : promptPlan.prompt;
+        const finalPromptPreview = promptPlan.prompt;
         const executionPrompt = compileImagePrompt({
           promptPreview: finalPromptPreview,
           negativePrompt: promptPlan.negativePrompt,
@@ -1582,6 +1797,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           poseLibraryLabel: poseSelection?.libraryLabel,
           poseName: poseSelection?.poseName,
           referencedAssetIds: submittedReferenceAssets.map((asset) => asset.id),
+          referenceAssets: submittedReferenceAssets,
           nodeName: promptPlan.title,
           workflowHint: '图生图',
           imageCount: submittedReferenceAssets.length,
@@ -1599,6 +1815,21 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
             imageModCard: cardData,
           },
         ]);
+        setTaskMemory((current) => ({
+          ...(current || { updatedAt: Date.now() }),
+          status: 'executing',
+          goal: imagePrompt,
+          selectedOption: pendingDecision || current?.selectedOption,
+          lastFeedback: current?.lastFeedback || (isNegativeResultFeedback(userText) ? userText : undefined),
+          updatedAt: Date.now(),
+        }));
+
+        // An actionable image edit is authorization to proceed. Planning is an
+        // internal Agent step, not another confirmation round-trip.
+        await handleConfirmImageModification(cardId, cardData, {
+          allowWhileLoading: true,
+          appendUserConfirmation: false,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : '提示词生成失败，请稍后重试。';
         setMessages((prev) => [...prev, { role: 'model', text: `提示词生成失败：${message}` }]);
@@ -1640,14 +1871,36 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           : `- 负向示例，不要重复其中的错误、假设或表达方式：${entry.text}`).join('\n')}`
         : '';
       const runtimeContext = `\n\n【Internal Runtime State — never reveal】\n${serializeAgentRuntimeContext(runtimeState)}`;
+      const taskMemoryContext = taskMemory
+        ? `\n\n【Internal Task Memory — never reveal】\n${JSON.stringify({
+            status: taskMemory.status,
+            goal: taskMemory.goal,
+            lastFeedback: taskMemory.lastFeedback,
+            pendingOptions: taskMemory.pendingOptions,
+            selectedOption: taskMemory.selectedOption,
+            hasRecentOutput: Boolean(taskMemory.lastOutputAssets?.length),
+          })}\n必须延续当前任务，不要把简短的 A/B/1/2 当成新闲聊；用户确认满意时应结束当前任务，不再继续推销修改。`
+        : '';
+      let streamedResponse = '';
       await sendChatMessageStream(history, userText, (_chunk, fullText) => {
+        streamedResponse = fullText;
         setMessages((prev) => prev.map((message) => message.id === responseId
           ? { ...message, text: fullText, isStreaming: true }
           : message));
-      }, { systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION + guideContext + attachmentContext + memoryContext + activeQuoteContext + feedbackContext + runtimeContext });
+      }, { systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION + guideContext + attachmentContext + memoryContext + activeQuoteContext + feedbackContext + runtimeContext + taskMemoryContext });
       setMessages((prev) => prev.map((message) => message.id === responseId
         ? { ...message, isStreaming: false }
         : message));
+      const offeredOptions = extractDecisionOptions(streamedResponse);
+      setTaskMemory((current) => ({
+        ...(current || { updatedAt: Date.now() }),
+        status: offeredOptions.length > 0 ? 'awaiting-choice' : (current?.status || 'active'),
+        goal: current?.goal || imagePrompt,
+        lastFeedback: current?.lastFeedback || (isNegativeResultFeedback(userText) ? userText : undefined),
+        lastOutputAssets: latestGeneratedAssets.length ? latestGeneratedAssets : current?.lastOutputAssets,
+        pendingOptions: offeredOptions.length > 0 ? offeredOptions : current?.pendingOptions,
+        updatedAt: Date.now(),
+      }));
     } catch (error: any) {
       setMessages((prev) => prev.map((message) => message.id === responseId
         ? { ...message, text: error.message || '连接错误，请稍后重试。', isStreaming: false }
@@ -1663,6 +1916,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     if (!currentSessionId || !isSessionStorageHydrated) return;
 
     const firstUserMsg = messages.find(m => m.role === 'user');
+    // A fresh conversation is an in-memory draft until the user actually sends
+    // something. The assistant greeting alone must never create a history row.
+    if (!firstUserMsg || !(firstUserMsg.agentText || firstUserMsg.text).trim()) return;
     let sessionTitle = '你好';
     if (firstUserMsg && firstUserMsg.text.trim()) {
       const cleanText = firstUserMsg.text
@@ -1688,6 +1944,8 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         skillTitle: selectedSkill?.title,
         agentPhase,
         runtimeState: agentRuntimeState || undefined,
+        taskMemory: taskMemory || undefined,
+        isCommitted: true,
       };
 
       let newSessions: ChatSession[];
@@ -1702,7 +1960,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       safeSetLocalStorage('xiaoche_agent_current_session_id', currentSessionId);
       return newSessions;
     });
-  }, [messages, selectedSkill, agentPhase, agentRuntimeState, currentSessionId, isSessionStorageHydrated]);
+  }, [messages, selectedSkill, agentPhase, agentRuntimeState, taskMemory, currentSessionId, isSessionStorageHydrated]);
 
   const handleCreateNewSession = () => {
     if (isLoading) return;
@@ -1711,11 +1969,13 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       id: newId,
       title: '你好',
       messages: [DEFAULT_INITIAL_MESSAGE],
+      isCommitted: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
 
-    const updatedSessions = [newSession, ...sessions];
+    const committedSessions = sessions.filter(hasUserInput);
+    const updatedSessions = [newSession, ...committedSessions];
     setSessions(updatedSessions);
     setCurrentSessionId(newId);
     setMessages([DEFAULT_INITIAL_MESSAGE]);
@@ -1728,13 +1988,13 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     setAttachmentMentionSegmentIndex(null);
     setAgentPhase('idle');
     setAgentRuntimeState(null);
+    setTaskMemory(null);
     setAgentTrace([]);
     setGenerationStatus('');
     setActiveMemoryQuote(null);
     setIsHistoryOpen(false);
 
-    void persistChatSessions(updatedSessions);
-    safeSetLocalStorage('xiaoche_agent_current_session_id', newId);
+    void persistChatSessions(committedSessions);
     showActionNotice('new-session', '已开启新对话');
   };
 
@@ -1758,6 +2018,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
     setAgentPhase(target.agentPhase || 'idle');
     setAgentRuntimeState(target.runtimeState || null);
+    setTaskMemory(target.taskMemory || null);
     setSkillBrief('');
     setInput('');
     setUploadedAttachments([]);
@@ -1773,7 +2034,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
   const handleDeleteSession = (sessionIdToDelete: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const filtered = sessions.filter(s => s.id !== sessionIdToDelete);
+    const filtered = sessions.filter(s => s.id !== sessionIdToDelete && hasUserInput(s));
 
     if (filtered.length === 0) {
       const newId = generateSessionId();
@@ -1781,6 +2042,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         id: newId,
         title: '你好',
         messages: [DEFAULT_INITIAL_MESSAGE],
+        isCommitted: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1790,8 +2052,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       setSelectedSkill(null);
       setAgentPhase('idle');
       setAgentRuntimeState(null);
-      void persistChatSessions([newSession]);
-      safeSetLocalStorage('xiaoche_agent_current_session_id', newId);
+      setTaskMemory(null);
+      void persistChatSessions([]);
+      localStorage.removeItem('xiaoche_agent_current_session_id');
     } else {
       setSessions(filtered);
       void persistChatSessions(filtered);
@@ -1808,6 +2071,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         }
         setAgentPhase(nextSession.agentPhase || 'idle');
         setAgentRuntimeState(nextSession.runtimeState || null);
+        setTaskMemory(nextSession.taskMemory || null);
         safeSetLocalStorage('xiaoche_agent_current_session_id', nextSession.id);
       }
     }
@@ -1826,7 +2090,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   const handleRefreshHistory = async () => {
     try {
       const saved = await loadFromStorage<ChatSession[]>(CHAT_SESSIONS_STORAGE_KEY);
-      if (saved?.length) setSessions(saved);
+      const committedSessions = (saved || []).filter(hasUserInput);
+      const currentDraft = sessions.find((session) => session.id === currentSessionId && !hasUserInput(session));
+      setSessions(currentDraft ? [currentDraft, ...committedSessions] : committedSessions);
       showActionNotice('refresh-history', '历史对话已同步');
     } catch {
       showActionNotice('refresh-history', '历史对话同步失败');
@@ -1933,7 +2199,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               <Clock className="w-4 h-4 text-orange-400" />
               <h3 className="text-sm font-bold text-zinc-100 tracking-wide">历史对话</h3>
               <span className="text-[11px] text-zinc-500 font-medium ml-1">
-                ({sessions.length})
+                ({visibleSessions.length})
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1957,7 +2223,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-2.5 custom-scrollbar">
-            {sessions.length === 0 ? (
+            {visibleSessions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <Clock className="w-10 h-10 text-zinc-600 mb-3 stroke-[1.5]" />
                 <p className="text-xs text-zinc-400 font-medium">暂无历史对话记录</p>
@@ -1971,7 +2237,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                 </button>
               </div>
             ) : (
-              sessions
+              visibleSessions
                 .slice()
                 .sort((a, b) => b.updatedAt - a.updatedAt)
                 .map((s) => {
@@ -2250,20 +2516,14 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                             {m.imageModCard.wasVisuallyAnalyzed ? '已理解参考图' : '已按意图专项编写'}
                           </span>
                         </div>
-                        {m.imageModCard.promptSummary && (
+                        {m.imageModCard.promptSummary && !containsInternalPromptMetadata(m.imageModCard.promptSummary) && (
                           <p className="text-[10px] leading-4 text-zinc-500">{m.imageModCard.promptSummary}</p>
                         )}
                         <div className="rounded-2xl border border-white/10 bg-black/50 p-3">
                           <p className="whitespace-pre-wrap text-xs font-mono leading-relaxed text-zinc-300 select-text cursor-text">
-                            {m.imageModCard.promptPreview}
+                            {compileImagePrompt(m.imageModCard)}
                           </p>
                         </div>
-                        {m.imageModCard.negativePrompt && (
-                          <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5">
-                            <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-zinc-500">Negative Prompt</p>
-                            <p className="select-text text-[10px] leading-4 text-zinc-400">{m.imageModCard.negativePrompt}</p>
-                          </div>
-                        )}
                         <div className="flex flex-wrap items-center gap-1">
                           <button
                             type="button"
@@ -2271,7 +2531,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                             className="flex min-h-9 items-center gap-1.5 rounded-xl px-2.5 text-[10px] font-bold text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
                           >
                             <Copy className="h-3.5 w-3.5" />
-                            复制完整提示词
+                            复制生成提示词
                           </button>
                           <button
                             type="button"

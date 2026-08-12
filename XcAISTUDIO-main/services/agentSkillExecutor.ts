@@ -252,9 +252,13 @@ Realistic premium commercial photography, natural skin pores, tactile materials,
 AVOID
 Wrong SKU, altered garment structure/color/material, face drift, identity blending, stiff front-facing catalog pose, forced direct eye contact, blank expression, mannequin posture, bad anatomy, malformed hands, extra limbs, plastic skin or CGI.${modelReference ? ' Do not add glasses, sunglasses, jewelry, watch, hat, bag, scarf, gloves, phone, cup or handheld props unless the target product itself is that item.' : ''}` : '';
   const qualityEnhancement = `\n\nIMAGEN 3.0 QUALITY SPECIFICATION:\n- Professional commercial photography, editorial studio lighting, ultra-realistic texture, crisp focus, 8k resolution, photorealistic masterwork.\n- Negative Constraints: Avoid bad anatomy, distorted hands/fingers, blurry edges, extra limbs, noise artifacts, low resolution, watermark, unintended text blur.`;
+  const usesConciseReferenceDirection = input.skillId === 'MODEL_POSE_FISSION'
+    || input.skillId === 'REFERENCE_EDIT';
   const prompt = isSceneGeneration
     ? `${sceneInstruction}\n\nUSER DIRECTION:\n${input.prompt}`
-    : `${config.instruction}\n\nUSER DIRECTION:\n${input.prompt}${qualityEnhancement}`;
+    : usesConciseReferenceDirection
+      ? input.prompt
+      : `${config.instruction}\n\nUSER DIRECTION:\n${input.prompt}${qualityEnhancement}`;
 
   if (input.skillId === 'RETOUCHING') {
     const batches = await Promise.all(orderedImages.map((image) => generateImageToImage(

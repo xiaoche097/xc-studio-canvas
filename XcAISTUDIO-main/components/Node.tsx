@@ -12,6 +12,7 @@ import { FacialControlModal } from './FacialControlModal';
 import { ColorAdjustmentModal } from './ColorAdjustmentModal';
 import { LightingControlModal, LightingParams } from './LightingControlModal';
 import { getCssFilterString, applyColorAdjustmentsToCanvas } from '../services/geminiService';
+import { downloadImageFile } from '../../Cyzx4/utils/imageDownload';
 import * as mammoth from 'mammoth/mammoth.browser';
 
 
@@ -514,6 +515,16 @@ const NodeComponent: React.FC<NodeProps> = ({
 
     useEffect(() => { setLocalPrompt(node.data.prompt || ''); }, [node.data.prompt]);
     useEffect(() => {
+        if (isSelected) return;
+        setIsInputFocused(false);
+        setIsStylePresetOpen(false);
+        setIsVideoSettingsOpen(false);
+        setIsModelOpen(false);
+        setIsRatioOpen(false);
+        setIsImageResolutionOpen(false);
+        setIsImageMoreOpen(false);
+    }, [isSelected]);
+    useEffect(() => {
         if (node.type !== NodeType.IMAGE_GENERATOR || !node.data.image || node.data.aspectRatio) return;
 
         let cancelled = false;
@@ -675,7 +686,29 @@ const NodeComponent: React.FC<NodeProps> = ({
             }
         }
     };
-    const handleDownload = (e: React.MouseEvent) => { e.stopPropagation(); const a = document.createElement('a'); a.href = node.data.image || videoBlobUrl || node.data.audioUri || ''; a.download = `xcaistudio-${Date.now()}`; document.body.appendChild(a); a.click(); document.body.removeChild(a); };
+    const handleDownload = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+
+        if (node.data.image) {
+            try {
+                await downloadImageFile(node.data.image, `xcaistudio-${Date.now()}.png`);
+            } catch (error) {
+                console.error('图片下载失败', error);
+                window.alert('图片下载失败，请稍后重试');
+            }
+            return;
+        }
+
+        const mediaSource = videoBlobUrl || node.data.audioUri;
+        if (!mediaSource) return;
+
+        const link = document.createElement('a');
+        link.href = mediaSource;
+        link.download = `xcaistudio-${Date.now()}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
     const handleUploadVideo = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => onUpdate(node.id, { videoUri: e.target?.result as string }); reader.readAsDataURL(file); } };
     const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -1705,12 +1738,13 @@ const NodeComponent: React.FC<NodeProps> = ({
                                                     <button 
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            const link = document.createElement('a');
-                                                            link.href = cellData.image!;
-                                                            link.download = `${node.title || '分镜'}-镜头${idx + 1}.png`;
-                                                            document.body.appendChild(link);
-                                                            link.click();
-                                                            document.body.removeChild(link);
+                                                            void downloadImageFile(
+                                                                cellData.image!,
+                                                                `${node.title || '分镜'}-镜头${idx + 1}.png`,
+                                                            ).catch((error) => {
+                                                                console.error('分镜图片下载失败', error);
+                                                                window.alert('图片下载失败，请稍后重试');
+                                                            });
                                                         }}
                                                         className="p-1 rounded-lg text-zinc-300 hover:text-emerald-300 hover:bg-emerald-500/20 transition-colors"
                                                         title="下载此单格小图"
@@ -2175,10 +2209,8 @@ const NodeComponent: React.FC<NodeProps> = ({
 
     const renderBottomPanel = () => {
         if (suppressNodeChrome || isUserUploadedImage) return null;
-        const isAnyMenuOpen = isModelOpen || isRatioOpen || isVideoSettingsOpen || isImageResolutionOpen || isStylePresetOpen || isImageMoreOpen;
         if (isStoryboardNode) return null;
-        const isOpen = (isSelected || isHovered || isInputFocused || isEmptyCreativeNode || isAnyMenuOpen);
-        if (!isOpen) return null;
+        if (!isSelected) return null;
         const hasGeneratedMedia = Boolean((node.data.image || node.data.videoUri) && node.status === NodeStatus.SUCCESS);
         const promptPlaceholder = node.type === NodeType.AUDIO_GENERATOR
             ? '描述你想生成的音乐或音效...'
@@ -2207,7 +2239,7 @@ const NodeComponent: React.FC<NodeProps> = ({
         const displayedAspectRatio = normalizeAspectRatio(node.data.aspectRatio, activeAspectRatios);
 
         return (
-            <div className={`absolute top-full left-1/2 -translate-x-1/2 w-full min-w-[440px] pt-2 z-50 flex flex-col items-center justify-start transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? `opacity-100 translate-y-0 scale-100` : 'opacity-0 translate-y-[-10px] scale-95 pointer-events-none'}`}>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 w-full min-w-[440px] pt-2 z-50 flex flex-col items-center justify-start animate-in fade-in slide-in-from-top-2 duration-200">
                 {/* InputThumbnails: Set strict Z-Index to lower layer */}
                 {hasInputs && onInputReorder && (<div className="w-full flex justify-center mb-2 z-0 relative"><InputThumbnails assets={inputAssets!} onReorder={(newOrder) => onInputReorder(node.id, newOrder)} /></div>)}
                 {/* Glass Panel: Set strict Z-Index to higher layer to overlap thumbnails */}
