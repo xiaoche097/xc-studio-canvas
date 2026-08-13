@@ -1099,6 +1099,7 @@ const looksLikeBase64Image = (value: string): boolean => {
 const normalizeGeneratedImageValue = (value: unknown, keyHint = ''): string | null => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
+  const normalizedKeyHint = keyHint.toLowerCase().replace(/[^a-z0-9_]/g, '');
   if (!trimmed) return null;
   if (trimmed.startsWith('data:image/')) return trimmed;
   if (/^https?:\/\//i.test(trimmed) && /(?:url|uri|image|file|output|result|thumbnail)/i.test(keyHint)) {
@@ -1107,6 +1108,7 @@ const normalizeGeneratedImageValue = (value: unknown, keyHint = ''): string | nu
   if (looksLikeImageUrl(trimmed)) return trimmed;
   if (
     looksLikeBase64Image(trimmed) &&
+    RUNNINGHUB_IMAGE_VALUE_KEYS.has(normalizedKeyHint) &&
     !/(^|_)(id|task|status|model|prompt|message|error)(_|$)/i.test(keyHint)
   ) {
     return `data:image/png;base64,${trimmed.replace(/\s/g, '')}`;
