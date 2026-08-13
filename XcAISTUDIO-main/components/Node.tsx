@@ -45,7 +45,7 @@ interface NodeProps {
     onInputReorder?: (nodeId: string, newOrder: string[]) => void;
     onTextQuickAction?: (nodeId: string, action: TextQuickActionId) => void;
     onFocusNode?: (nodeId: string) => void;
-    onStoryboardOption?: (nodeId: string, optionType: StoryboardOptionType) => void;
+    onStoryboardOption?: (nodeId: string, optionType: StoryboardOptionType, userBrief?: string) => void;
     onGridCropOption?: (nodeId: string, config: GridCropConfig) => void;
 
 
@@ -494,6 +494,8 @@ const NodeComponent: React.FC<NodeProps> = ({
     const [isGridDropdownOpen, setIsGridDropdownOpen] = useState(false);
     const [isPersonAdjustOpen, setIsPersonAdjustOpen] = useState(false);
     const [isStoryboardMenuOpen, setIsStoryboardMenuOpen] = useState(false);
+    const [pendingStoryboardOption, setPendingStoryboardOption] = useState<StoryboardOptionType | null>(null);
+    const [storyboardBrief, setStoryboardBrief] = useState('');
     const [isGridCropMenuOpen, setIsGridCropMenuOpen] = useState(false);
     const [gridCropStep, setGridCropStep] = useState<'select-grid' | 'select-mode' | 'custom'>('select-grid');
     const [selectedGridOption, setSelectedGridOption] = useState<{ name: string; rows: number; cols: number }>({ name: '4宫格裁剪', rows: 2, cols: 2 });
@@ -512,6 +514,20 @@ const NodeComponent: React.FC<NodeProps> = ({
     const cellFileInputRef = useRef<HTMLInputElement>(null);
     const [draggedCellIndex, setDraggedCellIndex] = useState<number | null>(null);
     const [dragOverCellIndex, setDragOverCellIndex] = useState<number | null>(null);
+
+    const chooseStoryboardOption = (optionType: StoryboardOptionType) => {
+        setPendingStoryboardOption(optionType);
+        setStoryboardBrief('');
+    };
+
+    const submitStoryboardOption = () => {
+        if (!pendingStoryboardOption) return;
+        const brief = storyboardBrief.trim();
+        setIsStoryboardMenuOpen(false);
+        setPendingStoryboardOption(null);
+        setStoryboardBrief('');
+        if (onStoryboardOption) onStoryboardOption(node.id, pendingStoryboardOption, brief);
+    };
 
     useEffect(() => { setLocalPrompt(node.data.prompt || ''); }, [node.data.prompt]);
     useEffect(() => {
@@ -991,14 +1007,12 @@ const NodeComponent: React.FC<NodeProps> = ({
                     </button>
 
                     {isStoryboardMenuOpen && (
-                        <div className="absolute left-0 top-full z-[600] mt-2 w-52 rounded-2xl border border-white/15 bg-[#1c1c1e] p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] animate-in fade-in zoom-in-95 duration-150">
+                        <div className={`absolute left-0 top-full z-[600] mt-2 whitespace-normal rounded-2xl border border-white/15 bg-[#1c1c1e] p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] animate-in fade-in zoom-in-95 duration-150 ${pendingStoryboardOption ? 'w-72' : 'w-52'}`}>
                             {/* 1. 模特场景图裂变 (来自于技能) */}
                             <button 
                                 className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
                                 onClick={() => {
-                                    setIsStoryboardMenuOpen(false);
-                                    if (onStoryboardOption) onStoryboardOption(node.id, 'MODEL_SCENE_FISSION');
-                                    else applyImageToolPrompt('进行模特场景图裂变，海量不同商业场景构图与氛围批量裂变。');
+                                    chooseStoryboardOption('MODEL_SCENE_FISSION');
                                 }}
                             >
                                 <Camera size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
@@ -1012,9 +1026,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <button 
                                 className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
                                 onClick={() => {
-                                    setIsStoryboardMenuOpen(false);
-                                    if (onStoryboardOption) onStoryboardOption(node.id, 'MULTI_ANGLE_9GRID');
-                                    else applyImageToolPrompt('生成多机位九宫格画面方案，包含多视角与不同景别。');
+                                    chooseStoryboardOption('MULTI_ANGLE_9GRID');
                                 }}
                             >
                                 <Grid3X3 size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
@@ -1028,9 +1040,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <button 
                                 className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
                                 onClick={() => {
-                                    setIsStoryboardMenuOpen(false);
-                                    if (onStoryboardOption) onStoryboardOption(node.id, 'STORY_DEDUCTION_4GRID');
-                                    else applyImageToolPrompt('生成剧情推演四宫格，按时间顺序推进故事连贯情节。');
+                                    chooseStoryboardOption('STORY_DEDUCTION_4GRID');
                                 }}
                             >
                                 <LayoutGrid size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
@@ -1044,9 +1054,7 @@ const NodeComponent: React.FC<NodeProps> = ({
                             <button 
                                 className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-white/10 group/item" 
                                 onClick={() => {
-                                    setIsStoryboardMenuOpen(false);
-                                    if (onStoryboardOption) onStoryboardOption(node.id, 'CONTINUOUS_25GRID');
-                                    else applyImageToolPrompt('设计25宫格超大连贯分镜，细腻展现丰富镜头动作细节。');
+                                    chooseStoryboardOption('CONTINUOUS_25GRID');
                                 }}
                             >
                                 <Grid size={14} className="text-zinc-300 group-hover/item:text-white shrink-0" />
@@ -1055,6 +1063,42 @@ const NodeComponent: React.FC<NodeProps> = ({
                                     <span className="text-[9px] text-zinc-400 truncate">25宫格大连贯商业镜头展示</span>
                                 </div>
                             </button>
+
+                            {pendingStoryboardOption && (
+                                <div className="mt-1.5 border-t border-white/10 px-1.5 pt-2">
+                                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                                        <span className="text-[10px] font-bold text-zinc-100">告诉 Agent 你想要什么</span>
+                                        <button
+                                            type="button"
+                                            className="text-[9px] text-zinc-500 hover:text-white"
+                                            onClick={() => setPendingStoryboardOption(null)}
+                                        >
+                                            返回
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        autoFocus
+                                        value={storyboardBrief}
+                                        onChange={event => setStoryboardBrief(event.target.value)}
+                                        onKeyDown={event => {
+                                            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                                                event.preventDefault();
+                                                submitStoryboardOption();
+                                            }
+                                        }}
+                                        placeholder="例如：保持原图门口与街景不变，模特先向镜头走来再自然回眸；镜头由环境全景推进到面料和手袋特写。"
+                                        className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] leading-4 text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60"
+                                    />
+                                    <p className="mt-1 w-full break-words whitespace-normal text-[9px] leading-3.5 text-zinc-500">可写动作、情绪、景别和镜头节奏；默认严格锁定原图场景、人物、服装与配饰。</p>
+                                    <button
+                                        type="button"
+                                        onClick={submitStoryboardOption}
+                                        className="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-cyan-500 text-[10px] font-black text-black transition-colors hover:bg-cyan-400"
+                                    >
+                                        <Wand2 size={12} /> 按描述生成
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

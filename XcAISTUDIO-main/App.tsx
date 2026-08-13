@@ -1749,7 +1749,7 @@ export const App = () => {
         handleAssetGenerated('image', composedDataUrl, '合成');
     }, [handleAssetGenerated]);
 
-    const handleStoryboardOption = useCallback(async (sourceNodeId: string, optionType: StoryboardOptionType) => {
+    const handleStoryboardOption = useCallback(async (sourceNodeId: string, optionType: StoryboardOptionType, userBrief = '') => {
         const sourceNode = nodesRef.current.find(n => n.id === sourceNodeId);
         if (!sourceNode) return;
 
@@ -1817,7 +1817,9 @@ export const App = () => {
                     id: `cell-placeholder-${i + 1}`,
                     prompt: `${optionTitle} 镜头 ${i + 1}`,
                 })),
-                prompt: `${optionTitle} (${gridSize})`,
+                prompt: userBrief.trim()
+                    ? `${optionTitle} (${gridSize})\n创作描述：${userBrief.trim()}`
+                    : `${optionTitle} (${gridSize})`,
             },
             inputs: [sourceNodeId],
         };
@@ -1832,7 +1834,19 @@ export const App = () => {
             const generatedCells = await generateStoryboardGridImages(
                 sourceImg,
                 optionType,
-                detectedAspectRatio
+                detectedAspectRatio,
+                userBrief,
+                (plan) => {
+                    handleNodeUpdate(gridNodeId, {
+                        prompt: [
+                            `${optionTitle} (${gridSize})`,
+                            userBrief.trim() ? `创作描述：${userBrief.trim()}` : '',
+                            `导演 Agent 概念：${plan.concept}`,
+                            `视觉策略：${plan.visualStrategy}`,
+                            `已规划 ${plan.shots.length} 个不重复镜头`,
+                        ].filter(Boolean).join('\n'),
+                    });
+                }
             );
 
             handleNodeUpdate(

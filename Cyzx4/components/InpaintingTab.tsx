@@ -11,6 +11,7 @@ import {
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { downloadImageFile } from '../utils/imageDownload';
 
 // 自定义香蕉图标组件（复用）
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -1968,13 +1969,13 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
     setProgress('');
   };
 
-  const downloadImage = (url: string, filename: string) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const downloadImage = async (url: string, filename: string) => {
+    try {
+      await downloadImageFile(url, filename);
+    } catch (downloadError) {
+      console.error('Failed to download inpainting result.', downloadError);
+      setError('图片下载失败，请检查网络后重试。');
+    }
   };
 
   const getCurrentStep = () => {

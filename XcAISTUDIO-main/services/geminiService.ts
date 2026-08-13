@@ -1215,10 +1215,206 @@ export const cropGridCellCanvas = (
     });
 };
 
+export interface StoryboardShotPlan {
+    shotNumber: number;
+    framing: string;
+    cameraAngle: string;
+    action: string;
+    composition: string;
+    lightingMood: string;
+    continuity: string;
+}
+
+export interface StoryboardCreativePlan {
+    concept: string;
+    visualStrategy: string;
+    sceneAnchors: string[];
+    subjectLocks: string[];
+    continuityRules: string[];
+    shots: StoryboardShotPlan[];
+}
+
+const STORYBOARD_DIRECTOR_INSTRUCTION = `
+You are the Storyboard Director Agent inside XcAISTUDIO: a senior fashion-film director, cinematographer and visual continuity supervisor.
+
+Your job is to inspect the supplied reference image and convert the user's creative brief into a genuinely varied, production-ready storyboard plan before any image is generated.
+
+Planning rules:
+- The reference image is the immutable source of truth. The user brief controls only action, emotion, camera language, framing and narrative emphasis inside that photographed location.
+- Every shot must remain in the exact same immediate physical scene shown in the reference. Identify concrete scene anchors such as the same doorway, facade, pavement, wall material, windows, street fixtures, background structures, light direction, time of day and weather, then preserve them across all panels.
+- Never relocate the subject or invent a nearby-looking alternative location. Do not add stairs, railings, alleys, interiors, storefronts, roads, furniture, vegetation or architecture that are not visibly supported by the reference image.
+- Preserve the exact subject identity, face, hairstyle, hair color, skin tone, body proportions, garment/product design, colors, patterns, materials, accessories, handbag, footwear and logos. These locks cannot be overridden by the user brief in storyboard mode.
+- If the user asks for a different location, wardrobe, person, weather or time of day, reinterpret only the compatible mood/action/camera intent while keeping the reference scene and subject locks unchanged.
+- Return exactly the requested number of shots.
+- Every shot must have a distinct combination of framing, camera angle, action and composition. Do not repeat the same full-body front pose, portrait, seated pose or fabric close-up.
+- Enforce pose diversity, not just camera diversity. Across a 9-panel plan, use no more than two full-body panels, no more than one walking panel, no more than one straight frontal standing pose, and no more than two detail panels. Use at least four distinct torso orientations, four distinct hand placements, three gaze directions and clearly different leg/weight positions.
+- Two shots are duplicates if they share substantially the same torso orientation, arm/hand placement, leg stance, gaze and movement phase, even when their crop or camera angle differs. Never approve such a pair.
+- Detail panels must feature different selling points. Do not use a detail crop merely to disguise a repeated body pose.
+- Build intentional visual rhythm: establish, develop, reveal details, create a peak, then resolve. For multi-angle mode, prioritize coverage diversity; for story mode, prioritize cause-and-effect continuity; for scene-fission mode, prioritize creative editorial variety; for 25-grid mode, create coherent micro-beats rather than random poses.
+- Make each action physically specific and visually executable. Avoid vague phrases such as "different pose" or "cinematic shot".
+- Keep lighting, screen direction, subject identity and wardrobe continuity coherent across the sequence unless the brief asks for a transition.
+- Do not plan captions, text, labels, panel numbers, borders or watermarks inside the images.
+- Return JSON only with this shape:
+{"concept":"...","visualStrategy":"...","sceneAnchors":["..."],"subjectLocks":["..."],"continuityRules":["..."],"shots":[{"shotNumber":1,"framing":"...","cameraAngle":"...","action":"...","composition":"...","lightingMood":"...","continuity":"..."}]}
+`;
+
+const cleanJsonObject = (value: string): string => {
+    const cleaned = value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    return start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned;
+};
+
+const buildDynamicStoryboardFallback = (totalCells: number, optionType: StoryboardOptionType, userBrief: string): StoryboardCreativePlan => {
+    const framings = ['extreme wide establishing shot', 'full-body shot', 'three-quarter shot', 'waist-up medium shot', 'tight portrait', 'macro garment detail'];
+    const angles = ['eye-level frontal angle', 'low three-quarter angle', 'high diagonal angle', 'side-profile angle', 'over-the-shoulder angle', 'rear three-quarter angle'];
+    const actions = [
+        'entering the scene with a purposeful stride',
+        'pausing to inspect the surroundings',
+        'turning through the waist while the garment moves naturally',
+        'adjusting one accessory with relaxed hands',
+        'crossing the frame with controlled editorial movement',
+        'holding a still confident pose with asymmetric weight',
+        'looking back after passing the camera',
+        'interacting naturally with an architectural surface',
+        'revealing a construction detail through a subtle hand gesture',
+        'exiting the scene while maintaining screen direction',
+    ];
+    const compositions = ['centered architectural symmetry', 'rule-of-thirds with negative space', 'foreground-layered depth', 'strong leading lines', 'compressed telephoto layers', 'diagonal motion composition'];
+    const moods = ['clean directional daylight', 'soft open shade', 'warm reflected street light', 'crisp high-contrast editorial light', 'gentle backlight with controlled rim light'];
+    const offset = Math.floor(Math.random() * 997);
+    const shots = Array.from({ length: totalCells }, (_, index) => ({
+        shotNumber: index + 1,
+        framing: framings[(index * 5 + offset) % framings.length],
+        cameraAngle: angles[(index * 3 + Math.floor(offset / 2)) % angles.length],
+        action: actions[(index * 7 + offset) % actions.length],
+        composition: compositions[(index * 5 + Math.floor(offset / 3)) % compositions.length],
+        lightingMood: moods[(index * 3 + Math.floor(offset / 5)) % moods.length],
+        continuity: index === 0 ? 'Establish subject and environment.' : 'Continue naturally from the previous shot without identity or wardrobe drift.',
+    }));
+    return {
+        concept: userBrief.trim() || `${optionType} editorial sequence inspired by the reference image`,
+        visualStrategy: 'Build a varied visual arc through camera, framing and action changes inside the exact reference location.',
+        sceneAnchors: ['Use only the exact architecture, ground, doorway, facade and background elements visible in the reference.', 'Keep the original light direction, time of day and weather.'],
+        subjectLocks: ['Lock face, hair, body proportions, complete outfit, patterns, accessories, handbag and footwear.'],
+        continuityRules: ['Never relocate the subject or invent unsupported scene elements.', 'Maintain scene geography, light direction and screen direction.', 'No text, borders or watermarks.'],
+        shots,
+    };
+};
+
+const planStoryboardWithDirectorAgent = async (
+    sourceImage: string,
+    optionType: StoryboardOptionType,
+    aspectRatio: string,
+    totalCells: number,
+    userBrief: string
+): Promise<StoryboardCreativePlan> => {
+    const fallback = buildDynamicStoryboardFallback(totalCells, optionType, userBrief);
+    try {
+        const ai = getClient();
+        const parts: Part[] = [];
+        if (sourceImage.startsWith('data:image/')) {
+            const mimeType = sourceImage.match(/^data:(image\/[^;]+);base64,/)?.[1] || 'image/png';
+            parts.push({ inlineData: { data: sourceImage.replace(/^data:image\/[^;]+;base64,/, ''), mimeType } });
+        }
+        parts.push({
+            text: [
+                `Storyboard mode: ${optionType}`,
+                `Required shot count: ${totalCells}`,
+                `Output aspect ratio: ${aspectRatio}`,
+                `User creative brief: ${userBrief.trim() || '(not provided — infer an original direction from the reference image)'}`,
+                `Variation nonce: ${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                'Analyze the reference and produce the final storyboard plan now.',
+            ].join('\n'),
+        });
+        const response = await generateContentWithAnalysisFallback(ai, {
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: { parts },
+            config: {
+                systemInstruction: STORYBOARD_DIRECTOR_INSTRUCTION,
+                responseMimeType: 'application/json',
+            },
+        });
+        const parsed = JSON.parse(cleanJsonObject(response.text || '{}')) as Partial<StoryboardCreativePlan>;
+        const shots = Array.isArray(parsed.shots)
+            ? parsed.shots.filter((shot): shot is StoryboardShotPlan => Boolean(
+                shot && shot.framing && shot.cameraAngle && shot.action && shot.composition
+            )).slice(0, totalCells)
+            : [];
+        if (shots.length !== totalCells) throw new Error(`Director returned ${shots.length}/${totalCells} valid shots.`);
+        return {
+            concept: String(parsed.concept || fallback.concept).trim(),
+            visualStrategy: String(parsed.visualStrategy || fallback.visualStrategy).trim(),
+            sceneAnchors: Array.isArray(parsed.sceneAnchors) && parsed.sceneAnchors.length > 0
+                ? parsed.sceneAnchors.map(anchor => String(anchor).trim()).filter(Boolean)
+                : fallback.sceneAnchors,
+            subjectLocks: Array.isArray(parsed.subjectLocks) && parsed.subjectLocks.length > 0
+                ? parsed.subjectLocks.map(lock => String(lock).trim()).filter(Boolean)
+                : fallback.subjectLocks,
+            continuityRules: Array.isArray(parsed.continuityRules) && parsed.continuityRules.length > 0
+                ? parsed.continuityRules.map(rule => String(rule).trim()).filter(Boolean)
+                : fallback.continuityRules,
+            shots: shots.map((shot, index) => ({ ...shot, shotNumber: index + 1 })),
+        };
+    } catch (error) {
+        console.warn('[StoryboardDirector] Planning failed; using dynamic fallback plan.', error);
+        return fallback;
+    }
+};
+
+interface StoryboardVisualAudit {
+    pass: boolean;
+    notes: string;
+    duplicateGroups: number[][];
+    correctionPrompt: string;
+}
+
+const auditStoryboardVisualDiversity = async (
+    sourceImage: string,
+    sheetImage: string,
+    totalCells: number
+): Promise<StoryboardVisualAudit> => {
+    const safeResult: StoryboardVisualAudit = { pass: true, notes: '', duplicateGroups: [], correctionPrompt: '' };
+    try {
+        const ai = getClient();
+        const parts: Part[] = [];
+        for (const image of [sourceImage, sheetImage]) {
+            if (!image.startsWith('data:image/')) continue;
+            const mimeType = image.match(/^data:(image\/[^;]+);base64,/)?.[1] || 'image/png';
+            parts.push({ inlineData: { data: image.replace(/^data:image\/[^;]+;base64,/, ''), mimeType } });
+        }
+        parts.push({ text: `Image 1 is the immutable reference. Image 2 is a ${totalCells}-panel storyboard contact sheet. Audit Image 2 now.` });
+        const response = await generateContentWithAnalysisFallback(ai, {
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: { parts },
+            config: {
+                responseMimeType: 'application/json',
+                systemInstruction: `You are a strict storyboard visual QA supervisor. Return JSON only: {"pass":true,"notes":"...","duplicateGroups":[[1,4]],"correctionPrompt":"..."}.
+Fail the sheet when two or more human panels reuse substantially the same torso orientation, hand/arm placement, leg stance, gaze and movement phase, even if crop or camera angle differs. For a 9-panel fashion sheet, also fail if there are more than two full-body panels, more than one walking panel, more than one straight frontal standing pose, fewer than four torso orientations, fewer than four hand placements, or repeated detail subjects. Detail-only panels are exempt from body-pose comparison but must show different product/garment features.
+Also fail scene drift, invented architecture, changed person identity, changed hairstyle, changed outfit, changed garment pattern, changed accessories, handbag or footwear. The correctionPrompt must be a concise English image-generation instruction that identifies the duplicate panel numbers and assigns visibly different replacement poses while preserving the exact reference scene and all identity/wardrobe locks.`,
+            },
+        });
+        const parsed = JSON.parse(cleanJsonObject(response.text || '{}')) as Partial<StoryboardVisualAudit>;
+        return {
+            pass: parsed.pass !== false,
+            notes: String(parsed.notes || ''),
+            duplicateGroups: Array.isArray(parsed.duplicateGroups)
+                ? parsed.duplicateGroups.filter(group => Array.isArray(group)).map(group => group.map(Number).filter(Number.isFinite))
+                : [],
+            correctionPrompt: String(parsed.correctionPrompt || ''),
+        };
+    } catch (error) {
+        console.warn('[StoryboardVisualQA] Audit unavailable; keeping the first render.', error);
+        return safeResult;
+    }
+};
+
 export const generateStoryboardGridImages = async (
     sourceImage: string,
     optionType: StoryboardOptionType,
-    aspectRatio: string = '2:3'
+    aspectRatio: string = '2:3',
+    userBrief: string = '',
+    onPlan?: (plan: StoryboardCreativePlan) => void
 ): Promise<{ id: string; image: string; prompt: string }[]> => {
     let rows = 3;
     let cols = 3;
@@ -1229,31 +1425,16 @@ export const generateStoryboardGridImages = async (
         rows = 3; cols = 3;
         optionTitle = '模特场景图裂变';
 
-        const poseAnglePool = [
-            'full body front walking stride with a confident editorial gaze',
-            '45-degree angle stride turning towards the camera',
-            'side profile pose leaning gracefully against the architectural wall',
-            'over-the-shoulder glance back highlighting garment rear tailoring',
-            'relaxed seated or stooped posture on a stone step/ledge within the scene',
-            'hand-in-pocket standing pose with subtle torso tilt',
-            'dynamic motion turn with natural garment motion blur accent',
-            'high-fashion facial portrait with dramatic eyes and soft background bokeh',
-            'low-angle perspective crop highlighting leg silhouetting and footwear',
-            'macro close-up on fabric weave, lapel stitching, and accessory detail',
-            'three-quarter standing pose looking slightly away from lens',
-            'close-up waist shot with hands touching lapel'
-        ];
-        const shuffledPoses = [...poseAnglePool].sort(() => Math.random() - 0.5).slice(0, 9);
-        const dynamicPanelsPrompt = shuffledPoses.map((p, idx) => `${idx + 1}. Panel ${idx + 1}: ${p} within the reference architectural scene.`).join('\n');
         const dynamicSeed = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
         promptDetail = `[ROLE: Senior Fashion Model & Commercial Scene Fission Director]
 [RANDOM GENERATION SEED: ${dynamicSeed}]
 Create a masterwork 3x3 high-definition fashion photoshoot contact sheet grid matching ${aspectRatio} aspect ratio.
 
-CRITICAL REQUIREMENT 1 - SCENE & ENVIRONMENT CONSISTENCY (HIGHEST PRIORITY):
-- STRICTLY PRESERVE & LOCK the background scene environment from the reference image (architectural style, stone facade/walls, background structures, warm neutral tones, lighting, and ambient atmosphere).
-- ALL 9 PANELS MUST TAKE PLACE WITHIN THIS SAME CONSISTENT SCENE ENVIRONMENT. DO NOT CHANGE THE SCENE into unrelated indoor shops, cafes, sofa living rooms, beaches, dusk streets, or plain studio walls.
+CRITICAL REQUIREMENT 1 - EXACT REFERENCE SCENE LOCK (NON-NEGOTIABLE):
+- ALL 9 PANELS MUST remain inside the exact immediate physical location visible in the reference image.
+- Preserve the same architecture, doorway, facade, pavement, wall materials, windows, fixtures, background structures, light direction, time of day and weather.
+- Camera and subject may move only within spatially plausible viewpoints of this same photographed spot. Never invent or substitute stairs, railings, alleys, interiors, storefronts, roads, furniture, vegetation or other location elements not supported by the reference.
 
 CRITICAL REQUIREMENT 2 - MODEL IDENTITY & OUTFIT LOCK:
 - Lock the exact model face features, hair style, hair color, skin tone, and body proportions from the reference image.
@@ -1266,9 +1447,6 @@ CRITICAL REQUIREMENT 3 - DYNAMIC & UN-FIXED POSES AND CAMERA ANGLES (VARY ON EVE
 CRITICAL REQUIREMENT 4 - ZERO BORDERS, NO MARGINS, NO ROUNDED CELL FRAMES:
 - ABSOLUTELY NO WHITE BORDERS, NO WHITE GUTTERS, NO MARGINS, NO PADDING, NO ROUNDED CORNER FRAMES AROUND PANELS. Each panel image must extend edge-to-edge flush with zero white spacing or border lines between panels.
 
-9-PANEL DYNAMIC POSE & CAMERA ANGLE COMBINATIONS (DYNAMICALLY GENERATED FOR THIS RUN):
-${dynamicPanelsPrompt}
-
 QUALITY & COMPOSITION SPECIFICATION:
 - Professional editorial fashion campaign photography, consistent daylight, ultra-realistic skin and fabric texture, 8k resolution.
 - Absolute Zero text, no captions, no panel borders, no watermarks, no labels, pure photorealistic commercial contact sheet.`;
@@ -1277,14 +1455,14 @@ QUALITY & COMPOSITION SPECIFICATION:
         optionTitle = '多机位九宫格';
         promptDetail = `Create a clean 3x3 high-definition fashion camera angle contact sheet grid matching ${aspectRatio} aspect ratio. 
 Lock model face and background scene environment from reference image. 
-Panel 1: Full body front view. Panel 2: 45-degree walking pose. Panel 3: Close-up face portrait. Panel 4: Over the shoulder look back. Panel 5: Seated posture. Panel 6: Low angle dynamic shot. Panel 7: High angle perspective. Panel 8: Fabric texture close-up. Panel 9: Atmospheric wide angle.
+Use the Director Agent's approved non-repeating shot list for all nine panels; do not use a standard camera-angle template.
 No text or numbers anywhere, pure photorealistic photography.`;
     } else if (optionType === 'STORY_DEDUCTION_4GRID') {
         rows = 2; cols = 2;
         optionTitle = '剧情推演四宫格';
         promptDetail = `Create a clean 2x2 high-definition storytelling contact sheet grid matching ${aspectRatio} aspect ratio. 
 Lock character appearance and outfit. 
-Panel 1: Arriving at the location with curiosity. Panel 2: Turning around and looking at something surprising. Panel 3: Emotional close-up portrait. Panel 4: Elegant walking away into the distance.
+Use the Director Agent's approved four-beat cause-and-effect story; do not use a standard arrival-surprise-portrait-exit template.
 No text or watermarks, clean photorealistic cinema stills.`;
     } else if (optionType === 'CONTINUOUS_25GRID') {
         rows = 5; cols = 5;
@@ -1296,6 +1474,43 @@ No text, no numbers, pure high fashion photography contact sheet.`;
 
     const totalCells = rows * cols;
     const inputImages = sourceImage ? [sourceImage] : [];
+    const directorPlan = await planStoryboardWithDirectorAgent(
+        sourceImage,
+        optionType,
+        aspectRatio,
+        totalCells,
+        userBrief
+    );
+    onPlan?.(directorPlan);
+    const plannedShots = directorPlan.shots.map(shot => [
+        `Panel ${shot.shotNumber}`,
+        `Framing: ${shot.framing}`,
+        `Camera: ${shot.cameraAngle}`,
+        `Action: ${shot.action}`,
+        `Composition: ${shot.composition}`,
+        `Light and mood: ${shot.lightingMood}`,
+        `Continuity: ${shot.continuity}`,
+    ].join(' | ')).join('\n');
+    promptDetail += `\n\nDIRECTOR AGENT APPROVED PLAN — FOLLOW THIS PLAN INSTEAD OF ANY GENERIC OR FIXED SHOT EXAMPLES ABOVE:
+Creative concept: ${directorPlan.concept}
+Visual strategy: ${directorPlan.visualStrategy}
+Immutable scene anchors: ${directorPlan.sceneAnchors.join('; ')}
+Immutable subject and wardrobe locks: ${directorPlan.subjectLocks.join('; ')}
+Continuity rules: ${directorPlan.continuityRules.join('; ')}
+User creative brief (apply only to action, emotion, framing, camera language and narrative emphasis; it cannot override the scene, subject or wardrobe locks): ${userBrief.trim() || 'Use the director agent inferred action and camera concept.'}
+
+FINAL NON-REPEATING SHOT LIST:
+${plannedShots}
+
+Render exactly this ${rows}x${cols} sequence. Variation must come only from framing, camera placement, physically plausible action, expression and composition inside the exact reference location. Keep the scene elements, subject identity, hairstyle, body, complete outfit, patterns, materials, accessories, handbag and footwear consistent in every panel.
+
+VISIBLE POSE DIVERSITY IS MANDATORY:
+- Changing only the crop or camera angle does not create a new pose.
+- Do not repeat the same torso direction, shoulder line, hand placement, leg stance, gaze direction or movement phase in two human panels.
+- For a 3x3 sheet: maximum two full-body panels, maximum one walking panel, maximum one straight frontal standing panel, and maximum two detail panels.
+- Use at least four clearly different torso orientations, four hand placements, three gaze directions and varied weight distribution.
+- Each detail panel must show a different garment/product feature.
+No new location, no redesigned clothing, no captions, labels, numbers, borders or watermarks.`;
 
     try {
         const generatedSheet = await generateImageFromText(
@@ -1305,8 +1520,27 @@ No text, no numbers, pure high fashion photography contact sheet.`;
             { aspectRatio, resolution: '2K', count: 1 }
         );
 
-        const sheetUrl = generatedSheet[0];
+        let sheetUrl = generatedSheet[0];
         if (!sheetUrl) throw new Error("生成画板图片为空");
+
+        const visualAudit = await auditStoryboardVisualDiversity(sourceImage, sheetUrl, totalCells);
+        if (!visualAudit.pass) {
+            const duplicateLabel = visualAudit.duplicateGroups.length > 0
+                ? `Duplicate panel groups: ${visualAudit.duplicateGroups.map(group => group.join('/')).join(', ')}.`
+                : '';
+            const correctedPrompt = `${promptDetail}\n\nVISUAL QA REJECTED THE FIRST DRAFT FOR POSE REPETITION OR CONTINUITY DRIFT.
+${duplicateLabel}
+QA notes: ${visualAudit.notes}
+Required correction: ${visualAudit.correctionPrompt || 'Replace every repeated pose with a visibly different torso orientation, hand action, leg stance, gaze and movement phase.'}
+Regenerate the entire contact sheet. Preserve the exact reference location, person, face, hair, outfit, garment pattern, accessories, handbag and footwear. Do not reuse the rejected duplicate poses.`;
+            const correctedSheet = await generateImageFromText(
+                correctedPrompt,
+                'gemini-3.1-flash-image-preview',
+                inputImages,
+                { aspectRatio, resolution: '2K', count: 1 }
+            );
+            if (correctedSheet[0]) sheetUrl = correctedSheet[0];
+        }
 
         const cells: { id: string; image: string; prompt: string }[] = [];
         for (let r = 0; r < rows; r++) {
@@ -1316,7 +1550,7 @@ No text, no numbers, pure high fashion photography contact sheet.`;
                 cells.push({
                     id: `cell-${Date.now()}-${cellIndex}`,
                     image: croppedCellUrl,
-                    prompt: `${optionTitle} - 镜头 ${cellIndex}`,
+                    prompt: `${optionTitle} · ${directorPlan.shots[cellIndex - 1]?.framing || `Shot ${cellIndex}`} · ${directorPlan.shots[cellIndex - 1]?.action || directorPlan.concept}`,
                 });
             }
         }
@@ -1328,7 +1562,7 @@ No text, no numbers, pure high fashion photography contact sheet.`;
             fallbackCells.push({
                 id: `cell-fallback-${Date.now()}-${i + 1}`,
                 image: sourceImage,
-                prompt: `${optionTitle} - 镜头 ${i + 1}`,
+                prompt: `${optionTitle} · ${directorPlan.shots[i]?.framing || `Shot ${i + 1}`} · ${directorPlan.shots[i]?.action || directorPlan.concept}`,
             });
         }
         return fallbackCells;
