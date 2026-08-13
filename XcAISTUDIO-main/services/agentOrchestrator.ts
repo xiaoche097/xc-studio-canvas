@@ -69,8 +69,42 @@ export interface CanvasWorkflowPlan {
 const IMAGE_MODIFICATION_PATTERN = /换|改|调整|修|发型|背景|场景|环境|换景|服装|衣服|头发|姿势|姿态|动作|站姿|坐姿|走路|行走|迈步|回头|回眸|倚靠|插兜|抬手|抬臂|转身|放松|松弛|变|替换|白底|精修|增强|生成|scene|background|pose|posture|walking/i;
 const WORKFLOW_COMPLEXITY_PATTERN = /工作流|分镜|批量|系列|多场景|多镜头|首尾帧|一致性|完整方案|全套|视频脚本|镜头表/i;
 const GUIDED_COMPLEXITY_PATTERN = /帮我|优化|高级|好看|专业|有质感|随便|你决定|自动/i;
+const IMAGE_CREATION_ACTION_PATTERN = /生成|生图|出图|绘制|画(?:一|个|张|幅|出)|创作|制作|设计|做(?:一|个|张|幅|组|套|版)|create|generate|draw|render|make/i;
+const IMPLICIT_IMAGE_CREATION_PATTERN = /生成|生图|出图|绘制|画(?:一|个|张|幅|出)|做(?:一|个|张|幅|组|套|版)|generate|draw|render/i;
+const IMAGE_OUTPUT_PATTERN = /图|图片|照片|画面|视觉|海报|插画|封面|壁纸|头像|主视觉|效果图|成片|image|photo|poster|illustration|visual|artwork/i;
+const IMAGE_PLANNING_REQUEST_PATTERN = /(?:图|图片|视觉|海报|插画|生成|制作|设计).{0,10}(?:方案|提示词|prompt|文案|脚本|教程|步骤|建议|分析报告|copywriting|script|tutorial)/i;
+const OTHER_MEDIA_OUTPUT_PATTERN = /视频|动画|音频|音乐|配音|video|animation|audio|music/i;
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
+
+export const isImageGenerationRequest = (prompt: string): boolean => {
+  const normalized = prompt.trim();
+  if (!normalized || WORKFLOW_COMPLEXITY_PATTERN.test(normalized)) return false;
+
+  const hasCreationAction = IMAGE_CREATION_ACTION_PATTERN.test(normalized)
+    || /(?:给我|来|想要|需要).{0,6}(?:一|几|两|三)?\s*张/i.test(normalized);
+  if (!hasCreationAction) return false;
+
+  return !IMAGE_PLANNING_REQUEST_PATTERN.test(normalized) && !OTHER_MEDIA_OUTPUT_PATTERN.test(normalized);
+};
+
+export const isActionableImageGenerationRequest = (prompt: string): boolean => {
+  const normalized = prompt.trim();
+  if (!isImageGenerationRequest(normalized)) return false;
+
+  const hasExplicitImageOutput = IMAGE_OUTPUT_PATTERN.test(normalized) || /(?:一|几|两|三)\s*张/i.test(normalized);
+  if (!hasExplicitImageOutput && !IMPLICIT_IMAGE_CREATION_PATTERN.test(normalized)) return false;
+
+  // A bare command such as “生成图片” still lacks the subject that determines
+  // the visual result. Keep it in guided conversation; concrete briefs execute.
+  const visualBrief = normalized
+    .replace(/请|麻烦|帮我|可以|能不能|给我|我想要|我需要|直接|现在|立即|开始/gi, '')
+    .replace(IMAGE_CREATION_ACTION_PATTERN, '')
+    .replace(IMAGE_OUTPUT_PATTERN, '')
+    .replace(/一|个|张|幅|组|套|版|的|吧|呀|啊|。|！|!|，|,/g, '')
+    .trim();
+  return visualBrief.length >= 2;
+};
 
 const inferIntent = (prompt: string, route: AgentTaskRoute, skillId?: string) => {
   if (skillId) return `执行技能 ${skillId}`;
@@ -112,6 +146,10 @@ export const routeAgentTask = (input: AgentRouteInput): AgentRuntimeState => {
     depth = 'guided';
     requiresConfirmation = true;
     assumptions.push('未明确要求改变的主体身份、商品结构和画面元素保持不变');
+  } else if (input.mode === 'agent' && !input.skillId && isActionableImageGenerationRequest(prompt)) {
+    route = 'direct-image';
+    depth = 'quick';
+    assumptions.push('用户已明确要求产出图片，Agent 将自动补齐非关键视觉参数并直接执行文生图');
   } else if (input.skillId) {
     route = 'skill';
     depth = 'workflow';

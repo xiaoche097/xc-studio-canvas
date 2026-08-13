@@ -8,7 +8,7 @@ import {
   SlidersHorizontal, CheckCircle2, Circle, Settings2, Upload, ListChecks, ShieldCheck, AlertCircle,
   ThumbsUp, ThumbsDown, LocateFixed, Quote, Trash2, MessageSquarePlus, RefreshCw
 } from 'lucide-react';
-import { generateImageFromText, planImagePrompt, sendChatMessageStream, urlToBase64 } from '../services/geminiService';
+import { planImagePrompt, sendChatMessageStream, urlToBase64 } from '../services/geminiService';
 import { XIAOCHE_AVATAR_BASE64 } from '../services/avatarData';
 import {
   executeAgentSkill,
@@ -19,6 +19,7 @@ import {
 import {
   attachSelfCheck,
   buildImageModificationCanvasPlan,
+  isImageGenerationRequest,
   routeAgentTask,
   runExecutionPreflight,
   serializeAgentRuntimeContext,
@@ -27,6 +28,7 @@ import {
   type CanvasWorkflowPlan,
 } from '../services/agentOrchestrator';
 import { loadFromStorage, saveToStorage } from '../services/storage';
+import { extractImageToolAction } from '../services/agentToolProtocol';
 import { selectPoseFromAgentLibrary } from '../../Cyzx4/services/poseLibrarySelector';
 
 const ATTACHMENT_MENTION_MARKER = '\uFFFC';
@@ -71,6 +73,19 @@ const detectImageRatio = (source?: string): Promise<string> => {
     image.onerror = () => resolve('1:1');
     image.src = source;
   });
+};
+
+const resolveRequestedImageRatio = (prompt: string): string | null => {
+  const normalized = prompt.replace(/：/g, ':');
+  return IMAGE_RATIO_OPTIONS.find((ratio) => {
+    const escapedRatio = ratio.replace(':', '\\s*:\\s*');
+    return new RegExp(`(?:^|[^0-9])${escapedRatio}(?:[^0-9]|$)`).test(normalized);
+  }) || null;
+};
+
+const resolveRequestedImageResolution = (prompt: string, fallback: string): string => {
+  const match = prompt.match(/(?:^|[^0-9])([124])\s*[kK](?:[^0-9]|$)/);
+  return match ? `${match[1].toLowerCase()}k` : fallback;
 };
 
 export interface ImageModificationCardData {
@@ -216,6 +231,18 @@ const resolvePendingDecision = (messages: Message[], userText: string, memory?: 
 
 const isNegativeResultFeedback = (text: string) => /不好看|不满意|不对|不是我想要|不是我要的|效果不行|太僵|僵硬|很怪|难看|重做|重新来/i.test(text);
 const isResolvedResultFeedback = (text: string) => /^(满意了|可以了|好了|这版可以|这样就行|就这样|问题解决了|解决了|符合预期|这次对了)[！!。.]?$/i.test(text.trim());
+const isExecutionAuthorization = (text: string) => {
+  const normalized = text.trim().replace(/[！!。.,，]/g, '');
+  return normalized.length <= 20
+    && /^(?:好|好的|可以|没问题|确认|同意|就这样|按这个|按上述|按上面).*(?:执行|开始|生成|制作|做|出图)|^(?:快|直接|立即|现在)?(?:执行|开始|生成|制作|做|出图)(?:吧|呢|就行)?$/i.test(normalized);
+};
+
+const findLatestImageGenerationRequest = (messages: Message[]): string => {
+  const request = [...messages].reverse().find((message) => (
+    message.role === 'user' && isImageGenerationRequest(message.agentText || message.text)
+  ));
+  return (request?.agentText || request?.text || '').trim();
+};
 
 const findLatestGeneratedImageAssets = (messages: Message[]): AgentSkillAsset[] => {
   const message = [...messages].reverse().find((candidate) => candidate.assets?.some((asset) => asset.mediaType === 'image'));
@@ -310,8 +337,21 @@ interface AssistantPanelProps {
   onEnsureReferencesOnCanvas?: (images: { url: string; title: string }[]) => void;
   onInsertImageModificationWorkflow?: (
     inputImages: { url: string; title: string }[],
-    outputImage: { url: string; title: string; prompt: string; aspectRatio?: string; phase?: 'ready' | 'working' },
+    outputImage: {
+      url: string;
+      title: string;
+      prompt: string;
+      aspectRatio?: string;
+      resolution?: string;
+      model?: string;
+      imageCount?: number;
+      phase?: 'ready' | 'working';
+    },
   ) => string | undefined;
+  onExecuteImageWorkflowNode?: (outputNodeId: string) => Promise<{
+    urls: string[];
+    title?: string;
+  }>;
   onUpdateImageModificationWorkflow?: (
     outputNodeId: string,
     update: {
@@ -547,7 +587,7 @@ const ASSISTANT_SYSTEM_INSTRUCTION = `
 2. 如果缺少信息，只指出会改变结果的关键缺口；已有素材必须准确列出，不得声称“未收到”。
 3. 生图规划遵循：主体 + 动作/状态 + 环境/场景 + 风格 + 光照 + 视角/构图 + 质量约束。
 4. 不展示内部思维链或内部元信息块，只展示可核验的研判摘要、用户需要确认的假设和下一步。
-5. 用户要求生成、修改或优化图片时，若意图已经可执行，必须先交付一版完整可用的生成提示词和针对性排除项；不得只复述需求、列检查项或要求用户确认。
+5. 用户明确要求生成图片且主体/场景已经可判断时，该请求本身就是执行授权。提示词规划属于内部执行步骤，必须立即调用真实图片生成器并把工作节点及真实结果写入画布；不得停在口头方案、提示词展示、检查项或“已经开始/已经完成”的表述上。只有缺少会显著改变主体的关键条件时才允许先问最多 2 个短问题。
 6. 非关键细节由你采用保守、专业且不改变主体身份的默认值补齐。只有会显著改变主体、品牌事实或制作成本的歧义才允许追问。
 7. 用户评价“不好看、不满意、不对”时，评价对象默认是当前任务最近一次真实生成结果。必须继承原任务目标与已确认约束，不能把它当作脱离上下文的新问题。
 8. 若负面反馈仍缺少可执行方向，只提供两个与反馈直接相关的短方案，严格使用“方案 A（名称）：说明”和“方案 B（名称）：说明”的格式；方案不得偏离原目标。用户回复 A/B、1/2 或“第一个/第二个”即表示已完成选择，不得重复询问，必须进入执行准备。
@@ -753,6 +793,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   onLocateAssetOnCanvas,
   onEnsureReferencesOnCanvas,
   onInsertImageModificationWorkflow,
+  onExecuteImageWorkflowNode,
   onUpdateImageModificationWorkflow,
 }) => {
   const [isSessionStorageHydrated, setIsSessionStorageHydrated] = useState(false);
@@ -1538,6 +1579,103 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     focusComposerSegment(referenceIndex);
   };
 
+  const executeDirectImageGeneration = async (
+    requestPrompt: string,
+    referenceAssets: AgentSkillAsset[],
+  ) => {
+    setIsLoading(true);
+    setGenerationStatus('Agent 正在理解画面并撰写专业提示词…');
+    let workflowOutputNodeId: string | undefined;
+    try {
+      const requestedImageRatio = resolveRequestedImageRatio(requestPrompt);
+      const effectiveImageRatio = requestedImageRatio || (referenceAssets.length > 0
+        ? await detectImageRatio(referenceAssets[0]?.src)
+        : imageRatio);
+      const effectiveImageResolution = resolveRequestedImageResolution(requestPrompt, imageResolution);
+      const referenceImages = (await Promise.all(referenceAssets.map(async (asset) => (
+        asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
+      )))).filter(Boolean);
+      const promptPlan = await planImagePrompt({
+        userIntent: requestPrompt,
+        referenceImages,
+        aspectRatio: effectiveImageRatio,
+        resolution: effectiveImageResolution,
+        mode: referenceImages.length > 0 ? 'edit' : 'generate',
+      });
+      const optimizedPrompt = compileImagePrompt({
+        promptPreview: promptPlan.prompt,
+        negativePrompt: promptPlan.negativePrompt,
+      });
+      workflowOutputNodeId = onInsertImageModificationWorkflow?.(
+        referenceAssets.map((asset) => ({ url: asset.src, title: asset.title })),
+        {
+        url: '',
+        title: promptPlan.title || 'Agent 文生图',
+        prompt: optimizedPrompt,
+        aspectRatio: effectiveImageRatio,
+        resolution: effectiveImageResolution.toUpperCase(),
+        model: imageModel,
+        imageCount: 1,
+        phase: 'working',
+        },
+      );
+      if (!workflowOutputNodeId || !onExecuteImageWorkflowNode) {
+        throw new Error('画布图片节点执行器不可用，无法启动视觉工作流。');
+      }
+      onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
+        status: 'working',
+        title: promptPlan.title || 'Agent 文生图',
+        prompt: optimizedPrompt,
+        aspectRatio: effectiveImageRatio,
+        progress: '视觉 Agent 已完成策划，正在执行画布图片节点…',
+      });
+      setGenerationStatus(`视觉方案已写入节点，正在使用 ${IMAGE_MODEL_OPTIONS.find((model) => model.value === imageModel)?.label || '图片模型'} 执行…`);
+      const nodeResult = await onExecuteImageWorkflowNode(workflowOutputNodeId);
+      const generatedAssets: AgentSkillResult[] = nodeResult.urls.map((url, index) => ({
+        url,
+        mediaType: 'image',
+        title: nodeResult.title || promptPlan.title || `图片生成-${index + 1}`,
+      }));
+      if (generatedAssets.length === 0) throw new Error('图片生成工具未返回可用结果。');
+      generatedAssets.forEach((asset, index) => {
+        if (index > 0) {
+          onInsertAssetToCanvas?.(asset.url, asset.title, asset.mediaType);
+        }
+      });
+      const completionId = `direct-image-${Date.now()}`;
+      setMessages((prev) => [...prev, {
+        id: completionId,
+        role: 'model',
+        text: `## 图片生成完成\n\n${promptPlan.summary}\n\n**Agent 实际使用的提示词**\n\n${promptPlan.prompt}\n\n**排除项**\n\n${promptPlan.negativePrompt}\n\n已由视觉 Agent 编排画布图片节点，并按 **${effectiveImageRatio} · ${effectiveImageResolution.toUpperCase()}** 完成生成。`,
+        assets: generatedAssets,
+      }]);
+      setTaskMemory((current) => ({
+        ...(current || { updatedAt: Date.now() }),
+        status: 'awaiting-feedback',
+        goal: requestPrompt,
+        lastOutputAssets: generatedAssets.map((asset, index) => ({
+          id: `agent-output-${completionId}-${index}`,
+          src: asset.url,
+          title: asset.title,
+        })),
+        pendingOptions: undefined,
+        updatedAt: Date.now(),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '图片生成失败，请稍后重试。';
+      if (workflowOutputNodeId) {
+        onUpdateImageModificationWorkflow?.(workflowOutputNodeId, {
+          status: 'error',
+          error: message,
+        });
+      }
+      setMessages((prev) => [...prev, { role: 'model', text: `图片生成失败：${message}` }]);
+    } finally {
+      setIsLoading(false);
+      setGenerationStatus('');
+    }
+  };
+
   const handleSendMessage = async () => {
     if ((!input.replaceAll(ATTACHMENT_MENTION_MARKER, '').trim() && selectedAttachmentReferences.length === 0) || isLoading) return;
     const messageSegments = input.split(ATTACHMENT_MENTION_MARKER);
@@ -1566,10 +1704,22 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       submittedReferenceAssets = latestGeneratedAssets;
     }
     const rawImagePrompt = messageSegments.join(' ').replace(/\s+/g, ' ').trim();
-    const imagePrompt = pendingDecision
+    const isExecutionConfirmation = isExecutionAuthorization(userText)
+      || /^(确认|确认开始|开始|开始生成|好|好的|可以|执行)[！!。.]?$/.test(userText);
+    const latestImageRequest = taskMemory?.goal && isImageGenerationRequest(taskMemory.goal)
+      ? taskMemory.goal
+      : findLatestImageGenerationRequest(messages);
+    const baseImagePrompt = pendingDecision
       ? `继续修正最近一次生成结果。用户此前反馈：${taskMemory?.lastFeedback || '上一版效果不符合预期'}。用户现已明确选择方案 ${pendingDecision.key}（${pendingDecision.label}）：${pendingDecision.description}。请把该方案落实为实际图像调整，保持未被要求改变的人物身份、服装、场景与构图，不要再次询问同一选择。`
       : rawImagePrompt || '基于参考图片生成一张高质量图片，保持主体一致并优化构图、光影与细节。';
-    const isExecutionConfirmation = /^(确认|确认开始|开始|开始生成|好|好的|可以|执行)[！!。.]?$/.test(userText);
+    const isContinuingGuidedImageRequest = selectedAgentMode === 'agent'
+      && !selectedSkill
+      && Boolean(latestImageRequest)
+      && (taskMemory?.status === 'active' || isExecutionConfirmation)
+      && !pendingDecision;
+    const imagePrompt = isContinuingGuidedImageRequest
+      ? `${latestImageRequest}\n用户已授权立即执行。${isExecutionConfirmation ? '' : `用户补充的关键视觉要求：${baseImagePrompt}`}`
+      : baseImagePrompt;
     const runtimeState = routeAgentTask({
       mode: selectedAgentMode,
       prompt: imagePrompt,
@@ -1658,64 +1808,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     }
 
     if (runtimeState.route === 'direct-image') {
-      setIsLoading(true);
-      setGenerationStatus('Agent 正在理解画面并撰写专业提示词…');
-      try {
-        const effectiveImageRatio = submittedReferenceAssets.length > 0
-          ? await detectImageRatio(submittedReferenceAssets[0]?.src)
-          : imageRatio;
-        const referenceImages = (await Promise.all(submittedReferenceAssets.map(async (asset) => (
-          asset.src.startsWith('data:') ? asset.src : urlToBase64(asset.src)
-        )))).filter(Boolean);
-        const promptPlan = await planImagePrompt({
-          userIntent: imagePrompt,
-          referenceImages,
-          aspectRatio: effectiveImageRatio,
-          resolution: imageResolution,
-          mode: referenceImages.length > 0 ? 'edit' : 'generate',
-        });
-        const optimizedPrompt = compileImagePrompt({
-          promptPreview: promptPlan.prompt,
-          negativePrompt: promptPlan.negativePrompt,
-        });
-        setGenerationStatus(`提示词已完成，正在使用 ${IMAGE_MODEL_OPTIONS.find((model) => model.value === imageModel)?.label || '图片模型'} 生成…`);
-        const generated = await generateImageFromText(optimizedPrompt, imageModel, referenceImages, {
-          aspectRatio: effectiveImageRatio,
-          resolution: imageResolution,
-          count: 1,
-        });
-        const generatedAssets: AgentSkillResult[] = generated.map((url, index) => ({
-          url,
-          mediaType: 'image',
-          title: `图片生成-${index + 1}`,
-        }));
-        generatedAssets.forEach((asset) => onInsertAssetToCanvas?.(asset.url, asset.title, asset.mediaType));
-        const completionId = `direct-image-${Date.now()}`;
-        setMessages((prev) => [...prev, {
-          id: completionId,
-          role: 'model',
-          text: `## 图片生成完成\n\n${promptPlan.summary}\n\n**Agent 实际使用的提示词**\n\n${promptPlan.prompt}\n\n**排除项**\n\n${promptPlan.negativePrompt}\n\n已按 **${effectiveImageRatio} · ${imageResolution.toUpperCase()}** 完成生成。`,
-          assets: generatedAssets,
-        }]);
-        setTaskMemory((current) => ({
-          ...(current || { updatedAt: Date.now() }),
-          status: 'awaiting-feedback',
-          goal: imagePrompt,
-          lastOutputAssets: generatedAssets.map((asset, index) => ({
-            id: `agent-output-${completionId}-${index}`,
-            src: asset.url,
-            title: asset.title,
-          })),
-          pendingOptions: undefined,
-          updatedAt: Date.now(),
-        }));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '图片生成失败，请稍后重试。';
-        setMessages((prev) => [...prev, { role: 'model', text: `图片生成失败：${message}` }]);
-      } finally {
-        setIsLoading(false);
-        setGenerationStatus('');
-      }
+      await executeDirectImageGeneration(imagePrompt, submittedReferenceAssets);
       return;
     }
 
@@ -1884,10 +1977,21 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       let streamedResponse = '';
       await sendChatMessageStream(history, userText, (_chunk, fullText) => {
         streamedResponse = fullText;
+        const visibleStreamText = /^\s*(?:```json\s*)?\{/i.test(fullText)
+          ? 'Agent 正在解析并执行视觉工具动作…'
+          : fullText;
         setMessages((prev) => prev.map((message) => message.id === responseId
-          ? { ...message, text: fullText, isStreaming: true }
+          ? { ...message, text: visibleStreamText, isStreaming: true }
           : message));
       }, { systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION + guideContext + attachmentContext + memoryContext + activeQuoteContext + feedbackContext + runtimeContext + taskMemoryContext });
+      const toolAction = extractImageToolAction(streamedResponse);
+      if (toolAction) {
+        setMessages((prev) => prev.map((message) => message.id === responseId
+          ? { ...message, text: '已确认视觉方案，正在调用图片生成节点执行…', isStreaming: false }
+          : message));
+        await executeDirectImageGeneration(toolAction.prompt, submittedReferenceAssets);
+        return;
+      }
       setMessages((prev) => prev.map((message) => message.id === responseId
         ? { ...message, isStreaming: false }
         : message));

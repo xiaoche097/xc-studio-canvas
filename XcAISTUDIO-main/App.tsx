@@ -3547,7 +3547,10 @@ export const App = () => {
                                 imagePreview: outputImage.url || undefined,
                                 prompt: outputImage.prompt,
                                 aspectRatio: outputImage.aspectRatio,
-                                assetOrigin: 'derived',
+                                resolution: outputImage.resolution,
+                                model: outputImage.model,
+                                imageCount: outputImage.imageCount,
+                                assetOrigin: inputImages.length > 0 ? 'derived' : 'generated',
                                 derivedFromNodeIds: sourceNodeIds,
                                 progress: outputImage.phase === 'working' ? '正在准备图片生成任务…' : '方案已就绪，等待确认执行',
                             }
@@ -3578,6 +3581,34 @@ export const App = () => {
                         }
 
                         return outputNodeId;
+                    }}
+                    onExecuteImageWorkflowNode={async (outputNodeId) => {
+                        // The Agent creates/configures the node first. Wait for React to
+                        // commit it, then execute through the same canvas-node action
+                        // used by the node's own Generate button.
+                        for (let frame = 0; frame < 6; frame += 1) {
+                            if (nodesRef.current.some(node => node.id === outputNodeId)) break;
+                            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                        }
+                        if (!nodesRef.current.some(node => node.id === outputNodeId)) {
+                            throw new Error('视觉 Agent 已规划任务，但图片节点未成功写入画布。');
+                        }
+
+                        const executed = await handleNodeAction(outputNodeId);
+                        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                        const completedNode = nodesRef.current.find(node => node.id === outputNodeId);
+                        if (!executed || !completedNode) {
+                            throw new Error(completedNode?.data.error || '画布图片节点执行失败。');
+                        }
+                        const nodeImages = completedNode.data.images?.filter(Boolean) || [];
+                        const urls = nodeImages.length > 0
+                            ? nodeImages
+                            : (completedNode.data.image ? [completedNode.data.image] : []);
+                        if (urls.length === 0) {
+                            throw new Error(completedNode.data.error || '画布图片节点没有返回图片。');
+                        }
+                        return { urls, title: completedNode.title };
                     }}
                     onUpdateImageModificationWorkflow={(outputNodeId, update) => {
                         if (update.status === 'ready') {
@@ -3632,7 +3663,9 @@ export const App = () => {
                                 outputNodeId,
                                 {
                                     image: update.url,
-                                    assetOrigin: 'derived',
+                                    assetOrigin: nodesRef.current.find(node => node.id === outputNodeId)?.inputs.length
+                                        ? 'derived'
+                                        : 'generated',
                                     progress: undefined,
                                     error: undefined,
                                 },
