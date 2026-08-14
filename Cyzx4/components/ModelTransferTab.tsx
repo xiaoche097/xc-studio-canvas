@@ -123,6 +123,7 @@ const MODEL_OPTIONS = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '3.1 Flash' },
   { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', desc: '3 Pro' },
   { id: 'gpt-image-2', label: 'GPT Image 2', desc: 'Ultra Quality' },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: 'Qwen Image' },
 ];
 
 const ASPECT_OPTIONS: Array<{ id: AspectRatio; label: string; desc: string }> = [

@@ -6,6 +6,8 @@ import { WorkflowStep } from '../../types';
 import { AGENT_PROMPTS } from '../../data/agentPrompts';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { DEFAULT_TEXT_MODEL } from '../utils/apiHelpers';
+import { generateImageToImage } from '../services/geminiService';
+import { AspectRatio, ImageResolution } from '../types';
 
 interface Message {
     id: string;
@@ -51,7 +53,8 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
     const imageModels = [
         { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实' },
         { id: 'nanobanana2', name: 'Banana 2.0', desc: '创意高质' },
-        { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影' }
+        { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影' },
+        { id: 'qwen-image-3.0-pro', name: '千问3.0pro', desc: '高质量生成与编辑' },
     ];
 
     const systemPrompt = AGENT_PROMPTS[WorkflowStep.VISUAL_PLANNING_AGENT].systemPrompt;
@@ -202,10 +205,22 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
         setIsGeneratingImage(true);
         try {
             const refImages = messages.flatMap(m => m.images || []);
-            const result = await gemini.generateImage(promptData.prompt, refImages, {
-                aspectRatio: promptData.aspect_ratio || '3:4',
-                model: promptData.model || selectedImageModel
-            });
+            const requestedModel = promptData.model || selectedImageModel;
+            const aspectRatio = (promptData.aspect_ratio || '3:4') as AspectRatio;
+            const result = requestedModel === 'qwen-image-3.0-pro'
+                ? (await generateImageToImage(
+                    refImages.map((image) => {
+                        const match = image.match(/^data:([^;]+);base64,(.+)$/);
+                        return { base64: match?.[2] || image, mimeType: match?.[1] || 'image/png' };
+                    }),
+                    promptData.prompt,
+                    { aspectRatio, resolution: ImageResolution.RES_2K, modelId: requestedModel },
+                ))[0]
+                : await gemini.generateImage(promptData.prompt, refImages, {
+                    aspectRatio,
+                    model: requestedModel,
+                });
+            if (!result) throw new Error('图像模型未返回生成结果');
             if (onImageGenerated) onImageGenerated(result);
         } catch (error) {
             console.error("Image Generation Error:", error);
@@ -363,7 +378,8 @@ export const PlanningAgentTab: React.FC<PlanningAgentTabProps> = ({ onImageGener
                                                             {[
                                                                 { id: 'gpt-image-2', name: 'Imagen 2.0', desc: '极致写实 · 商业级质感', color: 'bg-black dark:bg-white text-white dark:text-black' },
                                                                 { id: 'nanobananapro', name: 'Banana Pro', desc: '专业摄影 · 真实光影', color: 'bg-pastel-highlight text-white' },
-                                                                { id: 'nanobanana2', name: 'Banana 2.0', desc: '极速生成 · 创意构图', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' }
+                                                                { id: 'nanobanana2', name: 'Banana 2.0', desc: '极速生成 · 创意构图', color: 'bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-gray-200' },
+                                                                { id: 'qwen-image-3.0-pro', name: '千问3.0pro', desc: '高质量生成 · 精细编辑', color: 'bg-cyan-500 text-white' },
                                                             ].map(m => (
                                                                 <button
                                                                     key={m.id}

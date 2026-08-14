@@ -2,7 +2,7 @@ import type { AspectRatio, ImageResolution } from '../types';
 
 export type EcommerceHeroStep = 'input' | 'analyzing' | 'confirm' | 'generating' | 'complete';
 export type EcommerceHeroMode = 'standard' | 'advanced';
-export type EcommerceImageModelId = 'gpt-image-2' | 'gemini-3.1-flash-image-preview';
+export type EcommerceImageModelId = 'gpt-image-2' | 'gemini-3.1-flash-image-preview' | 'qwen-image-3.0-pro';
 export type EcommerceResultStatus = 'pending' | 'submitting' | 'processing' | 'compositing' | 'done' | 'error' | 'cancelled';
 
 export type EcommerceLanguageId =

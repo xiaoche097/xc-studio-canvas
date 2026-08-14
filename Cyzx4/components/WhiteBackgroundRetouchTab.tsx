@@ -76,6 +76,7 @@ const MODEL_OPTIONS = [
   { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', desc: '3.0 Pro', icon: 'banana' },
   { id: 'gpt-image-2', label: 'GPT Image 2', desc: 'Ultra Quality', icon: 'sparkles' },
   { id: 'mj_imagine', label: 'Midjourney', desc: 'MJ Imagine', icon: 'magic' },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: 'Qwen Image', icon: 'sparkles' },
 ] as const;
 
 const CATEGORY_OPTIONS: Array<{

@@ -94,6 +94,12 @@ const FACE_SWAP_MODEL_OPTIONS = [
     description: '高质量商业人像与精细编辑',
     badge: 'Ultra',
   },
+  {
+    id: 'qwen-image-3.0-pro',
+    label: '千问3.0pro',
+    description: '高质量人像生成与精细编辑',
+    badge: '千问',
+  },
 ] as const;
 
 const isValidImageType = (file: File) => {

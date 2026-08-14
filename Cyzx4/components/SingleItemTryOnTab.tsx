@@ -158,6 +158,7 @@ const MODEL_OPTIONS = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '快速稳定' },
   { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', desc: '复杂结构' },
   { id: 'gpt-image-2', label: 'GPT Image 2', desc: '高质细节' },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: '高质量生成与编辑' },
 ];
 
 const ASPECT_OPTIONS = [

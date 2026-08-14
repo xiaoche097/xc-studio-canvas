@@ -55,6 +55,7 @@ const MODEL_OPTIONS = [
     { value: 'gemini-3.1-flash-image-preview', label: 'Banana 2', subLabel: '3.1 Flash' },
     { value: 'gemini-3-pro-image-preview', label: 'Banana Pro', subLabel: '3.0 Pro' },
     { value: 'gpt-image-2', label: 'GPT Image 2', subLabel: 'Ultra Quality' },
+    { value: 'qwen-image-3.0-pro', label: '千问3.0pro', subLabel: 'Qwen Image' },
 ];
 
 type ImageData = {

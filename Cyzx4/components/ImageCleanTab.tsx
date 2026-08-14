@@ -2801,7 +2801,8 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                             {[
                                                 { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', sub: '3.1 Flash', icon: <Zap className="w-4 h-4 text-orange-400" /> },
                                                 { id: 'nanobananapro', name: 'Banana Pro', sub: '3.0 Pro', icon: <Zap className="w-4 h-4 text-orange-500" /> },
-                                                { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra Quality', icon: <Sparkles className="w-4 h-4 text-orange-600" /> }
+                                                { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra Quality', icon: <Sparkles className="w-4 h-4 text-orange-600" /> },
+                                                { id: 'qwen-image-3.0-pro', name: '千问3.0pro', sub: 'Qwen Image', icon: <Sparkles className="w-4 h-4 text-cyan-500" /> }
                                             ].map(m => (
                                                 <button 
                                                     key={m.id} 

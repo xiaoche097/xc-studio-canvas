@@ -64,6 +64,7 @@ const DEFAULT_MODEL_ID: EcommerceImageModelId = 'gpt-image-2';
 const IMAGE_MODEL_OPTIONS: Array<{ id: EcommerceImageModelId; label: string; description: string; badge: string }> = [
   { id: 'gpt-image-2', label: 'GPT Image 2', description: 'Ultra Quality', badge: '默认' },
   { id: 'gemini-3.1-flash-image-preview', label: 'Gemini Banana 2', description: '快速稳定', badge: 'Gemini' },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', description: '高质量图像生成与编辑', badge: '千问' },
 ];
 const imageModelById = (id: EcommerceImageModelId) => IMAGE_MODEL_OPTIONS.find((model) => model.id === id) || IMAGE_MODEL_OPTIONS[0];
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg']);

@@ -61,6 +61,7 @@ const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_VOLCENGINE_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
+const QWEN_IMAGE_ENDPOINT = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
 const DEFAULT_VIRSE_BASE_URL = 'https://api.virse.ai';
 const VIRSE_DEV_BASE_URL = 'https://dev.virse.ai';
 const LEGACY_JIJING_BASE_URL = 'https://api.jijing.ai';
@@ -199,6 +200,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [isRunningHubKeyVisible, setIsRunningHubKeyVisible] = useState(false);
   const [runningHubEnabled, setRunningHubEnabled] = useState(false);
 
+  const [qwenApiKey, setQwenApiKey] = useState('');
+  const [isQwenKeyVisible, setIsQwenKeyVisible] = useState(false);
+  const [qwenEnabled, setQwenEnabled] = useState(false);
+
   const [virseApiKey, setVirseApiKey] = useState('');
   const [virseBaseUrl, setVirseBaseUrl] = useState(VIRSE_DEV_BASE_URL);
   const [isVirseKeyVisible, setIsVirseKeyVisible] = useState(false);
@@ -230,6 +235,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
   const [runningHubTestStatus, setRunningHubTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [runningHubTestMessage, setRunningHubTestMessage] = useState('');
+
+  const [qwenTestStatus, setQwenTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [qwenTestMessage, setQwenTestMessage] = useState('');
 
   const [virseTestStatus, setVirseTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [virseTestMessage, setVirseTestMessage] = useState('');
@@ -347,6 +355,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedRunningHubUrl) setRunningHubBaseUrl(savedRunningHubUrl);
     setRunningHubEnabled(savedRunningHubEnabled === 'true');
 
+    setQwenApiKey(localStorage.getItem('qwen_api_key') || '');
+    setQwenEnabled(localStorage.getItem('qwen_enabled') === 'true');
+
     const savedVirseKey = localStorage.getItem('virse_api_key');
     const savedVirseEnabled = localStorage.getItem('virse_enabled');
     setVirseApiKey(savedVirseKey || '');
@@ -461,6 +472,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('runninghub_api_key', runningHubApiKey.trim());
     localStorage.setItem('runninghub_base_url', runningHubBaseUrl.trim() || DEFAULT_RUNNINGHUB_BASE_URL);
     localStorage.setItem('runninghub_enabled', String(runningHubEnabled));
+
+    localStorage.setItem('qwen_api_key', qwenApiKey.trim());
+    localStorage.setItem('qwen_enabled', String(qwenEnabled));
 
     localStorage.setItem('virse_api_key', virseApiKey.trim());
     localStorage.setItem('virse_base_url', virseBaseUrl);
@@ -579,6 +593,44 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     } catch (e: any) {
       setRunningHubTestStatus('error');
       setRunningHubTestMessage(e?.message || '连接失败');
+    }
+  };
+
+  const handleTestQwen = async () => {
+    const key = qwenApiKey.trim();
+    if (!key) {
+      setQwenTestStatus('error');
+      setQwenTestMessage('请输入 API Key');
+      return;
+    }
+    setQwenTestStatus('testing');
+    setQwenTestMessage('正在测试...');
+    try {
+      const response = await fetch(QWEN_IMAGE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: 'qwen-image-3.0-pro',
+          input: {
+            messages: [{ role: 'user', content: [{ text: '一枚简洁的青色圆形图标，纯白背景' }] }],
+          },
+          parameters: { prompt_extend: true },
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error?.message || data?.message || `HTTP Error ${response.status}`);
+      }
+      const image = data?.output?.choices?.[0]?.message?.content?.find?.((item: any) => item?.image)?.image;
+      if (!image) throw new Error('接口未返回生成图片');
+      setQwenTestStatus('success');
+      setQwenTestMessage('连接成功');
+    } catch (e: any) {
+      setQwenTestStatus('error');
+      setQwenTestMessage(e?.message || '连接失败');
     }
   };
 
@@ -1248,6 +1300,68 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                              {platoTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
                            </button>
                         </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Qwen AI Platform */}
+                  <div className={`p-7 lg:p-8 rounded-3xl border transition-all ${qwenEnabled ? 'bg-white dark:bg-white/5 border-cyan-200 dark:border-cyan-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-3 rounded-2xl ${qwenEnabled ? 'bg-cyan-100 text-cyan-600' : 'bg-gray-200 text-gray-500'}`}>
+                          <MessageCircle className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className={`text-lg font-black ${qwenEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>千问 AI 平台</h4>
+                            <span className="px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-black">千问3.0pro</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">官方 DashScope 图像接口，为创意中心提供图像生成与编辑</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setQwenEnabled(!qwenEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${qwenEnabled ? 'bg-cyan-500' : 'bg-gray-300'}`}
+                        aria-label={qwenEnabled ? '关闭千问 AI 平台' : '开启千问 AI 平台'}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${qwenEnabled ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {qwenEnabled && (
+                      <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> API Key</label>
+                          <div className="relative">
+                            <input
+                              type={isQwenKeyVisible ? 'text' : 'password'}
+                              value={qwenApiKey}
+                              onChange={(e) => setQwenApiKey(e.target.value)}
+                              className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 py-3 pr-12 text-sm focus:ring-2 focus:ring-cyan-500/20 outline-none font-mono"
+                              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                            />
+                            <button onClick={() => setIsQwenKeyVisible(!isQwenKeyVisible)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" aria-label="显示或隐藏千问 API Key">
+                              {isQwenKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-4 pt-1">
+                          <div className="flex-1">
+                            {qwenTestStatus !== 'idle' && (
+                              <span className={`text-xs font-bold ${qwenTestStatus === 'success' ? 'text-green-500' : qwenTestStatus === 'testing' ? 'text-blue-500' : 'text-red-500'}`}>
+                                {qwenTestStatus === 'testing' ? '正在测试...' : qwenTestMessage}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={handleTestQwen}
+                            disabled={qwenTestStatus === 'testing'}
+                            className="px-5 py-2.5 rounded-xl bg-gray-100 dark:bg-white/5 hover:bg-cyan-50 dark:hover:bg-cyan-500/10 text-gray-500 hover:text-cyan-600 text-sm font-bold transition-all border border-gray-200 dark:border-white/10 min-w-[104px] flex items-center justify-center"
+                          >
+                            {qwenTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试连接'}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-gray-500">测试连接会调用千问3.0pro生成一张小型测试图，可能产生少量费用。</p>
                       </div>
                     )}
                   </div>

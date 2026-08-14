@@ -134,6 +134,12 @@ const MODEL_OPTIONS = [
     hint: '高清逼真',
     desc: '商业摄影级画质 · 适合大牌时尚 Lookbook 与时尚海报',
   },
+  {
+    id: 'qwen-image-3.0-pro',
+    label: '千问3.0pro',
+    hint: '千问图像旗舰',
+    desc: '高质量图像生成与多参考图编辑',
+  },
 ] as const;
 
 const ASPECT_RATIO_OPTIONS = [

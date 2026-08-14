@@ -2750,7 +2750,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
                   <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
                     <Cpu className="w-3.5 h-3.5 text-purple-500" /> 图像模型选择
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
@@ -2800,6 +2800,20 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
                         </span>
                       </div>
                       <span className="text-[9px] font-bold text-pastel-muted">Ultra Quality</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedModel('qwen-image-3.0-pro')}
+                      className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all cursor-pointer ${selectedModel === 'qwen-image-3.0-pro'
+                        ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-500/20 dark:bg-cyan-950/40 dark:border-cyan-400'
+                        : 'border-pastel-border hover:border-cyan-300 bg-pastel-bg/50'
+                        }`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-500" />
+                        <span className={`text-xs font-black ${selectedModel === 'qwen-image-3.0-pro' ? 'text-cyan-700 dark:text-cyan-300' : 'text-pastel-text'}`}>千问3.0pro</span>
+                      </div>
+                      <span className="text-[9px] font-bold text-pastel-muted">Qwen Image</span>
                     </button>
                   </div>
                 </div>

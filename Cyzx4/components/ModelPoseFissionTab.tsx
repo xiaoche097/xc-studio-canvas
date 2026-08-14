@@ -180,6 +180,7 @@ const MODEL_OPTIONS = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '3.1 Flash', hint: '速度首选' },
   { id: 'nanobananapro', label: 'Banana Pro', desc: '3.0 Pro', hint: '细节精准' },
   { id: 'gpt-image-2', label: 'GPT Image 2', desc: 'Ultra Quality', hint: '商业摄影' },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: 'Qwen Image', hint: '高质量生成' },
 ] as const;
 
 const ASPECT_RATIO_OPTIONS = [

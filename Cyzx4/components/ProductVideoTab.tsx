@@ -43,6 +43,7 @@ type VideoWorkspace = {
   images: ProductAsset[];
   requirements: string;
   model: string;
+  imageModel: string;
   aspectRatio: string;
   duration: number;
   count: number;
@@ -96,7 +97,7 @@ const createTask = (): VideoTask => ({
   status: 'editing',
   videos: [],
   workspace: {
-    mode: 'create', images: [], requirements: '', model: getDefaultVideoModel(), aspectRatio: '9:16', duration: 15, count: 1,
+    mode: 'create', images: [], requirements: '', model: getDefaultVideoModel(), imageModel: 'gemini-3.1-flash-image-preview', aspectRatio: '9:16', duration: 15, count: 1,
     stage: 1, schemes: [], selectedSchemeIds: [], keyframes: [], videoPrompts: [], agentStatus: '输入准备 Agent · 等待素材', agentLog: ['已创建视频制作任务'],
   },
 });
@@ -131,6 +132,7 @@ const ProductVideoTab: React.FC<ProductVideoTabProps> = ({ isActive = true }) =>
   const [images, setImages] = useState<ProductAsset[]>([]);
   const [requirements, setRequirements] = useState('');
   const [model, setModel] = useState<string>(getDefaultVideoModel);
+  const [imageModel, setImageModel] = useState('gemini-3.1-flash-image-preview');
   const [aspectRatio, setAspectRatio] = useState('9:16');
   const [duration, setDuration] = useState(15);
   const [count, setCount] = useState(1);
@@ -167,7 +169,7 @@ const ProductVideoTab: React.FC<ProductVideoTabProps> = ({ isActive = true }) =>
   }, [activeTaskId]);
 
   const currentWorkspace = (): VideoWorkspace => ({
-    mode, images, requirements, model, aspectRatio, duration, count, stage, schemes, selectedSchemeIds, keyframes, videoPrompts, agentStatus, agentLog,
+    mode, images, requirements, model, imageModel, aspectRatio, duration, count, stage, schemes, selectedSchemeIds, keyframes, videoPrompts, agentStatus, agentLog,
   });
 
   const restoreWorkspace = (workspace: VideoWorkspace, taskVideos: string[]) => {
@@ -175,6 +177,7 @@ const ProductVideoTab: React.FC<ProductVideoTabProps> = ({ isActive = true }) =>
     setImages(workspace.images);
     setRequirements(workspace.requirements);
     setModel(workspace.model);
+    setImageModel(workspace.imageModel || 'gemini-3.1-flash-image-preview');
     setAspectRatio(workspace.aspectRatio);
     setDuration(workspace.duration);
     setCount(workspace.count);
@@ -342,7 +345,7 @@ No Markdown. No generic duplicate concepts.`);
       const outputs: KeyframeResult[] = [];
       for (const scheme of selected) {
         const storyboardPrompt = `Create one clean 3x3 cinematic storyboard contact sheet for an ecommerce product video titled "${scheme.title}". User goal: ${requirements}. Story strategy: ${scheme.strategy}. Shots: ${scheme.scenes.map((scene, index) => `${index + 1}. ${scene.prompt || scene.visual}`).join(' ')}. The uploaded product images are the only product identity reference. Preserve exact product design, colors, patterns, logos and proportions in every panel. Nine distinct sequential shots, coherent lighting and character identity, no captions, no watermark, no extra products.`;
-        const [firstKeyframe] = await generateImageToImage(images.map((image) => ({ base64: image.base64, mimeType: image.mime })), storyboardPrompt, { aspectRatio: aspectRatio === '9:16' ? AspectRatio.PORTRAIT_9_16 : aspectRatio === '1:1' ? AspectRatio.SQUARE : AspectRatio.LANDSCAPE_16_9, resolution: ImageResolution.RES_2K, modelId: 'gemini-3.1-flash-image-preview', workflowHint: 'scene-product-lock' });
+        const [firstKeyframe] = await generateImageToImage(images.map((image) => ({ base64: image.base64, mimeType: image.mime })), storyboardPrompt, { aspectRatio: aspectRatio === '9:16' ? AspectRatio.PORTRAIT_9_16 : aspectRatio === '1:1' ? AspectRatio.SQUARE : AspectRatio.LANDSCAPE_16_9, resolution: ImageResolution.RES_2K, modelId: imageModel, workflowHint: 'scene-product-lock' });
         if (!firstKeyframe) throw new Error(`${scheme.title} 未生成关键帧`);
         setAgentStatus(`质量审查 Agent · 正在检查「${scheme.title}」`);
         const base64 = firstKeyframe.split(',')[1] || firstKeyframe;
@@ -354,7 +357,7 @@ No Markdown. No generic duplicate concepts.`);
         if (qa.pass === false && qa.revisedPrompt) {
           setAgentStatus(`分镜导演 Agent · 根据质检意见自动修正「${scheme.title}」`);
           finalPrompt = `${storyboardPrompt}\nQA correction: ${qa.revisedPrompt}`;
-          const [revised] = await generateImageToImage(images.map((image) => ({ base64: image.base64, mimeType: image.mime })), finalPrompt, { aspectRatio: aspectRatio === '9:16' ? AspectRatio.PORTRAIT_9_16 : aspectRatio === '1:1' ? AspectRatio.SQUARE : AspectRatio.LANDSCAPE_16_9, resolution: ImageResolution.RES_2K, modelId: 'gemini-3.1-flash-image-preview', workflowHint: 'scene-product-lock' });
+          const [revised] = await generateImageToImage(images.map((image) => ({ base64: image.base64, mimeType: image.mime })), finalPrompt, { aspectRatio: aspectRatio === '9:16' ? AspectRatio.PORTRAIT_9_16 : aspectRatio === '1:1' ? AspectRatio.SQUARE : AspectRatio.LANDSCAPE_16_9, resolution: ImageResolution.RES_2K, modelId: imageModel, workflowHint: 'scene-product-lock' });
           if (revised) finalKeyframe = revised;
         }
         outputs.push({ schemeId: scheme.id, imageUrl: finalKeyframe, qaPassed: qa.pass !== false || finalKeyframe !== firstKeyframe, qaNotes: qa.notes || '质量审查完成', prompt: finalPrompt });
@@ -504,7 +507,7 @@ No Markdown. No generic duplicate concepts.`);
 
             <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"><h2 className="font-black">你的要求</h2><p className="mt-1 text-xs text-pastel-muted">填写产品卖点、适用场景、画面风格与展示重点</p><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} className="mt-3 min-h-36 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg p-3 text-sm outline-none focus:border-pastel-highlight" placeholder="例如：突出产品核心卖点，展示使用场景，风格清新自然，产品画面占比约 60%" /></section>
 
-            <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"><h2 className="font-black">视频参数</h2><div className="mt-4 grid grid-cols-2 gap-3"><label className="col-span-2 text-xs font-bold">版本<select value={model} onChange={(event) => setModel(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold">{videoVersions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.hint}</option>)}</select></label><label className="text-xs font-bold">画面比例<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option>9:16</option><option>16:9</option><option>1:1</option></select></label><label className="text-xs font-bold">批量数量<select value={count} onChange={(event) => setCount(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={1}>1 条</option><option value={2}>2 条</option><option value={3}>3 条</option><option value={4}>4 条</option></select></label><label className="col-span-2 text-xs font-bold">秒数<select value={duration} onChange={(event) => setDuration(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={5}>5 秒</option><option value={8}>8 秒</option><option value={10}>10 秒</option><option value={15}>15 秒</option></select></label></div></section>
+            <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm"><h2 className="font-black">视频参数</h2><div className="mt-4 grid grid-cols-2 gap-3"><label className="col-span-2 text-xs font-bold">版本<select value={model} onChange={(event) => setModel(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold">{videoVersions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.hint}</option>)}</select></label><label className="col-span-2 text-xs font-bold">关键帧图像模型<select value={imageModel} onChange={(event) => setImageModel(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value="gemini-3.1-flash-image-preview">Banana 2</option><option value="gemini-3-pro-image-preview">Banana Pro</option><option value="gpt-image-2">GPT Image 2</option><option value="qwen-image-3.0-pro">千问3.0pro</option></select></label><label className="text-xs font-bold">画面比例<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option>9:16</option><option>16:9</option><option>1:1</option></select></label><label className="text-xs font-bold">批量数量<select value={count} onChange={(event) => setCount(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={1}>1 条</option><option value={2}>2 条</option><option value={3}>3 条</option><option value={4}>4 条</option></select></label><label className="col-span-2 text-xs font-bold">秒数<select value={duration} onChange={(event) => setDuration(Number(event.target.value))} className="mt-2 min-h-11 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold"><option value={5}>5 秒</option><option value={8}>8 秒</option><option value={10}>10 秒</option><option value={15}>15 秒</option></select></label></div></section>
             <button type="button" onClick={generatePlan} disabled={!images.length || !requirements.trim() || busy} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] px-4 text-base font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{busy && stage !== 4 ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}下一步：生成方案</button>
           </div>
 

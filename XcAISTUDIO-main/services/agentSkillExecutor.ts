@@ -127,6 +127,7 @@ const resolveImageResolution = (value: string): ImageResolution => {
 };
 
 const resolveImageModel = (value: string) => {
+  if (value === 'qwen-image-3.0-pro' || value.includes('千问3.0pro')) return 'qwen-image-3.0-pro';
   if (['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview', 'imagen-3.0-generate-002'].includes(value)) return value;
   if (value.includes('Banana Pro')) return 'gemini-3-pro-image-preview';
   if (value.includes('GPT Image')) return 'gpt-image-2';

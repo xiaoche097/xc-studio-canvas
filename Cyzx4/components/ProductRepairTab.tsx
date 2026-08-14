@@ -39,6 +39,7 @@ const MODEL_OPTIONS = [
     { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', sub: '3.1 Flash', desc: '速度优先，适合简单修复' },
     { id: 'gemini-3-pro-image-preview', name: 'Banana Pro', sub: '3 Pro', desc: '结构精准，推荐商业级修复' },
     { id: 'gpt-image-2', name: 'GPT Image 2', sub: 'Ultra', desc: '极致细节，追求高保真画质' },
+    { id: 'qwen-image-3.0-pro', name: '千问3.0pro', sub: 'Qwen Image', desc: '高质量图像生成与编辑' },
 ];
 
 const STANDARD_IMAGE_LIMIT = 6;

@@ -1320,7 +1320,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
                     <p className="text-xs text-pastel-muted">选择速度、画质和风格表现最适合的生成引擎</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   <button
                     onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
                     className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
@@ -1380,6 +1380,19 @@ Do not combine this image with any other uploaded image. Do not create extra var
                       </span>
                     </div>
                     <span className="text-[8px] text-pastel-muted">MJ Imagine</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedModel('qwen-image-3.0-pro')}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'qwen-image-3.0-pro'
+                        ? 'border-cyan-400 bg-cyan-50 ring-2 ring-cyan-100'
+                        : 'border-pastel-border hover:border-cyan-200 bg-pastel-bg'
+                      }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-cyan-500" />
+                      <span className={`text-[10px] font-bold ${selectedModel === 'qwen-image-3.0-pro' ? 'text-cyan-700' : 'text-pastel-text'}`}>千问3.0pro</span>
+                    </div>
+                    <span className="text-[8px] text-pastel-muted">Qwen Image</span>
                   </button>
                 </div>
               </section>

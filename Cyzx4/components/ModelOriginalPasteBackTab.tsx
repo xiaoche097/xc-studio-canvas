@@ -56,6 +56,7 @@ const MODEL_OPTIONS = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '3.1 Flash', icon: <Zap className="h-4 w-4 text-orange-500" /> },
   { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', desc: '3 Pro', icon: <Zap className="h-4 w-4 text-orange-500" /> },
   { id: 'gpt-image-2', label: 'GPT Image 2', desc: 'Ultra Quality', icon: <Sparkles className="h-4 w-4 text-orange-500" /> },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: 'Qwen Image', icon: <Sparkles className="h-4 w-4 text-cyan-500" /> },
 ];
 
 const PRESETS: Record<CropPreset, { label: string; desc: string; box: CropBox }> = {

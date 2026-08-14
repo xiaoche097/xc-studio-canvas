@@ -1306,6 +1306,93 @@ const pollRunningHubImageTask = async (
   }
 };
 
+const QWEN_IMAGE_MODEL_ID = 'qwen-image-3.0-pro';
+const QWEN_IMAGE_ENDPOINT = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+
+/**
+ * Qwen-Image-3.0-Pro only accepts the five sizes exposed by DashScope.
+ * Creative Center has additional aspect ratios, so snap each one to the
+ * closest supported orientation before submitting the request.
+ */
+const getQwenImageSize = (aspectRatio: string): string => {
+  const supportedSizeByRatio: Record<string, string> = {
+    // Wide landscape
+    '16:9': '2688*1536',
+    '21:9': '2688*1536',
+    // Standard landscape
+    '4:3': '2368*1728',
+    '3:2': '2368*1728',
+    '5:4': '2368*1728',
+    // Square
+    '1:1': '2048*2048',
+    // Standard portrait
+    '3:4': '1728*2368',
+    '2:3': '1728*2368',
+    '4:5': '1728*2368',
+    // Tall portrait
+    '9:16': '1536*2688',
+  };
+  return supportedSizeByRatio[aspectRatio] || '2048*2048';
+};
+
+const generateWithQwenImage = async (
+  images: { base64: string; mimeType: string }[],
+  prompt: string,
+  options: {
+    aspectRatio: string;
+    resolution: string;
+    sampleCount: number;
+    negativePrompt?: string;
+    signal?: AbortSignal;
+    onStatus?: (status: 'submitting' | 'polling' | 'processing') => void;
+  },
+): Promise<string[]> => {
+  const apiKey = localStorage.getItem('qwen_api_key')?.trim() || '';
+  const enabled = localStorage.getItem('qwen_enabled') === 'true';
+  if (!enabled || !apiKey) {
+    throw new Error('千问3.0pro 尚未启用或未配置 API Key，请前往模型配置完成设置。');
+  }
+
+  const content: Array<{ text?: string; image?: string }> = [{ text: prompt.trim() }];
+  images.slice(0, 10).forEach((image) => {
+    const rawBase64 = image.base64.replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
+    content.push({ image: `data:${image.mimeType || 'image/png'};base64,${rawBase64}` });
+  });
+
+  options.onStatus?.('processing');
+  const response = await executeWithTimeout(fetch(QWEN_IMAGE_ENDPOINT, {
+    method: 'POST',
+    signal: options.signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: QWEN_IMAGE_MODEL_ID,
+      input: { messages: [{ role: 'user', content }] },
+      parameters: {
+        prompt_extend: true,
+        size: getQwenImageSize(options.aspectRatio),
+        n: Math.max(1, Math.min(options.sampleCount, 6)),
+        ...(options.negativePrompt ? { negative_prompt: options.negativePrompt } : {}),
+      },
+    }),
+  }), { timeoutMs: 180000, timeoutMessage: '千问3.0pro 图像生成超时，请稍后重试。' });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.message || data?.code || `千问3.0pro API Error ${response.status}`);
+  }
+  const results = (data?.output?.choices || [])
+    .flatMap((choice: any) => choice?.message?.content || [])
+    .map((item: any) => item?.image)
+    .filter((image: unknown): image is string => typeof image === 'string' && image.length > 0);
+  if (results.length === 0) {
+    throw new Error(data?.output?.message || data?.message || '千问3.0pro 返回成功，但响应中没有图片。');
+  }
+  return results;
+};
+
 /**
  * 2.1.1 Image-to-Image Generation (Multi-Image Support)
  * Supports dynamic model selection and automatic API key rotation on failure.
@@ -1340,6 +1427,16 @@ export const generateImageToImage = async (
   } = options;
   throwIfAborted(signal);
   onStatus?.('submitting');
+  if (modelId === QWEN_IMAGE_MODEL_ID) {
+    return generateWithQwenImage(images, prompt, {
+      aspectRatio,
+      resolution,
+      sampleCount,
+      negativePrompt,
+      signal,
+      onStatus,
+    });
+  }
   const virseEnabled = localStorage.getItem('virse_enabled') === 'true';
   const virseApiKey = localStorage.getItem('virse_api_key')?.trim() || '';
   if (virseEnabled && virseApiKey) {
