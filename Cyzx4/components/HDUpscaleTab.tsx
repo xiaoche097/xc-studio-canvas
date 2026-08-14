@@ -8,6 +8,7 @@ import {
     compressImage,
 } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
+import { downloadImageFile } from '../utils/imageDownload';
 import {
     Upload,
     Loader2,
@@ -529,11 +530,13 @@ const HDUpscaleTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => 
         setIsProcessing(false);
     };
 
-    const handleDownload = (url: string) => {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `hd-upscale-${Date.now()}.png`;
-        link.click();
+    const handleDownload = async (url: string) => {
+        try {
+            await downloadImageFile(url, `hd-upscale-${Date.now()}.png`);
+        } catch (error) {
+            console.error('Failed to download upscaled image.', error);
+            window.alert('图片下载失败，请稍后重试');
+        }
     };
 
     const displayImage = useMemo(() => {

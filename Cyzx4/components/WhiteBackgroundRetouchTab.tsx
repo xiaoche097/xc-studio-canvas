@@ -22,6 +22,7 @@ import { AspectRatio, ImageResolution } from '../types';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 type ProductCategory =
@@ -382,11 +383,13 @@ const WhiteBackgroundRetouchTab: React.FC<WhiteBackgroundRetouchTabProps> = ({ i
     setIsGenerating(false);
   };
 
-  const downloadImage = (imageUrl: string, index: number) => {
-    const anchor = document.createElement('a');
-    anchor.href = imageUrl;
-    anchor.download = `white-background-retouch-${index + 1}-${Date.now()}.png`;
-    anchor.click();
+  const downloadImage = async (imageUrl: string, index: number) => {
+    try {
+      await downloadImageFile(imageUrl, `white-background-retouch-${index + 1}-${Date.now()}.png`);
+    } catch (error) {
+      console.error('Failed to download retouched image.', error);
+      window.alert('图片下载失败，请稍后重试');
+    }
   };
 
   const downloadAll = () => {

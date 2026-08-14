@@ -25,6 +25,7 @@ import { applyColorCorrection, extractEdges } from '../utils/imageProcessor';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { useImagePaste } from '../hooks/useImagePaste';
+import { downloadImageFile } from '../utils/imageDownload';
 
 type UploadedImage = {
   id: string;
@@ -1238,22 +1239,16 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
     updateCurrentTask({ status: 'editing' });
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!resultImage) return;
-    const link = document.createElement('a');
-    link.href = resultImage;
-    link.download = `model-original-paste-back-${Date.now()}.png`;
-    link.click();
+    await downloadImageFile(resultImage, `model-original-paste-back-${Date.now()}.png`);
   };
 
-  const handleDownloadPreview = () => {
+  const handleDownloadPreview = async () => {
     if (!previewImage) return;
-    const link = document.createElement('a');
-    link.href = previewImage;
-    link.download = previewImage === generatedCrop
+    await downloadImageFile(previewImage, previewImage === generatedCrop
       ? `model-original-paste-back-crop-${Date.now()}.png`
-      : `model-original-paste-back-${Date.now()}.png`;
-    link.click();
+      : `model-original-paste-back-${Date.now()}.png`);
   };
 
   const updateComparePosition = (event: React.PointerEvent<HTMLDivElement>) => {

@@ -17,6 +17,7 @@ import {
     Cpu,
 } from 'lucide-react';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { downloadImageFile } from '../utils/imageDownload';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -322,10 +323,12 @@ const ProductSwapTab: React.FC<ProductSwapTabProps> = ({ isActive = true }) => {
 
     // ==================== Actions ====================
     const handleDownload = async (imageUrl: string, index: number) => {
-        const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = `product-swap-${Date.now()}-${index + 1}.png`;
-        link.click();
+        try {
+            await downloadImageFile(imageUrl, `product-swap-${Date.now()}-${index + 1}.png`);
+        } catch (error) {
+            console.error('Failed to download product swap image.', error);
+            window.alert('图片下载失败，请稍后重试');
+        }
     };
 
     const handleReset = () => {

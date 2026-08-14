@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { applyColorCorrectionBatch, ColorCorrectionMode } from '../utils/imageProcessor';
+import { downloadImageFile } from '../utils/imageDownload';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -569,12 +570,12 @@ const StyleReplicateTab: React.FC<StyleReplicateTabProps> = ({ isActive = true }
 
     // Download handler
     const handleDownload = async (imageUrl: string, index: number) => {
-        const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = `style-replicate-${Date.now()}-${index + 1}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        try {
+            await downloadImageFile(imageUrl, `style-replicate-${Date.now()}-${index + 1}.png`);
+        } catch (error) {
+            console.error('Failed to download replicated style image.', error);
+            window.alert('图片下载失败，请稍后重试');
+        }
     };
 
     const handleRegenerateOne = async (index: number) => {
@@ -648,12 +649,7 @@ const StyleReplicateTab: React.FC<StyleReplicateTabProps> = ({ isActive = true }
             if (i > 0) {
                 await new Promise(resolve => setTimeout(resolve, 300));
             }
-            const link = document.createElement('a');
-            link.href = generatedImages[i];
-            link.download = `style-replicate-${Date.now()}-${i + 1}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            await downloadImageFile(generatedImages[i], `style-replicate-${Date.now()}-${i + 1}.png`);
         }
     };
 

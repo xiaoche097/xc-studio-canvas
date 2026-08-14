@@ -6,6 +6,7 @@ import { CarFront, Upload, Loader2, AlertCircle, Eye, Image as ImageIcon, Sparkl
 import { storageService } from '../../services/storageService';
 import { compressImageFiles } from '../utils/imageCompressor';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { downloadImageFile } from '../utils/imageDownload';
 
 // 自定义香蕉图标组件
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -133,13 +134,13 @@ const SeatCoverTab: React.FC = () => {
   // Zoom & Download Helpers
   const [zoomImage, setZoomImage] = useState<string | null>(null);
 
-  const downloadImage = (url: string, filename: string) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const downloadImage = async (url: string, filename: string) => {
+    try {
+      await downloadImageFile(url, filename);
+    } catch (error) {
+      console.error('Failed to download seat cover image.', error);
+      window.alert('图片下载失败，请稍后重试');
+    }
   };
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string>('');

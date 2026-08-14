@@ -5652,6 +5652,17 @@ ${inputImageMap}
 
 Do not infer image roles from visual similarity. An ACCESSORY image must never replace a top or bottom garment.
 
+## ⛔ ABSOLUTE TARGET-IMAGE IMMUTABILITY RULES
+${hasModelRef ? `
+These rules have higher priority than styling, commercial polish, beautification, the CUSTOM INSTRUCTION, and garment completeness:
+1. **POSE IS A HARD PIXEL-SPACE CONSTRAINT**: Image 1's head angle, gaze, shoulder rotation, spine, hips, arms, elbows, wrists, fingers, legs, knees, ankles and foot direction must remain at the same normalized coordinates. Never move a hand to the hip, lower an arm, turn the torso, change a back view to a side/front view, or invent a new pose.
+2. **SILHOUETTE & CAMERA FREEZE**: Keep the exact body silhouette, subject scale, crop, camera height, perspective, background and all four frame intersections from Image 1.
+3. **IDENTITY FREEZE**: Keep the exact face, hair, skin, age, body proportions and visible anatomy. Do not beautify, reshape or restyle the person.
+4. **NO-INVENTION WARDROBE WHITELIST**: The only new wearable objects allowed are the explicitly role-labeled TOP, BOTTOM, FULL, SHOES or ACCESSORY references supplied in the input map. Never invent a belt, buckle, necklace, earrings, bracelet, watch, ring, bag, hat, scarf, tie, brooch, eyewear, gloves, socks, shoes, extra garment, extra layer or decorative object.
+5. **UNREQUESTED OBJECT BAN**: If no ACCESSORY reference was supplied, add zero new accessories. If no SHOES reference was supplied, preserve the original footwear exactly. Preserve every existing non-target object from Image 1 exactly; do not add, remove, replace or redesign it.
+6. **GARMENT-REGION-ONLY EDIT**: Modify only the pixels occupied by the requested garment replacement. Everything outside those regions must reproduce Image 1, not a plausible alternative.
+` : '- No target model image was supplied; generate only the explicitly requested outfit and do not invent accessories or extra wearable objects.'}
+
 ## PHASE 1: ANATOMICAL & GARMENT ANALYSIS 🔍
 1. **[Garment Deconstruction]**: Analyze every role-labeled product reference. Extract pattern, silhouette, cut, fabric texture and exact colors without mixing roles.
 2. **[Human Pose Alignment]**: ${hasModelRef ? 'Analyze Image 1 first. Map its body skeleton and use those joint coordinates as hard anchors for the output.' : 'Generate an ideal high-fashion model matching the product vibe.'}
@@ -5672,12 +5683,14 @@ Do not infer image roles from visual similarity. An ACCESSORY image must never r
 
 ${modeInstruction}
 ${preservationContract}
+- **FINAL COMPLIANCE GATE**: Before output, compare the result against Image 1. Reject and correct the render if any joint moved, the view direction changed, the crop changed, or any unprovided wearable/object appeared. Garment realism never justifies changing the original pose or adding styling items.
 - **CUSTOM INSTRUCTION**: ${customPrompt ? `"${customPrompt}"` : 'Ensure maximum realism and commercial polish.'}
 - **QUALITY**: ${qualityInstruction}
 
 **OUTPUT**:
 - Generate **ONE** photo-realistic final try-on image.
 - ${isCroppingLocked ? 'The output must have the same framing, subject scale, visible body range, and boundary intersections as Image 1.' : 'Compose a natural complete fashion image.'}
+- When Image 1 exists, preserve its pose and all non-requested content exactly. Do not add any item that is absent from both Image 1 and the role-labeled references.
 - Do NOT output text. Just the final image.
 `;
 

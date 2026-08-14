@@ -4,6 +4,7 @@ import { AspectRatio, ImageResolution } from '../types';
 import { Camera, Image as ImageIcon, Loader2, Sparkles, Wand2, Check, AlignLeft, AlertCircle, User, ToggleLeft, ToggleRight, X, Clock, Trash2, RotateCcw, Brush, Eraser, Download, MousePointer2, Ruler, Palette, Key, Cpu } from 'lucide-react';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
+import { downloadImageFile } from '../utils/imageDownload';
 
 interface DirectorTabProps {
   onImageGenerated: (url: string) => void;
@@ -782,14 +783,14 @@ const DirectorTab: React.FC<DirectorTabProps> = ({ onImageGenerated }) => {
                    >
                      返回生成
                    </button>
-                   <a 
-                      href={activeImage} 
-                      download={`generated-${Date.now()}.png`} 
+                   <button
+                      type="button"
+                      onClick={() => void downloadImageFile(activeImage, `generated-${Date.now()}.png`)}
                       className="p-2 bg-pastel-bg hover:bg-white border border-pastel-border rounded-lg text-pastel-highlight transition-colors shadow-sm"
                       title="下载当前图片"
                     >
                       <Download className="w-4 h-4" />
-                   </a>
+                    </button>
                </div>
              </div>
              

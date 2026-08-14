@@ -34,6 +34,7 @@ import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { applyColorCorrection, ColorCorrectionMode, compositeInpaintedFaceBack, createModelHeadIdentityCrop, extractEdges, loadCanvasImage } from '../utils/imageProcessor';
 import { convertImageDataUrlFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
+import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { useImagePaste } from '../hooks/useImagePaste';
@@ -1308,13 +1309,13 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     setStatusMessage('');
   };
 
-  const handleDownload = (url: string, index: number) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `model-transfer-${index + 1}.${getImageDownloadExtension(url, activeRecord.outputFormat)}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async (url: string, index: number) => {
+    try {
+      await downloadImageFile(url, `model-transfer-${index + 1}.${getImageDownloadExtension(url, activeRecord.outputFormat)}`);
+    } catch (error) {
+      console.error('Failed to download model transfer image.', error);
+      window.alert('图片下载失败，请稍后重试');
+    }
   };
 
   const handleDownloadAll = () => activeRecord.results.forEach((item, index) => {

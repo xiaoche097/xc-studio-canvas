@@ -14,6 +14,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { storageService, Project } from '../../services/storageService';
+import { downloadImageFile } from '../utils/imageDownload';
 
 // 对应功能与友好中文名映射字典
 const FEATURE_TYPE_MAP: Record<string, string> = {
@@ -119,15 +120,10 @@ export const TaskCenterManager: React.FC<TaskCenterManagerProps> = ({ onClose })
     setTimeout(() => setCopiedPrompt(false), 2000);
   };
 
-  const handleBatchDownloadAssets = (urls: string[]) => {
-    urls.forEach((url, i) => {
-      setTimeout(() => {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `task-result-${i + 1}.png`;
-        a.click();
-      }, i * 250);
-    });
+  const handleBatchDownloadAssets = async (urls: string[]) => {
+    for (let i = 0; i < urls.length; i += 1) {
+      await downloadImageFile(urls[i], `task-result-${i + 1}.png`);
+    }
   };
 
   return (
@@ -294,14 +290,14 @@ export const TaskCenterManager: React.FC<TaskCenterManagerProps> = ({ onClose })
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
-                      <a
-                        href={assetUrl}
-                        download={`result-${idx + 1}.png`}
+                      <button
+                        type="button"
+                        onClick={() => void downloadImageFile(assetUrl, `result-${idx + 1}.png`)}
                         className="rounded-md p-1 hover:bg-white/20 transition"
                         title="下载此素材"
                       >
                         <Download className="h-3.5 w-3.5" />
-                      </a>
+                      </button>
                     </div>
                   </div>
                 ))}

@@ -17,6 +17,7 @@ import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { QUALITY_BOOSTERS, enhancePrompt } from '../services/promptUtils';
 import { applyColorCorrectionBatch, ColorCorrectionMode, extractEdges } from '../utils/imageProcessor';
 import { convertImageDataUrlsFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
+import { downloadImageFile } from '../utils/imageDownload';
 import { SLEEPWEAR_POSES } from '../constants/sleepwearPresets';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
 import { MENS_SHIRT_POSES } from '../constants/mensShirtPosePresets';
@@ -1945,11 +1946,13 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
         setProgress(0);
     };
 
-    const handleDownload = (img: string, idx: number) => {
-        const link = document.createElement('a');
-        link.href = img;
-        link.download = `hero-${Date.now()}-${idx}.${getImageDownloadExtension(img, outputFormat)}`;
-        link.click();
+    const handleDownload = async (img: string, idx: number) => {
+        try {
+            await downloadImageFile(img, `hero-${Date.now()}-${idx}.${getImageDownloadExtension(img, outputFormat)}`);
+        } catch (error) {
+            console.error('Failed to download generated hero image.', error);
+            window.alert('图片下载失败，请稍后重试');
+        }
     };
 
     const handleDownloadAsset = (img: UploadedImage, type: 'product' | 'scene', idx: number) => {
@@ -1957,19 +1960,13 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
         if (!source) return;
 
         const extension = img.mime?.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-        const link = document.createElement('a');
-        link.href = source;
-        link.download = `${type}-reference-${Date.now()}-${idx + 1}.${extension}`;
-        link.click();
+        void downloadImageFile(source, `${type}-reference-${Date.now()}-${idx + 1}.${extension}`);
     };
 
     const handleDownloadAll = () => {
         generatedImages.forEach((img, idx) => {
             setTimeout(() => {
-                const link = document.createElement('a');
-                link.href = img;
-                link.download = `hero-all-${Date.now()}-${idx + 1}.${getImageDownloadExtension(img, outputFormat)}`;
-                link.click();
+                void downloadImageFile(img, `hero-all-${Date.now()}-${idx + 1}.${getImageDownloadExtension(img, outputFormat)}`);
             }, idx * 250);
         });
     };

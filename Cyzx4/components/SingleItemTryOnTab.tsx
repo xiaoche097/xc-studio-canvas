@@ -31,6 +31,7 @@ import {
   getImageDownloadExtension,
   type OutputImageFormat,
 } from '../utils/imageFormat';
+import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 
 type UploadKind = 'product' | 'body';
@@ -792,11 +793,13 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
     }
   };
 
-  const downloadImage = (url: string, index: number) => {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `product-try-on-${index + 1}-${Date.now()}.${getImageDownloadExtension(url, activeRecord.outputFormat)}`;
-    anchor.click();
+  const downloadImage = async (url: string, index: number) => {
+    try {
+      await downloadImageFile(url, `product-try-on-${index + 1}-${Date.now()}.${getImageDownloadExtension(url, activeRecord.outputFormat)}`);
+    } catch (error) {
+      console.error('Failed to download try-on image.', error);
+      window.alert('图片下载失败，请稍后重试');
+    }
   };
 
   const successfulResults = useMemo(() => activeRecord?.results.filter((result) => result.status === 'done' && result.imageUrl) || [], [activeRecord?.results]);

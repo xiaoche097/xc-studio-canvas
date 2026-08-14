@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { downloadImageFile } from '../utils/imageDownload';
 import {
   Folder,
   Plus,
@@ -240,17 +241,12 @@ export const AssetsManager: React.FC = () => {
     });
   };
 
-  const handleBatchDownload = () => {
+  const handleBatchDownload = async () => {
     if (selectedAssetIds.size === 0) return;
     const selectedItems = assets.filter((a) => selectedAssetIds.has(a.id));
-    selectedItems.forEach((item, i) => {
-      setTimeout(() => {
-        const link = document.createElement('a');
-        link.href = item.url;
-        link.download = `${item.name}.png`;
-        link.click();
-      }, i * 300);
-    });
+    for (const item of selectedItems) {
+      await downloadImageFile(item.url, `${item.name}.png`);
+    }
   };
 
   const handleBatchDelete = () => {
@@ -609,15 +605,17 @@ export const AssetsManager: React.FC = () => {
                           <Eye className="h-3.5 w-3.5" />
                         </button>
 
-                        <a
-                          href={asset.url}
-                          download={`${asset.name}.png`}
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void downloadImageFile(asset.url, `${asset.name}.png`);
+                          }}
                           className="rounded-md p-1 hover:bg-white/20 transition"
                           title="下载此素材"
                         >
                           <Download className="h-3.5 w-3.5" />
-                        </a>
+                        </button>
 
                         <button
                           type="button"

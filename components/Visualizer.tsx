@@ -3,6 +3,7 @@ import { gemini } from '../lib/gemini';
 import { RefreshIcon, UploadIcon, DownloadIcon, ZoomIcon } from './Icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { compressImageFiles } from '../Cyzx4/utils/imageCompressor';
+import { downloadImageFile } from '../Cyzx4/utils/imageDownload';
 
 type OutputFormat = 'jpg' | 'png';
 
@@ -65,13 +66,15 @@ export const Visualizer: React.FC<VisualizerProps> = ({ prompt, aspectRatio = "1
     return outputFormat;
   };
 
-  const downloadImage = () => {
+  const downloadImage = async () => {
     if (!imageUrl) return;
     const format = getDownloadFormat(imageUrl);
-    const link = document.createElement('a');
-    link.href = imageUrl;
-    link.download = `skysper-gen-${Date.now()}.${format}`;
-    link.click();
+    try {
+      await downloadImageFile(imageUrl, `skysper-gen-${Date.now()}.${format}`);
+    } catch (downloadError) {
+      console.error('Failed to download generated image.', downloadError);
+      setError('图片下载失败，请检查网络后重试。');
+    }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

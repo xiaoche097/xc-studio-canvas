@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Project } from '../services/storageService';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Calendar, Tag, FileText, Download, Trash2, Copy, Check } from 'lucide-react';
+import { downloadImageFile } from '../Cyzx4/utils/imageDownload';
 
 interface ProjectDetailModalProps {
     project: Project | null;
@@ -18,13 +19,13 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({ project,
         return new Date(timestamp).toLocaleString();
     };
 
-    const handleDownload = (url: string, index: number) => {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `skysper_project_${project.type}_${project.createdAt}_${index}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+    const handleDownload = async (url: string, index: number) => {
+        try {
+            await downloadImageFile(url, `skysper_project_${project.type}_${project.createdAt}_${index}.png`);
+        } catch (error) {
+            console.error('Failed to download project image.', error);
+            window.alert('图片下载失败，请稍后重试');
+        }
     };
 
     const handleCopyPrompt = async () => {

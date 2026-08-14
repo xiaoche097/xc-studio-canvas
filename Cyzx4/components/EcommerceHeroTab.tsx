@@ -29,6 +29,7 @@ import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { convertImageDataUrlFormat, getImageDownloadExtension } from '../utils/imageFormat';
+import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { composeEcommerceHeroText } from '../utils/ecommerceTextComposer';
 import { ecommerceStyleLibrary } from '../services/ecommerceStyleLibrary';
@@ -806,11 +807,13 @@ Return ONLY JSON:
     }
   };
 
-  const downloadImage = (src: string, index: number) => {
-    const link = document.createElement('a');
-    link.href = src;
-    link.download = `生成电商主图-${index + 1}-${Date.now()}.${getImageDownloadExtension(src, 'png')}`;
-    link.click();
+  const downloadImage = async (src: string, index: number) => {
+    try {
+      await downloadImageFile(src, `生成电商主图-${index + 1}-${Date.now()}.${getImageDownloadExtension(src, 'png')}`);
+    } catch (error) {
+      console.error('Failed to download ecommerce hero image.', error);
+      window.alert('图片下载失败，请稍后重试');
+    }
   };
 
   const completedCount = activeRecord.results.filter((result) => result.status === 'done').length;

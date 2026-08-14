@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { downloadImageFile } from '../utils/imageDownload';
 import {
   Sparkles,
   Upload,
@@ -56,6 +57,16 @@ interface UploadedImage {
   height?: number;
 }
 
+interface TryOnResultItem {
+  id: string;
+  modelReferenceId: string | null;
+  modelPreview: string | null;
+  url: string | null;
+  status: 'generating' | 'done' | 'error';
+  error?: string;
+  requestId: string;
+}
+
 interface UniversalTask {
   id: string;
   createdAt: number;
@@ -72,7 +83,7 @@ interface UniversalTask {
   fullImages: UploadedImage[];
   shoesImages: UploadedImage[];
   productImages: UploadedImage[];
-  modelReference: UploadedImage | null;
+  modelReferences: UploadedImage[];
   customPrompt: string;
   selectedModel: string;
   aspectRatio: AspectRatio;
@@ -83,6 +94,7 @@ interface UniversalTask {
   agentLog: string[];
   cotStep: number;
   generatedResults: string[];
+  resultItems: TryOnResultItem[];
 }
 
 const SUB_MODE_OPTIONS: Array<{
@@ -329,7 +341,7 @@ const createNewTask = (subMode: UniversalTryOnSubMode = 'model'): UniversalTask 
   fullImages: [],
   shoesImages: [],
   productImages: [],
-  modelReference: null,
+  modelReferences: [],
   customPrompt: '',
   selectedModel: MODEL_OPTIONS[0].id,
   aspectRatio: AspectRatio.PORTRAIT_2_3,
@@ -340,10 +352,16 @@ const createNewTask = (subMode: UniversalTryOnSubMode = 'model'): UniversalTask 
   agentLog: ['已初始化万物上身任务'],
   cotStep: 0,
   generatedResults: [],
+  resultItems: [],
 });
 
 interface UniversalTryOnTabProps {
   isActive?: boolean;
+}
+
+interface TryOnGenerationContext {
+  productImgs: UniversalTryOnProductImage[];
+  fullPrompt: string;
 }
 
 const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }) => {
@@ -385,6 +403,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const fullInputRef = useRef<HTMLInputElement>(null);
   const shoesInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const generationContextsRef = useRef<Map<string, TryOnGenerationContext>>(new Map());
 
   // Drag states
   const [isDraggingTop, setIsDraggingTop] = useState(false);
@@ -472,11 +491,11 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         } else if (target === 'shoes') {
           return { ...task, shoesImages: [...(task.shoesImages || []), ...processed].slice(0, 6) };
         } else {
-          const modelReference = processed[0];
-          const lockedAspectRatio = getClosestAspectRatio(modelReference);
+          const modelReferences = [...task.modelReferences, ...processed].slice(0, 6);
+          const lockedAspectRatio = getClosestAspectRatio(modelReferences[0]);
           return {
             ...task,
-            modelReference,
+            modelReferences,
             aspectRatio: task.lockCropping && lockedAspectRatio
               ? lockedAspectRatio
               : task.aspectRatio,
@@ -510,7 +529,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
       } else if (target === 'shoes') {
         return { ...task, shoesImages: [...(task.shoesImages || []), item].slice(0, 6) };
       } else {
-        return { ...task, modelReference: item };
+        return { ...task, modelReferences: [...task.modelReferences, item].slice(0, 6) };
       }
     });
   };
@@ -607,17 +626,32 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
       }));
     }
 
+    const targetModelReferences: Array<UploadedImage | null> = currentTask.modelReferences.length > 0
+      ? currentTask.modelReferences
+      : [null];
+    const resultItems: TryOnResultItem[] = targetModelReferences.map((modelReference) => ({
+      id: crypto.randomUUID(),
+      modelReferenceId: modelReference?.id || null,
+      modelPreview: modelReference?.preview || null,
+      url: null,
+      status: 'generating',
+      requestId: crypto.randomUUID(),
+    }));
+
     setError(null);
     setIsLoading(true);
 
     const { taskId, signal } = startGenerationTask();
     const fullPrompt = `${currentTask.customPrompt} ${customPromptAddon}`.trim();
+    generationContextsRef.current.set(currentTask.id, { productImgs, fullPrompt });
 
     updateCurrentTask((t) => ({
       ...t,
       status: 'generating',
       stage: 2,
       cotStep: 1,
+      generatedResults: [],
+      resultItems,
       agentStatus: `AI 试穿 Agent · 正在对「${SUB_MODE_OPTIONS.find((s) => s.id === t.subMode)?.title}」素材进行 CoT 思维链解构...`,
       agentLog: [...t.agentLog, `开始执行「${SUB_MODE_OPTIONS.find((s) => s.id === t.subMode)?.title}」算法推理`],
     }));
@@ -642,43 +676,108 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     }, 1800);
 
     try {
-      const modelRef = currentTask.modelReference
-        ? { base64: currentTask.modelReference.base64, mime: currentTask.modelReference.mime }
-        : null;
-
-      const results = await generateUniversalTryOn(
-        productImgs,
-        modelRef,
-        currentTask.subMode,
-        fullPrompt,
-        {
-          aspectRatio: currentTask.aspectRatio,
-          resolution: currentTask.resolution,
-          count: currentTask.count,
-          model: currentTask.selectedModel,
-          lockCropping: currentTask.lockCropping ?? true,
-          signal,
-        }
+      const settled = await Promise.allSettled(
+        targetModelReferences.map(async (modelReference, index) => {
+          const resultItem = resultItems[index];
+          try {
+            const results = await generateUniversalTryOn(
+              productImgs,
+              modelReference ? { base64: modelReference.base64, mime: modelReference.mime } : null,
+              currentTask.subMode,
+              fullPrompt,
+              {
+                aspectRatio: currentTask.lockCropping && modelReference
+                  ? getClosestAspectRatio(modelReference) || currentTask.aspectRatio
+                  : currentTask.aspectRatio,
+                resolution: currentTask.resolution,
+                count: 1,
+                model: currentTask.selectedModel,
+                lockCropping: currentTask.lockCropping ?? true,
+                signal,
+              }
+            );
+            const url = results[0];
+            if (!url) throw new Error('模型未返回图片');
+            setTasks((previousTasks) => previousTasks.map((task) => {
+              if (task.id !== currentTask.id) return task;
+              const nextItems = task.resultItems.map((item) => item.id === resultItem.id && item.requestId === resultItem.requestId
+                ? { ...item, url, status: 'done' as const, error: undefined }
+                : item);
+              return {
+                ...task,
+                resultItems: nextItems,
+                generatedResults: nextItems.flatMap((item) => item.url ? [item.url] : []),
+              };
+            }));
+            return url;
+          } catch (generationError) {
+            if (!isAbortError(generationError)) {
+              const message = getErrorMessage(generationError);
+              setTasks((previousTasks) => previousTasks.map((task) => task.id === currentTask.id
+                ? {
+                    ...task,
+                    resultItems: task.resultItems.map((item) => item.id === resultItem.id && item.requestId === resultItem.requestId
+                      ? { ...item, status: 'error' as const, error: message }
+                      : item),
+                  }
+                : task));
+            }
+            throw generationError;
+          }
+        })
       );
 
       clearInterval(stepInterval);
+      const successfulResults = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+      setTasks((previousTasks) => previousTasks.map((task) => task.id === currentTask.id
+        ? {
+            ...task,
+            resultItems: task.resultItems.map((item) => {
+              const initialIndex = resultItems.findIndex((initialItem) => initialItem.id === item.id);
+              const initialItem = initialIndex >= 0 ? resultItems[initialIndex] : null;
+              const settledResult = initialIndex >= 0 ? settled[initialIndex] : null;
+              if (
+                initialItem
+                && item.requestId === initialItem.requestId
+                && item.status === 'generating'
+                && settledResult?.status === 'rejected'
+              ) {
+                return {
+                  ...item,
+                  status: 'error' as const,
+                  error: isAbortError(settledResult.reason) ? '任务已取消' : getErrorMessage(settledResult.reason),
+                };
+              }
+              return item;
+            }),
+          }
+        : task));
+      setTasks((previousTasks) => previousTasks.map((task) => task.id === currentTask.id
+        ? {
+            ...task,
+            status: task.resultItems.some((item) => item.status === 'generating')
+              ? 'generating'
+              : task.resultItems.some((item) => item.url) ? 'done' : 'error',
+            stage: task.resultItems.some((item) => item.url) ? 4 : 1,
+            cotStep: task.resultItems.some((item) => item.url) ? 8 : task.cotStep,
+            generatedResults: task.resultItems.flatMap((item) => item.url ? [item.url] : []),
+            agentStatus: task.resultItems.some((item) => item.status === 'generating')
+              ? '独立重新生成任务仍在进行'
+              : task.resultItems.some((item) => item.url)
+                ? `已完成 ${task.resultItems.filter((item) => item.url).length}/${resultItems.length} 张试穿图`
+                : '批量生成失败，可在结果卡片中逐张重新生成',
+          }
+        : task));
 
-      if (results && results.length > 0) {
-        updateCurrentTask((t) => ({
-          ...t,
-          status: 'done',
-          stage: 4,
-          cotStep: 8,
-          generatedResults: results,
-          agentStatus: 'AI 试穿 Agent · 万物上身成果渲染完成！',
-          agentLog: [...t.agentLog, '🎉 商业级试穿渲染交付成功！已生成高清大图'],
-        }));
-
+      if (successfulResults.length > 0) {
         try {
           await saveGeneratedProject({
             type: 'MODEL',
-            generated: results,
-            original: productImgs.map((img) => `data:${img.mime};base64,${img.base64}`),
+            generated: successfulResults,
+            original: [
+              ...targetModelReferences.flatMap((image) => image ? [image.preview] : []),
+              ...productImgs.map((img) => `data:${img.mime};base64,${img.base64}`),
+            ],
             prompt: fullPrompt,
             params: {
               subMode: currentTask.subMode,
@@ -686,36 +785,128 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
               model: currentTask.selectedModel,
               aspectRatio: currentTask.aspectRatio,
               resolution: currentTask.resolution,
+              modelReferenceCount: targetModelReferences.filter(Boolean).length,
             },
           });
-        } catch (e) {
-          console.warn('保存项目历史失败:', e);
+        } catch (historyError) {
+          console.warn('保存项目历史失败:', historyError);
         }
       }
     } catch (err: any) {
       clearInterval(stepInterval);
       if (isAbortError(err)) {
-        updateCurrentTask((t) => ({
-          ...t,
-          status: 'editing',
-          stage: 1,
-          agentStatus: '任务已被用户手动取消',
-          agentLog: [...t.agentLog, '用户终止了生成任务'],
-        }));
+        setTasks((previousTasks) => previousTasks.map((task) => task.id === currentTask.id
+          ? {
+              ...task,
+              status: 'editing',
+              stage: 1,
+              agentStatus: '任务已被用户手动取消',
+              agentLog: [...task.agentLog, '用户终止了生成任务'],
+            }
+          : task));
       } else {
         const msg = getErrorMessage(err);
         setError(msg);
-        updateCurrentTask((t) => ({
-          ...t,
-          status: 'error',
-          stage: 1,
-          agentStatus: `生成错误: ${msg}`,
-          agentLog: [...t.agentLog, `错误提示: ${msg}`],
-        }));
+        setTasks((previousTasks) => previousTasks.map((task) => task.id === currentTask.id
+          ? {
+              ...task,
+              status: 'error',
+              stage: 1,
+              agentStatus: `生成错误: ${msg}`,
+              agentLog: [...task.agentLog, `错误提示: ${msg}`],
+            }
+          : task));
       }
     } finally {
       finishGenerationTask(taskId);
       setIsLoading(false);
+    }
+  };
+
+  const handleRegenerateResult = async (resultId: string) => {
+    const taskSnapshot = tasks.find((task) => task.id === activeTaskId);
+    const resultSnapshot = taskSnapshot?.resultItems.find((item) => item.id === resultId);
+    const context = taskSnapshot ? generationContextsRef.current.get(taskSnapshot.id) : null;
+    if (!taskSnapshot || !resultSnapshot || !context) {
+      setError('当前任务缺少生成上下文，请重新发起一次批量生成。');
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    const modelReference = resultSnapshot.modelReferenceId
+      ? taskSnapshot.modelReferences.find((image) => image.id === resultSnapshot.modelReferenceId) || null
+      : null;
+
+    setTasks((previousTasks) => previousTasks.map((task) => task.id === taskSnapshot.id
+      ? {
+          ...task,
+          status: 'generating',
+          resultItems: task.resultItems.map((item) => item.id === resultId
+            ? { ...item, status: 'generating' as const, error: undefined, requestId }
+            : item),
+        }
+      : task));
+
+    try {
+      const results = await generateUniversalTryOn(
+        context.productImgs,
+        modelReference ? { base64: modelReference.base64, mime: modelReference.mime } : null,
+        taskSnapshot.subMode,
+        context.fullPrompt,
+        {
+          aspectRatio: taskSnapshot.lockCropping && modelReference
+            ? getClosestAspectRatio(modelReference) || taskSnapshot.aspectRatio
+            : taskSnapshot.aspectRatio,
+          resolution: taskSnapshot.resolution,
+          count: 1,
+          model: taskSnapshot.selectedModel,
+          lockCropping: taskSnapshot.lockCropping ?? true,
+        }
+      );
+      const url = results[0];
+      if (!url) throw new Error('模型未返回图片');
+      setTasks((previousTasks) => previousTasks.map((task) => {
+        if (task.id !== taskSnapshot.id) return task;
+        const nextItems = task.resultItems.map((item) => item.id === resultId && item.requestId === requestId
+          ? { ...item, url, status: 'done' as const, error: undefined }
+          : item);
+        const stillGenerating = nextItems.some((item) => item.status === 'generating');
+        return {
+          ...task,
+          status: stillGenerating ? 'generating' : 'done',
+          resultItems: nextItems,
+          generatedResults: nextItems.flatMap((item) => item.url ? [item.url] : []),
+          agentStatus: stillGenerating ? '其他图片仍在并行生成' : '全部试穿图片已完成',
+        };
+      }));
+    } catch (regenerationError) {
+      const message = getErrorMessage(regenerationError);
+      setTasks((previousTasks) => previousTasks.map((task) => {
+        if (task.id !== taskSnapshot.id) return task;
+        const nextItems = task.resultItems.map((item) => item.id === resultId && item.requestId === requestId
+          ? { ...item, status: 'error' as const, error: message }
+          : item);
+        const stillGenerating = nextItems.some((item) => item.status === 'generating');
+        return {
+          ...task,
+          status: stillGenerating ? 'generating' : nextItems.some((item) => item.url) ? 'done' : 'error',
+          resultItems: nextItems,
+          agentStatus: stillGenerating ? '其他图片仍在并行生成' : '部分图片生成失败，可单独重试',
+        };
+      }));
+    }
+  };
+
+  const handleDownloadAllResults = async () => {
+    const completedItems = currentTask.resultItems.filter((item) => item.status === 'done' && item.url);
+    if (completedItems.length === 0) return;
+    try {
+      for (let index = 0; index < completedItems.length; index += 1) {
+        await downloadImageFile(completedItems[index].url!, `万物上身-模特-${index + 1}.png`);
+      }
+    } catch (downloadError) {
+      console.error('Failed to download all try-on results.', downloadError);
+      setError('批量下载失败，请检查网络后重试。');
     }
   };
 
@@ -1968,8 +2159,8 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       e.stopPropagation();
                       updateCurrentTask((task) => {
                         const lockCropping = !(task.lockCropping ?? true);
-                        const lockedAspectRatio = task.modelReference
-                          ? getClosestAspectRatio(task.modelReference)
+                        const lockedAspectRatio = task.modelReferences[0]
+                          ? getClosestAspectRatio(task.modelReferences[0])
                           : null;
                         return {
                           ...task,
@@ -2000,20 +2191,20 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                     )}
                   </button>
                 </div>
-                {currentTask.modelReference && (
+                {currentTask.modelReferences.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => updateCurrentTask((t) => ({ ...t, modelReference: null }))}
+                    onClick={() => updateCurrentTask((task) => ({ ...task, modelReferences: [] }))}
                     className="text-[0.68rem] font-bold text-red-500 hover:underline"
                   >
-                    移除
+                    全部移除
                   </button>
                 )}
               </div>
               <p className="mb-3 text-xs text-pastel-muted">
-                {currentTask.modelReference
-                  ? `已将模特原图作为基础画布，并同步到最接近的输出比例 ${currentTask.aspectRatio}；锁定开启时只替换服装与指定配饰，保持人物姿态、镜头和背景。`
-                  : '上传需要上身拟合的模特照片，不上传则由 AI 自动生成完美模特'}
+                {currentTask.modelReferences.length > 0
+                  ? `Agent 已识别 ${currentTask.modelReferences.length} 张模特图，将并行生成 ${currentTask.modelReferences.length} 张上身图片；每张都可独立重新生成。`
+                  : '可上传最多 6 张模特照片；不上传则由 AI 自动生成模特。'}
               </p>
 
               <div
@@ -2035,24 +2226,50 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                     : 'border-[#f48c68] bg-[#fff8f3] hover:border-[#ed6d46] dark:border-white/20 dark:bg-white/5'
                 }`}
               >
-                {currentTask.modelReference ? (
+                {currentTask.modelReferences.length > 0 ? (
                   <div className="w-full">
-                    <div className="flex items-center justify-center gap-3">
-                      <div className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800">
-                        <img
-                          src={currentTask.modelReference.preview}
-                          alt="Model Reference"
-                          onClick={() => setZoomedImage(currentTask.modelReference!.preview)}
-                          className="h-full w-full object-cover cursor-pointer"
-                          title="点击放大预览"
-                        />
-                        <span className="absolute left-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
-                          #1
-                        </span>
-                      </div>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                      {currentTask.modelReferences.map((modelReference, index) => (
+                        <div key={modelReference.id || index} className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800">
+                          <img
+                            src={modelReference.preview}
+                            alt={`Model Reference ${index + 1}`}
+                            onClick={() => setZoomedImage(modelReference.preview)}
+                            className="h-full w-full cursor-pointer object-cover"
+                            title="点击放大预览"
+                          />
+                          <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
+                            #{index + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              updateCurrentTask((task) => ({
+                                ...task,
+                                modelReferences: task.modelReferences.filter((image) => image.id !== modelReference.id),
+                              }));
+                            }}
+                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-white opacity-0 transition group-hover:opacity-100"
+                            title="移除此模特"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {currentTask.modelReferences.length < 6 && (
+                        <button
+                          type="button"
+                          onClick={() => modelInputRef.current?.click()}
+                          className="flex aspect-[3/4] items-center justify-center rounded-xl border-2 border-dashed border-[#f48c68] text-[#ed6d46] hover:bg-orange-50"
+                          title="继续添加模特"
+                        >
+                          <Plus className="h-5 w-5" />
+                        </button>
+                      )}
                     </div>
                     <p className="mt-2 text-[0.68rem] font-bold text-pastel-muted">
-                      点击预览大图 · 支持拖拽和复制粘贴
+                      已添加 {currentTask.modelReferences.length}/6 张 · 可继续拖拽、粘贴或点击加号添加
                     </p>
                   </div>
                 ) : (
@@ -2073,6 +2290,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                   ref={modelInputRef}
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   onChange={(e) => e.target.files && handleUploadTarget(e.target.files, 'model')}
                 />
@@ -2183,74 +2401,83 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
           <div className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm min-h-[35rem] flex flex-col">
             {/* Output Display / Loading State / Empty State */}
             <div className="flex-1 flex flex-col">
-              {currentTask.status === 'generating' || isLoading ? (
-                <div className="flex-1 flex flex-col items-center justify-center rounded-2xl border border-dashed border-orange-500/30 bg-white/75 p-8 text-center shadow-xs dark:bg-slate-900/50">
-                  <div className="relative flex h-24 w-24 items-center justify-center">
-                    <span className="absolute inset-0 animate-ping rounded-full bg-[#ed6d46]/15" />
-                    <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-[#17243c] text-white shadow-md">
-                      <Loader2 className="h-8 w-8 animate-spin text-orange-400" />
-                    </span>
-                  </div>
-                  <h3 className="mt-6 text-lg font-black text-pastel-text">
-                    AI 试穿 Agent 正在合成拟真效果大图
-                  </h3>
-                  <p className="mt-2 max-w-md text-xs leading-6 text-pastel-muted">
-                    正在校验服装版型与材质、高精像素抠图、精准贴合模特肢体，并重绘自然光影褶皱...
-                  </p>
-                  
-                  {/* Dynamic Agent Step Pill */}
-                  <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-4 py-1.5 text-xs font-bold text-orange-600 dark:text-orange-400 animate-pulse">
-                    <Sparkles className="h-4 w-4 shrink-0" />
-                    <span>{currentTask.agentStatus || 'Agent 任务进行中...'}</span>
-                  </div>
-
-                  {/* Progress Dots */}
-                  <div className="mt-4 flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="h-2 w-2 rounded-full bg-orange-500 animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              ) : currentTask.generatedResults.length > 0 ? (
+              {currentTask.resultItems.length > 0 ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="font-black text-pastel-text text-sm flex items-center gap-1.5">
                       <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      试穿成果交付大图 ({currentTask.generatedResults.length} 张)
+                      并行试穿任务 ({currentTask.resultItems.filter((item) => item.status === 'done').length}/{currentTask.resultItems.length} 张已完成)
                     </h3>
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadAllResults()}
+                      disabled={!currentTask.resultItems.some((item) => item.status === 'done' && item.url)}
+                      className="flex h-9 items-center gap-1.5 rounded-xl bg-[#172238] px-3 text-xs font-black text-white shadow-sm transition hover:bg-[#243554] disabled:cursor-not-allowed disabled:opacity-40"
+                      title="下载所有已完成的试穿图片"
+                    >
+                      <Download className="h-4 w-4 text-orange-400" />
+                      全部下载
+                    </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {currentTask.generatedResults.map((url, i) => (
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                    {currentTask.resultItems.map((item, i) => (
                       <div
-                        key={i}
-                        className="group relative overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card shadow-sm hover:shadow-md transition"
+                        key={item.id}
+                        className="group relative aspect-[2/3] w-full max-w-sm justify-self-center overflow-hidden rounded-2xl border border-pastel-border bg-[#faf7f3] shadow-sm transition hover:shadow-md dark:bg-slate-900"
                       >
-                        <img src={url} alt={`Result ${i}`} className="w-full h-auto object-cover" />
-                        <div className="absolute inset-0 flex items-end justify-between bg-gradient-to-t from-black/80 via-transparent to-transparent p-3 opacity-0 group-hover:opacity-100 transition">
-                          <span className="text-xs font-bold text-white">试穿图 #{i + 1}</span>
+                        {item.url ? (
+                          <img src={item.url} alt={`Result ${i + 1}`} className="absolute inset-0 h-full w-full object-contain" />
+                        ) : item.status === 'generating' ? (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-orange-50/70 p-6 text-center dark:bg-orange-500/10">
+                            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+                            <p className="text-xs font-black text-pastel-text">模特 #{i + 1} 正在独立生成</p>
+                            <p className="text-[0.68rem] text-pastel-muted">其他模特任务会同时进行，无需等待</p>
+                          </div>
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-red-50/70 p-6 text-center dark:bg-red-500/10">
+                            <AlertCircle className="h-8 w-8 text-red-500" />
+                            <p className="text-xs font-black text-red-600">生成失败</p>
+                            <p className="line-clamp-3 text-[0.68rem] text-red-500">{item.error || '请重新生成此图片'}</p>
+                          </div>
+                        )}
+
+                        {item.modelPreview && (
+                          <img src={item.modelPreview} alt={`Model ${i + 1}`} className="absolute left-2 top-2 h-14 w-11 rounded-lg border-2 border-white object-cover shadow" />
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/85 to-transparent p-3 pt-10">
+                          <span className="text-xs font-bold text-white">模特 #{i + 1}</span>
                           <div className="flex gap-2">
+                            {item.url && (
+                              <>
+                                <button type="button" onClick={() => setZoomedImage(item.url)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-white hover:bg-white/40" title="放大预览">
+                                  <ZoomIn className="h-4 w-4" />
+                                </button>
+                                <button type="button" onClick={() => void downloadImageFile(item.url!, `万物上身-${i + 1}.png`)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500 text-white hover:bg-orange-600" title="下载图片">
+                                  <Download className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
                             <button
                               type="button"
-                              onClick={() => setZoomedImage(url)}
-                              className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white hover:bg-white/40 backdrop-blur-md"
-                              title="放大预览"
+                              onClick={() => void handleRegenerateResult(item.id)}
+                              disabled={item.status === 'generating'}
+                              className="flex h-8 items-center justify-center gap-1 rounded-lg bg-white px-2.5 text-[0.68rem] font-black text-[#172238] hover:bg-orange-50 disabled:cursor-wait disabled:opacity-70"
+                              title="仅重新生成这一张，不影响其他任务"
                             >
-                              <ZoomIn className="h-4 w-4" />
+                              <RefreshCw className={`h-3.5 w-3.5 ${item.status === 'generating' ? 'animate-spin' : ''}`} />
+                              {item.status === 'generating' ? '生成中' : '重新生成'}
                             </button>
-                            <a
-                              href={url}
-                              download={`万物上身-${i + 1}.png`}
-                              className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500 text-white hover:bg-orange-600"
-                              title="下载图片"
-                            >
-                              <Download className="h-4 w-4" />
-                            </a>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
+                </div>
+              ) : currentTask.status === 'generating' || isLoading ? (
+                <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-orange-500/30 bg-white/75 p-8 text-center shadow-xs dark:bg-slate-900/50">
+                  <Loader2 className="h-10 w-10 animate-spin text-orange-500" />
+                  <h3 className="mt-4 text-lg font-black text-pastel-text">AI 试穿 Agent 正在创建并行任务</h3>
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-pastel-muted">
@@ -2399,13 +2626,13 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
               className="max-h-[85vh] w-auto max-w-full rounded-2xl object-contain shadow-md"
             />
             <div className="mt-2 flex items-center gap-3">
-              <a
-                href={zoomedImage}
-                download="高清素材图片.png"
+              <button
+                type="button"
+                onClick={() => void downloadImageFile(zoomedImage, '高清素材图片.png')}
                 className="flex items-center gap-1.5 rounded-full bg-[#17243c] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#25395c]"
               >
                 <Download className="h-3.5 w-3.5" /> 下载高清原图
-              </a>
+              </button>
             </div>
           </div>
         </div>

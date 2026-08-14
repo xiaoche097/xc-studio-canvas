@@ -11,6 +11,7 @@ import { generateContentWithAnalysisFallback, getErrorMessage, getAiClient, isAb
 import { AspectRatio, ImageResolution } from '../types';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { downloadImageFile } from '../utils/imageDownload';
 
 interface UploadedImage {
     file: File;
@@ -616,11 +617,13 @@ const ProductRepairTab: React.FC = () => {
         setProgress(0);
     };
 
-    const handleDownload = (img: string) => {
-        const link = document.createElement('a');
-        link.href = img;
-        link.download = `repaired-product-${Date.now()}.png`;
-        link.click();
+    const handleDownload = async (img: string) => {
+        try {
+            await downloadImageFile(img, `repaired-product-${Date.now()}.png`);
+        } catch (error) {
+            console.error('Failed to download repaired product image.', error);
+            window.alert('图片下载失败，请稍后重试');
+        }
     };
 
     return (
