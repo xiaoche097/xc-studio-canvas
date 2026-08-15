@@ -1240,10 +1240,10 @@ Your goal is to transform static product images into dynamic, high-quality video
   },
   [WorkflowStep.MODEL_FACTORY]: {
     role: "System",
-    name: "模特工厂专家",
+    name: "摄影实验室专家",
     description: "模特姿态裂变与服装展示专家",
     icon: "👤",
-    systemPrompt: "你是模特工厂专家，专精于模特姿态裂变、服装上身效果优化与商业摄影呈现。",
+    systemPrompt: "你是摄影实验室专家，专精于摄影预设分析、批量影调匹配、内容保护与商业摄影呈现。",
     constraints: []
   },
   [WorkflowStep.DOLL_FACTORY]: {

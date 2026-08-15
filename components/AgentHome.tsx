@@ -105,7 +105,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   };
 
   const handleCardClick = async (prompt: string, title?: string) => {
-    if (title === "模特工厂") {
+    if (title === "摄影实验室") {
       onStart("/model-factory", [], selectedModel, WorkflowStep.MODEL_FACTORY);
     } else if (title === "视频工厂") {
       // 跳转到 Cyzx4 工作台的分镜创作 Tab
@@ -157,8 +157,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   const FEATURE_CARDS = [
     {
-      title: "模特工厂",
-      prompt: "/model-factory 模特工厂生成，开始姿势裂变",
+      title: "摄影实验室",
+      prompt: "/model-factory 打开 AI 摄影实验室",
       bgClass: "from-white to-orange-50/50 dark:from-white/5 dark:to-orange-900/20",
       borderClass: "hover:border-orange-200 dark:hover:border-orange-500/30",
       textClass: "text-gray-800 dark:text-gray-100",

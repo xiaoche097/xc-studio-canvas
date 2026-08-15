@@ -94,7 +94,7 @@ export const SystemNoticeDialog: React.FC<SystemNoticeDialogProps> = ({ isOpen, 
               <div className="rounded-2xl border border-brand-orange/30 bg-orange-50/90 px-5 py-4 text-center shadow-sm dark:bg-brand-orange/10">
                 <div className="font-black text-brand-orange">XcAI Agent 电商视觉工作台</div>
                 <p className="mt-2 text-sm font-medium leading-6 text-orange-700/85 dark:text-orange-100/85">
-                  面向电商团队的 AI 视觉生产 Web，支持主图生成、模特工厂、局部替换、风格复刻、场景图生成和 AI 创意视频等工作流。
+                  面向电商团队的 AI 视觉生产 Web，支持主图生成、摄影实验室、局部替换、风格复刻、场景图生成和 AI 创意视频等工作流。
                 </p>
               </div>
 
