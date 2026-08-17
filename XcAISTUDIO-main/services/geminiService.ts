@@ -3,8 +3,11 @@
 import { GoogleGenAI, GenerateContentResponse, Modality, Part, FunctionDeclaration } from "@google/genai";
 import { SmartSequenceItem, VideoGenerationMode, StoryboardOptionType, ColorAdjustments } from "../types";
 
-import { generateContentWithAnalysisFallback, getApiConfig, getVideoApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
+import { blobToBase64, generateContentWithAnalysisFallback, getApiConfig, getVideoApiConfig, resolveRuntimeModelId } from "../../Cyzx4/utils/apiHelpers";
 import { getXiaocheVideoImageLimit, resolveXiaocheVideoModel } from "../../Cyzx4/utils/xiaocheModels";
+import { generateImageToImage as generateCentralImageToImage } from "../../Cyzx4/services/geminiService";
+import { fetchImageBlob } from "../../Cyzx4/utils/imageDownload";
+import type { WorkflowHint } from "../../Cyzx4/types/gemini.types";
 import { generateSeedanceVideo, generateWanVideo } from "./externalVideoProviders";
 
 // --- Initialization ---
@@ -664,10 +667,45 @@ export const generateImageFromText = async (
     prompt: string,
     model: string,
     inputImages: string[] = [],
-    options: { aspectRatio?: string, resolution?: string, count?: number } = {}
+    options: { aspectRatio?: string, resolution?: string, count?: number, workflowHint?: WorkflowHint } = {}
 ): Promise<string[]> => {
-    const ai = getClient();
     const count = Math.min(4, Math.max(1, Math.floor(options.count || 1)));
+
+    const normalizedInputImages = await Promise.all(inputImages.map(async (source) => {
+        const dataUrlMatch = source.match(/^data:(image\/[^;,]+);base64,(.+)$/s);
+        if (dataUrlMatch) {
+            return {
+                base64: dataUrlMatch[2].replace(/\s/g, ''),
+                mimeType: dataUrlMatch[1],
+            };
+        }
+        if (/^(?:https?:|blob:)/i.test(source)) {
+            const blob = await fetchImageBlob(source);
+            return {
+                base64: await blobToBase64(blob),
+                mimeType: blob.type || 'image/png',
+            };
+        }
+        return {
+            base64: source.replace(/\s/g, ''),
+            mimeType: 'image/png',
+        };
+    }));
+
+    const virseEnabled = localStorage.getItem('virse_enabled') === 'true';
+    const isQwenImageModel = model === 'qwen-image-3.0-pro';
+    if (virseEnabled || isQwenImageModel) {
+        return generateCentralImageToImage(normalizedInputImages, prompt, {
+            aspectRatio: (options.aspectRatio || '16:9') as any,
+            resolution: (options.resolution || '2K').toUpperCase() as any,
+            modelId: model,
+            sampleCount: count,
+            workflowHint: options.workflowHint,
+            hasModelRef: normalizedInputImages.length > 0,
+        });
+    }
+
+    const ai = getClient();
 
     const imageModelAllowlist = new Set([
         'gemini-3-pro-image-preview',
@@ -680,10 +718,8 @@ export const generateImageFromText = async (
     const parts: Part[] = [];
 
     // Add Input Images if available (Image-to-Image)
-    for (const base64 of inputImages) {
-        const cleanBase64 = base64.replace(/^data:image\/\w+;base64,/, "");
-        const mimeType = base64.match(/^data:(image\/\w+);base64,/)?.[1] || "image/png";
-        parts.push({ inlineData: { data: cleanBase64, mimeType } });
+    for (const image of normalizedInputImages) {
+        parts.push({ inlineData: { data: image.base64, mimeType: image.mimeType } });
     }
 
     // 防止 Gemini 多模态生图产生洋红偏与暖红色偏 (Magenta & Red Tint Protection)
@@ -1177,6 +1213,13 @@ export const applyColorAdjustmentsToCanvas = (
     });
 };
 
+export const prepareImageForCanvas = async (source: string): Promise<string> => {
+    if (!/^https?:\/\//i.test(source)) return source;
+    const blob = await fetchImageBlob(source);
+    const mimeType = blob.type || 'image/png';
+    return `data:${mimeType};base64,${await blobToBase64(blob)}`;
+};
+
 export const cropGridCellCanvas = (
     sourceDataUrl: string,
     row: number,
@@ -1184,9 +1227,11 @@ export const cropGridCellCanvas = (
     rows: number,
     cols: number
 ): Promise<string> => {
-    return new Promise((resolve) => {
+    return (async () => {
+        const canvasSafeSource = await prepareImageForCanvas(sourceDataUrl);
+
+        return new Promise<string>((resolve, reject) => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
         img.onload = () => {
             const w = img.width;
             const h = img.height;
@@ -1205,14 +1250,15 @@ export const cropGridCellCanvas = (
             canvas.width = Math.max(128, Math.round(sw));
             canvas.height = Math.max(128, Math.round(sh));
             const ctx = canvas.getContext('2d');
-            if (!ctx) { resolve(sourceDataUrl); return; }
+            if (!ctx) { reject(new Error('Canvas context failed while splitting storyboard grid.')); return; }
 
             ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
             resolve(canvas.toDataURL('image/png', 0.95));
         };
-        img.onerror = () => resolve(sourceDataUrl);
-        img.src = sourceDataUrl;
-    });
+        img.onerror = () => reject(new Error('Storyboard grid image could not be loaded for splitting.'));
+        img.src = canvasSafeSource;
+        });
+    })();
 };
 
 export interface StoryboardShotPlan {
@@ -1551,7 +1597,7 @@ Present the clothing in a polished, neutral commercial style. Every panel must b
                 safetyNeutralPrompt,
                 'gemini-3.1-flash-image-preview',
                 inputImages,
-                { aspectRatio, resolution: '2K', count: 1 }
+                { aspectRatio, resolution: '2K', count: 1, workflowHint: 'storyboard-grid' }
             );
         } catch (error) {
             if (!isGatewaySensitiveContentError(error)) throw error;
@@ -1560,7 +1606,7 @@ Present the clothing in a polished, neutral commercial style. Every panel must b
                 minimalSafetyRetryPrompt,
                 'gemini-3.1-flash-image-preview',
                 inputImages,
-                { aspectRatio, resolution: '2K', count: 1 }
+                { aspectRatio, resolution: '2K', count: 1, workflowHint: 'storyboard-grid' }
             );
         }
 
@@ -1581,16 +1627,17 @@ Regenerate the entire contact sheet. Preserve the exact reference location, reco
                 correctedPrompt,
                 'gemini-3.1-flash-image-preview',
                 inputImages,
-                { aspectRatio, resolution: '2K', count: 1 }
+                { aspectRatio, resolution: '2K', count: 1, workflowHint: 'storyboard-grid' }
             );
             if (correctedSheet[0]) sheetUrl = correctedSheet[0];
         }
 
+        const canvasSafeSheet = await prepareImageForCanvas(sheetUrl);
         const cells: { id: string; image: string; prompt: string }[] = [];
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
                 const cellIndex = r * cols + c + 1;
-                const croppedCellUrl = await cropGridCellCanvas(sheetUrl, r, c, rows, cols);
+                const croppedCellUrl = await cropGridCellCanvas(canvasSafeSheet, r, c, rows, cols);
                 cells.push({
                     id: `cell-${Date.now()}-${cellIndex}`,
                     image: croppedCellUrl,

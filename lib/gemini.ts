@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getApiConfig, getImageApiConfig, getOrderedTextModels, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
+import { blobToBase64, getApiConfig, getImageApiConfig, getOrderedTextModels, resolveRuntimeModelId } from "../Cyzx4/utils/apiHelpers";
 import { resolveXiaocheImageModel } from "../Cyzx4/utils/xiaocheModels";
+import { generateImageToImage as generateCentralImageToImage } from "../Cyzx4/services/geminiService";
+import { fetchImageBlob } from "../Cyzx4/utils/imageDownload";
 
 const toOpenAiContent = (text: string, images: string[] = []) => {
   const content: any[] = [];
@@ -180,6 +182,32 @@ class GeminiClient {
     const activeKey = config.apiKey;
     const baseUrl = (config.baseUrl || "https://generativelanguage.googleapis.com").replace(/\/$/, "");
 
+    const requestedImageModel = options.model || "gpt-image-2";
+    const virseEnabled = localStorage.getItem('virse_enabled') === 'true';
+    const isQwenImageModel = requestedImageModel === 'qwen-image-3.0-pro';
+    if (virseEnabled || isQwenImageModel) {
+      const normalizedReferences = await Promise.all(referenceImages.map(async (source) => {
+        const dataUrlMatch = source.match(/^data:(image\/[^;,]+);base64,(.+)$/s);
+        if (dataUrlMatch) {
+          return { base64: dataUrlMatch[2].replace(/\s/g, ''), mimeType: dataUrlMatch[1] };
+        }
+        if (/^(?:https?:|blob:)/i.test(source)) {
+          const blob = await fetchImageBlob(source);
+          return { base64: await blobToBase64(blob), mimeType: blob.type || 'image/png' };
+        }
+        return { base64: source.replace(/\s/g, ''), mimeType: 'image/png' };
+      }));
+      const images = await generateCentralImageToImage(normalizedReferences, prompt, {
+        aspectRatio: (options.aspectRatio || '1:1') as any,
+        resolution: (options.resolution || '1K').toUpperCase() as any,
+        modelId: requestedImageModel,
+        sampleCount: 1,
+        hasModelRef: normalizedReferences.length > 0,
+      });
+      if (!images[0]) throw new Error('图片模型未返回任何图片。');
+      return images[0];
+    }
+
     let finalPrompt = prompt;
     if (options.aspectRatio) {
       finalPrompt = `Aspect Ratio ${options.aspectRatio}. ${finalPrompt}`;
@@ -209,7 +237,6 @@ class GeminiClient {
 
     // Model Routing logic
     // Default to gpt-image-2 as requested for quality
-    const requestedImageModel = options.model || "gpt-image-2";
     const imageModel = config.isXiaoche
       ? resolveXiaocheImageModel(requestedImageModel, options.aspectRatio || '1:1', options.resolution || '1K')
       : resolveRuntimeModelId(requestedImageModel, config);

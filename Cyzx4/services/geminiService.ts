@@ -69,14 +69,16 @@ export const GLOBAL_SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
+const QWEN_IMAGE_MODEL_ID = 'qwen-image-3.0-pro';
+const isVirseImageRoutingEnabled = () => localStorage.getItem('virse_enabled') === 'true';
+
 const getImageGenerationContext = (
   modelId: string,
   aspectRatio: string = '1:1',
   resolution: string = '1K'
 ) => {
-  const virseEnabled = localStorage.getItem('virse_enabled') === 'true'
-    && Boolean(localStorage.getItem('virse_api_key')?.trim());
-  if (virseEnabled) {
+  const routeThroughCentralImagePipeline = modelId === QWEN_IMAGE_MODEL_ID || isVirseImageRoutingEnabled();
+  if (routeThroughCentralImagePipeline) {
     // Compatibility adapter for legacy image workflows that still expect a
     // GoogleGenAI-shaped client. All image requests are redirected through the
     // central Virse pipeline while text/Agent calls keep using getAiClient().
@@ -96,10 +98,13 @@ const getImageGenerationContext = (
             .map((part: any) => typeof part?.text === 'string' ? part.text : '')
             .filter(Boolean)
             .join('\n') || 'Generate a high-quality image from the supplied references.';
+          const hasImmutableTryOnModel = /Image 1:\s*TARGET MODEL\s*\/\s*IMMUTABLE BASE CANVAS/i.test(prompt);
           const urls = await generateImageToImage(images, prompt, {
             modelId,
             aspectRatio: aspectRatio as AspectRatio,
             resolution: resolution as ImageResolution,
+            workflowHint: hasImmutableTryOnModel ? 'single-item-try-on' : undefined,
+            hasModelRef: hasImmutableTryOnModel,
           });
           return {
             candidates: [{
@@ -1306,7 +1311,6 @@ const pollRunningHubImageTask = async (
   }
 };
 
-const QWEN_IMAGE_MODEL_ID = 'qwen-image-3.0-pro';
 const QWEN_IMAGE_ENDPOINT = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
 
 /**
@@ -1437,9 +1441,12 @@ export const generateImageToImage = async (
       onStatus,
     });
   }
-  const virseEnabled = localStorage.getItem('virse_enabled') === 'true';
+  const virseEnabled = isVirseImageRoutingEnabled();
   const virseApiKey = localStorage.getItem('virse_api_key')?.trim() || '';
-  if (virseEnabled && virseApiKey) {
+  if (virseEnabled) {
+    if (!virseApiKey) {
+      throw new Error('Virse 中转已开启，但尚未配置 API Key。请先在模型配置中补全 Virse 配置，或关闭 Virse 中转。');
+    }
     const virseBaseUrl = localStorage.getItem('virse_base_url') || 'https://dev.virse.ai';
     const virseSpaceId = localStorage.getItem('virse_space_id') || '';
     const virseCanvasId = localStorage.getItem('virse_canvas_id') || '';
@@ -1506,9 +1513,23 @@ export const generateImageToImage = async (
     if (uploadError) {
       throw new Error(`Virse 参考图上传失败：${uploadError?.message || String(uploadError)}`);
     }
+    const virseReferencePriorityContract = workflowHint === 'single-item-try-on' && hasModelRef
+      ? `[VIRSE REFERENCE PRIORITY CONTRACT - DO NOT REORDER OR MIX ROLES]
+1. Reference asset / Image 1 is the TARGET MODEL and immutable base canvas. It has absolute highest authority for identity, face, hair, skin, body proportions, pose, limb coordinates, camera, crop, subject scale, background, lighting, shadows, and every non-target pixel.
+2. Reference assets / Images 2+ are wearable PRODUCT references only. They have authority only over the explicitly requested garment, footwear, or accessory appearance and construction.
+3. Never copy a person, mannequin, face, body, pose, hands, scene, camera, crop, lighting, or unrelated styling from Images 2+. Even if a product reference contains a visible person or mannequin, ignore that carrier completely.
+4. Perform an in-place replacement on Image 1. Do not generate a new model or restage the photograph. Product fidelity never overrides Image 1's person, geometry, framing, or scene.`
+      : workflowHint === 'storyboard-grid' && hasModelRef
+        ? `[VIRSE STORYBOARD REFERENCE CONTRACT]
+1. Reference asset / Image 1 is the only source of truth for the recognizable subject, face, hair, body proportions, complete outfit, accessories, location, architecture, lighting, weather, and color palette.
+2. Generate one contact sheet whose panels vary only camera position, framing, natural action, gaze, and composition inside the same photographed location.
+3. Do not replace the person, clothing, accessories, or scene. Do not copy or invent a different model or location. Do not return repeated copies of Image 1.
+4. The requested grid is one final image with distinct edge-to-edge photographic panels and no text, labels, numbers, borders, logos, or watermarks.`
+      : '';
+    const promptWithVirsePriority = [virseReferencePriorityContract, prompt.trim()].filter(Boolean).join('\n\n');
     const fullPrompt = negativePrompt
-      ? `${prompt.trim()}\n\nNegative constraints: ${negativePrompt}`
-      : prompt.trim();
+      ? `${promptWithVirsePriority}\n\nNegative constraints: ${negativePrompt}`
+      : promptWithVirsePriority;
     const modelCandidates = [...new Set([
       virseModel,
       configuredVirseModel,
@@ -2925,8 +2946,7 @@ export const generateInpainting = async (
 ) => {
   const { signal } = options;
   throwIfAborted(signal);
-  const virseEnabled = localStorage.getItem('virse_enabled') === 'true'
-    && Boolean(localStorage.getItem('virse_api_key')?.trim());
+  const virseEnabled = isVirseImageRoutingEnabled();
   if (virseEnabled) {
     const references = [
       sourceImage,
@@ -5651,6 +5671,7 @@ ${hasModelRef ? '- Image 1: TARGET MODEL / IMMUTABLE BASE CANVAS (highest priori
 ${inputImageMap}
 
 Do not infer image roles from visual similarity. An ACCESSORY image must never replace a top or bottom garment.
+${hasModelRef ? `IMAGE 1 AUTHORITY HIERARCHY: Image 1 has absolute highest authority for the person, identity, body geometry, pose, camera, crop, background, lighting, shadows, and all non-target pixels. Images 2+ have authority only for the explicitly labeled wearable item's design. If any later image contains a person, mannequin, body, pose, hands, face, scene, styling, or background, ignore those carrier attributes completely. Never let Images 2+ replace, reinterpret, beautify, or restage the model from Image 1.` : ''}
 
 ## ⛔ ABSOLUTE TARGET-IMAGE IMMUTABILITY RULES
 ${hasModelRef ? `

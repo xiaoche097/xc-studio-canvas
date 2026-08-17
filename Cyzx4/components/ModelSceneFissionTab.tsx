@@ -26,10 +26,11 @@ import {
   UserRoundCog,
   X,
 } from 'lucide-react';
-import { compressImage, generateImageToImage, generateText } from '../services/geminiService';
+import { blobToBase64, compressImage, generateImageToImage, generateText } from '../services/geminiService';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { getErrorMessage } from '../utils/apiHelpers';
 import { cropImageRegion } from '../utils/imageProcessor';
+import { fetchImageBlob } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { AspectRatio, ImageResolution } from '../types';
 
@@ -610,16 +611,35 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
         if (!firstKeyframe) throw new Error(`${scheme.title} 宫格关键帧生成失败`);
 
         setAgentStatus(`质量审查 Agent · 正在检查「${scheme.title}」9 个面板一致性`);
-        const base64 = firstKeyframe.split(',')[1] || firstKeyframe;
-        const qaRaw = await generateText(
-          [{ base64, mimeType: 'image/png' }],
-          `You are a strict fashion QA agent. Review this 3x3 contact sheet image for strict scene background lock (must match reference image background 100%), model face identity lock, clothing consistency, and 9-panel completeness. Verify that there is NO overlaid text, numbers, or watermarks. Return ONLY JSON: {"pass":true,"notes":"concise Chinese evaluation"}.`
-        );
         let qa: { pass?: boolean; notes?: string } = {};
         try {
-          qa = parseJson(qaRaw);
-        } catch {
-          qa = { pass: true, notes: '9个机位结构完整，无文字杂质，模特与服饰一致性良好' };
+          let qaBase64: string;
+          let qaMimeType = 'image/png';
+          const dataUrlMatch = firstKeyframe.match(/^data:(image\/[^;,]+);base64,(.+)$/s);
+
+          if (dataUrlMatch) {
+            qaMimeType = dataUrlMatch[1];
+            qaBase64 = dataUrlMatch[2].replace(/\s/g, '');
+          } else if (/^https?:\/\//i.test(firstKeyframe)) {
+            const keyframeBlob = await fetchImageBlob(firstKeyframe);
+            qaMimeType = keyframeBlob.type || qaMimeType;
+            qaBase64 = await blobToBase64(keyframeBlob);
+          } else {
+            qaBase64 = firstKeyframe.replace(/\s/g, '');
+          }
+
+          const qaRaw = await generateText(
+            [{ base64: qaBase64, mimeType: qaMimeType }],
+            `You are a strict fashion QA agent. Review this 3x3 contact sheet image for strict scene background lock (must match reference image background 100%), model face identity lock, clothing consistency, and 9-panel completeness. Verify that there is NO overlaid text, numbers, or watermarks. Return ONLY JSON: {"pass":true,"notes":"concise Chinese evaluation"}.`
+          );
+          try {
+            qa = parseJson(qaRaw);
+          } catch {
+            qa = { pass: true, notes: '9个机位结构完整，无文字杂质，模特与服饰一致性良好' };
+          }
+        } catch (qaError) {
+          console.warn('[ModelSceneFission] Keyframe generated, but automatic QA was unavailable.', qaError);
+          qa = { pass: false, notes: '关键帧已生成，但自动质量审查暂时不可用，可继续预览或裁切。' };
         }
 
         outputs.push({

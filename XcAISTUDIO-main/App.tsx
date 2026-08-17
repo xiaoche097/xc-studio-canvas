@@ -18,7 +18,7 @@ declare global {
     }
 }
 import { AppNode, NodeType, NodeStatus, Connection, ContextMenuState, Group, Workflow, SmartSequenceItem, StoryboardOptionType, GridCropConfig } from './types';
-import { generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio, generateStoryboardGridImages, cropGridCellCanvas } from './services/geminiService';
+import { generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio, generateStoryboardGridImages, cropGridCellCanvas, prepareImageForCanvas } from './services/geminiService';
 
 
 import { getGenerationStrategy } from './services/videoStrategies';
@@ -1895,10 +1895,11 @@ export const App = () => {
         }
 
         // 2. 切割整图成 rows x cols 张局部图片
+        const canvasSafeSource = await prepareImageForCanvas(sourceImage);
         const slicedCells: string[] = [];
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-                const cellUrl = await cropGridCellCanvas(sourceImage, r, c, rows, cols);
+                const cellUrl = await cropGridCellCanvas(canvasSafeSource, r, c, rows, cols);
                 slicedCells.push(cellUrl);
             }
         }
