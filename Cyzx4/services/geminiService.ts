@@ -1919,10 +1919,11 @@ ${forcedPrompt}`;
           gptPrompt = `[ROLE: Commercial lifestyle fashion photographer]
 [TASK: Follow the numbered reference map and create one photorealistic image]
 [PRIORITY]
-1. Product images define the exact garment.
-2. Selected-model images define the exact person identity only; pose remains free.
-3. Scene image defines the exact recognizable environment plus gaze/head/expression/body-energy cues; never its person identity or styling.
-4. Mood/style images affect only palette, light and photographic feel.
+1. Image 1 is the sole target-product identity authority and defines the exact garment.
+2. Any later product-upload images are low-priority outfit/styling context only. Their other garments, shoes and accessories are separate SKUs and must never override or merge into the Image 1 product.
+3. Selected-model images define the exact person identity only; pose remains free.
+4. Scene image defines the exact recognizable environment plus gaze/head/expression/body-energy cues; never its person identity or styling.
+5. Mood/style images affect only palette, light and photographic feel.
 Never mix roles or copy people, clothing or accessories from scene/style references.
 
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
@@ -2598,10 +2599,11 @@ ${forcedPrompt}`;
         **ROLE**: Commercial lifestyle fashion photographer.
         **TASK**: Follow the user's numbered reference map and create one photorealistic image.
         **REFERENCE PRIORITY**:
-        1. Product images define the exact garment.
-        2. Selected-model images define the exact person identity only; pose, action and camera remain free.
-3. Scene image defines the exact recognizable environment plus the reference person's gaze direction, attention target, head angle, expression energy and candid body rhythm. Transfer those performance cues onto the selected model without copying identity or styling.
-        4. Mood/style images affect only palette, light and photographic feel.
+        1. Image 1 is the sole target-product identity authority and defines the exact garment.
+        2. Any later product-upload images are low-priority outfit/styling context only. Their other garments, shoes and accessories are separate SKUs and must never override or merge into the Image 1 product.
+        3. Selected-model images define the exact person identity only; pose, action and camera remain free.
+        4. Scene image defines the exact recognizable environment plus the reference person's gaze direction, attention target, head angle, expression energy and candid body rhythm. Transfer those performance cues onto the selected model without copying identity or styling.
+        5. Mood/style images affect only palette, light and photographic feel.
         Never mix image roles or copy people, clothing or accessories from scene/style references. Keep real anatomy, perspective, contact shadows and depth of field.
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}

@@ -395,6 +395,7 @@ const buildAnalysisPrompt = (
 ) => {
   const board = SCENE_BOARD_CONFIGS[record.boardType];
   const cropConfig = cropFramingById(record.cropFraming);
+  const isHeadlessCrop = record.cropFraming === 'short-bottom' || record.cropFraming === 'long-bottom';
   const lowerBodyPlanningRule = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
     ? `- LOWER-BODY POSE RULE: Every image plan must keep the legs and feet uncrossed. Keep each leg on its own side of the body's centerline, with both shoes/feet separately visible and a clear gap between the ankles. Use a stable hip-width stance or a naturally separated stride. Never plan crossed legs, crossed ankles, a scissor stance, overlapping calves/shoes, one foot placed across the other, or a toe-point crossover. Create pose variety with the arms, gaze, torso angle and camera position instead of crossing the legs.`
     : '';
@@ -406,7 +407,7 @@ const buildAnalysisPrompt = (
     ? `Image ${modelIndex} is the USER-SELECTED MODEL IDENTITY ANCHOR named "${selectedModel.name}". This image defines the mandatory person identity only: exact face geometry, facial features, skin tone/texture, hair identity, apparent age and body proportions. The final person must be recognizably this same model. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from this image. Plan new pose, action, expression and camera angle for the target garment and scene.`
     : 'No fixed model was selected. Recommend a suitable adult model persona.';
   const refSceneText = record.referenceSceneImage && sceneIndex
-    ? `Image ${sceneIndex} is the USER-SELECTED SCENE AND PERFORMANCE ANCHOR. Treat its recognizable location identity, architecture/nature, spatial layout, surface materials, weather/season, light direction, color temperature and atmosphere as mandatory. Also extract the reference person's gaze direction, attention target, head turn/tilt, expression intensity, shoulder line and candid body energy as PERFORMANCE CUES. Apply those cues to the selected model while preserving the selected model's own identity. Any reference person identity, garment, accessories, bag, jewelry, sunglasses, text or logo is non-authoritative and must not be copied. Adapt the exact limbs and camera crop only when needed for the target garment and physical scene compatibility.`
+    ? `Image ${sceneIndex} is the USER-SELECTED SCENE AND PERFORMANCE ANCHOR. Treat its location identity as visual ground truth. Extract and preserve its camera position, perspective, crop boundaries, horizon/vanishing lines, architecture geometry, wall/floor junctions, panel seams, surface materials, object placement, spatial depth, weather/season, light direction, shadow geometry, color temperature and atmosphere. Do not replace these with a generic similar location. ${isHeadlessCrop ? `The selected crop hides the head, so transfer only visible performance cues: torso/hip orientation, weight distribution, leg rhythm, arm/hand placement and fabric movement. Do not plan gaze, head angle or facial expression.` : `Also extract the reference person's gaze direction, attention target, head turn/tilt, expression intensity, shoulder line and candid body energy as performance cues.`} Apply only those performance cues to the selected model while preserving identity. The reference person's identity, garments, accessories, text and logos are non-authoritative and must not be copied.`
     : 'No reference scene image provided.';
   const instagramStart = record.productImages.length + (selectedModel ? 1 : 0) + (record.referenceSceneImage ? 1 : 0) + 1;
   const instagramEnd = instagramStart + record.instagramReferences.length - 1;
@@ -417,7 +418,8 @@ const buildAnalysisPrompt = (
   return `
 You are an expert commercial scene director and product analyst.
 
-Analyze Images 1-${record.productImages.length} as multiple views/angles of ONE identical product SKU.
+  Image 1 is the PRIMARY AND SOLE TARGET-PRODUCT IDENTITY AUTHORITY. Identify the requested product only from Image 1.
+  ${record.productImages.length > 1 ? `Images 2-${record.productImages.length} are SECONDARY OUTFIT/STYLING CONTEXT only. They may show coordinating tops, bottoms, shoes, accessories or other non-target SKUs. Never merge those items into the target product, never let them redefine its category/design/color/material/construction, and never give them equal authority. They may only clarify a target-product detail when it is visibly the same detail and fully consistent with Image 1.` : 'No secondary styling images were provided.'}
 ${selectedModelText}
 ${refSceneText}
 ${instagramText}
@@ -435,14 +437,14 @@ CURRENT SETTINGS
 
 RULES
 - PRIORITY ORDER: (1) target product identity, (2) user-selected model identity when present, (3) reference-scene location identity when present, (4) agent-planned pose/action/camera, (5) other style guidance.
-- Extract absolute product identity (silhouette, texture, colors, key features).
+- Extract absolute product identity (silhouette, texture, colors, key features) from Image 1. Treat later product-upload images as low-priority styling context, not product identity sources.
 - When a fixed model is selected, every image plan must use that exact same model. Never substitute a lookalike, change ethnicity, face shape, hairstyle identity, apparent age, skin tone or body proportions.
 - When a fixed model is selected, use clean accessory-free styling by default: no sunglasses or eyeglasses, jewelry, necklaces, earrings, bracelets, watches, hats, handbags, shoulder bags, scarves, gloves, phones or handheld props. Ignore and remove those items even if they appear in the model or scene reference. Only retain an accessory if it is the uploaded target product itself or an inseparable construction detail of that product.
-- A reference scene is a location plus performance anchor, not a person-identity or accessory source. Preserve enough exact location cues that the result is visibly the same scene. Reuse its gaze direction, attention target, head angle, expression energy and candid body rhythm so the selected model does not default to a stiff front-facing camera gaze.
+- A reference scene is a scene-geometry and performance anchor, not a person-identity or accessory source. Preserve its camera geometry, distinctive structural lines, materials, object layout and lighting so the result is visibly the same scene.${isHeadlessCrop ? ' Because the head is outside the frame, transfer only visible body rhythm and never describe gaze, head angle or facial expression.' : ' Reuse its gaze direction, attention target, head angle, expression energy and candid body rhythm.'}
 - Match the scene to the uploaded garment first. Instagram references guide visual language, but must never override garment identity, fit, length, material or color.
 - Analyze the product BEFORE evaluating the Instagram references. Determine garment category, silhouette, season, occasion, target wearer, styling compatibility and movement needs first.
 - Evaluate every Instagram reference against that product profile. Use only compatible references; reject scenes, poses or styling that conflict with the garment's season, length, structure, intended occasion or target customer.
-- For each final image plan, explicitly describe why the chosen scene and styling are appropriate for this specific product rather than merely fashionable in isolation.
+- Keep each image plan concise and operational: describe only the model action, product visibility, scene placement and camera composition. Do not include explanations, marketing rationale or repeated material/light descriptions.
 - Translate the user's approximate keywords into concrete locations, time of day, lighting, props, camera distance and model action.
 - ATMOSPHERE IS NOT A DECORATION. Reverse-engineer the emotional weather of the screenshots: exact time-of-day feeling, light direction and hardness, highlight roll-off, shadow color, air/wind movement, tactile architecture/nature, foreground-midground-background depth, candid human micro-moment, film stock/texture and intentional exposure imperfections.
 - Avoid reducing the reference to nouns such as "white wall", "street" or "villa". Describe the sensory relationship among light, air, skin, fabric, surfaces and space.
@@ -463,16 +465,16 @@ ${lowerBodyPlanningRule}
   "recommendedBoard":"main|aplus|social|story|asset|mobile",
   "boardReason":"Chinese recommendation reason",
   "boardVisualStrategy":"Chinese board visual strategy",
-  "backgroundComposition":"Chinese background composition, lighting and space plan",
+  "backgroundComposition":"Concise Chinese scene lock, max 120 Chinese characters. For a reference scene, record exact camera perspective, distinctive structural lines/seams, materials, object placement and floor/wall relationship; do not use generic substitutes",
   "referenceStyleFingerprint":"Chinese evidence-based fingerprint from recurring visual traits in the uploaded Instagram screenshots; include palette, light, location, framing, camera feel, model energy and styling restraint",
   "referenceCompatibilityReason":"Chinese explanation of why the selected reference traits fit this exact uploaded product",
-  "referenceSceneRules":["specific rule that every generated image must follow"],
+  "referenceSceneRules":["up to 4 short, visually verifiable scene-lock rules; no repeated wording"],
   "referenceAvoidRules":["visual trait seen in screenshots but incompatible with this product, or UI/reference elements that must not be generated"],
   "atmosphereBlueprint":"Chinese sensory atmosphere direction combining emotional tone, time, weather, environment and material contrast",
-  "lightAndAir":"Chinese exact light direction/hardness, exposure behavior, shadow tone, breeze/air movement and how they affect hair and fabric",
-  "spatialDepth":"Chinese foreground, subject plane, architectural/natural midground and distant background relationship; include lens distance and crop",
-  "modelMoment":"Chinese performance direction. When a reference scene exists, explicitly state its gaze direction, attention target, head turn/tilt, expression energy and body rhythm to transfer onto the selected model without copying identity",
-  "filmTexture":"Chinese capture medium, grain, highlight roll-off, color response, skin texture and tasteful imperfection",
+  "lightAndAir":"Concise Chinese lighting direction, hardness, shadow and exposure behavior; max 80 Chinese characters",
+  "spatialDepth":"Concise Chinese camera distance, subject placement and foreground/midground/background relationship; max 80 Chinese characters",
+  "modelMoment":"Concise Chinese performance direction, max 100 Chinese characters. For a waist-down crop, describe only hip/leg/hand/body rhythm and never gaze, head angle or expression",
+  "filmTexture":"Concise Chinese capture texture and color response; max 60 Chinese characters",
   "modelPersonaPreset":"${selectedModel ? `必须使用已选固定模特：${selectedModel.name}` : 'recommended persona preset name'}",
   "modelEthnicity":"ethnicity",
   "modelAgeGroup":"age group",
@@ -481,7 +483,7 @@ ${lowerBodyPlanningRule}
   "cameraDevice":"recommended camera/device",
   "shotType":"recommended shot type",
   "sizeCategory":"tiny|small|medium|large|wearable",
-  "imagePlans":["one Chinese visual plan per output"],
+  "imagePlans":["one concise Chinese visual plan per output, 60-120 Chinese characters; action, product visibility, scene placement and composition only"],
   "riskWarnings":["risk to verify"]
 }
 `.trim();
@@ -498,12 +500,17 @@ const buildGenerationPrompt = (
 ) => {
   const cropConfig = cropFramingById(record.cropFraming);
   const productEnd = record.productImages.length;
+  const secondaryProductCount = Math.max(0, productEnd - 1);
+  const isHeadlessCrop = record.cropFraming === 'short-bottom' || record.cropFraming === 'long-bottom';
 
-  let nextImageIndex = productEnd + 1;
+  let nextImageIndex = 2;
   const modelStart = selectedModel ? nextImageIndex : null;
   const modelEnd = selectedModel ? nextImageIndex + 1 : null;
   if (selectedModel) nextImageIndex += 2;
   const sceneIndex = record.referenceSceneImage ? nextImageIndex++ : null;
+  const secondaryProductStart = secondaryProductCount ? nextImageIndex : null;
+  const secondaryProductEnd = secondaryProductCount ? nextImageIndex + secondaryProductCount - 1 : null;
+  nextImageIndex += secondaryProductCount;
   const instagramStart = nextImageIndex;
   const instagramEnd = instagramStart + record.instagramReferences.length - 1;
   nextImageIndex += record.instagramReferences.length;
@@ -511,12 +518,15 @@ const buildGenerationPrompt = (
   const styleEnd = styleStart + styleReferenceCount - 1;
 
   const referenceMap = [
-    `Images 1-${productEnd} = the exact target product; preserve its design and construction.`,
+    'Image 1 = the sole target-product identity authority; preserve only this product\'s exact design and construction.',
     selectedModel && modelStart && modelEnd
       ? `Images ${modelStart}-${modelEnd} = two copies of ONE selected adult model (${selectedModel.name}); use only this exact person's face, hair, skin and body proportions. Identity is fixed, pose is free.`
       : '',
     record.referenceSceneImage && sceneIndex
-      ? `Image ${sceneIndex} = scene and performance anchor; keep its recognizable location and transfer only its person's gaze direction, attention target, head angle, expression energy and candid body rhythm. Do not copy that person's identity, clothing or accessories.`
+      ? `Image ${sceneIndex} = scene and performance anchor; exactly preserve its camera geometry, structural layout, materials and lighting.${isHeadlessCrop ? ' Transfer only visible torso/hip/leg/hand rhythm because the head is outside the frame.' : ' Transfer the reference person\'s gaze direction, attention target, head angle, expression energy and candid body rhythm.'} Do not copy that person's identity, clothing or accessories.`
+      : '',
+    secondaryProductStart && secondaryProductEnd
+      ? `Images ${secondaryProductStart}-${secondaryProductEnd} = low-priority outfit/styling context only. Other garments, shoes and accessories in these images are separate SKUs: do not merge them into, substitute for, or override the target product from Image 1.`
       : '',
     record.instagramReferences.length
       ? `Images ${instagramStart}-${instagramEnd} = mood references only: palette, light and candid energy.`
@@ -531,12 +541,18 @@ const buildGenerationPrompt = (
   const stablePose = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
     ? ' Use a natural uncrossed stance or stride with separated feet and believable ground contact.'
     : '';
+  const sceneLockRules = analysis.referenceSceneRules.slice(0, 4).join('; ');
   const environmentDirection = record.referenceSceneImage && sceneIndex
-    ? `Use the exact environment in Image ${sceneIndex}; retain enough distinctive cues that it is unmistakably the same location.`
+    ? `SCENE LOCK — reconstruct the environment from Image ${sceneIndex}, not a merely similar location. Match its camera position and perspective, crop boundaries, horizon/vanishing lines, architecture geometry, wall/floor junctions, distinctive panel seams, surface materials, object placement, spatial depth, light direction, shadow geometry and color temperature. Scene analysis: ${analysis.backgroundComposition}.${sceneLockRules ? ` Verifiable locks: ${sceneLockRules}.` : ''}`
     : analysis.backgroundComposition;
   const performanceDirection = record.referenceSceneImage && sceneIndex
-    ? `Performance: follow the reference person's gaze direction, attention target, head turn/tilt, expression energy and candid body rhythm from Image ${sceneIndex}; apply them to the selected model without changing identity. ${analysis.modelMoment}`
+    ? isHeadlessCrop
+      ? `Performance: the head is outside the final frame. From Image ${sceneIndex}, transfer only visible torso/hip orientation, weight distribution, leg rhythm, arm/hand placement and fabric movement. Do not describe or generate gaze, head angle or facial expression. ${analysis.modelMoment}`
+      : `Performance: follow the reference person's gaze direction, attention target, head turn/tilt, expression energy and candid body rhythm from Image ${sceneIndex}; apply them to the selected model without changing identity. ${analysis.modelMoment}`
     : `Performance: ${analysis.modelMoment}`;
+  const humanDetailDirection = isHeadlessCrop
+    ? 'Realistic hand anatomy and natural fabric contact'
+    : 'Natural skin texture and realistic facial anatomy';
 
   return `
 Create one ${record.aspectRatio} premium, photorealistic commercial lifestyle fashion photograph.
@@ -545,7 +561,7 @@ REFERENCE MAP
 ${referenceMap}
 
 SUBJECT
-${selectedModel && modelStart && modelEnd ? `The exact selected model from Images ${modelStart}-${modelEnd}` : analysis.modelPersonaPreset} wears the exact ${analysis.productCategory} from Images 1-${productEnd}: ${analysis.productIdentity} Material and color: ${analysis.materialColor}. Keep the garment's silhouette, length, fit, knit texture, trims and construction unchanged.
+${selectedModel && modelStart && modelEnd ? `The exact selected model from Images ${modelStart}-${modelEnd}` : analysis.modelPersonaPreset} wears the exact ${analysis.productCategory} whose identity is defined only by Image 1: ${analysis.productIdentity} Material and color: ${analysis.materialColor}. Keep the garment's silhouette, length, fit, fabric texture, trims and construction unchanged.${secondaryProductStart && secondaryProductEnd ? ` Images ${secondaryProductStart}-${secondaryProductEnd} must not change the target product.` : ''}
 
 ACTION AND ENVIRONMENT
 ${analysis.imagePlans[index] || analysis.modelMoment}${stablePose}
@@ -553,7 +569,7 @@ ${performanceDirection}
 ${environmentDirection}
 
 LIGHT, CAMERA AND STYLE
-${analysis.lightAndAir} ${cropConfig.promptRule} ${analysis.shotType}; ${analysis.spatialDepth}. ${styleDirection}. ${analysis.filmTexture}. Natural skin texture, crisp garment detail, authentic candid moment, professional high-resolution photography.
+${cropConfig.promptRule} ${analysis.spatialDepth}. ${analysis.lightAndAir}. ${styleDirection}. ${analysis.filmTexture}. ${humanDetailDirection}, crisp garment detail, authentic candid moment, professional high-resolution photography.
 
 ${record.userHint.trim() ? `USER DIRECTION\n${record.userHint.trim()}` : ''}
 `.trim();
@@ -564,21 +580,20 @@ const buildGenerationNegativePrompt = (
   analysis: SceneHeroAnalysis,
   selectedModel?: ModelItem,
 ) => {
-  const userExclusion = /不要|禁止|避免|不得|without|\bno\b/i.test(record.userHint) ? record.userHint.trim() : '';
+  const isHeadlessCrop = record.cropFraming === 'short-bottom' || record.cropFraming === 'long-bottom';
   return [
-    'wrong product, redesigned garment, changed color, changed material, changed silhouette, changed length, missing buttons or trims',
+    'wrong target product, product redesign, changed color/material/silhouette/length, missing construction details or trims',
     selectedModel
       ? 'different person, lookalike, changed face, changed ethnicity, changed hair identity, changed age, changed body proportions, duplicate person'
       : 'duplicate person',
     record.referenceSceneImage
-      ? 'generic substitute location, different location, redesigned background, copied person identity or clothing from scene reference, gaze direction inconsistent with scene reference'
+      ? `generic substitute location, different camera perspective, changed architecture or seam layout, redesigned background, incorrect light direction or shadow geometry, copied person identity or clothing from scene reference${isHeadlessCrop ? ', visible head or face' : ', gaze direction inconsistent with scene reference'}`
       : '',
     selectedModel
       ? 'sunglasses, eyeglasses, earrings, necklace, jewelry, bracelet, watch, hat, handbag, shoulder bag, scarf, gloves, phone, cup, handheld prop'
       : '',
-    ...analysis.referenceAvoidRules,
-    userExclusion,
-    'stiff front-facing catalog pose, passport-photo pose, forced direct eye contact, blank expression, mannequin-like posture, bad anatomy, bad proportions, extra limbs, extra fingers, malformed hands, crossed legs, crossed ankles, blurry, low resolution, over-smoothed skin, plastic skin, CGI, 3D render, cartoon, text, watermark, logo, border, collage',
+    ...analysis.referenceAvoidRules.slice(0, 6),
+    `stiff catalog pose, mannequin posture, bad anatomy, bad proportions, extra limbs or fingers, malformed hands, crossed legs or ankles, blurry product, plastic fabric, CGI, 3D render, cartoon, text, watermark, logo, border, collage${isHeadlessCrop ? '' : ', forced direct eye contact, blank expression, plastic skin'}`,
   ].filter(Boolean).join(', ');
 };
 
@@ -861,6 +876,8 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
   const activeUploadKindRef = useRef<'product' | 'refScene' | 'instagram'>('product');
   const [isDraggingRefScene, setIsDraggingRefScene] = useState(false);
   const [isDraggingProduct, setIsDraggingProduct] = useState(false);
+  const [draggedProductImageId, setDraggedProductImageId] = useState<string | null>(null);
+  const [productDropTargetId, setProductDropTargetId] = useState<string | null>(null);
 
   const activateUploadKind = useCallback((kind: 'product' | 'refScene' | 'instagram') => {
     activeUploadKindRef.current = kind;
@@ -1067,6 +1084,19 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
     }
   }, isActive && !isBusy && activeRecord.step === 'input' && !isStyleOpen);
 
+  const reorderProductImages = useCallback((sourceId: string, targetId: string) => {
+    if (isBusy || sourceId === targetId) return;
+    updateRecord(activeRecord.id, (record) => {
+      const sourceIndex = record.productImages.findIndex((image) => image.id === sourceId);
+      const targetIndex = record.productImages.findIndex((image) => image.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return record;
+      const productImages = [...record.productImages];
+      const [movedImage] = productImages.splice(sourceIndex, 1);
+      productImages.splice(targetIndex, 0, movedImage);
+      return { ...record, productImages, analysis: null, results: [], step: 'input', error: '' };
+    });
+  }, [activeRecord.id, isBusy, updateRecord]);
+
   const removeProductImage = (id: string) => updateRecord(activeRecord.id, (record) => {
     const productImages = record.productImages.filter((image) => image.id !== id);
     return {
@@ -1163,7 +1193,8 @@ Return ONLY JSON:
     );
     updateResult(record.id, result.id, { status: 'submitting', prompt, error: undefined });
 
-    const inputImages = [...record.productImages.map(toApiImage)];
+    const [primaryProductImage, ...secondaryProductImages] = record.productImages;
+    const inputImages = [toApiImage(primaryProductImage)];
     if (selectedModelReference) {
       inputImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
       // Repeat the identity reference deliberately so image models weight the selected person
@@ -1171,6 +1202,7 @@ Return ONLY JSON:
       inputImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
     }
     if (record.referenceSceneImage) inputImages.push(toApiImage(record.referenceSceneImage));
+    secondaryProductImages.forEach((image) => inputImages.push(toApiImage(image)));
     record.instagramReferences.forEach((ref) => inputImages.push(toApiImage(ref)));
     style.references.forEach((ref) => inputImages.push(toApiImage(ref)));
 
@@ -1408,7 +1440,7 @@ Return ONLY JSON:
                   </span>
                 )}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-pastel-muted">同一款商品的多角度与规格细节，第一张为主身份。</p>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">第 1 张是唯一产品身份主图；其余图片仅作搭配参考，不参与定义产品。可直接拖动调整顺序。</p>
             </div>
           </div>
           <span className="text-xs font-bold text-pastel-muted">{activeRecord.productImages.length}/{MAX_PRODUCT_IMAGES}</span>
@@ -1416,15 +1448,50 @@ Return ONLY JSON:
         {activeRecord.productImages.length > 0 && (
           <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-5">
             {activeRecord.productImages.map((image, index) => (
-              <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg cursor-pointer">
+              <div
+                key={image.id}
+                draggable={!isBusy}
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', image.id);
+                  setDraggedProductImageId(image.id);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = 'move';
+                  setProductDropTargetId(image.id);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const sourceId = event.dataTransfer.getData('text/plain') || draggedProductImageId;
+                  if (sourceId) reorderProductImages(sourceId, image.id);
+                  setDraggedProductImageId(null);
+                  setProductDropTargetId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggedProductImageId(null);
+                  setProductDropTargetId(null);
+                }}
+                className={`group relative aspect-square overflow-hidden rounded-xl border bg-pastel-bg cursor-grab active:cursor-grabbing transition ${
+                  productDropTargetId === image.id && draggedProductImageId !== image.id
+                    ? 'border-[#2d6bb1] ring-2 ring-[#2d6bb1]/30'
+                    : index === 0
+                      ? 'border-[#2d6bb1] ring-1 ring-[#2d6bb1]/20'
+                      : 'border-pastel-border'
+                } ${draggedProductImageId === image.id ? 'opacity-50' : ''}`}
+              >
                 <img
                   src={image.preview}
                   alt={image.name}
+                  draggable={false}
                   onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
                   className="h-full w-full object-cover transition hover:scale-105"
                   title="点击放大预览大图"
                 />
-                {index === 0 && <span className="absolute bottom-1 left-1 rounded bg-[#17243c] px-1.5 py-1 text-[0.55rem] font-black text-white pointer-events-none">主身份</span>}
+                <span className={`absolute bottom-1 left-1 rounded px-1.5 py-1 text-[0.55rem] font-black text-white pointer-events-none ${index === 0 ? 'bg-[#17243c]' : 'bg-slate-500/85'}`}>{index === 0 ? '唯一产品主图' : '搭配参考'}</span>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
@@ -1580,7 +1647,7 @@ Return ONLY JSON:
                   </span>
                 )}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-pastel-muted">强锁场景地点与光影，参考人物的视线、头部角度和松弛动态；人物身份仍以模特库为准</p>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">强锁场景布局、机位、结构材质与光影；人物动作仅迁移当前裁图可见部分，人物身份仍以模特库为准。</p>
             </div>
           </div>
           {activeRecord.referenceSceneImage && (
@@ -1613,7 +1680,7 @@ Return ONLY JSON:
               title="点击放大预览大图"
             />
             <span className="absolute bottom-2 left-2 rounded-lg bg-[#17243c]/90 px-2 py-1 text-xs font-black text-white backdrop-blur-sm pointer-events-none">
-              锁定场景与视线
+              锁定场景与动作
             </span>
             {isDraggingRefScene ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#ed6d46]/85 text-white backdrop-blur-xs">
