@@ -61,28 +61,93 @@ const findStringField = (value: unknown, fields: string[], depth = 0): string =>
   return '';
 };
 
-const collectImageUrls = (value: unknown, results = new Set<string>(), depth = 0): string[] => {
-  if (depth > 8 || value == null) return [...results];
+const findVirseStatus = (value: unknown, depth = 0): string => {
+  if (depth > 7 || value == null) return '';
   if (typeof value === 'string') {
-    for (const match of value.matchAll(/https?:\/\/[^\s"'`<>]+/g)) {
-      const url = match[0].replace(/[),.;]+$/, '');
-      if (/\.(?:png|jpe?g|webp|gif)(?:\?|$)/i.test(url) || /image|artifact|asset|output|cdn|storage/i.test(url)) results.add(url);
-    }
+    const normalized = value.replace(/\\n/g, '\n');
+    const lineStatus = normalized.match(/(?:^|\n)\s*(?:status|state)\s*[:=]\s*["'`]*([a-z_-]+)/i)?.[1];
+    if (lineStatus) return lineStatus.toLowerCase();
     try {
-      collectImageUrls(JSON.parse(value), results, depth + 1);
+      return findVirseStatus(JSON.parse(value), depth + 1);
     } catch {
-      // Human-readable Virse output is handled by the URL expression above.
+      return '';
     }
-    return [...results];
   }
   if (Array.isArray(value)) {
-    value.forEach((item) => collectImageUrls(item, results, depth + 1));
-    return [...results];
+    for (const item of value) {
+      const status = findVirseStatus(item, depth + 1);
+      if (status) return status;
+    }
+    return '';
   }
+  if (typeof value !== 'object') return '';
+  const objectValue = value as Record<string, unknown>;
+  for (const field of ['status', 'state']) {
+    if (typeof objectValue[field] === 'string') return objectValue[field].toLowerCase();
+  }
+  for (const [key, nested] of Object.entries(objectValue)) {
+    if (/prompt|instruction/i.test(key)) continue;
+    const status = findVirseStatus(nested, depth + 1);
+    if (status) return status;
+  }
+  return '';
+};
+
+const summarizeVirseFailure = (value: unknown, artifactVersionId: string, status: string) => {
+  const message = findStringField(value, ['error_message', 'failure_reason', 'error', 'message'])
+    .replace(/(?:\\n|\n)\s*prompt\s*:[\s\S]*$/i, '')
+    .slice(0, 240);
+  return [
+    `artifact_version_id=${artifactVersionId}`,
+    `status=${status || 'unknown'}`,
+    message ? `message=${message}` : '',
+  ].filter(Boolean).join(', ');
+};
+
+const collectOutputImageUrls = (
+  value: unknown,
+  preferred = new Set<string>(),
+  fallback = new Set<string>(),
+  path: string[] = [],
+  depth = 0,
+): string[] => {
+  if (depth > 8 || value == null) return [...preferred, ...fallback];
+  const pathText = path.join('.').toLowerCase();
+  if (/prompt|instruction|input|source|reference|original/.test(pathText)) return [...preferred, ...fallback];
+
+  if (typeof value === 'string') {
+    try {
+      collectOutputImageUrls(JSON.parse(value), preferred, fallback, path, depth + 1);
+      return [...preferred, ...fallback];
+    } catch {
+      const normalized = value.replace(/\\n/g, '\n');
+      const lines = normalized.split(/\r?\n/);
+      lines.forEach((line, index) => {
+        const context = `${lines[Math.max(0, index - 1)] || ''} ${line}`.toLowerCase();
+        if (/prompt|input|source|reference|original/.test(context)) return;
+        for (const match of line.matchAll(/https?:\/\/[^\s"'`<>]+/g)) {
+          const url = match[0].replace(/[),.;]+$/, '');
+          if (!/\.(?:png|jpe?g|webp|gif)(?:\?|$)/i.test(url) && !/image|artifact|asset|output|cdn|storage/i.test(url)) continue;
+          if (/output|result|generated|final|image[_\s-]?url|download|artifact/.test(context)) preferred.add(url);
+          else fallback.add(url);
+        }
+      });
+      return [...preferred, ...fallback];
+    }
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectOutputImageUrls(item, preferred, fallback, [...path, String(index)], depth + 1));
+    return [...preferred, ...fallback];
+  }
+
   if (typeof value === 'object') {
-    Object.values(value as Record<string, unknown>).forEach((item) => collectImageUrls(item, results, depth + 1));
+    Object.entries(value as Record<string, unknown>).forEach(([key, nested]) => {
+      if (/prompt|instruction|input|source|reference|original/i.test(key)) return;
+      collectOutputImageUrls(nested, preferred, fallback, [...path, key], depth + 1);
+    });
   }
-  return [...results];
+  return [...preferred, ...fallback];
 };
 
 export const uploadVirseReference = async (options: {
@@ -153,26 +218,37 @@ export const generateVirseImage = async (options: {
     size_height: sizeHeight,
   });
 
-  const immediateUrls = collectImageUrls(generated);
-  if (immediateUrls.length > 0) return immediateUrls;
   const artifactVersionId = findStringField(generated, ['artifact_version_id', 'artifactVersionId']);
+  const initialStatus = findVirseStatus(generated);
   if (!artifactVersionId) {
+    const immediateUrls = collectOutputImageUrls(generated);
+    if (immediateUrls.length > 0) return immediateUrls;
     throw new Error(`Virse 已接受生成请求，但未返回 artifact_version_id：${JSON.stringify(generated).slice(0, 700)}`);
+  }
+  if (/^(completed|complete|succeeded|success|ready|done)$/.test(initialStatus)) {
+    const immediateUrls = collectOutputImageUrls(generated);
+    if (immediateUrls.length > 0) return immediateUrls;
   }
 
   options.onStatus?.('polling');
-  for (let attempt = 0; attempt < 48; attempt += 1) {
+  // Virse may keep complex image edits in processing for several minutes.
+  // Poll for up to five minutes instead of failing after roughly two minutes.
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     if (options.signal?.aborted) throw new DOMException('Generation cancelled', 'AbortError');
     await new Promise((resolve) => setTimeout(resolve, 2500));
     const detail = await callVirse<unknown>(options.apiKey, options.baseUrl, 'get_asset_detail', {
       artifact_version_id: artifactVersionId,
     });
-    const urls = collectImageUrls(detail);
-    if (urls.length > 0) return urls;
-    const serialized = JSON.stringify(detail).toLowerCase();
-    if (/failed|error|cancelled|canceled/.test(serialized)) {
-      throw new Error(`Virse 图片生成失败：${JSON.stringify(detail).slice(0, 700)}`);
+    const status = findVirseStatus(detail);
+    if (/^(failed|failure|error|cancelled|canceled|rejected)$/.test(status)) {
+      throw new Error(`Virse 图片生成失败：${summarizeVirseFailure(detail, artifactVersionId, status)}`);
     }
+    if (/^(queued|pending|processing|running|submitted|generating|in_progress)$/.test(status)) {
+      options.onStatus?.('processing');
+      continue;
+    }
+    const urls = collectOutputImageUrls(detail);
+    if (urls.length > 0) return urls;
     options.onStatus?.('processing');
   }
   throw new Error('Virse 图片生成超时，请到所选 Virse 画布查看任务状态');

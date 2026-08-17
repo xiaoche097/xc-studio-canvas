@@ -6,7 +6,7 @@ import {
     Edit, Trash2, Box, ScanFace, Brush, Type, Workflow as WorkflowIcon,
     Clapperboard, Mic2, Settings, Globe, Layers, Upload, Volume2,
     Eye, Sparkles, Search, ChevronLeft, MoreHorizontal, SlidersHorizontal,
-    Clock3, LayoutGrid, Folder, FolderOpen, ArrowUpDown
+    Clock3, LayoutGrid, Folder, FolderOpen, ArrowUpDown, Play
 } from 'lucide-react';
 import { NodeType, Workflow } from '../types';
 import { OFFICIAL_MODELS, modelLibrary, ModelItem } from '../../Cyzx4/services/modelLibrary';

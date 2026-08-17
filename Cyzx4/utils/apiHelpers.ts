@@ -787,8 +787,11 @@ export const getImageAiClient = (): {
 /**
  * 获取当前激活的API信息（用于调试）
  */
-export const getActiveApiInfo = (): { type: 'xiaoche' | 'runninghub' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
+export const getActiveApiInfo = (): { type: 'virse' | 'xiaoche' | 'runninghub' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
+        if (localStorage.getItem('virse_enabled') === 'true') {
+            return { type: 'virse', baseUrl: localStorage.getItem('virse_base_url') || 'https://dev.virse.ai' };
+        }
         const config = getImageApiConfig();
         if (config.isXiaoche) {
             return { type: 'xiaoche', baseUrl: config.baseUrl };
@@ -976,16 +979,16 @@ export function getErrorMessage(error: any): string {
     }
 
     // 配额/余额不足错误 (高优先级：防止云雾 API 返回 403 时被误判为未配置 API Key)
-    if (
-        errorMsg.includes('quota') ||
-        errorMsg.includes('insufficient_quota') ||
-        errorMsg.includes('user quota is not enough') ||
-        errorMsg.includes('exceeded') ||
-        errorMsg.includes('balance') ||
-        errorMsg.includes('credit') ||
-        errorMsg.includes('limit')
-    ) {
-        return '💳 云雾 API 账户额度/余额已用完\n[云雾 API 返回]: "user quota is not enough" (账户余额不足/配额耗尽)。\n请登录云雾 API 控制台 (yunwu.ai) 检查并充值您的账户余额，充值后即可立即恢复使用。';
+    if (/insufficient[_\s-]?quota|user quota is not enough|quota (?:is )?(?:exhausted|exceeded)|(?:account|billing|credit) balance (?:is )?(?:insufficient|empty|exhausted)|insufficient (?:balance|credit)|credits? exhausted|resource[_\s-]?exhausted|usage limit exceeded/i.test(errorMsg)) {
+        const virseActive = typeof localStorage !== 'undefined'
+            && localStorage.getItem('virse_enabled') === 'true';
+        if (/千问|qwen/i.test(errorMsg)) {
+            return `💳 千问图片 API 额度/配额不足\n[千问返回]: ${errorMsg}\n千问是独立图片通道，不受 Virse 开关影响，请检查千问 API 账户额度。`;
+        }
+        if (virseActive || /\bvirse\b/i.test(errorMsg)) {
+            return `💳 Virse 图片通道额度/配额不足\n[Virse 返回]: ${errorMsg}\n请在 Virse 检查账户额度、工作区配额和所选图片模型状态。Virse 已开启，本次请求不会回落到云雾。`;
+        }
+        return `💳 当前图片 API 账户额度/余额不足\n[上游返回]: ${errorMsg}\n请检查当前启用的图片服务账户与配额。`;
     }
 
     // API Key 相关错误 (403/401 且非额度问题)

@@ -43,6 +43,44 @@ import { saveGeneratedProject } from '../../services/projectHistoryService';
 export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
 export type ActiveUploadTarget = 'top' | 'bottom' | 'accessory' | 'full' | 'shoes' | 'model';
+export type ProductAngle = 'front' | 'back' | 'side' | 'detail';
+
+const ANGLE_CONFIG: Record<ProductAngle, { label: string; bgClass: string }> = {
+  front: { label: '正面', bgClass: 'bg-emerald-500/90 hover:bg-emerald-600' },
+  back: { label: '背面', bgClass: 'bg-indigo-500/90 hover:bg-indigo-600' },
+  side: { label: '侧面', bgClass: 'bg-amber-500/90 hover:bg-amber-600' },
+  detail: { label: '细节', bgClass: 'bg-rose-500/90 hover:bg-rose-600' },
+};
+
+const NEXT_ANGLE_MAP: Record<ProductAngle, ProductAngle> = {
+  front: 'back',
+  back: 'side',
+  side: 'detail',
+  detail: 'front',
+};
+
+const AngleBadgeButton: React.FC<{
+  angle?: ProductAngle;
+  onClick: (e: React.MouseEvent) => void;
+}> = ({ angle = 'front', onClick }) => {
+  const config = ANGLE_CONFIG[angle] || ANGLE_CONFIG.front;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      className={`absolute left-1 top-1 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.6rem] font-black text-white shadow-md transition-all duration-200 border border-white/20 backdrop-blur-xs active:scale-95 cursor-pointer ${config.bgClass}`}
+      title="点击切换商品视角 (正面 ➔ 背面 ➔ 侧面 ➔ 细节)"
+    >
+      <Camera className="h-2.5 w-2.5 text-white/90" />
+      <span>{config.label}</span>
+      <span className="text-[0.55rem] opacity-80">🔄</span>
+    </button>
+  );
+};
+
 type Stage = 1 | 2 | 3 | 4;
 type SelectionModalType = 'model' | 'ratio' | 'resolution' | null;
 
@@ -55,6 +93,7 @@ interface UploadedImage {
   name?: string;
   width?: number;
   height?: number;
+  angle?: ProductAngle;
 }
 
 interface TryOnResultItem {
@@ -419,6 +458,33 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     );
   }, [activeTaskId]);
 
+  const [angleModal, setAngleModal] = useState<{
+    target: ActiveUploadTarget | 'top' | 'bottom' | 'full' | 'accessory' | 'shoes';
+    index: number;
+    currentAngle: ProductAngle;
+  } | null>(null);
+
+  const handleSetAngle = useCallback((
+    target: ActiveUploadTarget | 'top' | 'bottom' | 'full' | 'accessory' | 'shoes',
+    index: number,
+    newAngle: ProductAngle
+  ) => {
+    updateCurrentTask((t) => {
+      const updateList = (list: UploadedImage[]) =>
+        list.map((img, i) => {
+          if (i !== index) return img;
+          return { ...img, angle: newAngle };
+        });
+
+      if (target === 'top') return { ...t, topImages: updateList(t.topImages) };
+      if (target === 'bottom') return { ...t, bottomImages: updateList(t.bottomImages) };
+      if (target === 'full') return { ...t, fullImages: updateList(t.fullImages) };
+      if (target === 'accessory') return { ...t, accessoryImages: updateList(t.accessoryImages ?? []) };
+      if (target === 'shoes') return { ...t, shoesImages: updateList(t.shoesImages ?? []) };
+      return t;
+    });
+  }, [updateCurrentTask]);
+
   const handleAddNewTask = (mode: UniversalTryOnSubMode = 'model') => {
     const newTask = createNewTask(mode);
     setTasks((prev) => [newTask, ...prev]);
@@ -561,6 +627,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         base64: img.base64,
         mime: img.mime,
         role: 'shoes',
+        angle: img.angle || 'front',
       }));
       const categoryObj = SHOE_CATEGORY_OPTIONS.find((c) => c.id === currentTask.shoeCategory);
       const angleObj = SHOE_ANGLE_OPTIONS.find((a) => a.id === currentTask.shoeAngle);
@@ -576,16 +643,19 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
             base64: img.base64,
             mime: img.mime,
             role: 'top' as const,
+            angle: img.angle || 'front',
           })),
           ...currentTask.bottomImages.map((img) => ({
             base64: img.base64,
             mime: img.mime,
             role: 'bottom' as const,
+            angle: img.angle || 'front',
           })),
           ...accessoryImages.map((img) => ({
             base64: img.base64,
             mime: img.mime,
             role: 'accessory' as const,
+            angle: img.angle || 'front',
           })),
         ];
         customPromptAddon = `[Two-Piece Try-On]: Replace the upper garment using TOP references and the lower garment using BOTTOM references. Apply ACCESSORY references only to anatomically correct locations without changing the pose. FRAME RULE: preserve the target model image's exact top/bottom/side crop boundaries and subject scale. If a garment is cut by the original frame, keep it cut; never zoom out to show the complete garment. For BOTTOM/trouser references, lock the original waistband, crotch, knees, trouser hems, feet and floor-contact coordinates, and never reveal additional torso above or floor below the source crop.`;
@@ -599,11 +669,13 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
             base64: img.base64,
             mime: img.mime,
             role: 'full' as const,
+            angle: img.angle || 'front',
           })),
           ...accessoryImages.map((img) => ({
             base64: img.base64,
             mime: img.mime,
             role: 'accessory' as const,
+            angle: img.angle || 'front',
           })),
         ];
         customPromptAddon = `[One-Piece Try-On]: Fit the full dress/suit onto the model while preserving the target image's exact crop boundaries and subject scale. Clip any unseen garment portion at the original frame edge; never expand the body or scene to show the whole outfit.`;
@@ -623,6 +695,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         base64: img.base64,
         mime: img.mime,
         role: 'product',
+        angle: img.angle || 'front',
       }));
     }
 
@@ -1264,6 +1337,10 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                                 key={img.id || idx}
                                 className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
                               >
+                                <AngleBadgeButton
+                                  angle={img.angle}
+                                  onClick={() => setAngleModal({ target: 'top', index: idx, currentAngle: img.angle || 'front' })}
+                                />
                                 <img
                                   src={img.preview}
                                   alt={`Top ${idx}`}
@@ -1410,6 +1487,10 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                                 key={img.id || idx}
                                 className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
                               >
+                                <AngleBadgeButton
+                                  angle={img.angle}
+                                  onClick={() => setAngleModal({ target: 'bottom', index: idx, currentAngle: img.angle || 'front' })}
+                                />
                                 <img
                                   src={img.preview}
                                   alt={`Bottom ${idx}`}
@@ -1527,6 +1608,10 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                                 key={image.id || index}
                                 className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
                               >
+                                <AngleBadgeButton
+                                  angle={image.angle}
+                                  onClick={() => setAngleModal({ target: 'accessory', index: index, currentAngle: image.angle || 'front' })}
+                                />
                                 <img
                                   src={image.preview}
                                   alt={`Accessory ${index + 1}`}
@@ -1683,6 +1768,10 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                               key={img.id || idx}
                               className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
                             >
+                              <AngleBadgeButton
+                                angle={img.angle}
+                                onClick={() => setAngleModal({ target: 'full', index: idx, currentAngle: img.angle || 'front' })}
+                              />
                               <img
                                 src={img.preview}
                                 alt={`Full ${idx}`}
@@ -1806,6 +1895,10 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       >
                         {(currentTask.shoesImages || []).length > 0 ? (
                           <div className="group relative w-full h-full min-h-[200px] flex items-center justify-center">
+                            <AngleBadgeButton
+                              angle={currentTask.shoesImages![0].angle}
+                              onClick={() => setAngleModal({ target: 'shoes', index: 0, currentAngle: currentTask.shoesImages![0].angle || 'front' })}
+                            />
                             <img
                               src={currentTask.shoesImages![0].preview}
                               alt="Shoe Single View"
@@ -2633,6 +2726,68 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
               >
                 <Download className="h-3.5 w-3.5" /> 下载高清原图
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ANGLE SELECTION MODAL POPUP */}
+      {angleModal && (
+        <div
+          className="fixed inset-0 z-[160] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+          onClick={() => setAngleModal(null)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl animate-in zoom-in-95 duration-200 dark:border-white/10 dark:bg-[#131a27]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
+                  <Camera className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-800 dark:text-white">选择商品视角打标</h4>
+                  <p className="text-[0.65rem] font-bold text-slate-400">帮助 AI 更精准识别服饰视角结构</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAngleModal(null)}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2.5">
+              {(['front', 'back', 'side', 'detail'] as ProductAngle[]).map((angleKey) => {
+                const cfg = ANGLE_CONFIG[angleKey];
+                const isSelected = angleModal.currentAngle === angleKey;
+                return (
+                  <button
+                    key={angleKey}
+                    type="button"
+                    onClick={() => {
+                      handleSetAngle(angleModal.target, angleModal.index, angleKey);
+                      setAngleModal(null);
+                    }}
+                    className={`flex items-center gap-2.5 rounded-2xl p-3 text-xs font-bold transition-all border cursor-pointer active:scale-95 ${
+                      isSelected
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-500/20 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500/60 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-200 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className={`h-3 w-3 rounded-full ${cfg.bgClass.split(' ')[0]}`} />
+                    <span className="flex-1 text-left font-black">{cfg.label}</span>
+                    {isSelected ? (
+                      <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <span className="text-[0.62rem] text-slate-400">选择</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

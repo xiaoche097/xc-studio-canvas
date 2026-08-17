@@ -684,13 +684,29 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       setVirseModels(models);
 
       const currentWorkspace = workspaces.find((workspace) => workspace.canvas_id === virseCanvasId) || workspaces[0];
+      const nextSpaceId = currentWorkspace?.space_id || virseSpaceId;
+      const nextCanvasId = currentWorkspace?.canvas_id || virseCanvasId;
       if (currentWorkspace) {
-        setVirseSpaceId(currentWorkspace.space_id);
-        setVirseCanvasId(currentWorkspace.canvas_id);
+        setVirseSpaceId(nextSpaceId);
+        setVirseCanvasId(nextCanvasId);
       }
+      const nextModel = models.length > 0 && !models.some((model) => model.id === virseModel)
+        ? models[0].id
+        : virseModel;
       if (models.length > 0 && !models.some((model) => model.id === virseModel)) {
-        setVirseModel(models[0].id);
+        setVirseModel(nextModel);
       }
+
+      // A successful Virse sync is immediately authoritative for image routing.
+      // Do not wait for the modal-wide Save button, otherwise the visible toggle
+      // and the provider read by image generation can disagree.
+      localStorage.setItem('virse_api_key', key);
+      localStorage.setItem('virse_base_url', activeBaseUrl);
+      localStorage.setItem('virse_enabled', String(virseEnabled));
+      localStorage.setItem('virse_space_id', nextSpaceId);
+      localStorage.setItem('virse_canvas_id', nextCanvasId);
+      localStorage.setItem('virse_model', nextModel);
+      window.dispatchEvent(new Event('api-settings-updated'));
 
       const displayName = account?.name || account?.username || account?.user?.name || account?.email || '账户已验证';
       const balance = account?.balance ?? account?.organization?.balance;
@@ -1452,7 +1468,12 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         </div>
                       </div>
                       <button
-                        onClick={() => setVirseEnabled(!virseEnabled)}
+                        onClick={() => {
+                          const nextEnabled = !virseEnabled;
+                          setVirseEnabled(nextEnabled);
+                          localStorage.setItem('virse_enabled', String(nextEnabled));
+                          window.dispatchEvent(new Event('api-settings-updated'));
+                        }}
                         className={`relative w-12 h-6 rounded-full transition-colors ${virseEnabled ? 'bg-violet-500' : 'bg-gray-300'}`}
                       >
                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${virseEnabled ? 'left-7' : 'left-1'}`} />
@@ -1642,7 +1663,12 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         </div>
                       </div>
                       <button
-                        onClick={() => setYunwuEnabled(!yunwuEnabled)}
+                        onClick={() => {
+                          const nextEnabled = !yunwuEnabled;
+                          setYunwuEnabled(nextEnabled);
+                          localStorage.setItem('yunwu_enabled', String(nextEnabled));
+                          window.dispatchEvent(new Event('api-settings-updated'));
+                        }}
                         className={`relative w-12 h-6 rounded-full transition-colors ${yunwuEnabled ? 'bg-brand-orange' : 'bg-gray-300'}`}
                       >
                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${yunwuEnabled ? 'left-7' : 'left-1'}`} />
@@ -1996,7 +2022,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                       <div className="min-w-0 flex-1">
                         <h4 className="text-base font-black text-gray-900 dark:text-white">文本 / Agent 服务</h4>
                         <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                          文本对话、提示词优化和图片分析使用这里选择的中转；图片生成仍由 {virseEnabled ? 'Virse' : '当前图像服务'} 处理。
+                          文本对话、提示词优化和图片分析使用这里选择的中转；图片生成由 {virseEnabled ? 'Virse（千问除外）' : '当前图像服务'} 处理。
                         </p>
                         <select
                           value={textApiProvider}
@@ -2011,7 +2037,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         </select>
                         {virseEnabled && (
                           <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600 dark:bg-violet-500/10 dark:text-violet-300">
-                            当前能力路由：图像 → Virse；文本 / Agent → {textApiProvider === 'auto' ? '自动选择' : textApiProvider}
+                            当前能力路由：图像 → Virse（千问 → 千问 API）；文本 / Agent → {textApiProvider === 'auto' ? '自动选择' : textApiProvider}
                           </div>
                         )}
                       </div>

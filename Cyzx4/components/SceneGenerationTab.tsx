@@ -116,6 +116,7 @@ export interface SceneUploadedImage {
   mime: string;
   base64: string;
   preview: string;
+  role?: 'main' | 'matching';
 }
 
 export interface SceneHeroAnalysis {
@@ -418,8 +419,9 @@ const buildAnalysisPrompt = (
   return `
 You are an expert commercial scene director and product analyst.
 
-  Image 1 is the PRIMARY AND SOLE TARGET-PRODUCT IDENTITY AUTHORITY. Identify the requested product only from Image 1.
-  ${record.productImages.length > 1 ? `Images 2-${record.productImages.length} are SECONDARY OUTFIT/STYLING CONTEXT only. They may show coordinating tops, bottoms, shoes, accessories or other non-target SKUs. Never merge those items into the target product, never let them redefine its category/design/color/material/construction, and never give them equal authority. They may only clarify a target-product detail when it is visibly the same detail and fully consistent with Image 1.` : 'No secondary styling images were provided.'}
+  Image 1 is the PRIMARY MAIN PRODUCT (主产品 - HIGHEST IDENTITY WEIGHT AUTHORITY). Identify the primary hero product design, silhouette, brand features, color and material from Image 1.
+  ${record.productImages.length > 1 ? `Images 2-${record.productImages.length} are MATCHING PRODUCTS / ACCESSORIES (搭配产品 / 搭配素材).
+  MANDATORY COMPOSITION CONTRACT: ALL user-provided product images (Image 1 plus Images 2-${record.productImages.length}) MUST VISUALLY APPEAR IN THE FINAL GENERATED SCENE TOGETHER. Do NOT omit any uploaded matching product or accessory. Position the matching products naturally alongside or on the model/scene (e.g., worn as matching garments, carried as bags/accessories, or placed naturally in the environment).` : 'No additional matching products were provided.'}
 ${selectedModelText}
 ${refSceneText}
 ${instagramText}
@@ -518,60 +520,60 @@ const buildGenerationPrompt = (
   const styleEnd = styleStart + styleReferenceCount - 1;
 
   const referenceMap = [
-    'Image 1 = the sole target-product identity authority; preserve only this product\'s exact design and construction.',
+    'Image 1 = Primary product identity (主产品 - highest weight authority).',
     selectedModel && modelStart && modelEnd
-      ? `Images ${modelStart}-${modelEnd} = two copies of ONE selected adult model (${selectedModel.name}); use only this exact person's face, hair, skin and body proportions. Identity is fixed, pose is free.`
+      ? `Images ${modelStart}-${modelEnd} = Selected model identity anchor (${selectedModel.name}).`
       : '',
     record.referenceSceneImage && sceneIndex
-      ? `Image ${sceneIndex} = scene and performance anchor; exactly preserve its camera geometry, structural layout, materials and lighting.${isHeadlessCrop ? ' Transfer only visible torso/hip/leg/hand rhythm because the head is outside the frame.' : ' Transfer the reference person\'s gaze direction, attention target, head angle, expression energy and candid body rhythm.'} Do not copy that person's identity, clothing or accessories.`
+      ? `Image ${sceneIndex} = Scene structure and performance reference.`
       : '',
     secondaryProductStart && secondaryProductEnd
-      ? `Images ${secondaryProductStart}-${secondaryProductEnd} = low-priority outfit/styling context only. Other garments, shoes and accessories in these images are separate SKUs: do not merge them into, substitute for, or override the target product from Image 1.`
+      ? `Images ${secondaryProductStart}-${secondaryProductEnd} = Mandatory matching products/accessories (搭配产品). ALL MUST be visible in the scene.`
       : '',
     record.instagramReferences.length
-      ? `Images ${instagramStart}-${instagramEnd} = mood references only: palette, light and candid energy.`
+      ? `Images ${instagramStart}-${instagramEnd} = Instagram lifestyle mood reference.`
       : '',
     styleReferenceCount
-      ? `Images ${styleStart}-${styleEnd} = color and lighting references only.`
+      ? `Images ${styleStart}-${styleEnd} = Palette and lighting reference.`
       : '',
   ].filter(Boolean).map((line) => `- ${line}`).join('\n');
+
   const styleDirection = styleName === '默认平台风格'
-    ? 'photorealistic lifestyle fashion photography, premium commercial editorial quality'
+    ? 'photorealistic lifestyle fashion photography, commercial editorial quality'
     : `${styleName}; ${stylePrompt}`;
   const stablePose = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
-    ? ' Use a natural uncrossed stance or stride with separated feet and believable ground contact.'
+    ? ' Natural uncrossed stance with separated feet.'
     : '';
   const sceneLockRules = analysis.referenceSceneRules.slice(0, 4).join('; ');
   const environmentDirection = record.referenceSceneImage && sceneIndex
-    ? `SCENE LOCK — reconstruct the environment from Image ${sceneIndex}, not a merely similar location. Match its camera position and perspective, crop boundaries, horizon/vanishing lines, architecture geometry, wall/floor junctions, distinctive panel seams, surface materials, object placement, spatial depth, light direction, shadow geometry and color temperature. Scene analysis: ${analysis.backgroundComposition}.${sceneLockRules ? ` Verifiable locks: ${sceneLockRules}.` : ''}`
+    ? `Reconstruct environment from Image ${sceneIndex}: ${analysis.backgroundComposition}.${sceneLockRules ? ` Verifiable locks: ${sceneLockRules}.` : ''}`
     : analysis.backgroundComposition;
   const performanceDirection = record.referenceSceneImage && sceneIndex
     ? isHeadlessCrop
-      ? `Performance: the head is outside the final frame. From Image ${sceneIndex}, transfer only visible torso/hip orientation, weight distribution, leg rhythm, arm/hand placement and fabric movement. Do not describe or generate gaze, head angle or facial expression. ${analysis.modelMoment}`
-      : `Performance: follow the reference person's gaze direction, attention target, head turn/tilt, expression energy and candid body rhythm from Image ${sceneIndex}; apply them to the selected model without changing identity. ${analysis.modelMoment}`
+      ? `Performance: ${analysis.modelMoment}`
+      : `Performance: Follow reference person gaze and body energy from Image ${sceneIndex}. ${analysis.modelMoment}`
     : `Performance: ${analysis.modelMoment}`;
-  const humanDetailDirection = isHeadlessCrop
-    ? 'Realistic hand anatomy and natural fabric contact'
-    : 'Natural skin texture and realistic facial anatomy';
 
   return `
-Create one ${record.aspectRatio} premium, photorealistic commercial lifestyle fashion photograph.
+Create a ${record.aspectRatio} photorealistic commercial lifestyle fashion image.
 
-REFERENCE MAP
+[REFERENCE MAP]
 ${referenceMap}
 
-SUBJECT
-${selectedModel && modelStart && modelEnd ? `The exact selected model from Images ${modelStart}-${modelEnd}` : analysis.modelPersonaPreset} wears the exact ${analysis.productCategory} whose identity is defined only by Image 1: ${analysis.productIdentity} Material and color: ${analysis.materialColor}. Keep the garment's silhouette, length, fit, fabric texture, trims and construction unchanged.${secondaryProductStart && secondaryProductEnd ? ` Images ${secondaryProductStart}-${secondaryProductEnd} must not change the target product.` : ''}
+[SUBJECT & PRODUCT]
+Model: ${selectedModel && modelStart && modelEnd ? `Exact model from Images ${modelStart}-${modelEnd}` : analysis.modelPersonaPreset}.
+Main Product (Image 1): ${analysis.productCategory} - ${analysis.productIdentity}. Material & Color: ${analysis.materialColor}. Preserve exact design.
+${secondaryProductStart && secondaryProductEnd ? `Matching Products (Images ${secondaryProductStart}-${secondaryProductEnd}): MUST ALL BE INCLUDED AND VISIBLE in the scene alongside the main product.` : ''}
 
-ACTION AND ENVIRONMENT
-${analysis.imagePlans[index] || analysis.modelMoment}${stablePose}
+[SCENE & ACTION]
+Action: ${analysis.imagePlans[index] || analysis.modelMoment}${stablePose}
 ${performanceDirection}
-${environmentDirection}
+Environment: ${environmentDirection}
 
-LIGHT, CAMERA AND STYLE
-${cropConfig.promptRule} ${analysis.spatialDepth}. ${analysis.lightAndAir}. ${styleDirection}. ${analysis.filmTexture}. ${humanDetailDirection}, crisp garment detail, authentic candid moment, professional high-resolution photography.
+[CAMERA & LIGHTING]
+${cropConfig.promptRule}. ${analysis.spatialDepth}. ${analysis.lightAndAir}. Style: ${styleDirection}. ${analysis.filmTexture}.
 
-${record.userHint.trim() ? `USER DIRECTION\n${record.userHint.trim()}` : ''}
+${record.userHint.trim() ? `[USER REQUEST]\n${record.userHint.trim()}` : ''}
 `.trim();
 };
 
@@ -878,6 +880,7 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
   const [isDraggingProduct, setIsDraggingProduct] = useState(false);
   const [draggedProductImageId, setDraggedProductImageId] = useState<string | null>(null);
   const [productDropTargetId, setProductDropTargetId] = useState<string | null>(null);
+  const [productRoleModalId, setProductRoleModalId] = useState<string | null>(null);
 
   const activateUploadKind = useCallback((kind: 'product' | 'refScene' | 'instagram') => {
     activeUploadKindRef.current = kind;
@@ -947,6 +950,36 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
   const patchAnalysis = useCallback((patch: Partial<SceneHeroAnalysis>) => {
     updateRecord(activeRecordId, (record) => record.analysis ? { ...record, analysis: { ...record.analysis, ...patch } } : record);
   }, [activeRecordId, updateRecord]);
+
+  const setProductRole = useCallback((imageId: string, role: 'main' | 'matching') => {
+    updateRecord(activeRecord.id, (record) => {
+      const targetIdx = record.productImages.findIndex((img) => img.id === imageId);
+      if (targetIdx < 0) return record;
+
+      let updatedList = record.productImages.map((img) => ({
+        ...img,
+        role: (img.id === imageId ? role : (role === 'main' ? 'matching' : (img.role || 'matching'))) as 'main' | 'matching',
+      }));
+
+      if (role === 'main') {
+        const [targetImg] = updatedList.splice(targetIdx, 1);
+        updatedList.unshift({ ...targetImg, role: 'main' });
+      } else {
+        if (!updatedList.some((img) => img.role === 'main') && updatedList.length > 0) {
+          updatedList[0] = { ...updatedList[0], role: 'main' };
+        }
+      }
+
+      return {
+        ...record,
+        productImages: updatedList,
+        analysis: null,
+        results: [],
+        step: 'input',
+        error: '',
+      };
+    });
+  }, [activeRecord.id, updateRecord]);
 
   const processProductFiles = useCallback(async (files: File[]) => {
     if (isBusy) return;
@@ -1440,69 +1473,85 @@ Return ONLY JSON:
                   </span>
                 )}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-pastel-muted">第 1 张是唯一产品身份主图；其余图片仅作搭配参考，不参与定义产品。可直接拖动调整顺序。</p>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">点击图上圆形角标可切换【主】与【搭】。所有已上传产品均将 100% 同框出图。</p>
             </div>
           </div>
           <span className="text-xs font-bold text-pastel-muted">{activeRecord.productImages.length}/{MAX_PRODUCT_IMAGES}</span>
         </div>
         {activeRecord.productImages.length > 0 && (
           <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-5">
-            {activeRecord.productImages.map((image, index) => (
-              <div
-                key={image.id}
-                draggable={!isBusy}
-                onDragStart={(event) => {
-                  event.stopPropagation();
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', image.id);
-                  setDraggedProductImageId(image.id);
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.dataTransfer.dropEffect = 'move';
-                  setProductDropTargetId(image.id);
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const sourceId = event.dataTransfer.getData('text/plain') || draggedProductImageId;
-                  if (sourceId) reorderProductImages(sourceId, image.id);
-                  setDraggedProductImageId(null);
-                  setProductDropTargetId(null);
-                }}
-                onDragEnd={() => {
-                  setDraggedProductImageId(null);
-                  setProductDropTargetId(null);
-                }}
-                className={`group relative aspect-square overflow-hidden rounded-xl border bg-pastel-bg cursor-grab active:cursor-grabbing transition ${
-                  productDropTargetId === image.id && draggedProductImageId !== image.id
-                    ? 'border-[#2d6bb1] ring-2 ring-[#2d6bb1]/30'
-                    : index === 0
-                      ? 'border-[#2d6bb1] ring-1 ring-[#2d6bb1]/20'
-                      : 'border-pastel-border'
-                } ${draggedProductImageId === image.id ? 'opacity-50' : ''}`}
-              >
-                <img
-                  src={image.preview}
-                  alt={image.name}
-                  draggable={false}
-                  onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
-                  className="h-full w-full object-cover transition hover:scale-105"
-                  title="点击放大预览大图"
-                />
-                <span className={`absolute bottom-1 left-1 rounded px-1.5 py-1 text-[0.55rem] font-black text-white pointer-events-none ${index === 0 ? 'bg-[#17243c]' : 'bg-slate-500/85'}`}>{index === 0 ? '唯一产品主图' : '搭配参考'}</span>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
-                  className="absolute left-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#17243c]/80 text-white opacity-0 group-hover:opacity-100 transition"
-                  title="放大预览"
+            {activeRecord.productImages.map((image, index) => {
+              const isMain = (image.role || (index === 0 ? 'main' : 'matching')) === 'main';
+              return (
+                <div
+                  key={image.id}
+                  draggable={!isBusy}
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', image.id);
+                    setDraggedProductImageId(image.id);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.dataTransfer.dropEffect = 'move';
+                    setProductDropTargetId(image.id);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const sourceId = event.dataTransfer.getData('text/plain') || draggedProductImageId;
+                    if (sourceId) reorderProductImages(sourceId, image.id);
+                    setDraggedProductImageId(null);
+                    setProductDropTargetId(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedProductImageId(null);
+                    setProductDropTargetId(null);
+                  }}
+                  className={`group relative aspect-square overflow-hidden rounded-xl border bg-pastel-bg cursor-grab active:cursor-grabbing transition ${
+                    productDropTargetId === image.id && draggedProductImageId !== image.id
+                      ? 'border-[#2d6bb1] ring-2 ring-[#2d6bb1]/30'
+                      : isMain
+                        ? 'border-amber-500 ring-2 ring-amber-500/30'
+                        : 'border-indigo-300 dark:border-white/10'
+                  } ${draggedProductImageId === image.id ? 'opacity-50' : ''}`}
                 >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                </button>
-                <button type="button" disabled={isBusy} onClick={(e) => { e.stopPropagation(); removeProductImage(image.id); }} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#17243c]/85 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`删除${image.name}`}><X className="h-3.5 w-3.5" /></button>
-              </div>
-            ))}
+                  <img
+                    src={image.preview}
+                    alt={image.name}
+                    draggable={false}
+                    onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
+                    className="h-full w-full object-cover transition hover:scale-105"
+                    title="点击放大预览大图"
+                  />
+                  {/* 黑色 60% 透明度圆角矩形打标角标 (主 / 搭) */}
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProductRoleModalId(image.id);
+                    }}
+                    className="absolute left-1.5 top-1.5 z-10 flex min-h-[26px] min-w-[28px] items-center justify-center rounded-lg bg-black/60 px-2 py-0.5 text-xs font-black text-white shadow-md border border-white/20 backdrop-blur-xs cursor-pointer transition hover:bg-black/80 active:scale-95"
+                    title={`点击切换产品属性 (当前: ${isMain ? '主产品' : '搭配产品'})`}
+                  >
+                    <span>{isMain ? '主' : '搭'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setSelectedPreview(image.preview); }}
+                    className="absolute left-1.5 bottom-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#17243c]/80 text-white opacity-0 group-hover:opacity-100 transition"
+                    title="放大预览"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                  </button>
+                  <button type="button" disabled={isBusy} onClick={(e) => { e.stopPropagation(); removeProductImage(image.id); }} className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#17243c]/85 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition hover:bg-red-500" aria-label={`删除${image.name}`}><X className="h-3.5 w-3.5" /></button>
+                </div>
+              );
+            })}
           </div>
         )}
         {activeRecord.productImages.length < MAX_PRODUCT_IMAGES && (
@@ -2275,6 +2324,78 @@ Return ONLY JSON:
           onDeleteModel={handleDeleteModelPersona}
           onClose={() => setIsModelModalOpen(false)}
         />
+      )}
+      {productRoleModalId && (
+        <div
+          className="fixed inset-0 z-[160] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+          onClick={() => setProductRoleModalId(null)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl animate-in zoom-in-95 duration-200 dark:border-white/10 dark:bg-[#131a27]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-800 dark:text-white">设置产品打标身份</h4>
+                  <p className="text-[0.65rem] font-bold text-slate-400">控制生成时产品的权重与搭配组合</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProductRoleModalId(null)}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setProductRole(productRoleModalId, 'main');
+                  setProductRoleModalId(null);
+                }}
+                className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 text-left transition hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-950/40 cursor-pointer active:scale-95"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white font-black">
+                  🌟
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-black text-slate-900 dark:text-white">主产品 (最高权重)</span>
+                    <span className="rounded bg-amber-500/20 px-1.5 py-0.2 text-[0.6rem] font-bold text-amber-700 dark:text-amber-300">核心主体</span>
+                  </div>
+                  <p className="mt-0.5 text-[0.65rem] text-slate-500 dark:text-slate-400">作为唯一核心拍摄主体，确定材质、设计与分类</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setProductRole(productRoleModalId, 'matching');
+                  setProductRoleModalId(null);
+                }}
+                className="flex items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 text-left transition hover:bg-indigo-100 dark:border-indigo-500/30 dark:bg-indigo-950/40 cursor-pointer active:scale-95"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white font-black">
+                  🎒
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-black text-slate-900 dark:text-white">搭配产品 (必须出图)</span>
+                    <span className="rounded bg-indigo-500/20 px-1.5 py-0.2 text-[0.6rem] font-bold text-indigo-700 dark:text-indigo-300">强制同框</span>
+                  </div>
+                  <p className="mt-0.5 text-[0.65rem] text-slate-500 dark:text-slate-400">作为搭配单品与主产品同框合影，AI 将确保100%出现在画面中</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {selectedPreview && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-4" onClick={() => setSelectedPreview(null)}><button type="button" onClick={() => setSelectedPreview(null)} className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white" aria-label="关闭预览"><X className="h-6 w-6" /></button><img src={selectedPreview} alt="生成场景图大图预览" className="max-h-[88vh] max-w-full rounded-xl object-contain" /></div>}
     </div>

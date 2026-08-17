@@ -77,7 +77,12 @@ const getImageGenerationContext = (
   aspectRatio: string = '1:1',
   resolution: string = '1K'
 ) => {
-  const routeThroughCentralImagePipeline = modelId === QWEN_IMAGE_MODEL_ID || isVirseImageRoutingEnabled();
+  const virseEnabled = isVirseImageRoutingEnabled();
+  const virseApiKey = localStorage.getItem('virse_api_key')?.trim() || '';
+  if (virseEnabled && !virseApiKey) {
+    throw new Error('Virse 已启用但 API Key 为空。为避免错误使用其他图片服务，本次生成已停止。');
+  }
+  const routeThroughCentralImagePipeline = modelId === QWEN_IMAGE_MODEL_ID || virseEnabled;
   if (routeThroughCentralImagePipeline) {
     // Compatibility adapter for legacy image workflows that still expect a
     // GoogleGenAI-shaped client. All image requests are redirected through the
@@ -120,7 +125,7 @@ const getImageGenerationContext = (
     return {
       ai: virseImageClient,
       config: {
-        apiKey: localStorage.getItem('virse_api_key') || '',
+        apiKey: virseApiKey,
         isYunwu: false,
         isPlato: false,
         isJijing: false,
@@ -1431,15 +1436,21 @@ export const generateImageToImage = async (
   } = options;
   throwIfAborted(signal);
   onStatus?.('submitting');
+  // Qwen is an explicit provider exception: Virse does not expose this model,
+  // so selecting it must continue to use the dedicated Qwen image API.
   if (modelId === QWEN_IMAGE_MODEL_ID) {
-    return generateWithQwenImage(images, prompt, {
-      aspectRatio,
-      resolution,
-      sampleCount,
-      negativePrompt,
-      signal,
-      onStatus,
-    });
+    try {
+      return await generateWithQwenImage(images, prompt, {
+        aspectRatio,
+        resolution,
+        sampleCount,
+        negativePrompt,
+        signal,
+        onStatus,
+      });
+    } catch (error: any) {
+      throw new Error(`千问3.0pro API：${error?.message || String(error)}`);
+    }
   }
   const virseEnabled = isVirseImageRoutingEnabled();
   const virseApiKey = localStorage.getItem('virse_api_key')?.trim() || '';
@@ -1849,6 +1860,30 @@ ${forcedPrompt}`;
 - Change multiple pose landmarks when possible: leg stance, knee bend, hip angle, torso rotation, shoulder line, head direction, arm/hand placement, walking/sitting/leaning geometry, and subject rhythm.
 - Product fidelity must not shrink the pose change. Adapt the garment naturally onto the new body geometry.
 - Keep anatomy natural, physically plausible, and commercial.
+
+[ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
+${gptRatioHint}
+${forcedPrompt}`;
+        } else if (workflowHint === 'photography-preset') {
+          gptPrompt = `[ROLE: Senior Film Colorist, Camera-Look Developer and Fashion Photo Retoucher]
+[TASK: Perform a clearly visible in-place camera and film preset transformation on Image 1]
+[INPUT ROUTING]
+- Image 1 is the only content source and the immutable source of person, garment, product, pose, scene, architecture, object placement and composition.
+- The user's photography preset specification controls the new exposure, lighting response, white balance, color science, tonal curve, optical rendering and film grain.
+
+[MANDATORY VISIBLE EDIT]
+- Do NOT return Image 1 unchanged or nearly unchanged. A near-identical result is a failed edit.
+- Reprocess the complete frame. The before/after difference must be obvious at thumbnail size.
+- Visibly rebuild white balance, highlight warmth, shadow hue and density, contrast curve, saturation hierarchy, blue/green response, highlight rolloff, micro-contrast, optical softness and organic film grain according to the user preset.
+- Content lock does NOT lock the source exposure, lighting, color grade, contrast, digital sharpness or noise pattern. Those properties must change.
+
+[CONTENT FIDELITY]
+- Preserve exact identity, face, body, hair, garment design/color/material, product structure/logo, pose, crop, perspective, background structure and every object position.
+- Do not add, remove, move, redesign or replace visible content.
+- Make the result look like the exact same captured moment developed through the selected camera and film system, not like a copied source file and not like a new scene.
+
+[FINAL SELF-CHECK]
+Compare the output with Image 1 before returning it. If the global color, light, tonal curve and grain are not clearly distinguishable, strengthen the photographic treatment while preserving content.
 
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
@@ -2608,6 +2643,34 @@ ${forcedPrompt}`;
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}
         `
+                  : workflowHint === 'photography-preset'
+                    ? `
+        **ROLE**: Senior Film Colorist, Camera-Look Developer & Fashion Photo Retoucher.
+        **TASK**: Apply a clearly visible in-place camera and film preset transformation to Image 1.
+
+        **INPUT ROUTING**:
+        - Image 1 is the ONLY content source.
+        - Preserve its exact person, identity, face, body, hair, garment design and color, product details and logos, pose, crop, perspective, architecture, background structure, object placement and composition.
+        - The USER PROMPT is the authoritative target for exposure, relighting, white balance, color science, tonal curve, optical response and film grain.
+
+        **MANDATORY VISIBLE TRANSFORMATION**:
+        - Do NOT return Image 1 unchanged or nearly unchanged. A near-identical result is a failed edit.
+        - Reprocess the entire frame. The before/after difference must be obvious at thumbnail size.
+        - Visibly change white balance, highlight warmth, shadow hue/density, contrast curve, saturation hierarchy, blue/green rendering, highlight rolloff, micro-contrast, optical softness and organic grain according to the selected preset.
+        - Content preservation does NOT preserve the source lighting, exposure, color grade, digital sharpness, contrast or noise pattern. These photographic properties MUST change.
+        - Do not merely copy pixels, add a weak overlay or return the source with imperceptible adjustments.
+
+        **CONTENT FIDELITY**:
+        - Do not add, remove, move, redesign, restyle or replace any visible subject, garment, product, prop or scene element.
+        - Camera/lens emulation changes optical rendering and tonal response without changing the locked composition.
+        - The result must look like the exact same captured moment was visibly developed through the selected camera and film system.
+
+        **FINAL SELF-CHECK**:
+        Compare the output with Image 1. If its global light, color, tonal curve and grain are not clearly distinguishable, intensify the preset treatment before returning while keeping content fixed.
+
+        **USER PROMPT**: ${forcedPrompt}
+        ${negativePromptLine}
+        `
                   : workflowHint === 'lighting-replication'
                     ? `
         **ROLE**: Senior Fashion Lighting Retoucher & Commercial Colorist.
@@ -2802,6 +2865,8 @@ ${forcedPrompt}`;
               responseModalities: [Modality.IMAGE],
               ...(workflowHint === 'pose-replication-lock'
                 ? { temperature: 0.25 }
+                : workflowHint === 'photography-preset'
+                  ? { temperature: 0.3 }
                 : workflowHint === 'model-original-paste-back'
                   ? { temperature: 0.15 }
                   : workflowHint === 'single-item-try-on'
@@ -2961,7 +3026,7 @@ export const generateInpainting = async (
     ];
     return generateImageToImage(references, `局部重绘任务：${prompt}`, {
       aspectRatio: options.aspectRatio || AspectRatio.SQUARE,
-      resolution: options.resolution || '2K',
+      resolution: options.resolution || ImageResolution.RES_2K,
       modelId: options.modelId,
       signal,
       workflowHint: 'inpainting',
@@ -5544,6 +5609,7 @@ export interface UniversalTryOnProductImage {
   base64: string;
   mime: string;
   role: UniversalTryOnProductRole;
+  angle?: 'front' | 'back' | 'side' | 'detail';
 }
 
 export const generateUniversalTryOn = async (
@@ -5575,8 +5641,17 @@ export const generateUniversalTryOn = async (
     accessory: 'ACCESSORY reference (shoes, bag, hat, belt or jewelry; do not treat as clothing)',
     product: 'PRODUCT reference',
   };
+  const angleLabels: Record<string, string> = {
+    front: '正面 (FRONT VIEW)',
+    back: '背面 (BACK VIEW)',
+    side: '侧面 (SIDE / 3/4 VIEW)',
+    detail: '细节 (DETAIL VIEW)',
+  };
   const inputImageMap = productImages
-    .map((image, index) => `- Image ${firstProductImageIndex + index}: ${productRoleLabels[image.role]}`)
+    .map((image, index) => {
+      const angleStr = image.angle ? ` [Product Angle: ${angleLabels[image.angle] || image.angle}]` : '';
+      return `- Image ${firstProductImageIndex + index}: ${productRoleLabels[image.role]}${angleStr}`;
+    })
     .join('\n');
   const qualityInstruction = isCroppingLocked
     ? QUALITY_BOOSTERS.RETOUCHING

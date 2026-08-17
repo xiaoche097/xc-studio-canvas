@@ -178,6 +178,7 @@ export interface SearchResult {
 }
 
 export type WorkflowHint = 
+  | 'inpainting'
   | 'pose-transfer' 
   | 'pose-fission'
   | 'storyboard-grid'
@@ -199,6 +200,7 @@ export type WorkflowHint =
   | 'listing-optimization'
   | 'face-lock'
   | 'lighting-replication'
+  | 'photography-preset'
   | 'reference-refinement'
   | 'structural-repair-v2'
   | 'model-transfer'
