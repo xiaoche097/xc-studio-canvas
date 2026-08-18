@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles, Brain, ArrowLeft, Send, Image as ImageIcon, X, Copy, Check,
   ShieldCheck, Loader2, Settings, Zap, ChevronDown, ChevronRight, Clock, Bookmark,
-  Terminal, MoreVertical, Plus, Mic, PanelLeftClose, PanelLeftOpen, Trash2, Edit3
+  Terminal, Plus, Mic, PanelLeftClose, PanelLeftOpen, Trash2, Github, CheckCircle2, Code2
 } from 'lucide-react';
 import { sendChatMessageStream, urlToBase64 } from '../XcAISTUDIO-main/services/geminiService';
 import {
@@ -40,10 +40,10 @@ interface SparkChatStudioProps {
 
 const MODEL_OPTIONS = [
   { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', badge: '默认/推荐', desc: '全维度智能推理与逻辑生成' },
+  { id: 'claude-code', name: 'Claude Code Agent', badge: '⚡ Agentic', desc: '搭载 xiaoche0907/claude-code Agent 架构' },
   { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', badge: 'Fast', desc: '极速响应与商业图文规划' },
   { id: 'grok-4.6', name: 'Grok 4.6', badge: 'New', desc: '跨领域实时大语言推理' },
   { id: 'claude-opus-5', name: 'Claude Opus 5', badge: 'Pro', desc: '高阶复杂推理与商业策略' },
-  { id: 'claude-code', name: 'Claude Code Agent', badge: '⚡ Agentic', desc: '深度 Task Planning 与 Preflight 自检' },
 ];
 
 export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
@@ -137,8 +137,8 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
         {
           id: 'welcome-msg',
           role: 'model',
-          text: '你好！我是 **XcAI Spark Agent**。无论是商业视觉创意策划、品牌主图拆解，还是搭载 **Claude Code Agent** 进行深度任务拆解，请随时告诉我！',
-          thinkingSummary: '根据系统预设初值，已完成视觉策划与代码智能力场环境校验。',
+          text: '你好！我是 **XcAI Spark Agent**，已成功搭载 **[claude-code Agent 架构](https://github.com/xiaoche0907/claude-code.git)**。\n\n无论商业视觉创意策划、品牌主图拆解，还是基于 **Task Planning & Preflight 自检** 的复杂代码工程，请随时告诉我！',
+          thinkingSummary: '系统已完成启动自检，全维度 LLM 推理与 Claude Code Agent 插件链均处于在线状态。',
           timestamp: Date.now(),
         },
       ]);
@@ -152,7 +152,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
       {
         id: `welcome-${newId}`,
         role: 'model',
-        text: '你好！我是 **XcAI Spark Agent**。请随时在下方描述您的任务或发送需求！',
+        text: '你好！我是 **XcAI Spark Agent**。请随时在下方描述您的任务或发送指令！',
         timestamp: Date.now(),
       },
     ]);
@@ -224,7 +224,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
       id: modelMessageId,
       role: 'model',
       text: '',
-      thinkingSummary: '正在分析用户查询意图与核心需求，并规划最优渲染逻辑...',
+      thinkingSummary: '正在分析用户查询意图与核心需求，并进行 Preflight 自检推演...',
       isStreaming: true,
       timestamp: Date.now(),
     };
@@ -243,7 +243,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
               ? {
                   ...msg,
                   text: claudeRes.mainContent,
-                  thinkingSummary: claudeRes.thinkingSummary || '已完成 Preflight 环境依赖检查与 Task Planning 指令推演。',
+                  thinkingSummary: claudeRes.thinkingSummary || 'Claude Code 已完成 Preflight 参数与系统依赖推演。',
                   claudeCodePlan: claudeRes,
                   isStreaming: false,
                 }
@@ -272,7 +272,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
           },
           {
             systemInstruction:
-              'You are XcAI Spark Agent, an elite AI creative director & engineering assistant. Provide ultra-clear, production-grade responses in beautifully formatted Simplified Chinese Markdown.',
+              'You are XcAI Spark Agent, powered by Claude Code Agentic principles. Provide ultra-clear, production-grade responses in beautifully formatted Simplified Chinese Markdown.',
           }
         );
 
@@ -282,7 +282,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
               ? {
                   ...msg,
                   text: fullStreamed,
-                  thinkingSummary: '分析完成，已成功生成可落地的结构化规划与构图指导方案。',
+                  thinkingSummary: '分析完成，已生成结构化决策与执行指令。',
                   isStreaming: false,
                 }
               : msg
@@ -296,7 +296,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
             ? {
                 ...msg,
                 text: `⚠️ **请求出错了**：${error?.message || '未知连接错误，请稍后重试。'}`,
-                thinkingSummary: '解析链路中断，已捕获异常。',
+                thinkingSummary: '异常中断，已捕获错误跟踪栈。',
                 isStreaming: false,
               }
             : msg
@@ -314,10 +314,24 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
     }
   };
 
-  const renderFormattedMarkdown = (text: string) => {
-    const lines = text.split('\n');
+  // High-End Rich Markdown Formatter with IDE Syntax Windows & Inline Monospace
+  const formatInlineStyles = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-bold text-amber-300">{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return <code key={i} className="px-1.5 py-0.5 rounded bg-[#28292A] text-amber-300 font-mono text-[11px] border border-white/10">{part.slice(1, -1)}</code>;
+      }
+      return part;
+    });
+  };
+
+  const renderTextParagraphs = (raw: string, keyPrefix: string) => {
+    const lines = raw.split('\n');
     return lines.map((line, idx) => {
-      const key = `line-${idx}`;
+      const key = `${keyPrefix}-${idx}`;
       if (line.startsWith('# ')) {
         return (
           <h1 key={key} className="text-base font-black text-slate-100 mt-4 mb-2 border-b border-white/10 pb-1.5">
@@ -333,11 +347,19 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
           </h2>
         );
       }
+      if (line.startsWith('### ')) {
+        return (
+          <h3 key={key} className="text-xs font-bold text-purple-300 mt-2 mb-1 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+            {line.slice(4)}
+          </h3>
+        );
+      }
       if (line.startsWith('- ') || line.startsWith('* ')) {
         return (
           <div key={key} className="flex items-start gap-2 text-xs text-slate-300 leading-relaxed my-1 pl-2">
             <span className="text-amber-400 text-sm leading-none mt-0.5">•</span>
-            <span className="flex-1">{line.slice(2)}</span>
+            <span className="flex-1">{formatInlineStyles(line.slice(2))}</span>
           </div>
         );
       }
@@ -347,7 +369,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
           return (
             <div key={key} className="flex items-start gap-2 text-xs text-slate-300 leading-relaxed my-1 pl-2">
               <span className="text-amber-400 font-mono text-[11px] font-bold shrink-0">{numMatch[1]}.</span>
-              <span className="flex-1">{numMatch[2]}</span>
+              <span className="flex-1">{formatInlineStyles(numMatch[2])}</span>
             </div>
           );
         }
@@ -355,13 +377,67 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
       if (!line.trim()) return <div key={key} className="h-1.5" />;
       return (
         <p key={key} className="text-xs text-slate-200 leading-relaxed my-1">
-          {line}
+          {formatInlineStyles(line)}
         </p>
       );
     });
   };
 
+  const renderFormattedMarkdown = (text: string) => {
+    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = codeBlockRegex.exec(text)) !== null) {
+      const precedingText = text.slice(lastIndex, match.index);
+      if (precedingText) {
+        parts.push(renderTextParagraphs(precedingText, `text-${lastIndex}`));
+      }
+
+      const lang = match[1] || 'code';
+      const codeContent = match[2].trim();
+      const codeId = `code-${match.index}`;
+
+      parts.push(
+        <div key={codeId} className="my-3 rounded-xl overflow-hidden border border-white/10 bg-[#18181A] shadow-xl">
+          <div className="flex items-center justify-between px-3.5 py-2 bg-[#202124] border-b border-white/5 text-[11px] text-zinc-400 font-mono">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500/80"></span>
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></span>
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500/80"></span>
+              <span className="ml-1 font-bold text-amber-400 uppercase flex items-center gap-1">
+                <Code2 className="w-3 h-3 text-amber-400" />
+                {lang}
+              </span>
+            </div>
+            <button
+              onClick={() => handleCopyText(codeId, codeContent)}
+              className="flex items-center gap-1 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
+            >
+              {copiedId === codeId ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              <span>{copiedId === codeId ? '已复制' : '复制代码'}</span>
+            </button>
+          </div>
+          <pre className="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed">
+            <code>{codeContent}</code>
+          </pre>
+        </div>
+      );
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    const remainingText = text.slice(lastIndex);
+    if (remainingText) {
+      parts.push(renderTextParagraphs(remainingText, `text-${lastIndex}`));
+    }
+
+    return parts;
+  };
+
   const activeModelObj = MODEL_OPTIONS.find((m) => m.id === selectedModel) || MODEL_OPTIONS[0];
+  const activePluginObj = CLAUDE_CODE_PLUGINS.find((p) => p.id === selectedPluginId) || CLAUDE_CODE_PLUGINS[0];
   const currentSessionTitle = sessions.find((s) => s.id === currentSessionId)?.title || '通用智能创意策划';
   const latestUserImage = messages.filter((m) => m.role === 'user' && m.images && m.images.length > 0).pop()?.images?.[0];
 
@@ -373,7 +449,7 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
         <div className="w-14 h-full flex flex-col items-center justify-between py-4 border-r border-white/5 bg-[#131314]">
           <div className="flex flex-col items-center gap-5">
             {/* Gemini Multi-color Spark Icon */}
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-[#4285F4] via-[#DB4437] to-[#F4B400] p-0.5 shadow-md flex items-center justify-center cursor-pointer hover:scale-105 transition-transform" title="XcAI Spark">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-[#4285F4] via-[#DB4437] to-[#F4B400] p-0.5 shadow-md flex items-center justify-center cursor-pointer hover:scale-105 transition-transform" title="XcAI Spark Agent">
               <div className="w-full h-full bg-[#131314] rounded-[14px] flex items-center justify-center">
                 <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
               </div>
@@ -401,12 +477,12 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
               <Clock className="w-4 h-4" />
             </button>
 
-            <button className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="已标记与书签">
-              <Bookmark className="w-4 h-4" />
-            </button>
-
-            <button className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Claude Code Agent">
-              <Terminal className="w-4 h-4 text-purple-400" />
+            <button
+              onClick={() => setSelectedModel('claude-code')}
+              className={`p-2 rounded-xl transition-all ${selectedModel === 'claude-code' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'text-zinc-400 hover:text-purple-400 hover:bg-white/10'}`}
+              title="切换至 Claude Code Agent"
+            >
+              <Terminal className="w-4 h-4" />
             </button>
           </div>
 
@@ -472,9 +548,18 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
               </div>
             </div>
 
-            <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-              <span>Gemini Spark 引擎</span>
-              <span className="text-emerald-400 font-mono text-[10px]">• Ready</span>
+            {/* Claude Code Repo Badge */}
+            <div className="pt-4 border-t border-white/5 space-y-1.5">
+              <a
+                href="https://github.com/xiaoche0907/claude-code.git"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 text-[10px] text-purple-300 hover:text-purple-200 font-bold bg-purple-950/30 p-2 rounded-xl border border-purple-500/20"
+              >
+                <Github className="w-3 h-3 text-purple-400" />
+                <span className="truncate">claude-code.git</span>
+                <span className="text-[9px] px-1 bg-purple-500/30 text-purple-200 rounded font-black shrink-0">已搭载</span>
+              </a>
             </div>
           </div>
         )}
@@ -560,6 +645,22 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
           </div>
         </header>
 
+        {/* Claude Code Active Banner */}
+        {selectedModel === 'claude-code' && (
+          <div className="bg-gradient-to-r from-purple-950/60 via-violet-950/40 to-black/60 border-b border-purple-500/30 px-6 py-2 flex items-center justify-between z-10">
+            <div className="flex items-center gap-2 text-xs font-bold text-purple-200">
+              <Terminal className="w-4 h-4 text-purple-400" />
+              <span>已搭载 claude-code Agent 引擎</span>
+              <span className="text-[10px] text-purple-300/80 font-normal">| Planning Mode & Preflight Check 规划生效中</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                预设: {activePluginObj.name}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Main Conversation Stream */}
         <main ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
           <div className="max-w-4xl mx-auto space-y-6">
@@ -620,19 +721,25 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
                       {msg.claudeCodePlan && (
                         <div className="rounded-xl border border-purple-500/30 bg-purple-950/20 p-3 space-y-2">
                           <div className="flex items-center justify-between text-xs border-b border-white/10 pb-2">
-                            <span className="font-bold text-purple-300">⚡ Claude Code Task Planning</span>
-                            <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-bold">Preflight Passed</span>
+                            <div className="flex items-center gap-2">
+                              <Terminal className="w-4 h-4 text-purple-400" />
+                              <span className="font-bold text-purple-300">Claude Code Task Planning</span>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-bold flex items-center gap-1 border border-emerald-500/30">
+                              <ShieldCheck className="w-3 h-3" /> Preflight Passed
+                            </span>
                           </div>
                           {msg.claudeCodePlan.steps.map((s) => (
-                            <div key={s.index} className="text-[11px] flex items-center gap-2 text-zinc-300">
-                              <span className="text-emerald-400 font-bold">✓ Step {s.index}:</span>
-                              <span>{s.title}</span>
+                            <div key={s.index} className="text-[11px] flex items-center gap-2 text-zinc-300 bg-black/30 p-2 rounded-lg border border-white/5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span className="font-bold text-slate-100">{s.title}</span>
+                              {s.description && <span className="text-zinc-400 text-[10px]">- {s.description}</span>}
                             </div>
                           ))}
                         </div>
                       )}
 
-                      {/* Main Markdown Body */}
+                      {/* Main Enhanced Markdown Body */}
                       <div className="prose prose-invert max-w-none">
                         {renderFormattedMarkdown(msg.text)}
                       </div>
@@ -683,44 +790,85 @@ export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
             )}
 
             {/* Gemini Spark Task Input Pill */}
-            <div className="relative rounded-2xl border border-white/15 bg-[#1E1F20] shadow-2xl p-2 flex items-center gap-3 focus-within:ring-2 focus-within:ring-amber-500/40 transition-all">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-                multiple
-                accept="image/*"
-                className="hidden"
-              />
-              
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-white/10 transition-all shrink-0"
-                title="上传参考图"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-
+            <div className="relative rounded-2xl border border-white/15 bg-[#1E1F20] shadow-2xl p-2.5 flex flex-col gap-2 focus-within:ring-2 focus-within:ring-amber-500/40 transition-all">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="接下来要做些什么？"
-                className="flex-1 bg-transparent outline-none text-slate-100 text-xs px-1 py-1 min-h-[36px] max-h-[120px] resize-none placeholder-zinc-500"
+                placeholder={selectedModel === 'claude-code' ? '询问 Claude Code Agent 或进行 Task Planning 任务拆解...' : '接下来要做些什么？'}
+                className="w-full bg-transparent outline-none text-slate-100 text-xs px-2 py-1 min-h-[42px] max-h-[140px] resize-none placeholder-zinc-500"
               ></textarea>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button className="p-2 rounded-xl text-zinc-500 hover:text-zinc-300 transition-all" title="语音输入">
-                  <Mic className="w-4 h-4" />
-                </button>
+              <div className="flex items-center justify-between pt-1.5 border-t border-white/5 px-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] font-bold text-zinc-300 transition-all"
+                    title="上传参考图"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-amber-400" />
+                    <span>图片 ({uploadedImages.length}/5)</span>
+                  </button>
 
-                <button
-                  onClick={() => handleSend()}
-                  disabled={(!input.trim() && uploadedImages.length === 0) || isLoading}
-                  className="w-8 h-8 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white flex items-center justify-center shadow-md transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-                >
-                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                </button>
+                  {/* Plugin Selector Dropdown when in Claude Code mode */}
+                  {selectedModel === 'claude-code' && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowPluginDropdown(!showPluginDropdown)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-[11px] font-bold text-purple-300 transition-all"
+                      >
+                        <Zap className="w-3 h-3" />
+                        <span>预设: {activePluginObj.badge}</span>
+                      </button>
+
+                      {showPluginDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowPluginDropdown(false)}></div>
+                          <div className="absolute left-0 bottom-full mb-2 w-64 rounded-2xl border border-white/15 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-2xl z-50">
+                            <p className="px-3 py-1 text-[10px] font-black uppercase text-zinc-500">Claude Code 插件选择</p>
+                            {CLAUDE_CODE_PLUGINS.map((plugin) => (
+                              <button
+                                key={plugin.id}
+                                onClick={() => {
+                                  setSelectedPluginId(plugin.id);
+                                  setShowPluginDropdown(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                                  selectedPluginId === plugin.id ? 'bg-purple-500/20 text-purple-300' : 'text-zinc-300 hover:bg-white/5'
+                                }`}
+                              >
+                                {plugin.name}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button className="p-1.5 rounded-xl text-zinc-500 hover:text-zinc-300 transition-all" title="语音输入">
+                    <Mic className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => handleSend()}
+                    disabled={(!input.trim() && uploadedImages.length === 0) || isLoading}
+                    className="w-8 h-8 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white flex items-center justify-center shadow-md transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
+                  >
+                    {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
             </div>
 
