@@ -130,7 +130,7 @@ const App: React.FC = () => {
   const [initialData, setInitialData] = useState<{ text: string; images: string[]; model: string; step?: number }>({
     text: '',
     images: [],
-    model: 'gemini-3-pro-preview'
+    model: 'gpt-5.6-luna'
   });
   const [isDark, setIsDark] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);

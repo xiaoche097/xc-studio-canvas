@@ -29,13 +29,15 @@ interface AgentHomeProps {
 export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
   const [input, setInput] = useState('');
   const [images, setImages] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite-preview'); // Default to 3.1 Flash
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-5.6-luna');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   
   const HOME_MODELS = [
-    { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash', badge: '推荐' },
-    { id: 'gpt-5.5', name: 'GPT-5.5 Global', badge: 'New' },
-    { id: 'claude-opus-4-7', name: 'Claude 4.7 Opus', badge: 'Pro' },
+    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', badge: '默认/推荐' },
+    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', badge: 'Fast' },
+    { id: 'grok-4.6', name: 'Grok 4.6', badge: 'New' },
+    { id: 'claude-opus-5', name: 'Claude Opus 5', badge: 'Pro' },
+    { id: 'claude-code', name: 'Claude Code Agent', badge: '⚡ Agentic' },
   ];
   
   const [agentName, setAgentName] = useState('XcAI 首席电商视觉策划师');
@@ -268,7 +270,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
                       }`}
                     >
                       <SettingsIcon className={`w-4 h-4 transition-transform duration-300 ${showModelDropdown ? 'rotate-90' : ''}`} />
-                      {HOME_MODELS.find(m => m.id === selectedModel)?.name || 'Gemini 3.1 Flash'}
+                      {HOME_MODELS.find(m => m.id === selectedModel)?.name || 'GPT-5.6 Luna'}
                     </button>
 
                     {/* Dropdown Menu */}

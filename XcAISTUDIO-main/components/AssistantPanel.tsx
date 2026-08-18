@@ -41,10 +41,11 @@ const ATTACHMENT_MENTION_MARKER = '\uFFFC';
 const COMPOSER_MIN_HEIGHT = 32;
 const COMPOSER_MAX_HEIGHT = 128;
 const IMAGE_MODEL_OPTIONS = [
-  { label: 'Gemini 3.1 Flash', value: 'gemini-3.1-flash-image-preview', badge: '默认' },
+  { label: 'GPT-5.6 Luna', value: 'gpt-5.6-luna', badge: '默认' },
+  { label: 'Gemini 3.7 Flash', value: 'gemini-3.7-flash', badge: 'Fast' },
+  { label: 'Grok 4.6', value: 'grok-4.6', badge: 'New' },
+  { label: 'Claude Opus 5', value: 'claude-opus-5', badge: 'Pro' },
   { label: 'Claude Code Agent', value: 'claude-code', badge: 'Claude' },
-  { label: 'Gemini 3 Pro', value: 'gemini-3-pro-image-preview', badge: '高质' },
-  { label: 'Imagen 3', value: 'imagen-3.0-generate-002', badge: '写实' },
 ] as const;
 const IMAGE_RATIO_OPTIONS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '21:9'] as const;
 const IMAGE_RESOLUTION_OPTIONS = ['1k', '2k', '4k'] as const;

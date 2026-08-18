@@ -30,16 +30,17 @@ interface SparkChatStudioProps {
 }
 
 const MODEL_OPTIONS = [
-  { id: 'gemini-3.1-flash-image-preview', name: 'Gemini 3.1 Flash', badge: '默认', desc: '极速响应与商业图文规划' },
+  { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', badge: '默认/推荐', desc: '全维度智能推理与逻辑生成' },
+  { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', badge: 'Fast', desc: '极速响应与商业图文规划' },
+  { id: 'grok-4.6', name: 'Grok 4.6', badge: 'New', desc: '跨领域实时大语言推理' },
+  { id: 'claude-opus-5', name: 'Claude Opus 5', badge: 'Pro', desc: '高阶复杂推理与商业策略' },
   { id: 'claude-code', name: 'Claude Code Agent', badge: '⚡ Agentic', desc: '深度 Task Planning 与 Preflight 自检' },
-  { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro', badge: '高质', desc: '专业商业画质与细腻质感' },
-  { id: 'imagen-3.0-generate-002', name: 'Imagen 3', badge: '写实', desc: '高逼真光影与材质合成' },
 ];
 
 export const SparkChatStudio: React.FC<SparkChatStudioProps> = ({
   initialInput = '',
   initialImages = [],
-  initialModel = 'gemini-3.1-flash-image-preview',
+  initialModel = 'gpt-5.6-luna',
   onBack,
 }) => {
   const [messages, setMessages] = useState<SparkMessage[]>([]);
