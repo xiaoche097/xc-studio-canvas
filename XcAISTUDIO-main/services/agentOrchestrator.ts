@@ -1,6 +1,6 @@
-export type AgentMode = 'agent' | 'image' | 'video' | 'pose';
+export type AgentMode = 'agent' | 'claude-code' | 'image' | 'video' | 'pose';
 export type AgentTaskDepth = 'quick' | 'guided' | 'workflow';
-export type AgentTaskRoute = 'direct-image' | 'image-modification' | 'skill' | 'conversation';
+export type AgentTaskRoute = 'direct-image' | 'image-modification' | 'skill' | 'claude-code' | 'conversation';
 
 export interface AgentSelfCheckResult {
   passed: boolean;
@@ -132,7 +132,11 @@ export const routeAgentTask = (input: AgentRouteInput): AgentRuntimeState => {
   let depth: AgentTaskDepth;
   let requiresConfirmation = false;
 
-  if (input.mode === 'image') {
+  if (input.mode === 'claude-code') {
+    route = 'claude-code';
+    depth = 'workflow';
+    assumptions.push('启用 Claude Code 智能体引擎，自动拆解任务步骤与 Preflight 自检');
+  } else if (input.mode === 'image') {
     route = 'direct-image';
     depth = 'quick';
     assumptions.push('使用用户在图片生成模式中明确选择的模型、比例和分辨率');

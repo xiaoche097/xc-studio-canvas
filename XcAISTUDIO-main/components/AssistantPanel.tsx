@@ -31,12 +31,18 @@ import {
 import { loadFromStorage, saveToStorage } from '../services/storage';
 import { extractImageToolAction } from '../services/agentToolProtocol';
 import { selectPoseFromAgentLibrary } from '../../Cyzx4/services/poseLibrarySelector';
+import {
+  runClaudeCodeAgent,
+  CLAUDE_CODE_PLUGINS,
+  type ClaudeCodeAgentResponse,
+} from '../services/claudeCodeAgent';
 
 const ATTACHMENT_MENTION_MARKER = '\uFFFC';
 const COMPOSER_MIN_HEIGHT = 32;
 const COMPOSER_MAX_HEIGHT = 128;
 const IMAGE_MODEL_OPTIONS = [
   { label: 'Gemini 3.1 Flash', value: 'gemini-3.1-flash-image-preview', badge: '默认' },
+  { label: 'Claude Code Agent', value: 'claude-code', badge: 'Claude' },
   { label: 'Gemini 3 Pro', value: 'gemini-3-pro-image-preview', badge: '高质' },
   { label: 'Imagen 3', value: 'imagen-3.0-generate-002', badge: '写实' },
 ] as const;
@@ -169,6 +175,7 @@ interface Message {
   skillId?: string;
   skillTitle?: string;
   imageModCard?: ImageModificationCardData;
+  claudeCodePlan?: ClaudeCodeAgentResponse;
   assets?: AgentSkillResult[];
   isStreaming?: boolean;
   trace?: AgentTraceStep[];
@@ -1988,6 +1995,20 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
             hasRecentOutput: Boolean(taskMemory.lastOutputAssets?.length),
           })}\n必须延续当前任务，不要把简短的 A/B/1/2 当成新闲聊；用户确认满意时应结束当前任务，不再继续推销修改。`
         : '';
+      if (imageModel === 'claude-code') {
+        setGenerationStatus('Claude Code 正在执行 Agentic 规划与分析…');
+        const claudeRes = await runClaudeCodeAgent(userText);
+        setMessages((prev) => prev.map((message) => message.id === responseId
+          ? {
+              ...message,
+              text: claudeRes.mainContent,
+              claudeCodePlan: claudeRes,
+              isStreaming: false,
+            }
+          : message));
+        return;
+      }
+
       let streamedResponse = '';
       await sendChatMessageStream(history, userText, (_chunk, fullText) => {
         streamedResponse = fullText;
@@ -2492,6 +2513,51 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                   >
                     {m.role === 'model' ? (
                       <div>
+                        {m.claudeCodePlan && (
+                          <div className="mb-3.5 rounded-2xl border border-purple-500/30 bg-gradient-to-br from-purple-950/40 via-violet-950/25 to-black/50 p-4 shadow-xl backdrop-blur-md">
+                            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-500/20 text-purple-300 border border-purple-400/30 font-black text-xs">
+                                  ⚡
+                                </span>
+                                <strong className="text-xs font-black text-purple-200">
+                                  Claude Code Agent · {m.claudeCodePlan.intent}
+                                </strong>
+                              </div>
+                              <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                                <ShieldCheck className="h-3.5 w-3.5" /> Preflight Passed
+                              </span>
+                            </div>
+
+                            {m.claudeCodePlan.thinkingSummary && (
+                              <p className="mt-2.5 text-xs leading-5 text-purple-200/90 font-medium bg-purple-900/20 rounded-xl p-2.5 border border-purple-500/20">
+                                💡 <strong>Thinking Rationale:</strong> {m.claudeCodePlan.thinkingSummary}
+                              </p>
+                            )}
+
+                            {m.claudeCodePlan.steps.length > 0 && (
+                              <div className="mt-3 space-y-1.5">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-purple-400 block mb-1">
+                                  Task Planning & Execution Steps
+                                </span>
+                                {m.claudeCodePlan.steps.map((step) => (
+                                  <div key={step.index} className="flex items-start gap-2 text-xs bg-black/30 rounded-xl p-2.5 border border-white/5">
+                                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-[10px] font-bold text-emerald-300 mt-0.5 border border-emerald-500/30">
+                                      ✓
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <strong className="text-zinc-100 font-bold">{step.title}</strong>
+                                      {step.description && (
+                                        <span className="ml-2 text-zinc-400 text-[11px]">{step.description}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {renderFormattedMessage(m.text)}
 
                         {m.isStreaming && <span className="ml-1 inline-block h-4 w-1 animate-pulse rounded-full bg-orange-400 align-middle" aria-label="正在流式输出" />}
