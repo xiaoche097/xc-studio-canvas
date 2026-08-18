@@ -790,7 +790,7 @@ export const getImageAiClient = (): {
 export const getActiveApiInfo = (): { type: 'virse' | 'xiaoche' | 'runninghub' | 'jijing' | 'plato' | 'yunwu' | 'native' | 'env'; baseUrl?: string } => {
     try {
         if (localStorage.getItem('virse_enabled') === 'true') {
-            return { type: 'virse', baseUrl: localStorage.getItem('virse_base_url') || 'https://dev.virse.ai' };
+            return { type: 'virse', baseUrl: localStorage.getItem('virse_base_url') || 'https://api.virse.ai' };
         }
         const config = getImageApiConfig();
         if (config.isXiaoche) {

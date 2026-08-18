@@ -1458,7 +1458,7 @@ export const generateImageToImage = async (
     if (!virseApiKey) {
       throw new Error('Virse 中转已开启，但尚未配置 API Key。请先在模型配置中补全 Virse 配置，或关闭 Virse 中转。');
     }
-    const virseBaseUrl = localStorage.getItem('virse_base_url') || 'https://dev.virse.ai';
+    const virseBaseUrl = localStorage.getItem('virse_base_url') || 'https://api.virse.ai';
     const virseSpaceId = localStorage.getItem('virse_space_id') || '';
     const virseCanvasId = localStorage.getItem('virse_canvas_id') || '';
     const imageHostProvider = localStorage.getItem('image_host_provider') || 'imgbb';
@@ -1485,7 +1485,7 @@ export const generateImageToImage = async (
     const virseModel = virseModelMap[requestedModel] || requestedModel || configuredVirseModel;
     const baseUrlCandidates = [...new Set([
       virseBaseUrl,
-      virseBaseUrl === 'https://dev.virse.ai' ? 'https://api.virse.ai' : 'https://dev.virse.ai',
+      virseBaseUrl === 'https://api.virse.ai' ? 'https://dev.virse.ai' : 'https://api.virse.ai',
     ])];
     let activeVirseBaseUrl = virseBaseUrl;
     let assetIds: string[] = [];

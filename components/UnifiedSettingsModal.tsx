@@ -360,9 +360,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
     const savedVirseKey = localStorage.getItem('virse_api_key');
     const savedVirseEnabled = localStorage.getItem('virse_enabled');
+    const savedVirseUrl = localStorage.getItem('virse_base_url');
+    const effectiveVirseUrl = (!savedVirseUrl || savedVirseUrl === VIRSE_DEV_BASE_URL)
+      ? DEFAULT_VIRSE_BASE_URL
+      : savedVirseUrl;
     setVirseApiKey(savedVirseKey || '');
     setVirseEnabled(savedVirseEnabled === 'true');
-    setVirseBaseUrl(localStorage.getItem('virse_base_url') || VIRSE_DEV_BASE_URL);
+    setVirseBaseUrl(effectiveVirseUrl);
+    localStorage.setItem('virse_base_url', effectiveVirseUrl);
     setVirseSpaceId(localStorage.getItem('virse_space_id') || '');
     setVirseCanvasId(localStorage.getItem('virse_canvas_id') || '');
     setVirseModel(localStorage.getItem('virse_model') || 'nano-banana-2');
@@ -1486,16 +1491,16 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点</label>
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => setVirseBaseUrl(VIRSE_DEV_BASE_URL)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === VIRSE_DEV_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
-                            >
-                              Dev 节点（认证文档）
-                            </button>
-                            <button
                               onClick={() => setVirseBaseUrl(DEFAULT_VIRSE_BASE_URL)}
                               className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === DEFAULT_VIRSE_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                             >
-                              API 节点（新版）
+                              API 节点（默认/新版）
+                            </button>
+                            <button
+                              onClick={() => setVirseBaseUrl(VIRSE_DEV_BASE_URL)}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === VIRSE_DEV_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
+                            >
+                              Dev 节点（备用/认证文档）
                             </button>
                           </div>
                           <div className="px-4 py-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 text-xs font-mono text-violet-700 dark:text-violet-300">
