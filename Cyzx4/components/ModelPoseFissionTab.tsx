@@ -51,7 +51,7 @@ import { QURAKEM_POSES } from '../constants/qurakemPosePresets';
 
 export type UploadRole = 'model' | 'product' | 'scene' | 'action' | 'accessory' | 'overall';
 export type PlatformKey = 'amazon' | 'shein' | 'temu' | 'tmall' | 'independent';
-export type ActionMode = 'random' | 'manual' | 'promptText' | 'referenceImage';
+export type ActionMode = 'agent' | 'random' | 'manual' | 'promptText' | 'referenceImage';
 
 export type PoseLibraryKey =
   | 'clothing'
@@ -281,10 +281,10 @@ const createTask = (): FissionTask => ({
     platform: 'independent',
     poseLibrary: 'clothing',
     cropFraming: 'auto',
-    actionMode: 'random',
+    actionMode: 'agent',
     selectedSpecificPoseId: '',
     customActionPrompts: '',
-    count: 8,
+    count: 1,
     stage: 1,
     schemes: [],
     selectedSchemeIds: [],
@@ -399,10 +399,10 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
   const [platform, setPlatform] = useState<PlatformKey>('independent');
   const [poseLibrary, setPoseLibrary] = useState<PoseLibraryKey>('clothing');
   const [cropFraming, setCropFraming] = useState<CropFramingId>('auto');
-  const [actionMode, setActionMode] = useState<ActionMode>('referenceImage');
+  const [actionMode, setActionMode] = useState<ActionMode>('agent');
   const [selectedSpecificPoseId, setSelectedSpecificPoseId] = useState<string>('');
   const [customActionPrompts, setCustomActionPrompts] = useState<string>('');
-  const [count, setCount] = useState<number>(8);
+  const [count, setCount] = useState<number>(1);
   const [stage, setStage] = useState<Stage>(1);
 
   const [schemes, setSchemes] = useState<FissionScheme[]>([]);
@@ -791,27 +791,20 @@ If they all show the same crop, output that one.
 
       const selectedCropOption = cropFramingById(effectiveCropFraming);
 
-      let actionInstruction = '';
-      if (actionMode === 'referenceImage' && actionCount > 0) {
-        actionInstruction = `ACTION MODE: Action Reference Image Priority. Extract body posture, gesture, torso angle, and perspective from Action Image 1 for Shot 1, Action Image 2 for Shot 2, etc.`;
-      } else if (actionMode === 'manual') {
-        const specificPose = currentLibraryPoses.find((p) => p.id === selectedSpecificPoseId) || currentLibraryPoses[0];
-        actionInstruction = `ACTION MODE: Fixed Specific Pose. Lock and feature specific pose "${specificPose.name}" (${specificPose.prompt}) across shots with subtle perspective variations.`;
-      } else if (actionMode === 'promptText' && parsedPromptActions.length > 0) {
-        actionInstruction = `ACTION MODE: Custom Action Prompts. Explicit user shot prompts: ${parsedPromptActions
-          .map((p, idx) => `Shot ${idx + 1}: ${p}`)
-          .join('; ')}`;
-      } else {
-        actionInstruction = `ACTION MODE: Random Diverse Poses from Pose Library ${selectedLib.label}.`;
-      }
+      let nextSchemes: FissionScheme[] = [];
 
-      const rolesSummary = images
-        .map((img, i) => `Image ${i + 1}: ${ROLE_LABELS[img.role].label}`)
-        .join('; ');
+      if (actionMode === 'agent') {
+        // 0. Agent 智能规划：由 AI 艺术总监自主规划商业高点击姿态解构方案
+        setAgentStatus(`🤖 Agent 艺术总监 · 正在规划 ${count} 张商业高点击姿态动作方案...`);
+        setAgentLog((current) => [...current, `🤖 Agent 艺术总监：分析素材特点，深度解构与规划 ${count} 张商业视角姿势`]);
 
-      const responseText = await generateText(
-        images.map((img) => ({ base64: img.base64, mimeType: img.mime })),
-        `
+        const rolesSummary = images
+          .map((img, i) => `Image ${i + 1}: ${ROLE_LABELS[img.role].label}`)
+          .join('; ');
+
+        const responseText = await generateText(
+          images.map((img) => ({ base64: img.base64, mimeType: img.mime })),
+          `
 You are a top fashion art director specializing in commercial model pose fission and ecommerce lookbook creation.
 Analyze the uploaded image(s) with assigned roles: [${rolesSummary}].
 Primary Goal: Generate 3 distinct posture fission schemes, each containing ${count} distinct standalone posture shots that maximize ecommerce click-through rate (CTR) and highlight product features.
@@ -821,12 +814,11 @@ Configuration Context:
 - Target Platform Style: ${selectedPlat.label} (${selectedPlat.prompt})
 - Pose Preset Library: ${selectedLib.label} (${selectedLib.desc})
 - Crop Framing Lock: ${selectedCropOption.label} (${selectedCropOption.description}) -> ${selectedCropOption.promptRule}
-- Action Source Strategy: ${actionInstruction}
 - User Extra Instructions: ${requirements || 'Commercial fashion model poses with high aesthetic variety and natural postures'}
 
 STRICT MANDATES:
 1. MODEL & SCENE FIDELITY: Maintain 100% face identity, hairstyle, outfit style, and room/scene background atmosphere from the uploaded reference image(s).
-2. DIVERSE POSES: Create ${count} distinct, natural, elegant, dynamic body poses across the ${count} shots adhering to the Action Source Strategy.
+2. DIVERSE POSES: Create ${count} distinct, natural, elegant, dynamic body poses across the ${count} shots.
 3. ECOMMERCE SELLING POINTS: Highlight clothing fit, neckline, sleeve drape, waist shaping, and fabric movement naturally.
 
 Return ONLY a JSON array containing 3 schemes. Format:
@@ -848,19 +840,196 @@ Return ONLY a JSON array containing 3 schemes. Format:
   }
 ]
 No extra markdown outside the JSON code block.`
-      );
+        );
 
-      const nextSchemes = parseSchemes(responseText, count);
+        nextSchemes = parseSchemes(responseText, count);
+      } else if (actionMode === 'random') {
+        // 1. 智能随机动作：100% 精准从当前选定动作库随机抽取
+        setAgentStatus(`🎲 正在从动作库「${selectedLib.label}」中随机抽取 ${count} 个动作预设...`);
+        setAgentLog((current) => [...current, `🎲 动作控制：从「${selectedLib.label}」随机抽取姿态，提示词 100% 保持动作库定义`]);
+
+        const shuffled = [...currentLibraryPoses].sort(() => 0.5 - Math.random());
+        const selectedPoses = Array.from({ length: count }).map((_, idx) => shuffled[idx % shuffled.length]);
+
+        const shots: FissionShot[] = selectedPoses.map((pose, idx) => ({
+          index: idx + 1,
+          shotName: pose.name,
+          cameraAngle: idx % 2 === 0 ? '标准正面视角' : '侧向 45 度视角',
+          framing: selectedCropOption.shortLabel,
+          poseAction: pose.prompt,
+          prompt: pose.prompt,
+        }));
+
+        nextSchemes = [
+          {
+            id: 'scheme-random-1',
+            title: `姿态库抽取方案（来自：${selectedLib.label}）`,
+            summary: `从动作库中精选 ${count} 种高点击商业姿势，确保提示词精准度`,
+            strategy: '动作预设 100% 保持动作库原生提示词，不经过 Agent 擅自修改',
+            shots,
+          },
+        ];
+      } else if (actionMode === 'manual') {
+        // 2. 手动指定动作：100% 锁定用户在动作库里选择的动作
+        const specificPose = currentLibraryPoses.find((p) => p.id === selectedSpecificPoseId) || currentLibraryPoses[0];
+        setAgentStatus(`📌 已锁定用户指定动作「${specificPose.name}」...`);
+        setAgentLog((current) => [...current, `📌 动作控制：锁定指定动作「${specificPose.name}」，提示词 100% 精准匹配预设`]);
+
+        const anglePresets = ['标准正面', '侧向 45 度', '微仰角度', '全身视角', '半身特写', '膝上 3/4 视角', '侧后方背影', '动态抓拍视角'];
+        const shots: FissionShot[] = Array.from({ length: count }).map((_, idx) => ({
+          index: idx + 1,
+          shotName: `${specificPose.name} (${anglePresets[idx % anglePresets.length]})`,
+          cameraAngle: anglePresets[idx % anglePresets.length],
+          framing: selectedCropOption.shortLabel,
+          poseAction: specificPose.prompt,
+          prompt: specificPose.prompt,
+        }));
+
+        nextSchemes = [
+          {
+            id: 'scheme-manual-1',
+            title: `指定动作方案（${specificPose.name}）`,
+            summary: `全套统一锁定姿态「${specificPose.name}」，搭配多角度光影与机位`,
+            strategy: '严格锁定用户指定的动作姿态，100% 精准使用预设提示词',
+            shots,
+          },
+        ];
+      } else if (actionMode === 'promptText') {
+        // 3. 动作提示词：100% 保留用户填写的自定义提示词原文，绝不被 Agent 改写
+        setAgentStatus(`📝 正在应用用户自定义的 ${parsedPromptActions.length || 1} 条动作提示词...`);
+        setAgentLog((current) => [...current, `📝 动作控制：100% 原样保留用户输入的 ${parsedPromptActions.length || 1} 条动作提示词原文`]);
+
+        const shots: FissionShot[] = Array.from({ length: count }).map((_, idx) => {
+          const userPromptText = parsedPromptActions[idx % parsedPromptActions.length] || requirements || '自然时尚商业模特拍摄姿态';
+          return {
+            index: idx + 1,
+            shotName: `自定义动作 #${idx + 1}`,
+            cameraAngle: '指定视角',
+            framing: selectedCropOption.shortLabel,
+            poseAction: userPromptText,
+            prompt: userPromptText,
+          };
+        });
+
+        nextSchemes = [
+          {
+            id: 'scheme-prompt-1',
+            title: '用户自定义动作提示词方案',
+            summary: `按用户输入的 ${parsedPromptActions.length || 1} 条提示词原文精准生成`,
+            strategy: '用户原生提示词直通，不经过 Agent 任意改写或替换，做到 100% 精准',
+            shots,
+          },
+        ];
+      } else if (actionMode === 'referenceImage') {
+        // 4. 动作参考图：反推参考图中的模特姿态与视角，精准替换提示词
+        const actionAssets = images.filter((img) => img.role === 'action');
+
+        if (actionAssets.length > 0) {
+          setAgentStatus(`📸 正在精准反推 ${actionAssets.length} 张动作参考图的肢体姿态与视角...`);
+          setAgentLog((current) => [...current, `📸 动作参考图反推中：精准提取 ${actionAssets.length} 张动作图的姿势形态、手臂摆放与视角...`]);
+
+          const analyzedPoses = await Promise.all(
+            actionAssets.slice(0, count).map(async (actionImg, idx) => {
+              try {
+                const text = await generateText(
+                  [{ base64: actionImg.base64, mimeType: actionImg.mime }],
+                  `You are an expert computer vision model pose reverse-engineer.
+Analyze the human model posture in this action reference image.
+Extract ONLY the exact physical body posture (standing/sitting/walking/leaning), limb placements (hands, arms, legs), torso rotation, head direction, and camera angle.
+Do NOT describe clothing, colors, face features, or background.
+Return ONLY a JSON object:
+{
+  "poseAction": "A precise English description of the exact body posture and gesture from this reference image",
+  "shotName": "A short 2-5 word Chinese name for this pose",
+  "cameraAngle": "Camera angle in Chinese"
+}`
+                );
+                const parsed = JSON.parse(text.replace(/^`*(?:json)?\s*/i, '').replace(/\s*`*$/, '').trim());
+                return {
+                  shotName: String(parsed.shotName || `参考图姿态 #${idx + 1}`),
+                  cameraAngle: String(parsed.cameraAngle || '参考图视角'),
+                  poseAction: String(parsed.poseAction || 'Full-body posture extracted directly from action reference image'),
+                };
+              } catch {
+                return {
+                  shotName: `参考图姿姿 #${idx + 1}`,
+                  cameraAngle: '参考图视角',
+                  poseAction: 'Full-body pose directly reverse-engineered from reference image',
+                };
+              }
+            })
+          );
+
+          const shots: FissionShot[] = Array.from({ length: count }).map((_, idx) => {
+            if (idx < analyzedPoses.length) {
+              const pose = analyzedPoses[idx];
+              return {
+                index: idx + 1,
+                shotName: pose.shotName,
+                cameraAngle: pose.cameraAngle,
+                framing: selectedCropOption.shortLabel,
+                poseAction: pose.poseAction,
+                prompt: pose.poseAction,
+              };
+            } else {
+              const fallbackPose = currentLibraryPoses[idx % currentLibraryPoses.length];
+              return {
+                index: idx + 1,
+                shotName: fallbackPose.name,
+                cameraAngle: '辅助视角',
+                framing: selectedCropOption.shortLabel,
+                poseAction: fallbackPose.prompt,
+                prompt: fallbackPose.prompt,
+              };
+            }
+          });
+
+          nextSchemes = [
+            {
+              id: 'scheme-ref-1',
+              title: '动作参考图精准反推与替换方案',
+              summary: `根据上传的 ${actionAssets.length} 张动作参考图反推肢体姿态并精准替换`,
+              strategy: '1:1 视觉反推姿姿形态，提示词精准替换为参考图的肢体语言',
+              shots,
+            },
+          ];
+        } else {
+          setAgentStatus('💡 未检测到动作参考图，自动从动作库中随机抽取姿势...');
+          setAgentLog((current) => [...current, '💡 提示：您未上传「动作参考图」，已自动按当前选定动作库抽取姿态']);
+
+          const shuffled = [...currentLibraryPoses].sort(() => 0.5 - Math.random());
+          const selectedPoses = Array.from({ length: count }).map((_, idx) => shuffled[idx % shuffled.length]);
+
+          const shots: FissionShot[] = selectedPoses.map((pose, idx) => ({
+            index: idx + 1,
+            shotName: pose.name,
+            cameraAngle: '标准视角',
+            framing: selectedCropOption.shortLabel,
+            poseAction: pose.prompt,
+            prompt: pose.prompt,
+          }));
+
+          nextSchemes = [
+            {
+              id: 'scheme-ref-fallback-1',
+              title: `动作库抽取方案（未上传参考图自动抽取）`,
+              summary: `未上传动作参考图，已从「${selectedLib.label}」中选出 ${count} 个动作`,
+              strategy: '可上传「动作参考图」实现 1:1 姿态精准反推与替换',
+              shots,
+            },
+          ];
+        }
+      }
 
       setSchemes(nextSchemes);
       setSelectedSchemeIds([nextSchemes[0].id]);
       setStage(2);
-      setAgentStatus(`创意策划 Agent · ${count} 张单图姿态动作方案已规划完成`);
-      setAgentLog((current) => [...current, `创意策划 Agent 已交付 ${nextSchemes.length} 套姿态动作方案`]);
+      setAgentStatus(`姿态方案 Agent · ${count} 张单图姿态动作方案精准规划完成`);
+      setAgentLog((current) => [...current, `姿态方案 Agent 已交付 100% 精准匹配的姿态动作方案`]);
       updateTask({ status: 'ready' });
     } catch (planError) {
       setError(getErrorMessage(planError));
-      setAgentStatus('创意策划 Agent · 生成失败，请重试');
+      setAgentStatus('姿态方案 Agent · 生成失败，请重试');
       updateTask({ status: 'error' });
     } finally {
       setBusy(false);
@@ -895,19 +1064,26 @@ No extra markdown outside the JSON code block.`
           : AspectRatio.LANDSCAPE_16_9;
 
       let localCompleted = 0;
+      const actionImages = images.filter((img) => img.role === 'action');
 
       // Concurrent parallel generation for all N shots directly
       const tasks = scheme.shots.map(async (shot) => {
+        const currentActionImg = actionImages[shot.index - 1];
+        const targetImages = currentActionImg
+          ? [...images.filter((img) => img.role !== 'action'), currentActionImg]
+          : images;
+
         const shotPrompt = `Standalone high-definition commercial fashion photography portrait. Platform DNA: ${selectedPlat.prompt}. Pose Shot #${shot.index}: ${shot.shotName}. Camera Framing: ${selectedCropOption.promptRule}. Pose details: ${shot.poseAction}. User goal: ${requirements}.
 
 STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
 - MODEL LOCK: Keep exact facial identity, eyes, nose, hair color, skin tone, and body proportions identical to the reference model image.
 - PRODUCT LOCK: Retain 100% clothing colors, fabric texture, sleeve drape, waist shaping, and outfit details.
+- POSE LOCK: Match the exact physical posture and body gesture: "${shot.poseAction}".
 - SCENE LOCK: Replicate studio lighting, background atmosphere, and color grading from reference image(s).
 - SINGLE STANDALONE PHOTO: This must be a clean, standalone, high-resolution single fashion portrait photo (NOT a contact sheet or grid). 8K photorealistic fashion magazine style.`;
 
         const [generatedUrl] = await generateImageToImage(
-          images.map((img) => ({ base64: img.base64, mimeType: img.mime })),
+          targetImages.map((img) => ({ base64: img.base64, mimeType: img.mime })),
           shotPrompt,
           {
             aspectRatio: targetRatioEnum,
@@ -1227,11 +1403,13 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                     动作控制与姿态来源
                   </h2>
                   <p className="mt-0.5 text-xs text-pastel-muted">
-                    动作参考图优先；未上传时使用随机抽取、指定动作或自定义动作提示词
+                    默认使用 Agent 智能规划；也可切换按姿态库抽取、指定动作、动作提示词或参考图反推
                   </p>
                 </div>
                 <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[0.68rem] font-black text-purple-600 dark:bg-purple-950/40 dark:text-purple-400">
-                  {actionMode === 'referenceImage'
+                  {actionMode === 'agent'
+                    ? '🤖 Agent 智能规划'
+                    : actionMode === 'referenceImage'
                     ? `动作图优先 (${actionCount}张)`
                     : actionMode === 'random'
                     ? '智能随机动作'
@@ -1241,9 +1419,10 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 </span>
               </div>
 
-              {/* 4 Mode Segmented Selection */}
-              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {/* 5 Mode Segmented Selection */}
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {[
+                  { key: 'agent', label: 'Agent智能规划', desc: 'AI总监策划解构', icon: '🤖' },
                   { key: 'random', label: '智能随机动作', desc: '按姿态库抽取', icon: '🎲' },
                   { key: 'manual', label: '手动指定动作', desc: '固定单个动作', icon: '📌' },
                   { key: 'promptText', label: '动作提示词', desc: '多条独立动作', icon: '📝' },
@@ -1271,6 +1450,13 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                   );
                 })}
               </div>
+
+              {/* Agent Mode Active Status */}
+              {actionMode === 'agent' && (
+                <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50/60 p-3 text-xs leading-5 text-sky-800 dark:border-sky-900/40 dark:bg-sky-950/20 dark:text-sky-300">
+                  <span>🤖 已开启「Agent 智能规划」。AI 艺术总监将根据您的素材与服装特点，自动构思并解构 {count} 张商业高点击姿态构图方案。</span>
+                </div>
+              )}
 
               {/* Manual Mode Active Status */}
               {actionMode === 'manual' && (
@@ -1377,28 +1563,11 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                   </span>
                 </button>
 
-                {/* Unified Pose Library & Specific Pose Modal Trigger */}
-                <button
-                  type="button"
-                  onClick={() => setSelectionModal('library')}
-                  className="flex min-h-14 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#172238]"
-                >
-                  <span className="text-[0.68rem] font-bold text-pastel-muted">姿势预设库 / 动作</span>
-                  <span className="mt-0.5 flex items-center justify-between text-xs font-black text-pastel-text">
-                    <span className="truncate">
-                      {actionMode === 'manual' && activeSpecificPoseObj
-                        ? `${activeLibraryObj.label} · ${activeSpecificPoseObj.name}`
-                        : activeLibraryObj.label}
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-pastel-muted" />
-                  </span>
-                </button>
-
                 {/* Crop Framing Option */}
                 <button
                   type="button"
                   onClick={() => setSelectionModal('crop')}
-                  className="flex min-h-14 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#172238]"
+                  className="col-span-2 flex min-h-14 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#172238]"
                 >
                   <span className="text-[0.68rem] font-bold text-pastel-muted">裁图范围</span>
                   <span className="mt-0.5 flex items-center justify-between text-xs font-black text-pastel-text">

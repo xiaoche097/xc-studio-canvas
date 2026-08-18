@@ -266,8 +266,11 @@ const ProductSwapTab: React.FC<ProductSwapTabProps> = ({ isActive = true }) => {
                 }
             );
 
-            assertCurrentGenerationTask(taskId, signal);
-            const generatedDataUrls = results.map(b64 => `data:image/png;base64,${b64}`);
+            const generatedDataUrls = results.map(src => (
+                src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')
+                    ? src
+                    : `data:image/png;base64,${src}`
+            ));
             setGeneratedImages(generatedDataUrls);
 
             // Save to history

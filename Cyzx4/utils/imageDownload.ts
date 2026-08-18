@@ -7,9 +7,8 @@ const fetchImageResponse = async (source: string): Promise<Response> => {
     return proxyResponse;
   };
 
-  // Virse output is hosted on Google Storage without browser CORS headers.
-  // Go straight through our allow-listed same-origin proxy so Canvas can read it.
-  if (/^https?:\/\/storage\.googleapis\.com\/virse-images\//i.test(source)) {
+  // Google Storage 托管的所有生成图（virse-images / sirius-images 等）均走同源代理，确保 Canvas 无跨域污染问题
+  if (/^https?:\/\/storage\.googleapis\.com\//i.test(source)) {
     return fetchThroughProxy();
   }
 
@@ -38,8 +37,53 @@ export const fetchImageBlob = async (source: string): Promise<Blob> => {
   return blob;
 };
 
-export const downloadImageFile = async (source: string, filename: string): Promise<void> => {
+export const getCroppedImageBlob = async (source: string, topCropRatio = 0.12): Promise<Blob> => {
   const blob = await fetchImageBlob(source);
+  if (topCropRatio <= 0) return blob;
+
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = objectUrl;
+    });
+
+    const canvas = document.createElement('canvas');
+    const origW = img.naturalWidth || img.width;
+    const origH = img.naturalHeight || img.height;
+    const cropY = Math.round(origH * topCropRatio);
+    const targetH = origH - cropY;
+
+    canvas.width = origW;
+    canvas.height = targetH;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return blob;
+
+    ctx.drawImage(img, 0, cropY, origW, targetH, 0, 0, origW, targetH);
+
+    return await new Promise<Blob>((resolve) => {
+      canvas.toBlob((b) => resolve(b || blob), 'image/png');
+    });
+  } catch (err) {
+    console.warn('CORS-safe canvas crop failed, downloading original blob:', err);
+    return blob;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+export const downloadImageFile = async (
+  source: string,
+  filename: string,
+  topCropRatio = 0
+): Promise<void> => {
+  const blob = topCropRatio > 0
+    ? await getCroppedImageBlob(source, topCropRatio)
+    : await fetchImageBlob(source);
+
   const objectUrl = URL.createObjectURL(blob);
   try {
     const link = document.createElement('a');

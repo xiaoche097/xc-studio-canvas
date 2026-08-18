@@ -4638,6 +4638,37 @@ export const estimateCameraAngle = async (
   }
 };
 
+export const extractImagesFromResponseParts = (response: any): string[] => {
+  const images: string[] = [];
+  const parts = response?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return images;
+
+  for (const part of parts) {
+    const inlineData = part?.inlineData || part?.inline_data;
+    if (inlineData?.data) {
+      const mime = inlineData.mimeType || inlineData.mime_type || 'image/png';
+      const base64 = inlineData.data;
+      images.push(base64.startsWith('data:') ? base64 : `data:${mime};base64,${base64}`);
+    }
+    if (part?.text && typeof part.text === 'string') {
+      const trimmed = part.text.trim();
+      if (trimmed.startsWith('data:image/')) {
+        images.push(trimmed);
+      } else {
+        const urlMatches = trimmed.match(/https?:\/\/[^\s"'\)\n\r>]+/g);
+        if (urlMatches) {
+          for (const url of urlMatches) {
+            const cleanUrl = url.replace(/[,;.]+\s*$/, '').trim();
+            if (cleanUrl) images.push(cleanUrl);
+          }
+        }
+      }
+    }
+  }
+
+  return images;
+};
+
 /**
  * 8. Generate Style Replication Image
  * Uses gemini-3-pro-image-preview
@@ -4664,9 +4695,6 @@ export const generateStyleReplication = async (
 
   // Build the prompt for style replication
   const productCount = productImages.length;
-  // Indexing starts at 1. 
-  // Product Images: 1 to productCount
-  // Style Reference: productCount + 1
 
   const prompt = `
 # 🎭 ROLE: Senior Art Director & CGI Specialist
@@ -4709,17 +4737,12 @@ You MUST process the input through these 8 distinct phases:
 - Do NOT output text. Just the final image.
 `;
 
-  // DEBUG: Log the customPrompt value
   console.log('[StyleReplication] customPrompt:', customPrompt);
   console.log('[StyleReplication] productCount:', productCount);
 
-  // Build parts array
-  // 1. Add text prompt FIRST (Best practice for many multimodal models)
-  // [任务]... [输入]...
   const parts: any[] = [];
   parts.push({ text: prompt });
 
-  // 2. Add product images
   for (const img of productImages) {
     parts.push({
       inlineData: {
@@ -4729,7 +4752,6 @@ You MUST process the input through these 8 distinct phases:
     });
   }
 
-  // 3. Add style reference image
   parts.push({
     inlineData: {
       mimeType: styleReference.mime,
@@ -4737,14 +4759,11 @@ You MUST process the input through these 8 distinct phases:
     },
   });
 
-  // DEBUG: Log full prompt when customPrompt is provided
   if (customPrompt) {
     console.log('[StyleReplication] ⚡ 客户指示检测到:', customPrompt);
     console.log('[StyleReplication] Full prompt being sent:\n', prompt);
   }
 
-
-  // Helper to run generation
   const runGeneration = async (modelName: string) => {
     console.log(`[StyleReplication] Attempting generation with model: ${modelName}, Resolution: ${resolution}, Aspect: ${aspectRatio}`);
     const runtimeModel = imageApiConfig.isXiaoche
@@ -4757,7 +4776,7 @@ You MUST process the input through these 8 distinct phases:
       imageConfig: {
         aspectRatio: aspectRatio,
         aspect_ratio: aspectRatio,
-        imageSize: resolution, // Must be '1K', '2K', or '4K'
+        imageSize: resolution,
       }
     };
 
@@ -4770,7 +4789,6 @@ You MUST process the input through these 8 distinct phases:
 
   const results: string[] = [];
 
-  // Generate the requested number of images
   for (let i = 0; i < count; i++) {
     throwIfAborted(signal);
     try {
@@ -4784,7 +4802,6 @@ You MUST process the input through these 8 distinct phases:
         response = await runGeneration("gemini-2.0-flash-exp");
       }
 
-      // Extract the image from response
       const candidate = response.candidates?.[0];
       if (!candidate) {
         console.error(`[StyleReplication] No candidates returned for image ${i + 1}`);
@@ -4794,26 +4811,22 @@ You MUST process the input through these 8 distinct phases:
 
       console.log(`[StyleReplication] Finish Reason: ${candidate.finishReason}`);
 
-      // Log text content if any (might contain refusal reason or error description)
       const textPart = candidate.content?.parts?.find((p: any) => p.text);
       if (textPart) {
         console.log(`[StyleReplication] Model Text Response: ${textPart.text}`);
       }
 
-      const imagePart = candidate.content?.parts?.find(
-        (p: any) => p.inlineData?.mimeType?.startsWith("image/")
-      );
+      const extractedImages = extractImagesFromResponseParts(response);
 
-      if (imagePart?.inlineData?.data) {
-        results.push(imagePart.inlineData.data);
-        console.log(`[StyleReplication] Image ${i + 1} generated successfully`);
+      if (extractedImages.length > 0) {
+        results.push(...extractedImages);
+        console.log(`[StyleReplication] Image ${i + 1} generated successfully (${extractedImages.length} image(s) extracted)`);
       } else {
         console.warn(`[StyleReplication] Image ${i + 1} generation returned no image`);
         console.log('[StyleReplication] Candidate content:', JSON.stringify(candidate.content, null, 2));
       }
     } catch (error) {
       console.error(`[StyleReplication] Image ${i + 1} generation failed:`, error);
-      // Continue with other images even if one fails
     }
   }
 
@@ -5018,13 +5031,10 @@ Professional commercial photography quality. The result must be indistinguishabl
       console.log(`[ProductSwap] Model text: ${textPart.text}`);
     }
 
-    const imagePart = candidate.content?.parts?.find(
-      (p: any) => p.inlineData?.mimeType?.startsWith("image/")
-    );
-
-    if (imagePart?.inlineData?.data) {
+    const extractedImages = extractImagesFromResponseParts(response);
+    if (extractedImages.length > 0) {
       console.log('[ProductSwap] Image generated successfully');
-      return [imagePart.inlineData.data];
+      return extractedImages;
     } else {
       console.warn('[ProductSwap] No image in response');
       throw new Error('产品替换失败 — 未生成图片，请检查输入后重试');
@@ -5609,7 +5619,7 @@ export interface UniversalTryOnProductImage {
   base64: string;
   mime: string;
   role: UniversalTryOnProductRole;
-  angle?: 'front' | 'back' | 'side' | 'detail';
+  angle?: 'front' | 'back' | 'side' | 'detail' | 'outfit';
 }
 
 export const generateUniversalTryOn = async (
@@ -5646,6 +5656,7 @@ export const generateUniversalTryOn = async (
     back: '背面 (BACK VIEW)',
     side: '侧面 (SIDE / 3/4 VIEW)',
     detail: '细节 (DETAIL VIEW)',
+    outfit: '搭配/整套图 (FULL OUTFIT MATCHING REFERENCE)',
   };
   const inputImageMap = productImages
     .map((image, index) => {
@@ -5666,24 +5677,30 @@ export const generateUniversalTryOn = async (
     productImages.some((image) => image.role === 'full')
       ? '- **FULL OUTFIT LOCK**: Fit the outfit only inside the body area visible in Image 1. Any portion outside the original frame must remain clipped rather than causing an expanded body or canvas.'
       : '',
+    productImages.some((image) => image.angle === 'outfit')
+      ? '- **OUTFIT/MATCH TAG (搭配/整套图) SURGICAL EXTRACTION RULE**: One or more reference images are tagged as "搭配/整套图" (Full Outfit Match). These images contain a complete styled outfit/suit (e.g. both top and bottom shown together). YOU MUST SURGICALLY EXTRACT ONLY THE SINGLE TARGET ITEM corresponding to the category (e.g., if in TOP section, extract ONLY the top shirt/jacket; if in BOTTOM section, extract ONLY the skirt/pants). DO NOT COPY THE MATCHING GARMENT OR THE MODEL FROM THE OUTFIT REFERENCE IMAGE! If no target model image is provided, generate a NEW neutral ghost mannequin or clean commercial model body, and DO NOT reconstruct the model/head/neck from the outfit reference picture.'
+      : '',
   ].filter(Boolean).join('\n');
   const preservationContract = isCroppingLocked
     ? `
 ## HIGHEST-PRIORITY FRAME PRESERVATION CONTRACT
 This contract overrides the commercial-photography goal, garment completeness, styling preferences, and every CUSTOM INSTRUCTION.
 
-1. **TOP EDGE CONTENT LOCK**: Identify the exact anatomical/body/clothing point cut by the TOP edge of Image 1. The output top edge must cut through that same point. Never reveal additional head, neck, shoulders, chest, arms, or empty background above it.
+1. **TOP EDGE CROP LOCK (ABSOLUTE NO NEW NECK/HEAD RULE)**: Look at the TOP boundary of Image 1 (the target model reference image). If Image 1 cuts off below the neck (at the chest/shoulders) and shows NO NECK, NO CHIN, and NO HEAD:
+   - THE OUTPUT IMAGE MUST ALSO HAVE ZERO NECK, ZERO CHIN, AND ZERO HEAD VISIBLE.
+   - IT MUST CLIP AT THE EXACT SAME TOP FRAME BOUNDARY (CHEST/SHOULDER LINE).
+   - EVEN IF THE UPPER GARMENT REFERENCE HAS A COLLAR, HIGH NECK, OR SHOWS A MODEL WITH A NECK, SURGICALLY CLIP THE GARMENT AT IMAGE 1'S TOP FRAME EDGE. NEVER EXTEND THE CANVAS UPWARD OR DRAW A NECK TO SHOW THE COLLAR!
 2. **BOTTOM & SIDE EDGE LOCK**: Preserve the exact body/object intersections at the bottom, left, and right boundaries. Never extend the canvas or reveal content outside Image 1.
 3. **NORMALIZED LANDMARK LOCK**: Keep waistline, hands, elbows, hips, knees, ankles, feet, and visible garment boundaries at the same normalized x/y coordinates as Image 1.
 4. **SUBJECT SCALE LOCK**: The model must occupy the same percentage of the frame. No zooming out to show the full garment and no zooming in for detail.
-5. **CLIPPED GARMENT RULE**: If Image 1 clips part of the replacement garment, clip the new garment at the identical frame boundary. Showing the whole product is a failure.
+5. **CLIPPED GARMENT RULE**: If Image 1 clips part of the replacement garment (e.g. neck, collar, sleeves, or hems), clip the new garment at the identical frame boundary. Showing the whole product when Image 1 is cropped is a strict failure.
 6. **UNCHANGED-PIXEL PRINCIPLE**: Outside the replaced garment/accessory regions, reproduce Image 1 without redesign, relighting, beautification, background cleanup, or recomposition.
-7. **FORBIDDEN OUTPUTS**: more upper body than Image 1, newly visible head/neck/shoulders, wider scene, taller canvas content, altered pose, shifted hands, changed footwear unless requested, or a newly staged fashion photo.
+7. **FORBIDDEN OUTPUTS**: newly generated neck/head when Image 1 had no neck, more upper body than Image 1, newly visible head/neck/shoulders, wider scene, taller canvas content, altered pose, shifted hands, changed footwear unless requested, or a newly staged fashion photo.
 
 ### ROLE-SPECIFIC CROP RULES
 ${roleSpecificFrameRules}
 
-Before rendering, compare the planned output silhouette and all four frame intersections against Image 1. If any boundary exposes more content, correct it before generating.
+Before rendering, compare the planned output silhouette and all four frame intersections against Image 1. If any boundary exposes more content (especially a newly generated neck/head when Image 1 was cropped below the neck), correct it before generating.
 `
     : '';
 
@@ -5759,7 +5776,13 @@ These rules have higher priority than styling, commercial polish, beautification
 4. **NO-INVENTION WARDROBE WHITELIST**: The only new wearable objects allowed are the explicitly role-labeled TOP, BOTTOM, FULL, SHOES or ACCESSORY references supplied in the input map. Never invent a belt, buckle, necklace, earrings, bracelet, watch, ring, bag, hat, scarf, tie, brooch, eyewear, gloves, socks, shoes, extra garment, extra layer or decorative object.
 5. **UNREQUESTED OBJECT BAN**: If no ACCESSORY reference was supplied, add zero new accessories. If no SHOES reference was supplied, preserve the original footwear exactly. Preserve every existing non-target object from Image 1 exactly; do not add, remove, replace or redesign it.
 6. **GARMENT-REGION-ONLY EDIT**: Modify only the pixels occupied by the requested garment replacement. Everything outside those regions must reproduce Image 1, not a plausible alternative.
-` : '- No target model image was supplied; generate only the explicitly requested outfit and do not invent accessories or extra wearable objects.'}
+` : `
+- **NO TARGET MODEL REFERENCE SUPPLIED MODE**:
+  1. All provided input images are STRICTLY GARMENT/PRODUCT REFERENCES ONLY.
+  2. If any of the garment reference images (including those tagged as "搭配") contain a model, neck, head, or full outfit, TREAT THAT IMAGE AS A PRODUCT SHEET ONLY — DO NOT COPY THAT MODEL, DO NOT COPY THAT POSTURE, AND DO NOT RECONSTRUCT THAT HEAD/NECK.
+  3. You MUST generate a BRAND NEW clean commercial model/mannequin from scratch, and fit ONLY the designated garment onto it.
+  4. If only TOP is provided, generate a clean top wearing model/mannequin. If only BOTTOM is provided, generate a bottom wearing model/mannequin. DO NOT copy the matching pants/top or model from an outfit reference image!
+`}
 
 ## PHASE 1: ANATOMICAL & GARMENT ANALYSIS 🔍
 1. **[Garment Deconstruction]**: Analyze every role-labeled product reference. Extract pattern, silhouette, cut, fabric texture and exact colors without mixing roles.

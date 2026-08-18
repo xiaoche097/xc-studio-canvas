@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { generateStyleReplication, compressImage } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
@@ -493,8 +493,15 @@ const StyleReplicateTab: React.FC<StyleReplicateTabProps> = ({ isActive = true }
                 throw new Error("批量生成全部失败，请检查输入内容和网络连接后重试。");
             }
 
-            // Convert base64 to data URLs and optionally unify color tone.
-            const generatedDataUrls = allResults.map(b64 => `data:image/png;base64,${b64}`);
+            // Convert base64 / URL to data URLs or direct image src and optionally unify color tone.
+            const formatImageSrc = (src: string) => {
+                if (!src) return '';
+                if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
+                    return src;
+                }
+                return `data:image/png;base64,${src}`;
+            };
+            const generatedDataUrls = allResults.map(formatImageSrc);
             const colorReference = styleReferences[0]?.base64 && styleReferences[0]?.mime
                 ? `data:${styleReferences[0].mime};base64,${styleReferences[0].base64}`
                 : undefined;
@@ -622,7 +629,9 @@ const StyleReplicateTab: React.FC<StyleReplicateTabProps> = ({ isActive = true }
 
             if (!results[0]) throw new Error('单张重新生成失败，请稍后重试。');
 
-            const regeneratedDataUrl = `data:image/png;base64,${results[0]}`;
+            const regeneratedDataUrl = results[0].startsWith('http://') || results[0].startsWith('https://') || results[0].startsWith('data:')
+                ? results[0]
+                : `data:image/png;base64,${results[0]}`;
             const colorReference = styleReferences[0]?.base64 && styleReferences[0]?.mime
                 ? `data:${styleReferences[0].mime};base64,${styleReferences[0].base64}`
                 : undefined;

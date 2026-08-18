@@ -74,6 +74,13 @@ const IMPLICIT_IMAGE_CREATION_PATTERN = /生成|生图|出图|绘制|画(?:一|�
 const IMAGE_OUTPUT_PATTERN = /图|图片|照片|画面|视觉|海报|插画|封面|壁纸|头像|主视觉|效果图|成片|image|photo|poster|illustration|visual|artwork/i;
 const IMAGE_PLANNING_REQUEST_PATTERN = /(?:图|图片|视觉|海报|插画|生成|制作|设计).{0,10}(?:方案|提示词|prompt|文案|脚本|教程|步骤|建议|分析报告|copywriting|script|tutorial)/i;
 const OTHER_MEDIA_OUTPUT_PATTERN = /视频|动画|音频|音乐|配音|video|animation|audio|music/i;
+const PLANNING_OR_ADVICE_PATTERN = /建议|方案|意见|想法|观点|先告诉|先给我|先说|先看|讨论|推荐|对比|评估|分析|怎么看|觉得呢|可以怎么|有什么|如何|how|suggestion|advice|plan first/i;
+
+export const isPlanningOrAdviceRequest = (prompt: string): boolean => {
+  const normalized = prompt.trim();
+  if (!normalized) return false;
+  return PLANNING_OR_ADVICE_PATTERN.test(normalized);
+};
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
 

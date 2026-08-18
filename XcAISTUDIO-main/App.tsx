@@ -1060,17 +1060,26 @@ export const App = () => {
         setSelectedNodeIds([newNodeId]);
     }, [addNode]);
 
-    const handleFocusNode = useCallback((nodeId: string) => {
+    const handleFocusNode = useCallback((nodeId: string, retryCount = 0) => {
         const targetNode = nodesRef.current.find(node => node.id === nodeId);
         const canvas = canvasRef.current;
-        if (!targetNode || !canvas) return;
+
+        if (!targetNode || !canvas) {
+            if (retryCount < 10) {
+                requestAnimationFrame(() => handleFocusNode(nodeId, retryCount + 1));
+            }
+            return;
+        }
 
         const rect = canvas.getBoundingClientRect();
         const width = targetNode.width || 420;
         const height = targetNode.height || getApproxNodeHeight(targetNode);
-        const nextScale = Math.min(1.4, Math.max(scaleRef.current, 1.2));
+        const nextScale = Math.min(1.25, Math.max(scaleRef.current, 0.85));
+        
+        // 当右侧 AI 助手面板打开时，视口中心点向左偏移，确保节点完美居中在可视画布区域
+        const visibleCenterX = isChatOpen ? Math.max(rect.width / 3, (rect.width - 440) / 2) : rect.width / 2;
         const nextPan = {
-            x: rect.width / 2 - (targetNode.x + width / 2) * nextScale,
+            x: visibleCenterX - (targetNode.x + width / 2) * nextScale,
             y: rect.height / 2 - (targetNode.y + height / 2) * nextScale,
         };
 
@@ -1081,7 +1090,7 @@ export const App = () => {
         setScale(nextScale);
         setPan(nextPan);
         window.setTimeout(() => setIsViewportAnimating(false), 320);
-    }, []);
+    }, [isChatOpen]);
 
     const persistAssetHistory = useCallback((updater: (current: any[]) => any[]) => {
         setAssetHistory(current => {
@@ -3479,7 +3488,7 @@ export const App = () => {
                         });
                     }}
                     onInsertAssetToCanvas={(url, title, mediaType = 'image') => {
-                        addNode(
+                        const newNodeId = addNode(
                             mediaType === 'video' ? NodeType.VIDEO_GENERATOR : NodeType.IMAGE_GENERATOR,
                             undefined,
                             undefined,
@@ -3487,6 +3496,9 @@ export const App = () => {
                                 ? { videoUri: url, prompt: `Agent【${title}】生成的视频资产` }
                                 : { image: url, imagePreview: url, prompt: `Agent【${title}】生成的图片资产`, assetOrigin: 'generated' },
                         );
+                        if (newNodeId) {
+                            handleFocusNode(newNodeId);
+                        }
                     }}
                     onInsertImageModificationWorkflow={(inputImages, outputImage) => {
                         const canvas = canvasRef.current;
@@ -3578,6 +3590,10 @@ export const App = () => {
                             setNodes(prev => prev.map(n => n.id === outputNodeId
                                 ? { ...n, inputs: Array.from(new Set([...n.inputs, ...sourceNodeIds])) }
                                 : n));
+                        }
+
+                        // 4. 无论是纯文生图还是关联图生图，均自动平滑平移视口对焦至 Agent 新创建的节点
+                        if (outputNodeId) {
                             handleFocusNode(outputNodeId);
                         }
 

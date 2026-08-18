@@ -28,7 +28,10 @@ import {
   Check,
   Eye,
   Lock,
-  Gem
+  Gem,
+  Scissors,
+  Crop,
+  Undo2,
 } from 'lucide-react';
 import {
   generateUniversalTryOn,
@@ -43,20 +46,22 @@ import { saveGeneratedProject } from '../../services/projectHistoryService';
 export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
 export type ActiveUploadTarget = 'top' | 'bottom' | 'accessory' | 'full' | 'shoes' | 'model';
-export type ProductAngle = 'front' | 'back' | 'side' | 'detail';
+export type ProductAngle = 'front' | 'back' | 'side' | 'detail' | 'outfit';
 
-const ANGLE_CONFIG: Record<ProductAngle, { label: string; bgClass: string }> = {
-  front: { label: '正面', bgClass: 'bg-emerald-500/90 hover:bg-emerald-600' },
-  back: { label: '背面', bgClass: 'bg-indigo-500/90 hover:bg-indigo-600' },
-  side: { label: '侧面', bgClass: 'bg-amber-500/90 hover:bg-amber-600' },
-  detail: { label: '细节', bgClass: 'bg-rose-500/90 hover:bg-rose-600' },
+const ANGLE_CONFIG: Record<ProductAngle, { label: string; bgClass: string; desc?: string }> = {
+  front: { label: '正面', bgClass: 'bg-emerald-500/90 hover:bg-emerald-600', desc: '单品正面展示' },
+  back: { label: '背面', bgClass: 'bg-indigo-500/90 hover:bg-indigo-600', desc: '单品背面展示' },
+  side: { label: '侧面', bgClass: 'bg-amber-500/90 hover:bg-amber-600', desc: '单品侧面展示' },
+  detail: { label: '细节', bgClass: 'bg-rose-500/90 hover:bg-rose-600', desc: '局部细节特写' },
+  outfit: { label: '搭配', bgClass: 'bg-purple-500/90 hover:bg-purple-600', desc: '整套搭配/套餐图 (引导 AI 精准提取目标单品)' },
 };
 
 const NEXT_ANGLE_MAP: Record<ProductAngle, ProductAngle> = {
   front: 'back',
   back: 'side',
   side: 'detail',
-  detail: 'front',
+  detail: 'outfit',
+  outfit: 'front',
 };
 
 const AngleBadgeButton: React.FC<{
@@ -72,7 +77,7 @@ const AngleBadgeButton: React.FC<{
         onClick(e);
       }}
       className={`absolute left-1 top-1 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.6rem] font-black text-white shadow-md transition-all duration-200 border border-white/20 backdrop-blur-xs active:scale-95 cursor-pointer ${config.bgClass}`}
-      title="点击切换商品视角 (正面 ➔ 背面 ➔ 侧面 ➔ 细节)"
+      title="点击切换商品视角 (正面 ➔ 背面 ➔ 侧面 ➔ 细节 ➔ 搭配)"
     >
       <Camera className="h-2.5 w-2.5 text-white/90" />
       <span>{config.label}</span>
@@ -101,10 +106,40 @@ interface TryOnResultItem {
   modelReferenceId: string | null;
   modelPreview: string | null;
   url: string | null;
+  originalUrl?: string;
+  isNeckCropped?: boolean;
   status: 'generating' | 'done' | 'error';
   error?: string;
   requestId: string;
 }
+
+const cropTopNeckIfGenerated = (imageUrl: string, topCropRatio = 0.12): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!imageUrl) return resolve(imageUrl);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+        const cropY = Math.round(origH * topCropRatio);
+        const targetH = origH - cropY;
+        canvas.width = origW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(imageUrl);
+        ctx.drawImage(img, 0, cropY, origW, targetH, 0, 0, origW, targetH);
+        resolve(canvas.toDataURL('image/png'));
+      } catch (err) {
+        console.warn('Canvas 顶部去除脖子裁切失败:', err);
+        resolve(imageUrl);
+      }
+    };
+    img.onerror = () => resolve(imageUrl);
+    img.src = imageUrl;
+  });
+};
 
 interface UniversalTask {
   id: string;
@@ -658,7 +693,8 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
             angle: img.angle || 'front',
           })),
         ];
-        customPromptAddon = `[Two-Piece Try-On]: Replace the upper garment using TOP references and the lower garment using BOTTOM references. Apply ACCESSORY references only to anatomically correct locations without changing the pose. FRAME RULE: preserve the target model image's exact top/bottom/side crop boundaries and subject scale. If a garment is cut by the original frame, keep it cut; never zoom out to show the complete garment. For BOTTOM/trouser references, lock the original waistband, crotch, knees, trouser hems, feet and floor-contact coordinates, and never reveal additional torso above or floor below the source crop.`;
+        customPromptAddon = `[Two-Piece Try-On]: Replace the upper garment using TOP references and the lower garment using BOTTOM references. Apply ACCESSORY references only to anatomically correct locations without changing the pose. 
+FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bottom/side crop boundaries and subject scale. IF IMAGE 1 HAS NO NECK VISIBLE (cropped at chest/shoulders), THE OUTPUT MUST ALSO HAVE NO NECK VISIBLE and clip at the exact same chest/shoulder boundary. NEVER generate a neck, collarbone, chin or head if it was not in Image 1. If a replacement top has a collar or high neck, surgically clip the collar at Image 1's top edge boundary instead of extending the canvas upward to draw a neck. For BOTTOM/trouser references, lock the original waistband, crotch, knees, trouser hems, feet and floor-contact coordinates, and never reveal additional torso above or floor below the source crop.`;
       } else {
         if (currentTask.fullImages.length === 0) {
           setError('请在【连体/连衣裙】区域上传至少一张服装素材图');
@@ -769,12 +805,16 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 signal,
               }
             );
-            const url = results[0];
+            let url = results[0];
             if (!url) throw new Error('模型未返回图片');
+            const rawOriginalUrl = url;
+            if ((currentTask.lockCropping ?? true) && modelReference) {
+              url = await cropTopNeckIfGenerated(url, 0.12);
+            }
             setTasks((previousTasks) => previousTasks.map((task) => {
               if (task.id !== currentTask.id) return task;
               const nextItems = task.resultItems.map((item) => item.id === resultItem.id && item.requestId === resultItem.requestId
-                ? { ...item, url, status: 'done' as const, error: undefined }
+                ? { ...item, url, originalUrl: rawOriginalUrl, status: 'done' as const, error: undefined }
                 : item);
               return {
                 ...task,
@@ -936,12 +976,16 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
           lockCropping: taskSnapshot.lockCropping ?? true,
         }
       );
-      const url = results[0];
+      let url = results[0];
       if (!url) throw new Error('模型未返回图片');
+      const rawOriginalUrl = url;
+      if ((taskSnapshot.lockCropping ?? true) && modelReference) {
+        url = await cropTopNeckIfGenerated(url, 0.12);
+      }
       setTasks((previousTasks) => previousTasks.map((task) => {
         if (task.id !== taskSnapshot.id) return task;
         const nextItems = task.resultItems.map((item) => item.id === resultId && item.requestId === requestId
-          ? { ...item, url, status: 'done' as const, error: undefined }
+          ? { ...item, url, originalUrl: rawOriginalUrl, status: 'done' as const, error: undefined }
           : item);
         const stillGenerating = nextItems.some((item) => item.status === 'generating');
         return {
@@ -970,12 +1014,30 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     }
   };
 
+  const toggleNeckCrop = (resultId: string) => {
+    setTasks((previousTasks) =>
+      previousTasks.map((task) => {
+        if (task.id !== activeTaskId) return task;
+        return {
+          ...task,
+          resultItems: task.resultItems.map((item) =>
+            item.id === resultId
+              ? { ...item, isNeckCropped: !(item.isNeckCropped ?? true) }
+              : item
+          ),
+        };
+      })
+    );
+  };
+
   const handleDownloadAllResults = async () => {
     const completedItems = currentTask.resultItems.filter((item) => item.status === 'done' && item.url);
     if (completedItems.length === 0) return;
     try {
       for (let index = 0; index < completedItems.length; index += 1) {
-        await downloadImageFile(completedItems[index].url!, `万物上身-模特-${index + 1}.png`);
+        const item = completedItems[index];
+        const cropRatio = (item.isNeckCropped ?? true) ? 0.12 : 0;
+        await downloadImageFile(item.url!, `万物上身-模特-${index + 1}.png`, cropRatio);
       }
     } catch (downloadError) {
       console.error('Failed to download all try-on results.', downloadError);
@@ -2514,57 +2576,105 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                    {currentTask.resultItems.map((item, i) => (
-                      <div
-                        key={item.id}
-                        className="group relative aspect-[2/3] w-full max-w-sm justify-self-center overflow-hidden rounded-2xl border border-pastel-border bg-[#faf7f3] shadow-sm transition hover:shadow-md dark:bg-slate-900"
-                      >
-                        {item.url ? (
-                          <img src={item.url} alt={`Result ${i + 1}`} className="absolute inset-0 h-full w-full object-contain" />
-                        ) : item.status === 'generating' ? (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-orange-50/70 p-6 text-center dark:bg-orange-500/10">
-                            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-                            <p className="text-xs font-black text-pastel-text">模特 #{i + 1} 正在独立生成</p>
-                            <p className="text-[0.68rem] text-pastel-muted">其他模特任务会同时进行，无需等待</p>
-                          </div>
-                        ) : (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-red-50/70 p-6 text-center dark:bg-red-500/10">
-                            <AlertCircle className="h-8 w-8 text-red-500" />
-                            <p className="text-xs font-black text-red-600">生成失败</p>
-                            <p className="line-clamp-3 text-[0.68rem] text-red-500">{item.error || '请重新生成此图片'}</p>
-                          </div>
-                        )}
+                    {currentTask.resultItems.map((item, i) => {
+                      const isCropped = item.isNeckCropped ?? true;
+                      return (
+                        <div
+                          key={item.id}
+                          className="group relative aspect-[2/3] w-full max-w-sm justify-self-center overflow-hidden rounded-2xl border border-pastel-border bg-[#faf7f3] shadow-sm transition hover:shadow-md dark:bg-slate-900"
+                        >
+                          {item.url ? (
+                            <div className="absolute inset-0 overflow-hidden bg-slate-100 dark:bg-slate-950 flex items-center justify-center">
+                              <img
+                                src={item.url}
+                                alt={`Result ${i + 1}`}
+                                className={`w-full h-full object-contain transition-all duration-300 ${
+                                  isCropped ? 'scale-[1.14] -translate-y-[6%]' : ''
+                                }`}
+                              />
+                            </div>
+                          ) : item.status === 'generating' ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-orange-50/70 p-6 text-center dark:bg-orange-500/10">
+                              <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+                              <p className="text-xs font-black text-pastel-text">模特 #{i + 1} 正在独立生成</p>
+                              <p className="text-[0.68rem] text-pastel-muted">其他模特任务会同时进行，无需等待</p>
+                            </div>
+                          ) : (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-red-50/70 p-6 text-center dark:bg-red-500/10">
+                              <AlertCircle className="h-8 w-8 text-red-500" />
+                              <p className="text-xs font-black text-red-600">生成失败</p>
+                              <p className="line-clamp-3 text-[0.68rem] text-red-500">{item.error || '请重新生成此图片'}</p>
+                            </div>
+                          )}
 
-                        {item.modelPreview && (
-                          <img src={item.modelPreview} alt={`Model ${i + 1}`} className="absolute left-2 top-2 h-14 w-11 rounded-lg border-2 border-white object-cover shadow" />
-                        )}
-                        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/85 to-transparent p-3 pt-10">
-                          <span className="text-xs font-bold text-white">模特 #{i + 1}</span>
-                          <div className="flex gap-2">
-                            {item.url && (
-                              <>
-                                <button type="button" onClick={() => setZoomedImage(item.url)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-white hover:bg-white/40" title="放大预览">
-                                  <ZoomIn className="h-4 w-4" />
-                                </button>
-                                <button type="button" onClick={() => void downloadImageFile(item.url!, `万物上身-${i + 1}.png`)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500 text-white hover:bg-orange-600" title="下载图片">
-                                  <Download className="h-4 w-4" />
-                                </button>
-                              </>
+                          {/* 顶部浮动栏：左侧模特参考图缩略图，右侧一键无损去除/恢复脖子胶囊按钮 */}
+                          <div className="absolute inset-x-0 top-0 flex items-center justify-between p-2 bg-gradient-to-b from-black/60 via-black/20 to-transparent z-10">
+                            {item.modelPreview ? (
+                              <img src={item.modelPreview} alt={`Model ${i + 1}`} className="h-10 w-8 rounded-md border border-white/80 object-cover shadow-sm" />
+                            ) : (
+                              <span className="rounded-md bg-black/50 px-2 py-0.5 text-[0.65rem] font-bold text-white/90 backdrop-blur-xs">
+                                模特 #{i + 1}
+                              </span>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => void handleRegenerateResult(item.id)}
-                              disabled={item.status === 'generating'}
-                              className="flex h-8 items-center justify-center gap-1 rounded-lg bg-white px-2.5 text-[0.68rem] font-black text-[#172238] hover:bg-orange-50 disabled:cursor-wait disabled:opacity-70"
-                              title="仅重新生成这一张，不影响其他任务"
-                            >
-                              <RefreshCw className={`h-3.5 w-3.5 ${item.status === 'generating' ? 'animate-spin' : ''}`} />
-                              {item.status === 'generating' ? '生成中' : '重新生成'}
-                            </button>
+
+                            {item.url && (
+                              <button
+                                type="button"
+                                onClick={() => toggleNeckCrop(item.id)}
+                                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.65rem] font-bold backdrop-blur-md transition-all shadow-sm border ${
+                                  isCropped
+                                    ? 'bg-[#ed6d46] text-white border-orange-400 shadow-orange-500/30 ring-2 ring-orange-400/20'
+                                    : 'bg-black/60 text-white/80 border-white/20 hover:bg-black/80 hover:text-white'
+                                }`}
+                                title="点击一键无损切除/恢复顶端脖子与领口区域"
+                              >
+                                <Scissors className="h-3 w-3" />
+                                <span>{isCropped ? '已切除脖子' : '去除脖子'}</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* 底部浮动操作栏：极简规整 */}
+                          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/85 via-black/40 to-transparent p-3 pt-8 z-10">
+                            <span className="text-[0.68rem] font-bold text-white/90">
+                              {isCropped ? '平直裁切(无脖子)' : '完整显示'}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {item.url && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setZoomedImage(item.url)}
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white hover:bg-white/40 transition backdrop-blur-xs"
+                                    title="放大预览"
+                                  >
+                                    <ZoomIn className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void downloadImageFile(item.url!, `万物上身-${i + 1}.png`, isCropped ? 0.12 : 0)}
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white hover:bg-white/40 transition backdrop-blur-xs"
+                                    title="下载高清试穿图"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => void handleRegenerateResult(item.id)}
+                                disabled={item.status === 'generating'}
+                                className="flex h-7 items-center justify-center gap-1 rounded-lg bg-white/90 px-2.5 text-[0.65rem] font-black text-[#172238] hover:bg-white transition disabled:opacity-50 shadow-xs"
+                                title="仅重新生成这一张"
+                              >
+                                <RefreshCw className={`h-3 w-3 ${item.status === 'generating' ? 'animate-spin' : ''}`} />
+                                <span>{item.status === 'generating' ? '生成中' : '重新生成'}</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : currentTask.status === 'generating' || isLoading ? (
@@ -2748,7 +2858,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                 </div>
                 <div>
                   <h4 className="text-sm font-black text-slate-800 dark:text-white">选择商品视角打标</h4>
-                  <p className="text-[0.65rem] font-bold text-slate-400">帮助 AI 更精准识别服饰视角结构</p>
+                  <p className="text-[0.65rem] font-bold text-slate-400">帮助 AI 精准识别单品视角结构与搭配套装提取</p>
                 </div>
               </div>
               <button
@@ -2761,7 +2871,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2.5">
-              {(['front', 'back', 'side', 'detail'] as ProductAngle[]).map((angleKey) => {
+              {(['front', 'back', 'side', 'detail', 'outfit'] as ProductAngle[]).map((angleKey) => {
                 const cfg = ANGLE_CONFIG[angleKey];
                 const isSelected = angleModal.currentAngle === angleKey;
                 return (
@@ -2773,17 +2883,22 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
                       setAngleModal(null);
                     }}
                     className={`flex items-center gap-2.5 rounded-2xl p-3 text-xs font-bold transition-all border cursor-pointer active:scale-95 ${
+                      angleKey === 'outfit' ? 'col-span-2' : ''
+                    } ${
                       isSelected
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-500/20 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-500/60 shadow-xs'
+                        ? 'border-purple-500 bg-purple-50 text-purple-900 ring-2 ring-purple-500/20 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-500/60 shadow-xs'
                         : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-200 dark:hover:bg-slate-800'
                     }`}
                   >
-                    <span className={`h-3 w-3 rounded-full ${cfg.bgClass.split(' ')[0]}`} />
-                    <span className="flex-1 text-left font-black">{cfg.label}</span>
+                    <span className={`h-3 w-3 rounded-full shrink-0 ${cfg.bgClass.split(' ')[0]}`} />
+                    <div className="flex-1 text-left">
+                      <span className="font-black block">{cfg.label}</span>
+                      {cfg.desc && <span className="text-[0.62rem] text-slate-400 font-normal block leading-tight mt-0.5">{cfg.desc}</span>}
+                    </div>
                     {isSelected ? (
-                      <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <Check className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
                     ) : (
-                      <span className="text-[0.62rem] text-slate-400">选择</span>
+                      <span className="text-[0.62rem] text-slate-400 shrink-0">选择</span>
                     )}
                   </button>
                 );
