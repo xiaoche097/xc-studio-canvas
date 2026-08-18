@@ -40,7 +40,80 @@ type FusionTabProps = {
   isActive?: boolean;
 };
 
+export type TaskStatus = 'editing' | 'generating' | 'done' | 'error';
+
+export interface FusionTaskWorkspace {
+  selectedFiles: File[];
+  previewUrls: string[];
+  description: string;
+  generatedImages: string[];
+  selectedModel: string;
+  aspectRatio: AspectRatio;
+  resolution: ImageResolution;
+  outputFormat: 'png' | 'jpg';
+  imageCount: number;
+  selectedStyle: StylePreset | null;
+  viewAngle: 'front' | 'three_quarter' | 'back' | 'three_quarter_back' | 'side';
+  renderStyle: 'real' | 'render' | 'retouched_3d';
+  shadowStyle: 'none' | 'subtle';
+  isAutoOptimize: boolean;
+  originalImages: Record<number, string>;
+  isComparing: Record<number, boolean>;
+  selectedPoints: Record<number, EditPoint[]>;
+  editPrompts: Record<number, string>;
+  editRefImages: Record<number, File[]>;
+  progress: string;
+  error: string | null;
+}
+
+export interface FusionTask {
+  id: string;
+  createdAt: number;
+  status: TaskStatus;
+  cover?: string;
+  workspace: FusionTaskWorkspace;
+}
+
+const createDefaultWorkspace = (): FusionTaskWorkspace => ({
+  selectedFiles: [],
+  previewUrls: [],
+  description: '',
+  generatedImages: [],
+  selectedModel: 'gemini-3.1-flash-image-preview',
+  aspectRatio: AspectRatio.SQUARE,
+  resolution: ImageResolution.RES_2K,
+  outputFormat: 'png',
+  imageCount: 1,
+  selectedStyle: null,
+  viewAngle: 'three_quarter',
+  renderStyle: 'real',
+  shadowStyle: 'subtle',
+  isAutoOptimize: true,
+  originalImages: {},
+  isComparing: {},
+  selectedPoints: {},
+  editPrompts: {},
+  editRefImages: {},
+  progress: '',
+  error: null,
+});
+
+const createNewTask = (): FusionTask => ({
+  id: `fusion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  createdAt: Date.now(),
+  status: 'editing',
+  cover: undefined,
+  workspace: createDefaultWorkspace(),
+});
+
 const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
+  const initialTaskRef = useRef<FusionTask | null>(null);
+  if (!initialTaskRef.current) {
+    initialTaskRef.current = createNewTask();
+  }
+
+  const [tasks, setTasks] = useState<FusionTask[]>([initialTaskRef.current]);
+  const [activeTaskId, setActiveTaskId] = useState<string>(initialTaskRef.current.id);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [description, setDescription] = useState('');
@@ -77,6 +150,51 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
     try {
       const projects = await storageService.getProjectsByType('FUSION');
       setHistoryProjects(projects.slice(0, 30));
+      if (projects.length > 0) {
+        setTasks((prevTasks) => {
+          const activeEditingTasks = prevTasks.filter((t) => t.status === 'editing' || t.status === 'generating');
+          const savedIds = new Set(projects.map((p) => p.id));
+
+          const historicalTasks: FusionTask[] = projects.map((proj) => {
+            const params = proj.metadata?.params || {};
+            return {
+              id: proj.id,
+              createdAt: proj.createdAt,
+              status: 'done',
+              cover: proj.thumbnail || (proj.assets?.generated && proj.assets.generated[0]),
+              workspace: {
+                selectedFiles: [],
+                previewUrls: [],
+                description: proj.metadata?.prompt || '',
+                generatedImages: (proj.assets?.generated || []).filter(Boolean),
+                selectedModel: params.modelId || 'gemini-3.1-flash-image-preview',
+                aspectRatio: (params.aspectRatio as AspectRatio) || AspectRatio.SQUARE,
+                resolution: (params.resolution as ImageResolution) || ImageResolution.RES_2K,
+                outputFormat: (params.outputFormat as 'png' | 'jpg') || 'png',
+                imageCount: params.imageCount || 1,
+                selectedStyle: STYLE_PRESETS.find((s) => s.id === params.styleId) || null,
+                viewAngle: 'three_quarter',
+                renderStyle: 'real',
+                shadowStyle: 'subtle',
+                isAutoOptimize: proj.metadata?.autoOptimized ?? true,
+                originalImages: {},
+                isComparing: {},
+                selectedPoints: {},
+                editPrompts: {},
+                editRefImages: {},
+                progress: '',
+                error: null,
+              },
+            };
+          });
+
+          const combined = [
+            ...activeEditingTasks.filter((at) => !savedIds.has(at.id)),
+            ...historicalTasks,
+          ];
+          return combined.length > 0 ? combined : [createNewTask()];
+        });
+      }
     } catch (historyError) {
       console.warn('Failed to load image generation history.', historyError);
     } finally {
@@ -325,67 +443,134 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
   const [renderStyle, setRenderStyle] = useState<'real' | 'render' | 'retouched_3d'>('real');
   const [shadowStyle, setShadowStyle] = useState<'none' | 'subtle'>('subtle');
 
+  // Auto-Optimize State
+  const [isAutoOptimize, setIsAutoOptimize] = useState(true);
+
+  // Auto-disable optimization if user mentions an image
+  useEffect(() => {
+    if (description.includes('@图片')) {
+      setIsAutoOptimize(false);
+    }
+  }, [description]);
+
   // Drag and Drop State
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const suppressPreviewClickRef = useRef(false);
 
-  const startNewGenerationTask = () => {
-    previewUrls.forEach((url) => {
-      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
-    });
-    setSelectedFiles([]);
-    setPreviewUrls([]);
-    setDescription('');
-    setGeneratedImages([]);
-    setOriginalImages({});
-    setIsComparing({});
-    setSelectedPoints({});
-    setEditPrompts({});
-    setEditRefImages({});
-    setSelectedStyle(null);
-    setSelectedModel('gemini-3.1-flash-image-preview');
-    setAspectRatio(AspectRatio.SQUARE);
-    setResolution(ImageResolution.RES_2K);
-    setOutputFormat('png');
-    setImageCount(1);
-    setError(null);
-    setProgress('');
-    setActiveHistoryId(null);
-  };
+  const currentWorkspace = useCallback((): FusionTaskWorkspace => ({
+    selectedFiles,
+    previewUrls,
+    description,
+    generatedImages,
+    selectedModel,
+    aspectRatio,
+    resolution,
+    outputFormat,
+    imageCount,
+    selectedStyle,
+    viewAngle,
+    renderStyle,
+    shadowStyle,
+    isAutoOptimize,
+    originalImages,
+    isComparing,
+    selectedPoints,
+    editPrompts,
+    editRefImages,
+    progress,
+    error,
+  }), [
+    selectedFiles, previewUrls, description, generatedImages, selectedModel,
+    aspectRatio, resolution, outputFormat, imageCount, selectedStyle,
+    viewAngle, renderStyle, shadowStyle, isAutoOptimize, originalImages,
+    isComparing, selectedPoints, editPrompts, editRefImages, progress, error
+  ]);
 
-  const restoreHistoryProject = (project: Project) => {
-    const params = project.metadata.params || {};
-    setGeneratedImages(project.assets.generated.filter(Boolean));
-    setDescription(project.metadata.prompt || '');
-    if (params.aspectRatio) setAspectRatio(params.aspectRatio as AspectRatio);
-    if (params.resolution) setResolution(params.resolution as ImageResolution);
-    if (params.outputFormat === 'png' || params.outputFormat === 'jpg') setOutputFormat(params.outputFormat);
-    if (typeof params.modelId === 'string') setSelectedModel(params.modelId);
-    if ([1, 2, 4].includes(params.imageCount)) setImageCount(params.imageCount);
-    if (typeof params.styleId === 'string') {
-      setSelectedStyle(STYLE_PRESETS.find((style) => style.id === params.styleId) || null);
-    } else {
-      setSelectedStyle(null);
-    }
-    setOriginalImages({});
-    setIsComparing({});
-    setSelectedPoints({});
-    setEditPrompts({});
-    setEditRefImages({});
-    setError(null);
-    setActiveHistoryId(project.id);
-    if (window.innerWidth < 1280) setHistoryOpen(false);
-  };
+  const restoreWorkspace = useCallback((ws: FusionTaskWorkspace) => {
+    setSelectedFiles(ws.selectedFiles || []);
+    setPreviewUrls(ws.previewUrls || []);
+    setDescription(ws.description || '');
+    setGeneratedImages(ws.generatedImages || []);
+    setSelectedModel(ws.selectedModel || 'gemini-3.1-flash-image-preview');
+    setAspectRatio(ws.aspectRatio || AspectRatio.SQUARE);
+    setResolution(ws.resolution || ImageResolution.RES_2K);
+    setOutputFormat(ws.outputFormat || 'png');
+    setImageCount(ws.imageCount || 1);
+    setSelectedStyle(ws.selectedStyle || null);
+    setViewAngle(ws.viewAngle || 'three_quarter');
+    setRenderStyle(ws.renderStyle || 'real');
+    setShadowStyle(ws.shadowStyle || 'subtle');
+    setIsAutoOptimize(ws.isAutoOptimize ?? true);
+    setOriginalImages(ws.originalImages || {});
+    setIsComparing(ws.isComparing || {});
+    setSelectedPoints(ws.selectedPoints || {});
+    setEditPrompts(ws.editPrompts || {});
+    setEditRefImages(ws.editRefImages || {});
+    setProgress(ws.progress || '');
+    setError(ws.error || null);
+  }, []);
 
-  const deleteHistoryProject = async (projectId: string) => {
-    try {
-      await storageService.deleteProject(projectId);
-      if (activeHistoryId === projectId) setActiveHistoryId(null);
-    } catch (historyError) {
-      console.warn('Failed to delete image generation history.', historyError);
-      setError('删除生成记录失败，请稍后重试');
-    }
-  };
+  const switchTask = useCallback(
+    (targetTaskId: string) => {
+      if (targetTaskId === activeTaskId) return;
+      const snapshot = currentWorkspace();
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === activeTaskId
+            ? { ...t, workspace: snapshot, cover: snapshot.generatedImages[0] || snapshot.previewUrls[0] || t.cover }
+            : t
+        )
+      );
+      const target = tasks.find((t) => t.id === targetTaskId);
+      if (target) {
+        setActiveTaskId(targetTaskId);
+        restoreWorkspace(target.workspace);
+      }
+      if (window.innerWidth < 1280) setHistoryOpen(false);
+    },
+    [activeTaskId, currentWorkspace, restoreWorkspace, tasks]
+  );
+
+  const startNewGenerationTask = useCallback(() => {
+    const snapshot = currentWorkspace();
+    const newTaskItem = createNewTask();
+    setTasks((prev) => [
+      newTaskItem,
+      ...prev.map((t) =>
+        t.id === activeTaskId
+          ? { ...t, workspace: snapshot, cover: snapshot.generatedImages[0] || snapshot.previewUrls[0] || t.cover }
+          : t
+      ),
+    ]);
+    setActiveTaskId(newTaskItem.id);
+    restoreWorkspace(newTaskItem.workspace);
+  }, [activeTaskId, currentWorkspace, restoreWorkspace]);
+
+  const deleteTask = useCallback(
+    async (taskId: string) => {
+      try {
+        await storageService.deleteProject(taskId);
+      } catch (e) {
+        console.warn('Failed to delete project from storage', e);
+      }
+      setTasks((prev) => {
+        if (prev.length <= 1) {
+          const fresh = createNewTask();
+          setActiveTaskId(fresh.id);
+          restoreWorkspace(fresh.workspace);
+          return [fresh];
+        }
+        const remaining = prev.filter((t) => t.id !== taskId);
+        if (taskId === activeTaskId) {
+          const nextTask = remaining[0];
+          setActiveTaskId(nextTask.id);
+          restoreWorkspace(nextTask.workspace);
+        }
+        return remaining;
+      });
+    },
+    [activeTaskId, restoreWorkspace]
+  );
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -544,15 +729,7 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
     setDescription(updatedDesc);
   };
 
-  // Auto-Optimize State
-  const [isAutoOptimize, setIsAutoOptimize] = useState(true);
 
-  // Auto-disable optimization if user mentions an image
-  useEffect(() => {
-    if (description.includes('@图片')) {
-      setIsAutoOptimize(false);
-    }
-  }, [description]);
 
   const handleGenerate = async () => {
     if (!description && !selectedStyle) return; // Allow empty description if style is selected
@@ -567,10 +744,22 @@ const FusionTab: React.FC<FusionTabProps> = ({ isActive = true }) => {
     }
 
     const { taskId, signal } = startGenerationTask();
+    const currentTaskId = activeTaskId;
     setIsGenerating(true);
     setGeneratedImages([]);
     setOriginalImages({});
     setIsComparing({});
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === currentTaskId
+          ? {
+              ...t,
+              status: 'generating',
+              cover: previewUrls[0] || t.cover,
+            }
+          : t
+      )
+    );
 
     try {
       assertCurrentGenerationTask(taskId, signal);
@@ -769,11 +958,9 @@ Do not combine this image with any other uploaded image. Do not create extra var
         setOriginalImages(comparisonMap);
       }
 
-      // A single generation action is stored as one task so all batch results can
-      // be restored together from the in-page history panel.
-      const historyId = `fusion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      // Save project with currentTaskId to storage and update task item status to done
       void storageService.saveProject({
-        id: historyId,
+        id: currentTaskId,
         type: 'FUSION',
         createdAt: Date.now(),
         thumbnail: allResults[0],
@@ -795,13 +982,41 @@ Do not combine this image with any other uploaded image. Do not create extra var
           autoOptimized: isAutoOptimize,
           batchTotal: allResults.length,
         },
-      }).then(() => setActiveHistoryId(historyId)).catch((historyError) => {
+      }).catch((historyError) => {
         console.error('Failed to save to history', historyError);
       });
+
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === currentTaskId
+            ? {
+                ...t,
+                status: 'done',
+                cover: allResults[0],
+                workspace: {
+                  ...t.workspace,
+                  generatedImages: allResults,
+                  description: finalPrompt,
+                  progress: '生成完成！',
+                },
+              }
+            : t
+        )
+      );
     } catch (error: any) {
       if (!isAbortError(error)) {
         setError(getErrorMessage(error));
       }
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === currentTaskId
+            ? {
+                ...t,
+                status: 'error',
+              }
+            : t
+        )
+      );
     } finally {
       if (!isCurrentGenerationTask(taskId)) {
         return;
@@ -1107,7 +1322,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="font-black text-pastel-text">生成记录</h2>
-                  <p className="mt-0.5 text-xs text-pastel-muted">最近完成的图像任务</p>
+                  <p className="mt-0.5 text-xs text-pastel-muted">可同时开多个生成任务</p>
                 </div>
                 <button
                   type="button"
@@ -1122,11 +1337,10 @@ Do not combine this image with any other uploaded image. Do not create extra var
               <button
                 type="button"
                 onClick={startNewGenerationTask}
-                disabled={isGenerating}
-                className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#172238] text-sm font-black text-white transition hover:bg-[#202e49] disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#172238] text-sm font-black text-white transition hover:bg-[#202e49]"
               >
                 <Plus className="h-4 w-4" />
-                新建任务
+                新开任务
               </button>
 
               <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5 custom-scrollbar">
@@ -1134,56 +1348,79 @@ Do not combine this image with any other uploaded image. Do not create extra var
                   <div className="flex h-32 items-center justify-center text-pastel-muted">
                     <Loader2 className="h-5 w-5 animate-spin" />
                   </div>
-                ) : historyProjects.length === 0 ? (
+                ) : tasks.length === 0 ? (
                   <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-pastel-border px-4 text-center">
                     <ImageIcon className="h-7 w-7 text-pastel-border" />
                     <p className="mt-3 text-xs font-bold text-pastel-muted">暂无生成记录</p>
-                    <p className="mt-1 text-[10px] text-pastel-muted">完成生成后会自动保存在这里</p>
+                    <p className="mt-1 text-[10px] text-pastel-muted">点击“新开任务”开始创图</p>
                   </div>
                 ) : (
-                  historyProjects.map((project) => (
-                    <div key={project.id} className="group relative">
-                      <button
-                        type="button"
-                        onClick={() => restoreHistoryProject(project)}
-                        className={`block w-full overflow-hidden rounded-xl border text-left transition ${
-                          activeHistoryId === project.id
-                            ? 'border-pastel-highlight ring-2 ring-orange-100'
-                            : 'border-pastel-border hover:border-orange-300'
-                        }`}
-                      >
-                        <div className="relative aspect-[4/3] bg-pastel-bg">
-                          {project.thumbnail ? (
-                            <img src={project.thumbnail} alt="历史生成结果" className="h-full w-full object-cover" />
-                          ) : (
-                            <ImageIcon className="absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 text-pastel-border" />
-                          )}
-                          <span className="absolute inset-x-0 bottom-0 flex min-h-8 items-center justify-center bg-[#172238]/90 text-[11px] font-black text-white">
-                            已完成 {project.assets.generated.length} 张
-                          </span>
-                        </div>
-                        <div className="px-3 py-2.5">
-                          <p className="truncate text-xs font-bold text-pastel-text">{project.metadata.prompt || '未命名图像任务'}</p>
-                          <div className="mt-1.5 flex items-center justify-between text-[10px] text-pastel-muted">
-                            <span>{new Date(project.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span className="uppercase">{project.metadata.params?.outputFormat || 'PNG'}</span>
+                  tasks.map((task) => {
+                    const isActiveTask = task.id === activeTaskId;
+                    const previewUrl = task.cover || (task.workspace.previewUrls && task.workspace.previewUrls[0]);
+                    return (
+                      <div key={task.id} className="group relative">
+                        <button
+                          type="button"
+                          onClick={() => switchTask(task.id)}
+                          className={`block w-full overflow-hidden rounded-xl border text-left transition ${
+                            isActiveTask
+                              ? 'border-pastel-highlight ring-2 ring-orange-100'
+                              : 'border-pastel-border hover:border-orange-300'
+                          }`}
+                        >
+                          <div className="relative aspect-[4/3] bg-pastel-bg flex items-center justify-center overflow-hidden">
+                            {previewUrl ? (
+                              <img src={previewUrl} alt="任务预览" className="h-full w-full object-cover" />
+                            ) : (
+                              <ImageIcon className="h-8 w-8 text-pastel-border" />
+                            )}
+                            <span className="absolute inset-x-0 bottom-0 flex min-h-8 items-center justify-center gap-1.5 bg-[#172238]/90 text-[11px] font-black text-white">
+                              {task.status === 'generating' && (
+                                <Loader2 className="h-3 w-3 animate-spin text-orange-300" />
+                              )}
+                              {task.status === 'editing'
+                                ? '编辑中'
+                                : task.status === 'generating'
+                                ? '生成中...'
+                                : task.status === 'done'
+                                ? `已完成 ${task.workspace.generatedImages.length} 张`
+                                : '生成失败'}
+                            </span>
                           </div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void deleteHistoryProject(project.id);
-                        }}
-                        className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-black/65 text-white opacity-0 shadow transition hover:bg-red-500 group-hover:opacity-100 focus:opacity-100"
-                        aria-label="删除这条生成记录"
-                        title="删除记录"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))
+                          <div className="px-3 py-2.5">
+                            <p className="truncate text-xs font-bold text-pastel-text">
+                              {task.workspace.description ||
+                                (task.workspace.previewUrls.length > 0
+                                  ? `${task.workspace.previewUrls.length} 张参考图`
+                                  : '未命名生成任务')}
+                            </p>
+                            <div className="mt-1.5 flex items-center justify-between text-[10px] text-pastel-muted">
+                              <span>
+                                {new Date(task.createdAt).toLocaleTimeString('zh-CN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                              <span className="uppercase">{task.workspace.outputFormat || 'PNG'}</span>
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteTask(task.id);
+                          }}
+                          className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-black/65 text-white opacity-0 shadow transition hover:bg-red-500 group-hover:opacity-100 focus:opacity-100"
+                          aria-label="删除这条生成记录"
+                          title="删除记录"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </aside>
