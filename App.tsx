@@ -271,11 +271,10 @@ const App: React.FC = () => {
     }
 
     return (
-      <ChatStudio
+      <VideoStationApp
         initialInput={initialData.text}
         initialImages={initialData.images}
         initialModel={initialData.model}
-        initialStep={initialData.step}
         onBack={handleBackToHome}
       />
     );

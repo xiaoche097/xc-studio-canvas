@@ -338,6 +338,8 @@ const DEFAULT_INITIAL_MESSAGE: Message = {
 interface AssistantPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  initialInput?: string;
+  initialModel?: string;
   attachments?: { id: string; src: string; title: string }[];
   onRemoveAttachment?: (id: string) => void;
   onInsertAssetToCanvas?: (url: string, title: string, mediaType?: 'image' | 'video') => void;
@@ -794,6 +796,8 @@ const UserReferenceGallery: React.FC<{ assets: AgentSkillAsset[] }> = ({ assets 
 export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   isOpen,
   onClose,
+  initialInput = '',
+  initialModel,
   attachments = [],
   onRemoveAttachment,
   onInsertAssetToCanvas,
@@ -839,7 +843,13 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     return current?.messages && current.messages.length > 0 ? current.messages : [DEFAULT_INITIAL_MESSAGE];
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialInput || '');
+
+  useEffect(() => {
+    if (initialInput && isOpen) {
+      setInput(initialInput);
+    }
+  }, [initialInput, isOpen]);
   const [selectedSkill, setSelectedSkill] = useState<AgentSkill | null>(() => {
     const skillId = sessions.find((session) => session.id === currentSessionId)?.skillId;
     return skillId ? ALL_AGENT_SKILLS.find((skill) => skill.id === skillId) || null : null;

@@ -266,12 +266,30 @@ const ExpandedView = ({ media, onClose }: { media: any, onClose: () => void }) =
     );
 };
 
-export const App = () => {
+export interface VideoStationAppProps {
+    initialInput?: string;
+    initialImages?: string[];
+    initialModel?: string;
+    onBack?: () => void;
+}
+
+export const App: React.FC<VideoStationAppProps> = ({
+    initialInput = '',
+    initialImages = [],
+    initialModel,
+    onBack,
+}) => {
     // --- Global App State ---
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
     const [assetHistory, setAssetHistory] = useState<any[]>([]);
-    const [isChatOpen, setIsChatOpen] = useState(false);
-    const [agentAttachments, setAgentAttachments] = useState<{ id: string; src: string; title: string }[]>([]);
+    const [isChatOpen, setIsChatOpen] = useState(Boolean(initialInput || initialImages.length > 0));
+    const [agentAttachments, setAgentAttachments] = useState<{ id: string; src: string; title: string }[]>(() => {
+        return initialImages.map((src, index) => ({
+            id: `initial-image-${index}`,
+            src,
+            title: `参考图 ${index + 1}`
+        }));
+    });
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -3462,6 +3480,8 @@ export const App = () => {
                 <AssistantPanel
                     isOpen={isChatOpen}
                     onClose={() => setIsChatOpen(false)}
+                    initialInput={initialInput}
+                    initialModel={initialModel}
                     attachments={agentAttachments}
                     onRemoveAttachment={(id) => setAgentAttachments(prev => prev.filter(item => item.id !== id))}
                     onEnsureReferencesOnCanvas={(images) => {
