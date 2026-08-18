@@ -6,7 +6,7 @@ import { gemini } from './lib/gemini';
 import { SystemNoticeDialog } from './components/SystemNoticeDialog';
 import { storageService } from './services/storageService';
 
-const ChatStudio = lazy(() => import('./components/ChatStudio').then((module) => ({ default: module.ChatStudio })));
+const SparkChatStudio = lazy(() => import('./components/SparkChatStudio').then((module) => ({ default: module.SparkChatStudio })));
 import { UnifiedSettingsModal } from './components/UnifiedSettingsModal';
 const ProjectGalleryModal = lazy(() => import('./components/ProjectGalleryModal').then((module) => ({ default: module.ProjectGalleryModal })));
 const VideoStationApp = lazy(() => import('./XcAISTUDIO-main/App').then((module) => ({ default: module.App })));
@@ -271,7 +271,7 @@ const App: React.FC = () => {
     }
 
     return (
-      <VideoStationApp
+      <SparkChatStudio
         initialInput={initialData.text}
         initialImages={initialData.images}
         initialModel={initialData.model}
