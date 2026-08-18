@@ -284,55 +284,57 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-full overflow-hidden bg-sky-light dark:bg-brand-dark text-gray-900 dark:text-white transition-colors duration-500 relative">
-      {/* Top Right Controls */}
-      <div className="fixed top-6 right-6 z-50 flex gap-2">
-        <button
-          onClick={() => setIsSystemNoticeOpen(true)}
-          className="p-2.5 rounded-full bg-gradient-to-r from-brand-orange/85 to-orange-500/85 backdrop-blur-md border border-orange-300/30 dark:border-orange-500/30 shadow-lg hover:scale-105 transition-all text-white hover:shadow-orange-500/30 group"
-          aria-label="System notice"
-          title="系统通告"
-        >
-          <Megaphone className="w-5 h-5" />
-        </button>
-        {/* Yunwu API Button - 品牌橙色调 */}
-        <button
-          onClick={() => setView('yunwu')}
-          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
-          aria-label="Yunwu API"
-          title="云雾API Studio"
-        >
-          <Cloud className="w-5 h-5" />
-        </button>
+      {/* Top Right Controls (Hidden in Chat and Creative views) */}
+      {view !== 'chat' && view !== 'creative' && (
+        <div className="fixed top-6 right-6 z-50 flex gap-2">
+          <button
+            onClick={() => setIsSystemNoticeOpen(true)}
+            className="p-2.5 rounded-full bg-gradient-to-r from-brand-orange/85 to-orange-500/85 backdrop-blur-md border border-orange-300/30 dark:border-orange-500/30 shadow-lg hover:scale-105 transition-all text-white hover:shadow-orange-500/30 group"
+            aria-label="System notice"
+            title="系统通告"
+          >
+            <Megaphone className="w-5 h-5" />
+          </button>
+          {/* Yunwu API Button - 品牌橙色调 */}
+          <button
+            onClick={() => setView('yunwu')}
+            className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
+            aria-label="Yunwu API"
+            title="云雾API Studio"
+          >
+            <Cloud className="w-5 h-5" />
+          </button>
 
-        {/* History Button */}
-        <button
-          onClick={() => setIsGalleryOpen(true)}
-          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
-          aria-label="History"
-        >
-          <History className="w-5 h-5" />
-        </button>
+          {/* History Button */}
+          <button
+            onClick={() => setIsGalleryOpen(true)}
+            className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
+            aria-label="History"
+          >
+            <History className="w-5 h-5" />
+          </button>
 
-        {/* Settings Button */}
-        <button
-          onClick={() => {
-            setIsSettingsOpen(true);
-          }}
-          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
-          title="设置"
-        >
-          <SettingsIcon className="w-5 h-5" />
-        </button>
+          {/* Settings Button */}
+          <button
+            onClick={() => {
+              setIsSettingsOpen(true);
+            }}
+            className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-white/20 hover:text-brand-orange dark:hover:text-brand-orange group"
+            title="设置"
+          >
+            <SettingsIcon className="w-5 h-5" />
+          </button>
 
-        {/* Theme Toggle Button */}
-        <button
-          onClick={toggleTheme}
-          className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-yellow-400 hover:bg-white dark:hover:bg-white/20"
-          aria-label="Toggle Theme"
-        >
-          {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
-        </button>
-      </div>
+          {/* Theme Toggle Button */}
+          <button
+            onClick={toggleTheme}
+            className="p-2.5 rounded-full bg-white/50 dark:bg-white/10 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-lg hover:scale-105 transition-all text-gray-600 dark:text-yellow-400 hover:bg-white dark:hover:bg-white/20"
+            aria-label="Toggle Theme"
+          >
+            {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+          </button>
+        </div>
+      )}
 
       <Suspense fallback={<LoadingScreen />}>
         <SystemNoticeDialog isOpen={isSystemNoticeOpen} onClose={() => setIsSystemNoticeOpen(false)} />
