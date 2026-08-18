@@ -808,13 +808,10 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
             let url = results[0];
             if (!url) throw new Error('模型未返回图片');
             const rawOriginalUrl = url;
-            if ((currentTask.lockCropping ?? true) && modelReference) {
-              url = await cropTopNeckIfGenerated(url, 0.12);
-            }
             setTasks((previousTasks) => previousTasks.map((task) => {
               if (task.id !== currentTask.id) return task;
               const nextItems = task.resultItems.map((item) => item.id === resultItem.id && item.requestId === resultItem.requestId
-                ? { ...item, url, originalUrl: rawOriginalUrl, status: 'done' as const, error: undefined }
+                ? { ...item, url, originalUrl: rawOriginalUrl, isNeckCropped: false, status: 'done' as const, error: undefined }
                 : item);
               return {
                 ...task,
@@ -979,13 +976,10 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
       let url = results[0];
       if (!url) throw new Error('模型未返回图片');
       const rawOriginalUrl = url;
-      if ((taskSnapshot.lockCropping ?? true) && modelReference) {
-        url = await cropTopNeckIfGenerated(url, 0.12);
-      }
       setTasks((previousTasks) => previousTasks.map((task) => {
         if (task.id !== taskSnapshot.id) return task;
         const nextItems = task.resultItems.map((item) => item.id === resultId && item.requestId === requestId
-          ? { ...item, url, originalUrl: rawOriginalUrl, status: 'done' as const, error: undefined }
+          ? { ...item, url, originalUrl: rawOriginalUrl, isNeckCropped: false, status: 'done' as const, error: undefined }
           : item);
         const stillGenerating = nextItems.some((item) => item.status === 'generating');
         return {
@@ -1022,7 +1016,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
           ...task,
           resultItems: task.resultItems.map((item) =>
             item.id === resultId
-              ? { ...item, isNeckCropped: !(item.isNeckCropped ?? true) }
+              ? { ...item, isNeckCropped: !(item.isNeckCropped ?? false) }
               : item
           ),
         };
@@ -1036,7 +1030,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
     try {
       for (let index = 0; index < completedItems.length; index += 1) {
         const item = completedItems[index];
-        const cropRatio = (item.isNeckCropped ?? true) ? 0.12 : 0;
+        const cropRatio = item.isNeckCropped ? 0.12 : 0;
         await downloadImageFile(item.url!, `万物上身-模特-${index + 1}.png`, cropRatio);
       }
     } catch (downloadError) {
@@ -2577,7 +2571,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
 
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
                     {currentTask.resultItems.map((item, i) => {
-                      const isCropped = item.isNeckCropped ?? true;
+                      const isCropped = item.isNeckCropped ?? false;
                       return (
                         <div
                           key={item.id}
