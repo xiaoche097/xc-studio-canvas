@@ -25,6 +25,8 @@ import {
   Wand2,
   WandSparkles,
   X,
+  Sun,
+  Lock,
 } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImage, generateImageToImage } from '../services/geminiService';
@@ -63,6 +65,7 @@ export interface FaceSwapRecord {
   targetModelImages: FaceSwapUploadedImage[];
   referenceFaceImage: FaceSwapUploadedImage | null;
   referenceSceneImage: FaceSwapUploadedImage | null;
+  refSceneLockMode?: 'scene_pose' | 'scene_light_only';
   selectedModelPersonaId: string | null;
   modelId: string;
   userPrompt: string;
@@ -117,6 +120,7 @@ const createRecord = (): FaceSwapRecord => ({
   targetModelImages: [],
   referenceFaceImage: null,
   referenceSceneImage: null,
+  refSceneLockMode: 'scene_pose',
   selectedModelPersonaId: null,
   modelId: DEFAULT_MODEL_ID,
   userPrompt: '',
@@ -432,7 +436,10 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
             base64: activeRecord.referenceSceneImage.base64,
             mimeType: activeRecord.referenceSceneImage.mime,
           });
-          refScenePromptNote = `Image 3 is a REFERENCE SCENE. Align the lighting, shadow direction, color grading, and background atmosphere to match Image 3 while keeping the product and pose intact.`;
+          const isLightOnly = activeRecord.refSceneLockMode === 'scene_light_only';
+          refScenePromptNote = isLightOnly
+            ? `Image ${inputImages.length} is a REFERENCE SCENE (MODE: LIGHTING & ENVIRONMENT ATMOSPHERE ONLY). Extract ONLY its background location environment, light source direction, lighting intensity, shadow geometry, and color tone. LOCK 100% OF THE ORIGINAL POSTURE, POSE, BODY ANGLE, FACE AND LOOK FROM IMAGE 1. DO NOT COPY THE POSE OR ACTION FROM IMAGE ${inputImages.length}.`
+            : `Image ${inputImages.length} is a REFERENCE SCENE & POSE ANCHOR. Align the lighting, shadow direction, color grading, background atmosphere and body pose to match Image ${inputImages.length}.`;
         }
 
         const faceSwapPrompt = `
@@ -1059,9 +1066,40 @@ RULES:
                     )}
                   </div>
                   <p className="text-[0.68rem] text-[#718198]">
-                    自动分析并同步构图、姿势动作与光影方案
+                    {activeRecord.refSceneLockMode === 'scene_light_only'
+                      ? '【仅参考光影模式】提取参考图场景、方向光照与色彩氛围。100% 保持您带模特图原姿态样貌不变。'
+                      : '【强锁场景与动作模式】强锁场景布局、结构材质与光影；同步动作姿势。'}
                   </p>
                 </div>
+              </div>
+
+              {/* 模式选择双按钮 */}
+              <div className="mt-3.5 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-white/5">
+                <button
+                  type="button"
+                  onClick={() => patchActive({ refSceneLockMode: 'scene_pose' })}
+                  className={`flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-black transition ${
+                    (activeRecord.refSceneLockMode ?? 'scene_pose') === 'scene_pose'
+                      ? 'bg-white text-[#17243c] shadow-xs dark:bg-white/10 dark:text-white'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  }`}
+                >
+                  <Lock className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>锁定场景与动作</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => patchActive({ refSceneLockMode: 'scene_light_only' })}
+                  className={`flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-black transition ${
+                    activeRecord.refSceneLockMode === 'scene_light_only'
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  }`}
+                >
+                  <Sun className="h-3.5 w-3.5 text-amber-200" />
+                  <span>仅参考场景光影 (保留原姿态)</span>
+                </button>
               </div>
 
               {activeRecord.referenceSceneImage ? (
@@ -1069,11 +1107,31 @@ RULES:
                   <img
                     src={activeRecord.referenceSceneImage.preview}
                     alt="参考场景"
-                    className="h-16 w-16 rounded-xl object-cover shadow-sm"
+                    className="h-16 w-16 rounded-xl object-cover shadow-sm cursor-pointer"
+                    onClick={() => setSelectedPreview(activeRecord.referenceSceneImage!.preview)}
                   />
                   <div className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-black">{activeRecord.referenceSceneImage.name}</span>
-                    <span className="mt-1 block text-[0.68rem] text-[#718198]">场景光影与姿势迁移已锁定</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextMode = activeRecord.refSceneLockMode === 'scene_light_only' ? 'scene_pose' : 'scene_light_only';
+                        patchActive({ refSceneLockMode: nextMode });
+                      }}
+                      className="mt-1 flex items-center gap-1 text-[0.68rem] font-bold text-orange-600 dark:text-orange-400 hover:underline"
+                    >
+                      {activeRecord.refSceneLockMode === 'scene_light_only' ? (
+                        <>
+                          <Sun className="h-3 w-3" />
+                          <span>仅参考场景光影 (姿态不变)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="h-3 w-3" />
+                          <span>场景光影与姿态迁移已锁定</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                   <button
                     type="button"

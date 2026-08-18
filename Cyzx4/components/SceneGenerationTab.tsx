@@ -27,6 +27,8 @@ import {
   Instagram,
   Link2,
   ExternalLink,
+  Sun,
+  Lock,
 } from 'lucide-react';
 import { AspectRatio, ImageResolution } from '../types';
 import { compressImage, generateImageToImage, generateText } from '../services/geminiService';
@@ -171,6 +173,7 @@ export interface SceneGenerationRecord {
   cropFraming: CropFramingId;
   productImages: SceneUploadedImage[];
   referenceSceneImage: SceneUploadedImage | null;
+  refSceneLockMode?: 'scene_pose' | 'scene_light_only';
   userHint: string;
   productSize: string;
   modelId: string;
@@ -231,6 +234,7 @@ const createRecord = (experience: 'standard' | 'instagram' = 'standard'): SceneG
   cropFraming: 'full-length',
   productImages: [],
   referenceSceneImage: null,
+  refSceneLockMode: 'scene_pose',
   userHint: experience === 'instagram' ? '自然松弛的都市时装氛围，适合 Instagram 发布' : '',
   productSize: '',
   modelId: DEFAULT_MODEL_ID,
@@ -407,8 +411,11 @@ const buildAnalysisPrompt = (
   const selectedModelText = selectedModel && modelIndex
     ? `Image ${modelIndex} is the USER-SELECTED MODEL IDENTITY ANCHOR named "${selectedModel.name}". This image defines the mandatory person identity only: exact face geometry, facial features, skin tone/texture, hair identity, apparent age and body proportions. The final person must be recognizably this same model. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from this image. Plan new pose, action, expression and camera angle for the target garment and scene.`
     : 'No fixed model was selected. Recommend a suitable adult model persona.';
+  const isLightOnlyMode = record.refSceneLockMode === 'scene_light_only';
   const refSceneText = record.referenceSceneImage && sceneIndex
-    ? `Image ${sceneIndex} is the USER-SELECTED SCENE AND PERFORMANCE ANCHOR. Treat its location identity as visual ground truth. Extract and preserve its camera position, perspective, crop boundaries, horizon/vanishing lines, architecture geometry, wall/floor junctions, panel seams, surface materials, object placement, spatial depth, weather/season, light direction, shadow geometry, color temperature and atmosphere. Do not replace these with a generic similar location. ${isHeadlessCrop ? `The selected crop hides the head, so transfer only visible performance cues: torso/hip orientation, weight distribution, leg rhythm, arm/hand placement and fabric movement. Do not plan gaze, head angle or facial expression.` : `Also extract the reference person's gaze direction, attention target, head turn/tilt, expression intensity, shoulder line and candid body energy as performance cues.`} Apply only those performance cues to the selected model while preserving identity. The reference person's identity, garments, accessories, text and logos are non-authoritative and must not be copied.`
+    ? isLightOnlyMode
+      ? `Image ${sceneIndex} is the USER-SELECTED LIGHTING & ENVIRONMENT SCENE ANCHOR (MODE: REF SCENE LIGHT & ATMOSPHERE ONLY, LOCK PRODUCT/SUBJECT POSE & IDENTITY). Extract ONLY its background location environment, directional light source, lighting intensity, shadow characteristics, color temperature, and atmospheric background. DO NOT COPY THE POSE, BODY POSITION, GAZE, OR ACTION FROM IMAGE ${sceneIndex}. Keep the product and model in their ORIGINAL POSE AND POSTURE from the product/model reference photos (Image 1), seamlessly integrating them into this new scene with realistic lighting, shadows, and environment reflections.`
+      : `Image ${sceneIndex} is the USER-SELECTED SCENE AND PERFORMANCE ANCHOR (MODE: LOCK SCENE & POSE). Treat its location identity as visual ground truth. Extract and preserve its camera position, perspective, crop boundaries, horizon/vanishing lines, architecture geometry, wall/floor junctions, panel seams, surface materials, object placement, spatial depth, weather/season, light direction, shadow geometry, color temperature and atmosphere. Do not replace these with a generic similar location. ${isHeadlessCrop ? `The selected crop hides the head, so transfer only visible performance cues: torso/hip orientation, weight distribution, leg rhythm, arm/hand placement and fabric movement. Do not plan gaze, head angle or facial expression.` : `Also extract the reference person's gaze direction, attention target, head turn/tilt, expression intensity, shoulder line and candid body energy as performance cues.`} Apply only those performance cues to the selected model while preserving identity. The reference person's identity, garments, accessories, text and logos are non-authoritative and must not be copied.`
     : 'No reference scene image provided.';
   const instagramStart = record.productImages.length + (selectedModel ? 1 : 0) + (record.referenceSceneImage ? 1 : 0) + 1;
   const instagramEnd = instagramStart + record.instagramReferences.length - 1;
@@ -519,13 +526,16 @@ const buildGenerationPrompt = (
   const styleStart = nextImageIndex;
   const styleEnd = styleStart + styleReferenceCount - 1;
 
+  const isLightOnlyMode = record.refSceneLockMode === 'scene_light_only';
   const referenceMap = [
     'Image 1 = Primary product identity (主产品 - highest weight authority).',
     selectedModel && modelStart && modelEnd
       ? `Images ${modelStart}-${modelEnd} = Selected model identity anchor (${selectedModel.name}).`
       : '',
     record.referenceSceneImage && sceneIndex
-      ? `Image ${sceneIndex} = Scene structure and performance reference.`
+      ? isLightOnlyMode
+        ? `Image ${sceneIndex} = LIGHTING, LIGHT SOURCE & ENVIRONMENT ATMOSPHERE REFERENCE ONLY (DO NOT COPY POSE/BODY POSITION).`
+        : `Image ${sceneIndex} = Scene structure and performance reference.`
       : '',
     secondaryProductStart && secondaryProductEnd
       ? `Images ${secondaryProductStart}-${secondaryProductEnd} = Mandatory matching products/accessories (搭配产品). ALL MUST be visible in the scene.`
@@ -549,7 +559,9 @@ const buildGenerationPrompt = (
     ? `Reconstruct environment from Image ${sceneIndex}: ${analysis.backgroundComposition}.${sceneLockRules ? ` Verifiable locks: ${sceneLockRules}.` : ''}`
     : analysis.backgroundComposition;
   const performanceDirection = record.referenceSceneImage && sceneIndex
-    ? isHeadlessCrop
+    ? isLightOnlyMode
+      ? `PERFORMANCE & POSE CONTRACT: LOCK 100% OF THE ORIGINAL POSTURE, POSE, BODY ANGLE, FACE AND LOOK FROM THE USER's PRODUCT/MODEL IMAGE (IMAGE 1). DO NOT COPY THE POSE OR ACTION FROM IMAGE ${sceneIndex}. Seamlessly migrate/blend the subject into Image ${sceneIndex}'s background scene environment with matching directional lighting, realistic ground shadows, and ambient reflections.`
+      : isHeadlessCrop
       ? `Performance: ${analysis.modelMoment}`
       : `Performance: Follow reference person gaze and body energy from Image ${sceneIndex}. ${analysis.modelMoment}`
     : `Performance: ${analysis.modelMoment}`;
@@ -566,7 +578,7 @@ Main Product (Image 1): ${analysis.productCategory} - ${analysis.productIdentity
 ${secondaryProductStart && secondaryProductEnd ? `Matching Products (Images ${secondaryProductStart}-${secondaryProductEnd}): MUST ALL BE INCLUDED AND VISIBLE in the scene alongside the main product.` : ''}
 
 [SCENE & ACTION]
-Action: ${analysis.imagePlans[index] || analysis.modelMoment}${stablePose}
+Action: ${isLightOnlyMode ? 'Keep 100% of the exact pose, body posture and appearance from Image 1' : (analysis.imagePlans[index] || analysis.modelMoment)}${stablePose}
 ${performanceDirection}
 Environment: ${environmentDirection}
 
@@ -583,13 +595,16 @@ const buildGenerationNegativePrompt = (
   selectedModel?: ModelItem,
 ) => {
   const isHeadlessCrop = record.cropFraming === 'short-bottom' || record.cropFraming === 'long-bottom';
+  const isLightOnlyMode = record.refSceneLockMode === 'scene_light_only';
   return [
     'wrong target product, product redesign, changed color/material/silhouette/length, missing construction details or trims',
     selectedModel
       ? 'different person, lookalike, changed face, changed ethnicity, changed hair identity, changed age, changed body proportions, duplicate person'
       : 'duplicate person',
     record.referenceSceneImage
-      ? `generic substitute location, different camera perspective, changed architecture or seam layout, redesigned background, incorrect light direction or shadow geometry, copied person identity or clothing from scene reference${isHeadlessCrop ? ', visible head or face' : ', gaze direction inconsistent with scene reference'}`
+      ? isLightOnlyMode
+        ? 'copied pose from scene reference, altered subject pose, changed original model posture, altered body stance'
+        : `generic substitute location, different camera perspective, changed architecture or seam layout, redesigned background, incorrect light direction or shadow geometry, copied person identity or clothing from scene reference${isHeadlessCrop ? ', visible head or face' : ', gaze direction inconsistent with scene reference'}`
       : '',
     selectedModel
       ? 'sunglasses, eyeglasses, earrings, necklace, jewelry, bracelet, watch, hat, handbag, shoulder bag, scarf, gloves, phone, cup, handheld prop'
@@ -1696,7 +1711,11 @@ Return ONLY JSON:
                   </span>
                 )}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-pastel-muted">强锁场景布局、机位、结构材质与光影；人物动作仅迁移当前裁图可见部分，人物身份仍以模特库为准。</p>
+              <p className="mt-1 text-xs leading-5 text-pastel-muted">
+                {activeRecord.refSceneLockMode === 'scene_light_only'
+                  ? '【仅参考光影模式】提取参考图场景、方向光照与色彩氛围。100% 保持您产品/模特原姿态样貌不变，自然无缝迁移入新场景。'
+                  : '【强锁场景与动作模式】强锁场景布局、机位、结构材质与光影；同步人物动作姿势。'}
+              </p>
             </div>
           </div>
           {activeRecord.referenceSceneImage && (
@@ -1710,6 +1729,43 @@ Return ONLY JSON:
               移除参考图
             </button>
           )}
+        </div>
+
+        {/* 模式选择双按钮 (锁定场景与动作 vs 仅参考场景光影) */}
+        <div className="mt-3.5 grid grid-cols-2 gap-2 rounded-xl bg-pastel-bg p-1 dark:bg-white/5">
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              patchActive({ refSceneLockMode: 'scene_pose' });
+            }}
+            className={`flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black transition ${
+              (activeRecord.refSceneLockMode ?? 'scene_pose') === 'scene_pose'
+                ? 'bg-white text-[#17243c] shadow-xs border border-slate-200 dark:bg-white/10 dark:text-white dark:border-white/10'
+                : 'text-pastel-muted hover:text-pastel-text'
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5 text-emerald-500" />
+            <span>锁定场景与动作</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              patchActive({ refSceneLockMode: 'scene_light_only' });
+            }}
+            className={`flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black transition ${
+              activeRecord.refSceneLockMode === 'scene_light_only'
+                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-xs'
+                : 'text-pastel-muted hover:text-pastel-text'
+            }`}
+          >
+            <Sun className="h-3.5 w-3.5 text-amber-200" />
+            <span>仅参考场景光影 (保留产品姿态)</span>
+          </button>
         </div>
 
         {activeRecord.referenceSceneImage ? (
@@ -1728,9 +1784,34 @@ Return ONLY JSON:
               className="h-full w-full object-cover transition hover:scale-105"
               title="点击放大预览大图"
             />
-            <span className="absolute bottom-2 left-2 rounded-lg bg-[#17243c]/90 px-2 py-1 text-xs font-black text-white backdrop-blur-sm pointer-events-none">
-              锁定场景与动作
-            </span>
+            {/* 缩略图上的可点击切换角标 */}
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={(e) => {
+                e.stopPropagation();
+                const nextMode = activeRecord.refSceneLockMode === 'scene_light_only' ? 'scene_pose' : 'scene_light_only';
+                patchActive({ refSceneLockMode: nextMode });
+              }}
+              className={`absolute bottom-2 left-2 z-10 flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-black transition backdrop-blur-md shadow-md border cursor-pointer ${
+                activeRecord.refSceneLockMode === 'scene_light_only'
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white border-amber-300 ring-2 ring-amber-400/40 hover:brightness-110'
+                  : 'bg-[#17243c]/90 text-white border-white/20 hover:bg-[#233555]'
+              }`}
+              title="点击切换参考场景图模式"
+            >
+              {activeRecord.refSceneLockMode === 'scene_light_only' ? (
+                <>
+                  <Sun className="h-3.5 w-3.5 text-amber-200 animate-pulse" />
+                  <span>仅参考场景光影 (产品姿态不变)</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>锁定场景与动作</span>
+                </>
+              )}
+            </button>
             {isDraggingRefScene ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#ed6d46]/85 text-white backdrop-blur-xs">
                 <Upload className="h-8 w-8 animate-bounce mb-1" />
