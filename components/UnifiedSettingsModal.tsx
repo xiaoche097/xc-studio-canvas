@@ -258,11 +258,16 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [cacheMessage, setCacheMessage] = useState('');
-  const [imageHostProvider, setImageHostProvider] = useState<'none' | 'imgbb'>('imgbb');
+  const [imageHostProvider, setImageHostProvider] = useState<'none' | 'imgbb' | 'freeimage'>('imgbb');
   const [imgbbApiKey, setImgbbApiKey] = useState('');
   const [isImgbbKeyVisible, setIsImgbbKeyVisible] = useState(false);
   const [imgbbTestStatus, setImgbbTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [imgbbTestMessage, setImgbbTestMessage] = useState('');
+
+  const [freeimageApiKey, setFreeimageApiKey] = useState('');
+  const [isFreeimageKeyVisible, setIsFreeimageKeyVisible] = useState(false);
+  const [freeimageTestStatus, setFreeimageTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [freeimageTestMessage, setFreeimageTestMessage] = useState('');
 
   const nativeAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const yunwuAutoTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -386,8 +391,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     setVolcengineEnabled(savedVolcengineEnabled === 'true' || Boolean(savedVolcengineKey));
 
     const savedImageHostProvider = localStorage.getItem('image_host_provider');
-    setImageHostProvider(savedImageHostProvider === 'none' ? 'none' : 'imgbb');
+    setImageHostProvider(savedImageHostProvider === 'none' ? 'none' : savedImageHostProvider === 'freeimage' ? 'freeimage' : 'imgbb');
     setImgbbApiKey(localStorage.getItem('imgbb_api_key') || '');
+    setFreeimageApiKey(localStorage.getItem('freeimage_api_key') || '');
     setSettingsLoaded(true);
   }, [isOpen]);
 
@@ -501,6 +507,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
     localStorage.setItem('image_host_provider', imageHostProvider);
     localStorage.setItem('imgbb_api_key', imgbbApiKey.trim());
+    localStorage.setItem('freeimage_api_key', freeimageApiKey.trim());
 
     window.dispatchEvent(new Event('agent-settings-updated'));
     window.dispatchEvent(new Event('api-settings-updated'));
@@ -758,7 +765,38 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
         : `连接成功：${valid}/${total} 个 Key 可用，已启用轮询`);
     } catch (error: any) {
       setImgbbTestStatus('error');
-      setImgbbTestMessage(error?.message || 'ImgBB 连接测试失败');
+      setImgbbTestMessage(error?.message || 'ImgBB 测试连接失败');
+    }
+  };
+
+  const handleTestFreeImage = async () => {
+    const keys = freeimageApiKey.split(/[\n,;]+/).map((key) => key.trim()).filter(Boolean);
+    if (keys.length === 0) {
+      setFreeimageTestStatus('error');
+      setFreeimageTestMessage('请至少填写一个 FreeImage.host API Key');
+      return;
+    }
+    setFreeimageTestStatus('testing');
+    setFreeimageTestMessage(`正在测试 ${keys.length} 个 Key...`);
+    try {
+      const response = await fetch('/api/virse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operation: 'test_freeimage', freeimageApiKey }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+      const total = Number(payload?.data?.total || keys.length);
+      const valid = Number(payload?.data?.valid || 0);
+      const invalid = Number(payload?.data?.invalid || total - valid);
+      if (valid === 0) throw new Error(`0/${total} 个 Key 可用，请检查 Key 参数是否正确`);
+      setFreeimageTestStatus(invalid > 0 ? 'error' : 'success');
+      setFreeimageTestMessage(invalid > 0
+        ? `${valid}/${total} 个 Key 可用，${invalid} 个无效；生成时会自动跳过无效 Key`
+        : `连接成功：${valid}/${total} 个 Key 可用，已启用轮询`);
+    } catch (error: any) {
+      setFreeimageTestStatus('error');
+      setFreeimageTestMessage(error?.message || 'FreeImage.host 测试连接失败');
     }
   };
 
@@ -1898,76 +1936,167 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         </div>
                         {imageHostProvider === 'imgbb' && <Check className="w-5 h-5" />}
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setImageHostProvider('freeimage')}
+                        className={`w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all ${imageHostProvider === 'freeimage' ? 'border-gray-900 dark:border-white bg-gray-50 dark:bg-white/10' : 'border-gray-200 dark:border-white/10 hover:border-gray-300'}`}
+                      >
+                        <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+                          <Globe className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-black text-gray-900 dark:text-white">FreeImage.host</p>
+                          <p className="text-xs text-gray-500 mt-0.5">API v1 接口 · 免费公共图床上传</p>
+                        </div>
+                        {imageHostProvider === 'freeimage' && <Check className="w-5 h-5" />}
+                      </button>
                     </div>
                   </div>
 
-                  <div className={`p-6 rounded-3xl border bg-white dark:bg-white/5 transition-opacity ${imageHostProvider === 'imgbb' ? 'border-gray-200 dark:border-white/10' : 'border-gray-200 dark:border-white/10 opacity-50'}`}>
-                    <div className="flex items-center gap-3 pb-5 border-b border-gray-100 dark:border-white/10">
-                      <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 flex items-center justify-center">
-                        <Key className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+                  {imageHostProvider === 'freeimage' ? (
+                    <div className="p-6 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
+                      <div className="flex items-center gap-3 pb-5 border-b border-gray-100 dark:border-white/10">
+                        <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 flex items-center justify-center">
+                          <Key className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+                        </div>
+                        <h4 className="text-lg font-black text-gray-900 dark:text-white">FreeImage.host 参数</h4>
                       </div>
-                      <h4 className="text-lg font-black text-gray-900 dark:text-white">ImgBB 参数</h4>
-                    </div>
 
-                    <div className="mt-6">
-                      <label className="text-xs font-black tracking-wider text-gray-600 dark:text-gray-300">API KEY</label>
-                      <div className="relative mt-2">
-                        <textarea
-                          rows={4}
-                          value={imgbbApiKey}
-                          disabled={imageHostProvider !== 'imgbb'}
-                          onChange={(event) => {
-                            setImgbbApiKey(event.target.value);
-                            setImgbbTestStatus('idle');
-                            setImgbbTestMessage('');
-                          }}
-                          placeholder="输入 ImgBB API Key"
-                          autoComplete="off"
-                          style={isImgbbKeyVisible ? undefined : ({ WebkitTextSecurity: 'disc' } as React.CSSProperties)}
-                          className="w-full resize-none rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-black/20 px-4 py-4 pr-12 text-sm leading-6 text-gray-900 dark:text-white outline-none focus:border-brand-orange disabled:cursor-not-allowed"
-                        />
-                        <button
-                          type="button"
-                          disabled={imageHostProvider !== 'imgbb'}
-                          onClick={() => setIsImgbbKeyVisible((visible) => !visible)}
-                          className="absolute right-4 top-4 text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed"
-                        >
-                          {isImgbbKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {imgbbApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length > 1
-                            ? `已配置 ${imgbbApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length} 个 Key，将按请求轮询使用`
-                            : '支持多个 Key，每行一个；生成时自动轮询并跳过不可用 Key'}
+                      <div className="mt-6">
+                        <label className="text-xs font-black tracking-wider text-gray-600 dark:text-gray-300">API KEY</label>
+                        <div className="relative mt-2">
+                          <textarea
+                            rows={4}
+                            value={freeimageApiKey}
+                            onChange={(event) => {
+                              setFreeimageApiKey(event.target.value);
+                              setFreeimageTestStatus('idle');
+                              setFreeimageTestMessage('');
+                            }}
+                            placeholder="输入 FreeImage.host API Key"
+                            autoComplete="off"
+                            style={isFreeimageKeyVisible ? undefined : ({ WebkitTextSecurity: 'disc' } as React.CSSProperties)}
+                            className="w-full resize-none rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-black/20 px-4 py-4 pr-12 text-sm leading-6 text-gray-900 dark:text-white outline-none focus:border-brand-orange"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setIsFreeimageKeyVisible((visible) => !visible)}
+                            className="absolute right-4 top-4 text-gray-400 hover:text-gray-700"
+                          >
+                            {isFreeimageKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          disabled={imageHostProvider !== 'imgbb' || imgbbTestStatus === 'testing'}
-                          onClick={handleTestImgBb}
-                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-black text-gray-700 shadow-sm transition hover:border-brand-orange hover:text-brand-orange disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-gray-200"
-                        >
-                          {imgbbTestStatus === 'testing' && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-                          {imgbbTestStatus === 'testing' ? '测试中...' : '测试连接'}
-                        </button>
-                      </div>
-                      {imgbbTestMessage && (
-                        <div className={`mt-3 rounded-xl px-3 py-2.5 text-xs font-bold ${imgbbTestStatus === 'success'
-                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
-                          : imgbbTestStatus === 'error'
-                            ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'
-                            : 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'}`}
-                        >
-                          {imgbbTestMessage}
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {freeimageApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length > 1
+                              ? `已配置 ${freeimageApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length} 个 Key，将按请求轮询使用`
+                              : '支持多个 Key，每行一个；生成时自动轮询并跳过不可用 Key'}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={freeimageTestStatus === 'testing'}
+                            onClick={handleTestFreeImage}
+                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-black text-gray-700 shadow-sm transition hover:border-brand-orange hover:text-brand-orange disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-gray-200"
+                          >
+                            {freeimageTestStatus === 'testing' && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                            {freeimageTestStatus === 'testing' ? '测试中...' : '测试连接'}
+                          </button>
                         </div>
-                      )}
-                      <p className="mt-4 text-xs leading-5 text-gray-500">
-                        Key 仅保存在当前浏览器，并在上传参考图时发送给同源后端。可从{' '}
-                        <a href="https://api.imgbb.com/" target="_blank" rel="noreferrer" className="font-bold text-brand-orange hover:underline">ImgBB API</a>
-                        {' '}获取。
+                        {freeimageTestMessage && (
+                          <div className={`mt-3 rounded-xl px-3 py-2.5 text-xs font-bold ${freeimageTestStatus === 'success'
+                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                            : freeimageTestStatus === 'error'
+                              ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'
+                              : 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'}`}
+                          >
+                            {freeimageTestMessage}
+                          </div>
+                        )}
+                        <p className="mt-4 text-xs leading-5 text-gray-500">
+                          Key 仅保存在当前浏览器，上传时通过 API v1 (https://freeimage.host/api/1/upload) 上传图片。可从{' '}
+                          <a href="https://freeimage.host/page/api" target="_blank" rel="noreferrer" className="font-bold text-brand-orange hover:underline">FreeImage.host API</a>
+                          {' '}获取 API 密钥。
+                        </p>
+                      </div>
+                    </div>
+                  ) : imageHostProvider === 'imgbb' ? (
+                    <div className="p-6 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
+                      <div className="flex items-center gap-3 pb-5 border-b border-gray-100 dark:border-white/10">
+                        <div className="w-11 h-11 rounded-2xl bg-gray-100 dark:bg-white/10 flex items-center justify-center">
+                          <Key className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+                        </div>
+                        <h4 className="text-lg font-black text-gray-900 dark:text-white">ImgBB 参数</h4>
+                      </div>
+
+                      <div className="mt-6">
+                        <label className="text-xs font-black tracking-wider text-gray-600 dark:text-gray-300">API KEY</label>
+                        <div className="relative mt-2">
+                          <textarea
+                            rows={4}
+                            value={imgbbApiKey}
+                            disabled={imageHostProvider !== 'imgbb'}
+                            onChange={(event) => {
+                              setImgbbApiKey(event.target.value);
+                              setImgbbTestStatus('idle');
+                              setImgbbTestMessage('');
+                            }}
+                            placeholder="输入 ImgBB API Key"
+                            autoComplete="off"
+                            style={isImgbbKeyVisible ? undefined : ({ WebkitTextSecurity: 'disc' } as React.CSSProperties)}
+                            className="w-full resize-none rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-black/20 px-4 py-4 pr-12 text-sm leading-6 text-gray-900 dark:text-white outline-none focus:border-brand-orange disabled:cursor-not-allowed"
+                          />
+                          <button
+                            type="button"
+                            disabled={imageHostProvider !== 'imgbb'}
+                            onClick={() => setIsImgbbKeyVisible((visible) => !visible)}
+                            className="absolute right-4 top-4 text-gray-400 hover:text-gray-700 disabled:cursor-not-allowed"
+                          >
+                            {isImgbbKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {imgbbApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length > 1
+                              ? `已配置 ${imgbbApiKey.split(/[\n,;]+/).filter((key) => key.trim()).length} 个 Key，将按请求轮询使用`
+                              : '支持多个 Key，每行一个；生成时自动轮询并跳过不可用 Key'}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={imageHostProvider !== 'imgbb' || imgbbTestStatus === 'testing'}
+                            onClick={handleTestImgBb}
+                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-black text-gray-700 shadow-sm transition hover:border-brand-orange hover:text-brand-orange disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-gray-200"
+                          >
+                            {imgbbTestStatus === 'testing' && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                            {imgbbTestStatus === 'testing' ? '测试中...' : '测试连接'}
+                          </button>
+                        </div>
+                        {imgbbTestMessage && (
+                          <div className={`mt-3 rounded-xl px-3 py-2.5 text-xs font-bold ${imgbbTestStatus === 'success'
+                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                            : imgbbTestStatus === 'error'
+                              ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'
+                              : 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'}`}
+                          >
+                            {imgbbTestMessage}
+                          </div>
+                        )}
+                        <p className="mt-4 text-xs leading-5 text-gray-500">
+                          Key 仅保存在当前浏览器，并在上传参考图时发送给同源后端。可从{' '}
+                          <a href="https://api.imgbb.com/" target="_blank" rel="noreferrer" className="font-bold text-brand-orange hover:underline">ImgBB API</a>
+                          {' '}获取。
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 flex flex-col justify-center items-center text-center">
+                      <X className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
+                      <h4 className="text-base font-black text-gray-800 dark:text-gray-200">第三方图床服务已禁用</h4>
+                      <p className="text-xs text-gray-500 mt-2 max-w-xs leading-relaxed">
+                        当前设置为不使用第三方图床，参考图生成将直接通过 Virse 原生上传接口传输。
                       </p>
                     </div>
-                  </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-8 max-w-3xl">

@@ -1465,6 +1465,9 @@ export const generateImageToImage = async (
     const imgbbApiKey = imageHostProvider === 'imgbb'
       ? localStorage.getItem('imgbb_api_key')?.trim() || ''
       : '';
+    const freeimageApiKey = imageHostProvider === 'freeimage'
+      ? localStorage.getItem('freeimage_api_key')?.trim() || ''
+      : '';
     if (!virseSpaceId || !virseCanvasId) {
       throw new Error('Virse 尚未选择工作区/画布，请在模型配置中点击“测试并同步”，选择工作区后保存配置。');
     }
@@ -1510,7 +1513,9 @@ export const generateImageToImage = async (
             base64: image.base64,
             mimeType: image.mimeType || 'image/png',
             index,
+            imageHostProvider,
             imgbbApiKey,
+            freeimageApiKey,
           }));
         }
         activeVirseBaseUrl = candidateBaseUrl;
@@ -5673,10 +5678,12 @@ export const generateUniversalTryOn = async (
     : QUALITY_BOOSTERS.PRODUCT;
   const roleSpecificFrameRules = [
     productImages.some((image) => image.role === 'top')
-      ? '- **TOP GARMENT LOCK**: Replace only the upper garment area already visible in Image 1. Keep the original top-edge body intersection; do not reveal extra neck, shoulders, chest, arms, or head to display the full top.'
+      ? '- **TOP GARMENT VISIBILITY LOCK**: Replace only the portion of upper clothing that Image 1 naturally shows. Preserve the same occlusions, cropped portions, arm coverage, torso coverage and top-edge intersection. If Image 1 does not intentionally showcase the top, do not redesign the pose or composition to showcase it. Never reveal extra neck, shoulders, chest, arms, head or garment area.'
       : '',
     productImages.some((image) => image.role === 'bottom')
-      ? '- **BOTTOM GARMENT / TROUSER LOCK**: Keep the original waistband height, crotch point, hip width, knee coordinates, trouser hem height, leg stance, ankle/foot positions, footwear, and floor contact. Do not reveal more torso above the original top boundary or more floor below the original bottom boundary to display the full trousers.'
+      ? `- **BOTTOM GARMENT / TROUSER LOCK**: Keep the original waistband height, crotch point, hip width, knee coordinates, trouser hem height, leg stance, ankle/foot positions, footwear, and floor contact. Do not reveal more torso above the original top boundary or more floor below the original bottom boundary to display the full trousers.
+- **FLAT-LAY IS NOT A LEG SKELETON**: A straight, parallel, symmetrical or empty trouser product image describes the unworn cutting pattern only. Its straight leg tubes and outer contour provide zero evidence for hip, knee, ankle or foot coordinates. Never straighten, uncross, symmetrize, lengthen or spread the model's legs to imitate that product silhouette.
+- **ARTICULATED TROUSER DRAPING**: First freeze Image 1's left and right hip-knee-ankle chains. Then wrap and bend each trouser leg independently around those frozen joints, producing compression folds behind bent knees, tension folds at hips/crotch, and natural stacking at ankles. Pose fidelity outranks reproducing the product image's flat outer outline.`
       : '',
     productImages.some((image) => image.role === 'full')
       ? '- **FULL OUTFIT LOCK**: Fit the outfit only inside the body area visible in Image 1. Any portion outside the original frame must remain clipped rather than causing an expanded body or canvas.'
@@ -5700,6 +5707,14 @@ This contract overrides the commercial-photography goal, garment completeness, s
 5. **CLIPPED GARMENT RULE**: If Image 1 clips part of the replacement garment (e.g. neck, collar, sleeves, or hems), clip the new garment at the identical frame boundary. Showing the whole product when Image 1 is cropped is a strict failure.
 6. **UNCHANGED-PIXEL PRINCIPLE**: Outside the replaced garment/accessory regions, reproduce Image 1 without redesign, relighting, beautification, background cleanup, or recomposition.
 7. **FORBIDDEN OUTPUTS**: newly generated neck/head when Image 1 had no neck, more upper body than Image 1, newly visible head/neck/shoulders, wider scene, taller canvas content, altered pose, shifted hands, changed footwear unless requested, or a newly staged fashion photo.
+
+## SOURCE VISIBILITY IS IMMUTABLE
+Treat Image 1 as a finished photograph whose editorial intent must not change. The output is the same captured moment with different fabric on the clothing portions already visible.
+- Do not improve product visibility, garment completeness or symmetry.
+- Do not lower hands, open arms, straighten legs, uncross ankles, rotate the torso, center the person, zoom out or expose hidden garment areas.
+- An uploaded TOP does not authorize showing more upper body; an uploaded BOTTOM does not authorize showing both trouser legs clearly.
+- Preserve every original occlusion. If a sleeve, waistband, crotch, knee, hem or trouser leg is hidden, foreshortened, crossed, bent or cut off in Image 1, keep it hidden, foreshortened, crossed, bent or cut off.
+- A less complete product view that matches Image 1 is correct. A clearer catalog view is a failure.
 
 ### ROLE-SPECIFIC CROP RULES
 ${roleSpecificFrameRules}
@@ -5769,7 +5784,13 @@ ${hasModelRef ? '- Image 1: TARGET MODEL / IMMUTABLE BASE CANVAS (highest priori
 ${inputImageMap}
 
 Do not infer image roles from visual similarity. An ACCESSORY image must never replace a top or bottom garment.
-${hasModelRef ? `IMAGE 1 AUTHORITY HIERARCHY: Image 1 has absolute highest authority for the person, identity, body geometry, pose, camera, crop, background, lighting, shadows, and all non-target pixels. Images 2+ have authority only for the explicitly labeled wearable item's design. If any later image contains a person, mannequin, body, pose, hands, face, scene, styling, or background, ignore those carrier attributes completely. Never let Images 2+ replace, reinterpret, beautify, or restage the model from Image 1.` : ''}
+${hasModelRef ? `IMAGE 1 AUTHORITY HIERARCHY: Image 1 has absolute highest authority for the person, identity, body geometry, pose, camera, crop, background, lighting, shadows, visibility and all non-target content. Product Images ${firstProductImageIndex}+ have authority only for the explicitly labeled wearable item's design. If any product image contains a person, mannequin, body, pose, hands, face, scene, styling or background, ignore those carrier attributes completely. Never let product images replace, reinterpret, beautify or restage the model from Image 1.` : ''}
+${hasModelRef ? `
+MODEL-FIRST EXECUTION ORDER (MANDATORY):
+1. Read Image 1 alone and freeze its 2D pose skeleton before examining any product image.
+2. Treat every product image as a texture, pattern, material and construction lookup attached to that frozen skeleton, never as a spatial template for the body.
+3. If preserving a garment reference's straight or symmetrical outline conflicts with Image 1's joint coordinates, discard the reference outline and preserve the model pose. Only garment identity, construction, color, fabric and local details survive that conflict.
+` : ''}
 
 ## ⛔ ABSOLUTE TARGET-IMAGE IMMUTABILITY RULES
 ${hasModelRef ? `
@@ -5791,6 +5812,7 @@ These rules have higher priority than styling, commercial polish, beautification
 ## PHASE 1: ANATOMICAL & GARMENT ANALYSIS 🔍
 1. **[Garment Deconstruction]**: Analyze every role-labeled product reference. Extract pattern, silhouette, cut, fabric texture and exact colors without mixing roles.
 2. **[Human Pose Alignment]**: ${hasModelRef ? 'Analyze Image 1 first. Map its body skeleton and use those joint coordinates as hard anchors for the output.' : 'Generate an ideal high-fashion model matching the product vibe.'}
+${hasModelRef && productImages.some((image) => image.role === 'bottom') ? `3. **[Trouser Pose Decoupling]**: Record the left and right hip-knee-ankle chains from Image 1 independently. Ignore the product photo's trouser-leg direction, spacing, symmetry and straightness. The worn trousers must inherit Image 1's bent, crossed, stepped or asymmetrical leg geometry.` : ''}
 
 ## PHASE 2: 3D DRESSING & LIGHTING SIMULATION 🛠️
 3. **[Mesh Warp & Draping]**: Wrap the garment/shoes around the target 3D human body mesh. Apply gravity, fabric weight, and movement folds.
@@ -5842,7 +5864,7 @@ ${preservationContract}
       : resolveRuntimeModelId(modelName, imageApiConfig);
 
     const config: any = {
-      temperature: 0.1,
+      temperature: 0,
       safetySettings: GLOBAL_SAFETY_SETTINGS,
       responseModalities: [Modality.IMAGE],
       imageConfig: {

@@ -158,7 +158,9 @@ export const uploadVirseReference = async (options: {
   base64: string;
   mimeType: string;
   index: number;
+  imageHostProvider?: string;
   imgbbApiKey?: string;
+  freeimageApiKey?: string;
 }): Promise<string> => {
   const response = await fetch('/api/virse', {
     method: 'POST',
@@ -171,7 +173,9 @@ export const uploadVirseReference = async (options: {
       canvasId: options.canvasId,
       base64: options.base64,
       mimeType: options.mimeType,
+      imageHostProvider: options.imageHostProvider || '',
       imgbbApiKey: options.imgbbApiKey || '',
+      freeimageApiKey: options.freeimageApiKey || '',
       filename: `reference-${options.index + 1}.${options.mimeType.includes('jpeg') ? 'jpg' : options.mimeType.includes('webp') ? 'webp' : 'png'}`,
       positionX: options.index * 540,
       positionY: 0,
@@ -304,7 +308,7 @@ const fieldFromText = (block: string, field: string): string => {
 const parseWorkspaceText = (value: unknown): VirseWorkspace[] => {
   if (typeof value !== 'string') return [];
   const normalized = value.replace(/\\n/g, '\n');
-  const bracketRows = normalized.split(/\r?\n/).map((line, index) => {
+  const bracketRows = normalized.split(/\r?\n/).map((line, index): VirseWorkspace | null => {
     const match = line.match(/^\s*\[([^\]]+)\]\s+(.+?)\s+—\s+.*?canvas_id:\s*([^\s,]+)/i);
     if (!match) return null;
     const org = line.match(/(?:^|,\s*)org:\s*(.+?)(?:\s*\([^)]*\))?\s*$/i)?.[1]?.trim();
