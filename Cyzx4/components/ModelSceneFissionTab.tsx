@@ -90,6 +90,7 @@ type FissionWorkspace = {
   fissionImagesMap?: Record<string, FissionImageItem[]>;
   agentStatus: string;
   agentLog: string[];
+  oneClick?: boolean;
 };
 
 type FissionTask = {
@@ -185,6 +186,64 @@ const DEFAULT_SHOT_TEMPLATES: FissionShot[] = [
   { index: 9, shotName: '远景环境氛围', cameraAngle: '广角视角', framing: '远景', poseAction: '融入建筑/室内空间，展现场景氛围' },
 ];
 
+const buildDefaultSchemes = (requirementsText: string = '', creationMode: CreationMode = 'pose'): FissionScheme[] => {
+  const reqSuffix = requirementsText.trim() ? `, special user requirement: ${requirementsText.trim()}` : '';
+
+  return [
+    {
+      id: 'fission-scheme-1',
+      title: '方案一：全景别经典商业摄影方案',
+      summary: '全方位景别覆盖，包含正面全身、侧身45度、面部特写与服饰材质，标准电商与商业海报首选',
+      strategy: '严格锁定原图模特五官面部与背景场景，拆解9种经典视角与构图',
+      shots: [
+        { index: 1, shotName: '正面全身立姿', cameraAngle: '平视视角', framing: '全身景别', poseAction: '自然站姿面向镜头，展示整体服装比例与版型', prompt: `Full body front standing pose, facing camera naturally, showing full outfit silhouette${reqSuffix}` },
+        { index: 2, shotName: '侧身45度步态', cameraAngle: '侧向45度', framing: '中全身', poseAction: '向前迈步，眼神转向侧方，展现侧面线条', prompt: `Medium full body 45-degree angle side view, walking forward naturally${reqSuffix}` },
+        { index: 3, shotName: '面部与眼神特写', cameraAngle: '微仰角', framing: '特写景别', poseAction: '专注眼神，展现五官精致度与妆容氛围', prompt: `Close-up shot of face and eyes, subtle upward angle, focused expression, high fashion lighting${reqSuffix}` },
+        { index: 4, shotName: '服饰材质与细节', cameraAngle: '俯拍45度', framing: '局部特写', poseAction: '手指轻抚领口或衣角，展现面料纹理细节', prompt: `Macro close-up on outfit fabric texture and collar detail, hand touching fabric gently${reqSuffix}` },
+        { index: 5, shotName: '休闲坐姿状态', cameraAngle: '中低机位', framing: '中景', poseAction: '座椅/高脚凳优雅坐姿，身体微微侧倾', prompt: `Medium shot seated pose, body slightly tilted, relaxed and elegant posture${reqSuffix}` },
+        { index: 6, shotName: '背影回顾侧脸', cameraAngle: '后方视角', framing: '中景', poseAction: '背向镜头微微回眸，凸显后背剪裁与后景深度', prompt: `Medium shot looking back over shoulder, back view turning head, highlighting back detail${reqSuffix}` },
+        { index: 7, shotName: '动态摆幅展现', cameraAngle: '抓拍角度', framing: '全身景别', poseAction: '转身摆动衣角，呈现飘逸流畅的自然动态', prompt: `Full body dynamic motion capture, turning around with swinging outfit hemline${reqSuffix}` },
+        { index: 8, shotName: '下装与鞋步细节', cameraAngle: '低视角仰拍', framing: '腿部特写', poseAction: '迈步瞬间，突显下装版型与靴履细节质感', prompt: `Low angle close-up of legs and footwear, walking posture highlighting trousers silhouette${reqSuffix}` },
+        { index: 9, shotName: '远景环境氛围', cameraAngle: '广角视角', framing: '远景', poseAction: '融入空间场景，展现品牌大片整体空间氛围', prompt: `Wide environmental long shot, model integrated into room/space atmosphere${reqSuffix}` },
+      ],
+    },
+    {
+      id: 'fission-scheme-2',
+      title: '方案二：时尚 Lookbook 动态抓拍方案',
+      summary: '时尚走秀与街拍抓拍风格，强调动作张力、流畅迈步与随性高质感姿态',
+      strategy: '偏向高级时装大片，镜头语言更丰富，姿势极具时尚爆发力',
+      shots: [
+        { index: 1, shotName: '走秀迈步正面', cameraAngle: '平视微低', framing: '全身景别', poseAction: 'T台走秀步态，自信直视镜头，衣摆飘动', prompt: `Fashion runway walk full body shot, confident stride, hem swinging naturally${reqSuffix}` },
+        { index: 2, shotName: '半侧身手托下巴', cameraAngle: '平视视角', framing: '半身中景', poseAction: '半侧身单手抚颏，眼神深邃，高级平面感', prompt: `Half-body medium shot, hand supporting chin gently, deep gaze into camera${reqSuffix}` },
+        { index: 3, shotName: '侧颜轮廓特写', cameraAngle: '侧面视角', framing: '特写景别', poseAction: '纯侧脸剪影，突出下颚线与侧面发型与领口', prompt: `Profile close-up shot, sharp jawline, emphasizing side facial silhouette and hair style${reqSuffix}` },
+        { index: 4, shotName: '配饰与手部细节', cameraAngle: '近景特写', framing: '局部特写', poseAction: '调整手包或袖口动作，精致配饰细节呈现', prompt: `Close-up on hands adjusting cuff/accessory/bag, intricate luxury details${reqSuffix}` },
+        { index: 5, shotName: '倚靠墙面倾斜', cameraAngle: '斜向机位', framing: '中全身', poseAction: '自然倚靠背景墙面，双腿交叉，肢体拉长', prompt: `Medium full shot leaning against architectural background, crossed legs pose${reqSuffix}` },
+        { index: 6, shotName: '走动回眸抓拍', cameraAngle: '后侧视角', framing: '中景', poseAction: '行进中快速回首，秀发微扬，灵动感十足', prompt: `Medium snapshot walking away and looking back, hair floating slightly${reqSuffix}` },
+        { index: 7, shotName: '伸展张力姿势', cameraAngle: '低仰角', framing: '全身景别', poseAction: '单手插兜或双臂微微伸展，塑造强大气场', prompt: `Full body low angle posture, arms in pockets or slightly gestured, high fashion aura${reqSuffix}` },
+        { index: 8, shotName: '鞋履与迈步交替', cameraAngle: '俯视角', framing: '下半身特写', poseAction: '双腿交错步态，侧重鞋面材质与下摆搭落', prompt: `High angle down close-up on legs stepping forward, footwear highlight${reqSuffix}` },
+        { index: 9, shotName: '建筑空间延伸', cameraAngle: '极远景', framing: '远景大片', poseAction: '模特位于黄金分割点，空间感与留白相呼应', prompt: `Extreme wide shot, golden ratio placement, high fashion architecture framing${reqSuffix}` },
+      ],
+    },
+    {
+      id: 'fission-scheme-3',
+      title: '方案三：高端法式优雅氛围感方案',
+      summary: '主打柔和优雅光影与法式慵懒情绪，细节耐看，柔和舒适的高定美感',
+      strategy: '情绪美学与质感兼顾，适合高端品牌宣传画册与私密时尚写真',
+      shots: [
+        { index: 1, shotName: '优雅正面倚立', cameraAngle: '柔风视角', framing: '全身景别', poseAction: '身体自然放松，微微侧头，展现优雅韵味', prompt: `Full body portrait standing with gentle tilt, French romantic atmosphere${reqSuffix}` },
+        { index: 2, shotName: '侧向温婉坐姿', cameraAngle: '平视机位', framing: '中景', poseAction: '优雅侧坐，双手交叠于膝前，姿态端庄', prompt: `Medium shot seated sideways, hands gently overlapped on lap, elegant aura${reqSuffix}` },
+        { index: 3, shotName: '光影面部微距', cameraAngle: '近景斜光', framing: '特写景别', poseAction: '光影映照半边面部，双眸微闭或深情凝视', prompt: `Soft light close-up face portrait, dramatic shadow and highlight interplay${reqSuffix}` },
+        { index: 4, shotName: '领口与项链特写', cameraAngle: '俯视角近景', framing: '局部特写', poseAction: '手部轻提领口，锁骨与服装剪裁完美结合', prompt: `Macro shot on neckline and collarbone detail, finger brushing collar light touch${reqSuffix}` },
+        { index: 5, shotName: '漫步转身倾靠', cameraAngle: '侧景中高位', framing: '中全身', poseAction: '轻盈步调中微倾身躯，散发懒散优雅气质', prompt: `Medium-full shot casual movement, relaxed slouchy high fashion tilt${reqSuffix}` },
+        { index: 6, shotName: '背影优雅留白', cameraAngle: '正后方视角', framing: '中远景', poseAction: '修长背影，优雅发型与背部剪裁静止成画', prompt: `Back view medium-wide portrait, elegant hair styling and back garment cut${reqSuffix}` },
+        { index: 7, shotName: '坐姿侧倾伸腿', cameraAngle: '低机位', framing: '全身景别', poseAction: '双腿自然向一侧延伸，拉长视觉比例', prompt: `Full body low angle sitting pose, legs extended diagonally for leg lengthening${reqSuffix}` },
+        { index: 8, shotName: '裙摆/衣角轻扬', cameraAngle: '微距抓拍', framing: '动态特写', poseAction: '手指触碰服装搭落细节，质感细腻', prompt: `Macro close-up capture of garment edge and floating fabric texture${reqSuffix}` },
+        { index: 9, shotName: '温润环境合影', cameraAngle: '柔和远景', framing: '远景氛围', poseAction: '融入温馨优雅空间背景，静谧感满满', prompt: `Atmospheric wide shot, harmonious color palette, cinematic French aesthetic${reqSuffix}` },
+      ],
+    },
+  ];
+};
+
 const createTask = (): FissionTask => ({
   id: crypto.randomUUID(),
   createdAt: Date.now(),
@@ -204,6 +263,7 @@ const createTask = (): FissionTask => ({
     fissionImages: [],
     agentStatus: '输入准备 Agent · 等待上传模特/场景原图',
     agentLog: ['已初始化模特场景图裂变任务'],
+    oneClick: true,
   },
 });
 
@@ -256,6 +316,7 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
   const [model, setModel] = useState<string>(MODEL_OPTIONS[0].id);
   const [aspectRatio, setAspectRatio] = useState('2:3');
   const [resolution, setResolution] = useState('2K');
+  const [oneClick, setOneClick] = useState(true);
   const [stage, setStage] = useState<Stage>(1);
 
   const [schemes, setSchemes] = useState<FissionScheme[]>([]);
@@ -328,6 +389,7 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
     model,
     aspectRatio,
     resolution,
+    oneClick,
     stage,
     schemes,
     selectedSchemeIds,
@@ -346,6 +408,7 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
     setModel(workspace.model);
     setAspectRatio(workspace.aspectRatio);
     setResolution(workspace.resolution);
+    setOneClick(workspace.oneClick ?? true);
     setStage(workspace.stage);
     setSchemes(workspace.schemes);
     setSelectedSchemeIds(workspace.selectedSchemeIds);
@@ -507,12 +570,12 @@ const ModelSceneFissionTab: React.FC<ModelSceneFissionTabProps> = ({ isActive = 
     if (window.innerWidth < 1280) setHistoryOpen(false);
   };
 
-  const generatePlan = async () => {
+  const generatePlanWithAI = async () => {
     if (!images.length || busy) return;
     setBusy(true);
     setError(null);
     updateTask({ status: 'planning' });
-    setAgentStatus('创意策划 Agent · 正在分析模特、服装与场景要素');
+    setAgentStatus('创意策划 Agent · 正在深度分析模特、服装与场景要素');
     setAgentLog((current) => [...current, '创意策划 Agent 开始分析参考图中的模特面部、身材比例与服饰样式']);
     try {
       const response = await generateText(
@@ -554,9 +617,11 @@ The array must contain exactly 3 schemes, each having 9 structured shots. No gen
     }
   };
 
-  const generateKeyframes = async () => {
-    const selected = schemes.filter((scheme) => selectedSchemeIds.includes(scheme.id));
-    if (!selected.length || busy) return;
+  const generateKeyframes = async (overrideSchemes?: FissionScheme[]): Promise<KeyframeResult[]> => {
+    const currentSchemes = overrideSchemes || schemes;
+    const currentSelectedIds = overrideSchemes ? overrideSchemes.map((s) => s.id) : selectedSchemeIds;
+    const selected = currentSchemes.filter((scheme) => currentSelectedIds.includes(scheme.id));
+    if (!selected.length || (busy && !overrideSchemes)) return [];
     setBusy(true);
     setStage(3);
     setError(null);
@@ -660,21 +725,34 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
       setAgentStatus('质量审查 Agent · 3x3 宫格关键帧已通过，可选择任意方案开始切分裂变');
       setAgentLog((current) => [...current, `分镜导演生成 ${outputs.length} 张 3x3 宫格关键帧`, '质量审查已通过']);
       updateTask({ status: 'ready' });
+      return outputs;
     } catch (keyframeError) {
       setError(getErrorMessage(keyframeError));
       setAgentStatus('Agent 流程已暂停 · 请重试当前阶段');
       updateTask({ status: 'error' });
+      throw keyframeError;
     } finally {
       setBusy(false);
     }
   };
 
-  const generateFissionImages = async (targetSchemeId?: string) => {
-    if (!keyframes.length || busy) return;
-    const schemeIdToCrop = targetSchemeId || activeKeyframeSchemeId || keyframes[0].schemeId;
-    const targetKeyframe = keyframes.find((k) => k.schemeId === schemeIdToCrop) || keyframes[0];
-    const scheme = schemes.find((s) => s.id === targetKeyframe.schemeId) || schemes[0];
-    const sourceUrl = targetKeyframe.imageUrl;
+  const generateFissionImages = async (
+    targetSchemeId?: string,
+    overrideKeyframes?: KeyframeResult[],
+    overrideSchemes?: FissionScheme[]
+  ): Promise<FissionImageItem[]> => {
+    const currentKeyframes = overrideKeyframes || keyframes;
+    const currentSchemes = overrideSchemes || schemes;
+    if (!currentKeyframes.length || (busy && !overrideKeyframes)) return [];
+
+    const schemeIdToCrop = targetSchemeId || activeKeyframeSchemeId || currentKeyframes[0].schemeId;
+    const targetKeyframe = currentKeyframes.find((k) => k.schemeId === schemeIdToCrop) || currentKeyframes[0];
+    const scheme = currentSchemes.find((s) => s.id === targetKeyframe.schemeId) || currentSchemes[0];
+    const sourceUrl = targetKeyframe?.imageUrl;
+
+    if (!sourceUrl) {
+      throw new Error('未获取到 3x3 宫格关键帧大图，请先从关键帧步骤生成宫格图');
+    }
 
     setBusy(true);
     setStage(4);
@@ -728,9 +806,100 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
         prompt: requirements,
         thumbnail: items[0]?.imageUrl,
       });
+      return items;
     } catch (fissionError) {
       setError(getErrorMessage(fissionError));
       setAgentStatus('高清裂变 Agent · 失败，请重试');
+      updateTask({ status: 'error' });
+      throw fissionError;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStartFission = async () => {
+    if (!images.length || busy) return;
+    setBusy(true);
+    setError(null);
+    updateTask({ status: 'planning' });
+    setAgentStatus('创意策划 Agent · 正在根据参考图与【你的裂变要求】动态规划 3 套机位方案...');
+    setAgentLog((current) => [
+      ...current,
+      '创意策划 Agent 开始分析参考图中的模特与场景，结合用户裂变要求定制 3 套 9 机位方案...',
+    ]);
+
+    let activeSchemes: FissionScheme[];
+    try {
+      const response = await generateText(
+        images.map((image) => ({ base64: image.base64, mimeType: image.mime })),
+        `
+You are an expert fashion photographer and commercial art director.
+Analyze the uploaded reference image(s) as the SINGLE ABSOLUTE SOURCE OF TRUTH for BOTH model identity and background scene environment.
+
+CRITICAL INSTRUCTIONS (MUST BE STRICTLY FOLLOWED):
+1. STRICT SCENE LOCK: You MUST strictly preserve and replicate the EXACT background scene environment, lighting, architectural details, atmosphere, and surface textures from the user's uploaded reference image(s). DO NOT invent, change, or introduce any different, unrelated, or hallucinated background scenes under any circumstances. All 9 shots must strictly remain within the EXACT same original background scene.
+2. STRICT MODEL & OUTFIT LOCK: You MUST strictly preserve the model's facial features, identity, hairstyle, hair color, skin tone, body shape, and clothing/outfit design and colors from the reference image(s).
+3. USER FISSION REQUIREMENTS MATCHING: Incorporate and strictly prioritize the user's explicit fission requirements: "${requirements || 'High fashion commercial photoshoot with 9 diverse natural poses matching the exact original reference scene and model'}".
+4. RICH & COMPLIANT POSE VARIATIONS: Generate varied, creative, natural, dynamic, and diverse poses, posture actions, expressions, camera angles, and shot framings (full body, medium shot, close-up, back view, movement) tailored specifically to the user's requirement.
+5. STRICT NO-TEXT MANDATE: Absolutely NO text, numbers, letters, titles, watermarks, logo typography anywhere in the output.
+
+Return ONLY a JSON array with exactly 3 distinct schemes, each containing 9 structured shots. Format:
+[{"title":"Chinese Scheme Title","summary":"Chinese summary","strategy":"Creative selling points","shots":[{"index":1,"shotName":"正面全身立姿","cameraAngle":"平视视角","framing":"全身景别","poseAction":"符合需求的动作细节","prompt":"detailed English generation prompt locking model and reference scene without text"}]}]`
+      );
+
+      activeSchemes = parseSchemes(response);
+    } catch (planError) {
+      console.warn('[ModelSceneFission] Agent dynamic planning failed, falling back to smart customized schemes', planError);
+      activeSchemes = buildDefaultSchemes(requirements, mode);
+    }
+
+    setSchemes(activeSchemes);
+
+    if (!oneClick) {
+      // If oneClick is OFF: show stage 2 for manual inspection
+      setSelectedSchemeIds([activeSchemes[0].id]);
+      setStage(2);
+      setAgentStatus('创意策划 Agent · 3 套 9 机位定制方案已交付');
+      setAgentLog((current) => [...current, `Agent 已结合裂变要求生成 ${activeSchemes.length} 套定制方案与 Prompt`]);
+      updateTask({ status: 'ready' });
+      setBusy(false);
+      return;
+    }
+
+    // If oneClick is ON: randomly pick 1 of 3 dynamic schemes and auto generate end-to-end
+    updateTask({ status: 'generating' });
+
+    const randomIndex = Math.floor(Math.random() * activeSchemes.length);
+    const chosenScheme = activeSchemes[randomIndex];
+
+    setSelectedSchemeIds([chosenScheme.id]);
+    setActiveKeyframeSchemeId(chosenScheme.id);
+
+    setAgentStatus(`一键生图 Agent · 从 3 套定制方案中随机抽取「${chosenScheme.title}」，正在生成 3x3 宫格图...`);
+    setAgentLog((current) => [
+      ...current,
+      `Agent 已结合裂变要求生成 3 套定制方案，随机抽取「${chosenScheme.title}」`,
+      `开始一键流水线生成 3x3 宫格关键帧大图...`,
+    ]);
+
+    try {
+      // 1. Generate Keyframes for chosen scheme
+      const keyframeOutputs = await generateKeyframes([chosenScheme]);
+      if (!keyframeOutputs || !keyframeOutputs.length) {
+        throw new Error('一键生图生成宫格关键帧失败');
+      }
+
+      // 2. Crop 9 fission images automatically
+      setAgentStatus(`一键生图 Agent · 正在对「${chosenScheme.title}」进行 9 图像素切分...`);
+      setAgentLog((current) => [...current, `宫格关键帧就绪，开始自动切分 9 张高清独立大图...`]);
+
+      await generateFissionImages(chosenScheme.id, keyframeOutputs, activeSchemes);
+
+      setAgentStatus(`交付 Agent ·「${chosenScheme.title}」9 张高清独立大图已全自动裂变交付！`);
+      setAgentLog((current) => [...current, `一键生图全流程完成，9 张高清大图已全部交付！`]);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      setAgentStatus('一键生图 Agent · 遇到错误，请重试');
       updateTask({ status: 'error' });
     } finally {
       setBusy(false);
@@ -1034,6 +1203,27 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
             <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
               <h2 className="font-black">图像与裂变参数</h2>
               <div className="mt-4 grid grid-cols-2 gap-3">
+                <label className="col-span-2 flex min-h-16 cursor-pointer items-center justify-between rounded-xl border border-pastel-border bg-white px-4 py-3 shadow-xs transition hover:border-[#ed6d46] dark:bg-slate-900">
+                  <div>
+                    <strong className="block text-sm font-black text-pastel-text">一键生图</strong>
+                    <small className="mt-0.5 block text-xs text-pastel-muted">分析成功后跳过确认并自动生成</small>
+                  </div>
+                  <span className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${oneClick ? 'bg-[#ed6d46]' : 'bg-[#d8e2ec] dark:bg-slate-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={oneClick}
+                      disabled={busy}
+                      onChange={(event) => setOneClick(event.target.checked)}
+                      className="sr-only"
+                    />
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition duration-200 ease-in-out ${
+                        oneClick ? 'translate-x-6' : 'translate-x-1'
+                      } mt-1`}
+                    />
+                  </span>
+                </label>
+
                 <button
                   type="button"
                   onClick={() => setSelectionModal('model')}
@@ -1079,12 +1269,18 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
 
             <button
               type="button"
-              onClick={generatePlan}
+              onClick={handleStartFission}
               disabled={!images.length || busy}
-              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] px-4 text-base font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] px-4 text-base font-black text-white transition hover:bg-[#243554] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {busy && stage === 1 ? <Loader2 className="h-5 w-5 animate-spin" /> : <Grid3x3 className="h-5 w-5" />}
-              下一步：AI 生成 9 机位动作方案
+              {busy && stage === 1 ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : oneClick ? (
+                <Sparkles className="h-5 w-5 text-[#ed6d46]" />
+              ) : (
+                <Grid3x3 className="h-5 w-5" />
+              )}
+              {oneClick ? '🚀 开始一键生图（随机方案直出9图）' : '下一步：极速加载 9 机位动作方案'}
             </button>
           </div>
 
@@ -1161,7 +1357,7 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
               <div className="flex flex-1 flex-col items-center justify-center text-center text-pastel-muted">
                 <Grid3x3 className="h-16 w-16 text-pastel-border" />
                 <p className="mt-5 max-w-md text-sm">
-                  上传模特/产品图并完成左侧配置后，创意策划 Agent 将为该原图输出 3 套独立的 9 机位景别与动作方案
+                  上传模特/产品图并完成左侧配置后，Agent 将极速生成 3 套独立的 9 机位景别与动作方案
                 </p>
                 {schemes.length > 0 && (
                   <button
@@ -1283,6 +1479,15 @@ Nine distinct sequential panels arranged neatly in a 3x3 grid, zero borders, pur
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void generatePlanWithAI()}
+                    disabled={busy}
+                    className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-pastel-border bg-pastel-card px-5 text-sm font-black text-pastel-text shadow-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    <Sparkles className="h-4 w-4 text-[#ed6d46]" />
+                    AI 深度重新拆解方案
+                  </button>
                   <button
                     type="button"
                     onClick={() => void generateKeyframes()}

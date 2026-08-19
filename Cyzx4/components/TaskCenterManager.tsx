@@ -27,6 +27,7 @@ const FEATURE_TYPE_MAP: Record<string, string> = {
   VIDEO: 'AI生成产品展示视频',
   MODEL_SCENE_FISSION: '模特场景图裂变',
   MODEL_POSE_FISSION: '模特姿势裂变',
+  MODEL_ANGLE_CONTROL: '模特角度控制',
   ECOMMERCE_HERO: '生成电商主图',
   IMAGE_CLEAN: '主图生成',
   FUSION: '图像生成',

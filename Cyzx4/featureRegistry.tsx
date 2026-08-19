@@ -64,6 +64,7 @@ const SingleItemTryOnTab = lazy(() => import('./components/SingleItemTryOnTab'))
 const EcommerceHeroTab = lazy(() => import('./components/EcommerceHeroTab'));
 const ModelPoseFissionTab = lazy(() => import('./components/ModelPoseFissionTab'));
 const ModelSceneFissionTab = lazy(() => import('./components/ModelSceneFissionTab'));
+const ModelAngleControlTab = lazy(() => import('./components/ModelAngleControlTab'));
 const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
 const ModelFaceSwapTab = lazy(() => import('./components/ModelFaceSwapTab'));
 const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
@@ -258,6 +259,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/scene-fission.webp?v=20260802',
     icon: Sparkles,
     component: ModelSceneFissionTab,
+  },
+  {
+    mode: AppMode.MODEL_ANGLE_CONTROL,
+    title: '模特角度控制',
+    englishTitle: 'Model Angle Control',
+    description: '精准控制 AI 模特拍摄视角、身体朝向、头部姿势与眼睛视线。',
+    category: 'model',
+    keywords: ['模特角度控制', '相机角度', '视角控制', '方位角', '视线控制', '3D摄影'],
+    cover: './creative-covers/pose-fission.webp?v=20260802',
+    icon: Camera,
+    component: ModelAngleControlTab,
   },
   {
     mode: AppMode.MODEL_ORIGINAL_PASTE_BACK,

@@ -130,41 +130,98 @@ export interface ColorCorrectionOptions {
     contrast?: number;
 }
 
-export const loadCanvasImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
+export const ensureDataUri = async (src: string): Promise<string> => {
+  if (!src) return '';
+  if (src.startsWith('data:')) return src;
+  try {
+    const response = await fetch(src, { mode: 'cors' });
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('转换图片 Data URI 失败'));
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.warn('[imageProcessor] ensureDataUri fetch failed, using fallback source:', err);
+    return src;
+  }
+};
+
+export const loadCanvasImage = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    if (!src) {
+      reject(new Error('图片数据为空，无法加载'));
+      return;
+    }
     const img = new Image();
-    img.crossOrigin = 'Anonymous';
+    // Only set crossOrigin for remote HTTP URLs to prevent Data URI sandboxing errors
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      img.crossOrigin = 'Anonymous';
+    }
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Failed to load image for color correction'));
+    img.onerror = () => {
+      // If CORS Anonymous failed on remote URL, retry loading directly without crossOrigin
+      if (img.crossOrigin) {
+        const fallbackImg = new Image();
+        fallbackImg.onload = () => resolve(fallbackImg);
+        fallbackImg.onerror = () => reject(new Error('加载图像失败，请检查网络或素材地址有效性'));
+        fallbackImg.src = src;
+        return;
+      }
+      reject(new Error('加载图像失败，请检查素材数据完整性'));
+    };
     img.src = src;
-});
+  });
 
 export type NormalizedCropRect = {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 export const cropImageRegion = async (
-    source: string,
-    rect: NormalizedCropRect,
-    outputMime = 'image/jpeg',
-    quality = 0.94
+  source: string,
+  rect: NormalizedCropRect,
+  outputMime = 'image/png',
+  quality = 0.96
 ): Promise<string> => {
-    const image = await loadCanvasImage(source);
-    const sourceWidth = image.naturalWidth || image.width;
-    const sourceHeight = image.naturalHeight || image.height;
-    const sx = clamp(rect.x, 0, 0.98) * sourceWidth;
-    const sy = clamp(rect.y, 0, 0.98) * sourceHeight;
-    const sw = clamp(rect.width, 0.02, 1 - rect.x) * sourceWidth;
-    const sh = clamp(rect.height, 0.02, 1 - rect.y) * sourceHeight;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(256, Math.round(sw));
-    canvas.height = Math.max(256, Math.round(sh));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas is not available for image crop.');
-    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL(outputMime, quality);
+  if (!source) throw new Error('切图失败：原始图像数据为空');
+
+  // Convert HTTP/HTTPS URLs to Data URIs to eliminate CORS canvas export restrictions
+  let safeSource = source;
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    safeSource = await ensureDataUri(source);
+  }
+
+  const image = await loadCanvasImage(safeSource);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error('切图失败：图像尺寸获取异常');
+  }
+
+  const sx = clamp(rect.x, 0, 0.98) * sourceWidth;
+  const sy = clamp(rect.y, 0, 0.98) * sourceHeight;
+  const sw = clamp(rect.width, 0.02, 1 - rect.x) * sourceWidth;
+  const sh = clamp(rect.height, 0.02, 1 - rect.y) * sourceHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(128, Math.round(sw));
+  canvas.height = Math.max(128, Math.round(sh));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 绘图环境不可用，无法进行区域裁切');
+
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL(outputMime, quality);
 };
 
 export const createModelHeadIdentityCrop = (source: string): Promise<string> => {
