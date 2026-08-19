@@ -1461,13 +1461,9 @@ export const generateImageToImage = async (
     const virseBaseUrl = localStorage.getItem('virse_base_url') || 'https://api.virse.ai';
     const virseSpaceId = localStorage.getItem('virse_space_id') || '';
     const virseCanvasId = localStorage.getItem('virse_canvas_id') || '';
-    const imageHostProvider = localStorage.getItem('image_host_provider') || 'imgbb';
-    const imgbbApiKey = imageHostProvider === 'imgbb'
-      ? localStorage.getItem('imgbb_api_key')?.trim() || ''
-      : '';
-    const freeimageApiKey = imageHostProvider === 'freeimage'
-      ? localStorage.getItem('freeimage_api_key')?.trim() || ''
-      : '';
+    const imageHostProvider = localStorage.getItem('image_host_provider') || '';
+    const imgbbApiKey = localStorage.getItem('imgbb_api_key')?.trim() || '';
+    const freeimageApiKey = localStorage.getItem('freeimage_api_key')?.trim() || '';
     if (!virseSpaceId || !virseCanvasId) {
       throw new Error('Virse 尚未选择工作区/画布，请在模型配置中点击“测试并同步”，选择工作区后保存配置。');
     }

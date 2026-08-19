@@ -220,24 +220,44 @@ const uploadThroughImgBb = async ({
   const safeFilename = String(filename || `reference.${extension}`)
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/\.+/g, '.');
-  const form = new FormData();
-  form.append('image', cleanBase64);
-  form.append('name', safeFilename.replace(/\.[^.]+$/, ''));
-  const response = await fetch(`https://api.imgbb.com/1/upload?expiration=600&key=${encodeURIComponent(imgbbApiKey)}`, {
-    method: 'POST',
-    body: form,
-    signal: AbortSignal.timeout(65000),
-  });
-  const raw = await response.text();
+  const bytes = Buffer.from(cleanBase64, 'base64');
+
+  let response;
+  let raw = '';
+
+  try {
+    const form = new FormData();
+    form.append('image', new Blob([bytes], { type: mimeType }), safeFilename);
+    form.append('name', safeFilename.replace(/\.[^.]+$/, ''));
+    response = await fetch(`https://api.imgbb.com/1/upload?expiration=600&key=${encodeURIComponent(imgbbApiKey)}`, {
+      method: 'POST',
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      body: form,
+      signal: AbortSignal.timeout(65000),
+    });
+    raw = await response.text();
+  } catch {
+    const form = new FormData();
+    form.append('image', cleanBase64);
+    form.append('name', safeFilename.replace(/\.[^.]+$/, ''));
+    response = await fetch(`https://api.imgbb.com/1/upload?expiration=600&key=${encodeURIComponent(imgbbApiKey)}`, {
+      method: 'POST',
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      body: form,
+      signal: AbortSignal.timeout(65000),
+    });
+    raw = await response.text();
+  }
+
   let payload;
   try {
     payload = JSON.parse(raw);
   } catch {
-    throw new Error(`ImgBB 上传失败：${raw || `HTTP ${response.status}`}`);
+    throw new Error(`ImgBB 上传响应非 JSON：${raw.slice(0, 300) || `HTTP ${response?.status}`}`);
   }
   const publicImageUrl = payload?.data?.image?.url || payload?.data?.url || payload?.data?.display_url;
-  if (!response.ok || !payload?.success || !publicImageUrl) {
-    throw new Error(`ImgBB 上传失败：${payload?.error?.message || raw || `HTTP ${response.status}`}`);
+  if (!response?.ok || !payload?.success || !publicImageUrl) {
+    throw new Error(`ImgBB 上传失败：${payload?.error?.message || raw.slice(0, 300) || `HTTP ${response?.status}`}`);
   }
 
   try {
@@ -258,7 +278,7 @@ const uploadThroughImgBb = async ({
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`图片已上传到 ImgBB，但 Virse 导入图片失败：${message}`);
+    throw new Error(`图片已成功上传至 ImgBB 图床，但 Virse 导入图片失败：${message}`);
   }
 };
 
@@ -274,9 +294,7 @@ const uploadThroughImgBbPool = async (options) => {
       return await uploadThroughImgBb({ ...options, imgbbApiKey: keys[keyIndex] });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // The key already worked if ImgBB uploaded successfully. Rotating keys
-      // cannot fix a subsequent Virse import failure.
-      if (/图片已上传到 ImgBB/i.test(message)) throw error;
+      if (/图片已成功上传至 ImgBB/i.test(message)) throw error;
       failures.push(`Key ${keyIndex + 1}: ${message}`);
     }
   }
@@ -295,6 +313,7 @@ const testImgBbKeys = async (value) => {
       form.append('name', 'xcai-connection-test');
       const response = await fetch(`https://api.imgbb.com/1/upload?expiration=60&key=${encodeURIComponent(keys[index])}`, {
         method: 'POST',
+        headers: { 'User-Agent': BROWSER_USER_AGENT },
         body: form,
         signal: AbortSignal.timeout(20000),
       });
@@ -307,6 +326,8 @@ const testImgBbKeys = async (value) => {
   const valid = results.filter((item) => item.ok).length;
   return { data: { total: keys.length, valid, invalid: keys.length - valid, results } };
 };
+
+const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 let freeimageKeyCursor = 0;
 
@@ -331,28 +352,51 @@ const uploadThroughFreeImage = async ({
   const safeFilename = String(filename || `reference.${extension}`)
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/\.+/g, '.');
-  const form = new FormData();
-  form.append('key', freeimageApiKey);
-  form.append('action', 'upload');
-  form.append('source', cleanBase64);
-  form.append('format', 'json');
+  const bytes = Buffer.from(cleanBase64, 'base64');
 
-  const response = await fetch('https://freeimage.host/api/1/upload', {
-    method: 'POST',
-    body: form,
-    signal: AbortSignal.timeout(65000),
-  });
-  const raw = await response.text();
+  let response;
+  let raw = '';
+
+  try {
+    const form = new FormData();
+    form.append('key', freeimageApiKey);
+    form.append('action', 'upload');
+    form.append('source', new Blob([bytes], { type: mimeType }), safeFilename);
+    form.append('format', 'json');
+
+    response = await fetch('https://freeimage.host/api/1/upload', {
+      method: 'POST',
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      body: form,
+      signal: AbortSignal.timeout(65000),
+    });
+    raw = await response.text();
+  } catch {
+    const form = new FormData();
+    form.append('key', freeimageApiKey);
+    form.append('action', 'upload');
+    form.append('source', cleanBase64);
+    form.append('format', 'json');
+
+    response = await fetch('https://freeimage.host/api/1/upload', {
+      method: 'POST',
+      headers: { 'User-Agent': BROWSER_USER_AGENT },
+      body: form,
+      signal: AbortSignal.timeout(65000),
+    });
+    raw = await response.text();
+  }
+
   let payload;
   try {
     payload = JSON.parse(raw);
   } catch {
-    throw new Error(`FreeImage.host 上传失败：${raw || `HTTP ${response.status}`}`);
+    throw new Error(`FreeImage.host 上传响应非 JSON：${raw.slice(0, 300) || `HTTP ${response?.status}`}`);
   }
   const publicImageUrl = payload?.image?.url || payload?.image?.display_url || payload?.data?.url;
-  const isSuccess = response.ok && (payload?.status_code === 200 || payload?.success?.code === 200 || Boolean(publicImageUrl));
+  const isSuccess = response?.ok && (payload?.status_code === 200 || payload?.success?.code === 200 || Boolean(publicImageUrl));
   if (!isSuccess || !publicImageUrl) {
-    throw new Error(`FreeImage.host 上传失败：${payload?.error?.message || raw || `HTTP ${response.status}`}`);
+    throw new Error(`FreeImage.host 上传失败：${payload?.error?.message || raw.slice(0, 300) || `HTTP ${response?.status}`}`);
   }
 
   try {
@@ -373,7 +417,7 @@ const uploadThroughFreeImage = async ({
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`图片已上传到 FreeImage.host，但 Virse 导入图片失败：${message}`);
+    throw new Error(`图片已成功上传至 FreeImage.host 图床，但 Virse 导入图片失败：${message}`);
   }
 };
 
@@ -389,7 +433,7 @@ const uploadThroughFreeImagePool = async (options) => {
       return await uploadThroughFreeImage({ ...options, freeimageApiKey: keys[keyIndex] });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/图片已上传到 FreeImage\.host/i.test(message)) throw error;
+      if (/图片已成功上传至 FreeImage\.host/i.test(message)) throw error;
       failures.push(`Key ${keyIndex + 1}: ${message}`);
     }
   }
@@ -410,6 +454,7 @@ const testFreeImageKeys = async (value) => {
       form.append('format', 'json');
       const response = await fetch('https://freeimage.host/api/1/upload', {
         method: 'POST',
+        headers: { 'User-Agent': BROWSER_USER_AGENT },
         body: form,
         signal: AbortSignal.timeout(20000),
       });
@@ -434,7 +479,7 @@ export const uploadVirseBase64 = async ({
   filename = 'reference.png',
   positionX = 0,
   positionY = 0,
-  imageHostProvider = 'imgbb',
+  imageHostProvider = '',
   imgbbApiKey = '',
   freeimageApiKey = '',
 }) => {
@@ -442,133 +487,117 @@ export const uploadVirseBase64 = async ({
   if (!base64) throw new Error('缺少要上传的参考图片');
 
   const cleanBase64 = String(base64).replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
-  const provider = imageHostProvider || (freeimageApiKey ? 'freeimage' : imgbbApiKey ? 'imgbb' : '');
+  const resolvedFreeImageApiKey = String(freeimageApiKey || process.env.FREEIMAGE_API_KEY || '').trim();
+  const resolvedImgbbApiKey = String(imgbbApiKey || process.env.IMGBB_API_KEY || '').trim();
 
-  if (provider === 'freeimage') {
-    const preferredFreeImageApiKey = String(freeimageApiKey || process.env.FREEIMAGE_API_KEY || '').trim();
-    if (preferredFreeImageApiKey) {
-      return uploadThroughFreeImagePool({
-        apiKey,
-        baseUrl,
-        freeimageApiKey: preferredFreeImageApiKey,
-        cleanBase64,
-        mimeType,
-        filename,
-        spaceId,
-        canvasId,
-        positionX,
-        positionY,
+  const preferredProvider = imageHostProvider || (resolvedFreeImageApiKey ? 'freeimage' : resolvedImgbbApiKey ? 'imgbb' : '');
+
+  if (preferredProvider === 'freeimage' && resolvedFreeImageApiKey) {
+    try {
+      return await uploadThroughFreeImagePool({
+        apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
       });
-    }
-  } else if (provider === 'imgbb') {
-    const preferredImgBbApiKey = String(imgbbApiKey || process.env.IMGBB_API_KEY || '').trim();
-    if (preferredImgBbApiKey) {
-      return uploadThroughImgBbPool({
-        apiKey,
-        baseUrl,
-        imgbbApiKey: preferredImgBbApiKey,
-        cleanBase64,
-        mimeType,
-        filename,
-        spaceId,
-        canvasId,
-        positionX,
-        positionY,
-      });
-    }
-  }
-
-  const { uploadUrl, uploadToken, cacheKey } = await getUploadCredentials({ apiKey, baseUrl });
-  const bytes = Buffer.from(cleanBase64, 'base64');
-  const createForm = () => {
-    const form = new FormData();
-    form.append('file', new Blob([bytes], { type: mimeType }), filename);
-    form.append('space_id', String(spaceId));
-    form.append('canvas_id', String(canvasId));
-    form.append('position_x', String(positionX));
-    form.append('position_y', String(positionY));
-    form.append('size_width', '512');
-    form.append('size_height', '512');
-    return form;
-  };
-
-  const credentials = [...new Set([uploadToken, apiKey.trim()].filter(Boolean))];
-  let response;
-  let raw = '';
-  for (let index = 0; index < credentials.length; index += 1) {
-    response = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${credentials[index]}` },
-      body: createForm(),
-      signal: AbortSignal.timeout(65000),
-    });
-    raw = await response.text();
-    const isAuthFailure = response.status === 401
-      || response.status === 403
-      || /valid api key|upload token|required|unauthori[sz]ed/i.test(raw);
-    if (response.ok || !isAuthFailure || index === credentials.length - 1) break;
-  }
-  if (!response?.ok && (response?.status === 401 || response?.status === 403 || /valid api key|upload token|required|unauthori[sz]ed/i.test(raw))) {
-    uploadCredentialCache.delete(cacheKey);
-  }
-  if (!response?.ok) {
-    const nativeError = raw || `Virse image upload failed (HTTP ${response?.status || 502})`;
-    const isTransientUploadFailure = response?.status === 429
-      || [502, 503, 504].includes(response?.status)
-      || /no healthy upstream|service unavailable|bad gateway|too many requests|rate.?limit/i.test(nativeError);
-    if (isTransientUploadFailure) {
-      const resolvedFreeImageApiKey = String(freeimageApiKey || process.env.FREEIMAGE_API_KEY || '').trim();
-      const resolvedImgbbApiKey = String(imgbbApiKey || process.env.IMGBB_API_KEY || '').trim();
-
-      if (resolvedFreeImageApiKey) {
-        try {
-          return await uploadThroughFreeImagePool({
-            apiKey,
-            baseUrl,
-            freeimageApiKey: resolvedFreeImageApiKey,
-            cleanBase64,
-            mimeType,
-            filename,
-            spaceId,
-            canvasId,
-            positionX,
-            positionY,
-          });
-        } catch (fallbackError) {
-          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-          throw new Error(`Virse 原生上传失败：${nativeError}\nFreeImage.host 公网 URL 备用上传也失败：${fallbackMessage}`);
-        }
-      }
-
+    } catch (err) {
       if (resolvedImgbbApiKey) {
         try {
           return await uploadThroughImgBbPool({
-            apiKey,
-            baseUrl,
-            imgbbApiKey: resolvedImgbbApiKey,
-            cleanBase64,
-            mimeType,
-            filename,
-            spaceId,
-            canvasId,
-            positionX,
-            positionY,
+            apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
           });
-        } catch (fallbackError) {
-          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-          throw new Error(`Virse 原生上传失败：${nativeError}\nImgBB 公网 URL 备用上传也失败：${fallbackMessage}`);
+        } catch (imgbbErr) {
+          throw new Error(`FreeImage.host 上传失败：${err.message}\nImgBB 备用上传也失败：${imgbbErr.message}`);
         }
       }
-
-      throw new Error(`${nativeError}\nVirse 原生参考图上传服务当前不可用；备用上传需要在服务端配置图床 API Key。`);
+      throw err;
+    }
+  } else if (preferredProvider === 'imgbb' && resolvedImgbbApiKey) {
+    try {
+      return await uploadThroughImgBbPool({
+        apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+      });
+    } catch (err) {
+      if (resolvedFreeImageApiKey) {
+        try {
+          return await uploadThroughFreeImagePool({
+            apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+          });
+        } catch (freeErr) {
+          throw new Error(`ImgBB 上传失败：${err.message}\nFreeImage.host 备用上传也失败：${freeErr.message}`);
+        }
+      }
+      throw err;
     }
   }
-  if (!response.ok) throw new Error(raw || `Virse 图片上传失败（HTTP ${response.status}）`);
+
+  // Attempt Virse Native Direct Upload if no image bed keys are configured
+  let nativeError = '';
   try {
-    return { data: JSON.parse(raw) };
-  } catch {
-    return { data: raw };
+    const { uploadUrl, uploadToken, cacheKey } = await getUploadCredentials({ apiKey, baseUrl });
+    const bytes = Buffer.from(cleanBase64, 'base64');
+    const createForm = () => {
+      const form = new FormData();
+      form.append('file', new Blob([bytes], { type: mimeType }), filename);
+      form.append('space_id', String(spaceId));
+      form.append('canvas_id', String(canvasId));
+      form.append('position_x', String(positionX));
+      form.append('position_y', String(positionY));
+      form.append('size_width', '512');
+      form.append('size_height', '512');
+      return form;
+    };
+
+    const credentials = [...new Set([uploadToken, apiKey.trim()].filter(Boolean))];
+    let response;
+    let raw = '';
+    for (let index = 0; index < credentials.length; index += 1) {
+      response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${credentials[index]}`, 'User-Agent': BROWSER_USER_AGENT },
+        body: createForm(),
+        signal: AbortSignal.timeout(65000),
+      });
+      raw = await response.text();
+      const isAuthFailure = response.status === 401
+        || response.status === 403
+        || /valid api key|upload token|required|unauthori[sz]ed/i.test(raw);
+      if (response.ok || !isAuthFailure || index === credentials.length - 1) break;
+    }
+    if (!response?.ok && (response?.status === 401 || response?.status === 403 || /valid api key|upload token|required|unauthori[sz]ed/i.test(raw))) {
+      uploadCredentialCache.delete(cacheKey);
+    }
+    if (response?.ok) {
+      try {
+        return { data: JSON.parse(raw) };
+      } catch {
+        return { data: raw };
+      }
+    }
+    nativeError = raw || `HTTP ${response?.status || 502} (Direct Native Upload Failed)`;
+  } catch (err) {
+    nativeError = err instanceof Error ? err.message : String(err);
   }
+
+  // Fallback to ANY available image bed key if native upload failed
+  if (resolvedFreeImageApiKey) {
+    try {
+      return await uploadThroughFreeImagePool({
+        apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+      });
+    } catch (fallbackErr) {
+      throw new Error(`Virse 原生上传失败（${nativeError}）\nFreeImage.host 备用上传也失败：${fallbackErr.message}`);
+    }
+  }
+
+  if (resolvedImgbbApiKey) {
+    try {
+      return await uploadThroughImgBbPool({
+        apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+      });
+    } catch (fallbackErr) {
+      throw new Error(`Virse 原生上传失败（${nativeError}）\nImgBB 备用上传也失败：${fallbackErr.message}`);
+    }
+  }
+
+  throw new Error(`Virse 原生参考图上传服务失败（${nativeError}）。\n【提示】Virse 官方原生上传服务当前不可用，请在右侧「全局设置 -> 图床服务」中配置并保存 FreeImage.host 或 ImgBB 的 API Key 即可成功上传。`);
 };
 
 export const executeVirseRequest = async (body) => {

@@ -94,6 +94,9 @@ export default defineConfig(({ mode }) => {
     if (env.IMGBB_API_KEY) {
       process.env.IMGBB_API_KEY = env.IMGBB_API_KEY;
     }
+    if (env.FREEIMAGE_API_KEY) {
+      process.env.FREEIMAGE_API_KEY = env.FREEIMAGE_API_KEY;
+    }
     return {
       base: './',
       server: {
