@@ -88,6 +88,7 @@ const AngleBadgeButton: React.FC<{
 
 type Stage = 1 | 2 | 3 | 4;
 type SelectionModalType = 'model' | 'ratio' | 'resolution' | null;
+type ShoeViewSlot = 0 | 1 | 2;
 
 interface UploadedImage {
   id?: string;
@@ -99,6 +100,7 @@ interface UploadedImage {
   width?: number;
   height?: number;
   angle?: ProductAngle;
+  shoeViewSlot?: ShoeViewSlot;
 }
 
 interface TryOnResultItem {
@@ -444,9 +446,14 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const [historyOpen, setHistoryOpen] = useState(true);
   const [selectionModal, setSelectionModal] = useState<SelectionModalType>(null);
   const [activeUploadTarget, setActiveUploadTarget] = useState<ActiveUploadTarget>('top');
+  const [activeShoeSlot, setActiveShoeSlot] = useState<ShoeViewSlot>(0);
 
   const currentTask = tasks.find((t) => t.id === activeTaskId) || tasks[0];
   const accessoryImages = currentTask.accessoryImages ?? [];
+  const legacyShoeImages = currentTask.shoesImages.filter((image) => image.shoeViewSlot === undefined);
+  const shoeImagesBySlot = ([0, 1, 2] as ShoeViewSlot[]).map(
+    (slot) => currentTask.shoesImages.find((image) => image.shoeViewSlot === slot) ?? legacyShoeImages[slot]
+  );
 
   const {
     startGenerationTask,
@@ -476,6 +483,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const accessoryInputRef = useRef<HTMLInputElement>(null);
   const fullInputRef = useRef<HTMLInputElement>(null);
   const shoesInputRef = useRef<HTMLInputElement>(null);
+  const shoeUploadSlotRef = useRef<ShoeViewSlot>(0);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const generationContextsRef = useRef<Map<string, TryOnGenerationContext>>(new Map());
 
@@ -486,6 +494,20 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
   const [isDraggingFull, setIsDraggingFull] = useState(false);
   const [isDraggingShoes, setIsDraggingShoes] = useState(false);
   const [isDraggingModel, setIsDraggingModel] = useState(false);
+
+  useEffect(() => {
+    if (currentTask.subMode === 'shoes') {
+      setActiveUploadTarget('shoes');
+      return;
+    }
+
+    if (currentTask.subMode === 'mannequin' || currentTask.clothingType === 'one-piece') {
+      setActiveUploadTarget('full');
+      return;
+    }
+
+    setActiveUploadTarget('top');
+  }, [activeTaskId, currentTask.subMode, currentTask.clothingType]);
 
   const updateCurrentTask = useCallback((updater: (task: UniversalTask) => UniversalTask) => {
     setTasks((prev) =>
@@ -515,7 +537,14 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
       if (target === 'bottom') return { ...t, bottomImages: updateList(t.bottomImages) };
       if (target === 'full') return { ...t, fullImages: updateList(t.fullImages) };
       if (target === 'accessory') return { ...t, accessoryImages: updateList(t.accessoryImages ?? []) };
-      if (target === 'shoes') return { ...t, shoesImages: updateList(t.shoesImages ?? []) };
+      if (target === 'shoes') {
+        return {
+          ...t,
+          shoesImages: (t.shoesImages ?? []).map((image, imageIndex) =>
+            (image.shoeViewSlot ?? imageIndex) === index ? { ...image, angle: newAngle } : image
+          ),
+        };
+      }
       return t;
     });
   }, [updateCurrentTask]);
@@ -575,7 +604,11 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     ).id;
   };
 
-  const handleUploadTarget = async (files: FileList | File[], target: ActiveUploadTarget) => {
+  const handleUploadTarget = async (
+    files: FileList | File[],
+    target: ActiveUploadTarget,
+    shoeStartSlot?: ShoeViewSlot
+  ) => {
     const fileList = Array.from(files).filter((f) => f.type.startsWith('image/'));
     if (fileList.length === 0) return;
     try {
@@ -590,7 +623,21 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         } else if (target === 'full') {
           return { ...task, fullImages: [...task.fullImages, ...processed].slice(0, 6) };
         } else if (target === 'shoes') {
-          return { ...task, shoesImages: [...(task.shoesImages || []), ...processed].slice(0, 6) };
+          const startSlot = shoeStartSlot ?? 0;
+          const normalizedExisting = (task.shoesImages || []).slice(0, 3).map((image, index) => ({
+            ...image,
+            shoeViewSlot: image.shoeViewSlot ?? (index as ShoeViewSlot),
+          }));
+          const incoming = processed.slice(0, 3 - startSlot).map((image, offset) => ({
+            ...image,
+            shoeViewSlot: (startSlot + offset) as ShoeViewSlot,
+          }));
+          const replacedSlots = new Set(incoming.map((image) => image.shoeViewSlot));
+          const shoesImages = normalizedExisting
+            .filter((image) => !replacedSlots.has(image.shoeViewSlot))
+            .concat(incoming)
+            .sort((left, right) => (left.shoeViewSlot ?? 0) - (right.shoeViewSlot ?? 0));
+          return { ...task, shoesImages };
         } else {
           const modelReferences = [...task.modelReferences, ...processed].slice(0, 6);
           const lockedAspectRatio = getClosestAspectRatio(modelReferences[0]);
@@ -628,7 +675,18 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
       } else if (target === 'full') {
         return { ...task, fullImages: [...task.fullImages, item].slice(0, 6) };
       } else if (target === 'shoes') {
-        return { ...task, shoesImages: [...(task.shoesImages || []), item].slice(0, 6) };
+        const normalizedExisting = (task.shoesImages || []).slice(0, 3).map((image, index) => ({
+          ...image,
+          shoeViewSlot: image.shoeViewSlot ?? (index as ShoeViewSlot),
+        }));
+        const itemForSlot = { ...item, shoeViewSlot: activeShoeSlot };
+        return {
+          ...task,
+          shoesImages: normalizedExisting
+            .filter((image) => image.shoeViewSlot !== activeShoeSlot)
+            .concat(itemForSlot)
+            .sort((left, right) => (left.shoeViewSlot ?? 0) - (right.shoeViewSlot ?? 0)),
+        };
       } else {
         return { ...task, modelReferences: [...task.modelReferences, item].slice(0, 6) };
       }
@@ -637,9 +695,43 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
 
   useImagePaste((files) => {
     if (files.length > 0) {
-      handleUploadTarget(files, activeUploadTarget);
+      handleUploadTarget(
+        files,
+        activeUploadTarget,
+        activeUploadTarget === 'shoes' ? activeShoeSlot : undefined
+      );
     }
   }, isActive && !isLoading);
+
+  const activateShoeSlot = (slot: ShoeViewSlot) => {
+    shoeUploadSlotRef.current = slot;
+    setActiveShoeSlot(slot);
+    setActiveUploadTarget('shoes');
+  };
+
+  const openShoeFilePicker = (slot: ShoeViewSlot) => {
+    activateShoeSlot(slot);
+    shoesInputRef.current?.click();
+  };
+
+  const handleShoeSlotDrop = (event: React.DragEvent<HTMLElement>, slot: ShoeViewSlot) => {
+    event.preventDefault();
+    event.stopPropagation();
+    activateShoeSlot(slot);
+    setIsDraggingShoes(false);
+    if (event.dataTransfer.files.length > 0) {
+      void handleUploadTarget(event.dataTransfer.files, 'shoes', slot);
+    }
+  };
+
+  const removeShoeImageAtSlot = (slot: ShoeViewSlot) => {
+    updateCurrentTask((task) => ({
+      ...task,
+      shoesImages: task.shoesImages.filter(
+        (image, index) => (image.shoeViewSlot ?? index) !== slot
+      ),
+    }));
+  };
 
   const handleStartTryOn = async () => {
     let productImgs: UniversalTryOnProductImage[] = [];
@@ -658,12 +750,14 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
         setError('请在【鞋靴素材】区域至少上传一张鞋履平铺/白底图');
         return;
       }
-      productImgs = shoesList.map((img) => ({
+      productImgs = [...shoesList]
+        .sort((left, right) => (left.shoeViewSlot ?? 0) - (right.shoeViewSlot ?? 0))
+        .map((img) => ({
         base64: img.base64,
         mime: img.mime,
         role: 'shoes',
         angle: img.angle || 'front',
-      }));
+        }));
       const categoryObj = SHOE_CATEGORY_OPTIONS.find((c) => c.id === currentTask.shoeCategory);
       const angleObj = SHOE_ANGLE_OPTIONS.find((a) => a.id === currentTask.shoeAngle);
       customPromptAddon = `[Footwear Try-On Agent]: Realistically fit the footwear onto model's feet. ${categoryObj?.prompt || ''}. ${angleObj?.prompt || ''}. Precise ankle orientation and realistic ground contact shadow.`;
@@ -1895,12 +1989,50 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
 
               {/* RENDER MODE C: 鞋靴试穿 (单视角图 / 多视角图) - 1:1 还原用户参考截图 1, 2, 3 */}
               {currentTask.subMode === 'shoes' && (
-                <div onMouseEnter={() => setActiveUploadTarget('shoes')} className="rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] dark:bg-[#111622] p-3 shadow-xs space-y-3">
+                <div
+                  onMouseEnter={() => setActiveUploadTarget('shoes')}
+                  onPointerDown={() => setActiveUploadTarget('shoes')}
+                  onFocusCapture={() => setActiveUploadTarget('shoes')}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setActiveUploadTarget('shoes');
+                    setIsDraggingShoes(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'copy';
+                    setActiveUploadTarget('shoes');
+                    setIsDraggingShoes(true);
+                  }}
+                  onDragLeave={(event) => {
+                    const nextTarget = event.relatedTarget;
+                    if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+                      setIsDraggingShoes(false);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setActiveUploadTarget('shoes');
+                    setIsDraggingShoes(false);
+                    if (event.dataTransfer.files.length > 0) {
+                      void handleUploadTarget(event.dataTransfer.files, 'shoes', activeShoeSlot);
+                    }
+                  }}
+                  className={`rounded-2xl border bg-[#f8fafc] p-3 shadow-xs space-y-3 transition-all dark:bg-[#111622] ${
+                    isDraggingShoes
+                      ? 'border-[#ed6d46] bg-[#fff8f3] ring-2 ring-[#ed6d46]/25 dark:bg-[#ed6d46]/10'
+                      : 'border-[#e2e8f0] dark:border-white/10'
+                  }`}
+                >
                   {/* Header Sub-tabs */}
                   <div className="flex items-center justify-center gap-8 border-b border-[#e2e8f0] dark:border-white/10 pb-2">
                     <button
                       type="button"
-                      onClick={() => updateCurrentTask((t) => ({ ...t, shoeViewMode: 'single' }))}
+                      onClick={() => {
+                        activateShoeSlot(0);
+                        updateCurrentTask((t) => ({ ...t, shoeViewMode: 'single' }));
+                      }}
                       className={`flex items-center gap-1.5 text-xs font-bold transition relative pb-1.5 ${
                         (currentTask.shoeViewMode || 'single') === 'single'
                           ? 'text-slate-900 font-black dark:text-white'
@@ -1916,7 +2048,10 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
 
                     <button
                       type="button"
-                      onClick={() => updateCurrentTask((t) => ({ ...t, shoeViewMode: 'multi' }))}
+                      onClick={() => {
+                        activateShoeSlot(0);
+                        updateCurrentTask((t) => ({ ...t, shoeViewMode: 'multi' }));
+                      }}
                       className={`flex items-center gap-1.5 text-xs font-bold transition relative pb-1.5 ${
                         currentTask.shoeViewMode === 'multi'
                           ? 'text-slate-900 font-black dark:text-white'
@@ -1935,41 +2070,31 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                   {(currentTask.shoeViewMode || 'single') === 'single' ? (
                     <div className="space-y-2">
                       <div
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          setIsDraggingShoes(true);
+                        onMouseEnter={() => activateShoeSlot(0)}
+                        onDragEnter={(event) => {
+                          event.preventDefault();
+                          activateShoeSlot(0);
                         }}
-                        onDragLeave={() => setIsDraggingShoes(false)}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setIsDraggingShoes(false);
-                          if (e.dataTransfer.files?.length) {
-                            handleUploadTarget(e.dataTransfer.files, 'shoes');
-                          }
-                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => handleShoeSlotDrop(event, 0)}
                         className="relative min-h-[220px] rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center overflow-hidden"
                       >
-                        {(currentTask.shoesImages || []).length > 0 ? (
+                        {shoeImagesBySlot[0] ? (
                           <div className="group relative w-full h-full min-h-[200px] flex items-center justify-center">
                             <AngleBadgeButton
-                              angle={currentTask.shoesImages![0].angle}
-                              onClick={() => setAngleModal({ target: 'shoes', index: 0, currentAngle: currentTask.shoesImages![0].angle || 'front' })}
+                              angle={shoeImagesBySlot[0]!.angle}
+                              onClick={() => setAngleModal({ target: 'shoes', index: 0, currentAngle: shoeImagesBySlot[0]!.angle || 'front' })}
                             />
                             <img
-                              src={currentTask.shoesImages![0].preview}
+                              src={shoeImagesBySlot[0]!.preview}
                               alt="Shoe Single View"
-                              onClick={() => setZoomedImage(currentTask.shoesImages![0].preview)}
+                              onClick={() => setZoomedImage(shoeImagesBySlot[0]!.preview)}
                               className="max-h-[220px] w-auto object-contain cursor-pointer transition hover:scale-105"
                             />
                             {/* 右上角关闭/删除图标 */}
                             <button
                               type="button"
-                              onClick={() =>
-                                updateCurrentTask((t) => ({
-                                  ...t,
-                                  shoesImages: t.shoesImages?.filter((_, i) => i !== 0),
-                                }))
-                              }
+                              onClick={() => removeShoeImageAtSlot(0)}
                               className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-lg bg-black/70 text-white hover:bg-red-500 transition"
                             >
                               <X className="h-4 w-4" />
@@ -1990,7 +2115,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                               </button>
                               <button
                                 type="button"
-                                onClick={() => shoesInputRef.current?.click()}
+                                onClick={() => openShoeFilePicker(0)}
                                 className="rounded-xl bg-[#292524]/85 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-black transition backdrop-blur-xs"
                               >
                                 再次上传
@@ -1999,7 +2124,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                           </div>
                         ) : (
                           <div
-                            onClick={() => shoesInputRef.current?.click()}
+                            onClick={() => openShoeFilePicker(0)}
                             className="flex flex-col items-center justify-center py-6 cursor-pointer text-center"
                           >
                             <Upload className="h-7 w-7 text-slate-400 mb-2" />
@@ -2011,14 +2136,6 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                             </p>
                           </div>
                         )}
-                        <input
-                          ref={shoesInputRef}
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => e.target.files && handleUploadTarget(e.target.files, 'shoes')}
-                        />
                       </div>
 
                       {/* 底部提示与更多 */}
@@ -2043,13 +2160,26 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                       {/* 多视角网格布局 */}
                       <div className="grid grid-cols-2 gap-2">
                         {/* 1. 主角度大框 */}
-                        <div className="col-span-2 relative min-h-[160px] rounded-xl border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center">
-                          {(currentTask.shoesImages || [])[0] ? (
+                        <div
+                          onMouseEnter={() => activateShoeSlot(0)}
+                          onDragEnter={(event) => {
+                            event.preventDefault();
+                            activateShoeSlot(0);
+                          }}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => handleShoeSlotDrop(event, 0)}
+                          className={`col-span-2 relative min-h-[160px] rounded-xl border bg-white p-2 dark:bg-slate-900 flex items-center justify-center transition ${
+                            activeShoeSlot === 0
+                              ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/25'
+                              : 'border-slate-200 dark:border-white/10'
+                          }`}
+                        >
+                          {shoeImagesBySlot[0] ? (
                             <div className="group relative w-full h-full flex items-center justify-center">
                               <img
-                                src={currentTask.shoesImages![0].preview}
+                                src={shoeImagesBySlot[0]!.preview}
                                 alt="Shoe Main Angle"
-                                onClick={() => setZoomedImage(currentTask.shoesImages![0].preview)}
+                                onClick={() => setZoomedImage(shoeImagesBySlot[0]!.preview)}
                                 className="max-h-[150px] w-auto object-contain cursor-pointer"
                               />
                               <span className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-0.5 text-[0.62rem] font-bold text-white">
@@ -2057,12 +2187,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                               </span>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  updateCurrentTask((t) => ({
-                                    ...t,
-                                    shoesImages: t.shoesImages?.filter((_, i) => i !== 0),
-                                  }))
-                                }
+                                onClick={() => removeShoeImageAtSlot(0)}
                                 className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
                               >
                                 <X className="h-3 w-3" />
@@ -2070,7 +2195,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                             </div>
                           ) : (
                             <div
-                              onClick={() => shoesInputRef.current?.click()}
+                              onClick={() => openShoeFilePicker(0)}
                               className="flex flex-col items-center justify-center py-4 cursor-pointer text-center"
                             >
                               <Upload className="h-6 w-6 text-slate-400 mb-1" />
@@ -2082,13 +2207,26 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                         </div>
 
                         {/* 2. 辅视角小框 1 */}
-                        <div className="relative min-h-[110px] rounded-xl border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center">
-                          {(currentTask.shoesImages || [])[1] ? (
+                        <div
+                          onMouseEnter={() => activateShoeSlot(1)}
+                          onDragEnter={(event) => {
+                            event.preventDefault();
+                            activateShoeSlot(1);
+                          }}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => handleShoeSlotDrop(event, 1)}
+                          className={`relative min-h-[110px] rounded-xl border bg-white p-2 dark:bg-slate-900 flex items-center justify-center transition ${
+                            activeShoeSlot === 1
+                              ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/25'
+                              : 'border-slate-200 dark:border-white/10'
+                          }`}
+                        >
+                          {shoeImagesBySlot[1] ? (
                             <div className="group relative w-full h-full flex items-center justify-center">
                               <img
-                                src={currentTask.shoesImages![1].preview}
+                                src={shoeImagesBySlot[1]!.preview}
                                 alt="Shoe Side Angle 1"
-                                onClick={() => setZoomedImage(currentTask.shoesImages![1].preview)}
+                                onClick={() => setZoomedImage(shoeImagesBySlot[1]!.preview)}
                                 className="max-h-[100px] w-auto object-contain cursor-pointer"
                               />
                               <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
@@ -2096,12 +2234,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                               </span>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  updateCurrentTask((t) => ({
-                                    ...t,
-                                    shoesImages: t.shoesImages?.filter((_, i) => i !== 1),
-                                  }))
-                                }
+                                onClick={() => removeShoeImageAtSlot(1)}
                                 className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white"
                               >
                                 <X className="h-2.5 w-2.5" />
@@ -2109,7 +2242,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                             </div>
                           ) : (
                             <div
-                              onClick={() => shoesInputRef.current?.click()}
+                              onClick={() => openShoeFilePicker(1)}
                               className="flex flex-col items-center justify-center py-2 cursor-pointer text-center"
                             >
                               <Plus className="h-5 w-5 text-slate-400 mb-0.5" />
@@ -2121,13 +2254,26 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                         </div>
 
                         {/* 3. 辅视角小框 2 */}
-                        <div className="relative min-h-[110px] rounded-xl border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900 flex items-center justify-center">
-                          {(currentTask.shoesImages || [])[2] ? (
+                        <div
+                          onMouseEnter={() => activateShoeSlot(2)}
+                          onDragEnter={(event) => {
+                            event.preventDefault();
+                            activateShoeSlot(2);
+                          }}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => handleShoeSlotDrop(event, 2)}
+                          className={`relative min-h-[110px] rounded-xl border bg-white p-2 dark:bg-slate-900 flex items-center justify-center transition ${
+                            activeShoeSlot === 2
+                              ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/25'
+                              : 'border-slate-200 dark:border-white/10'
+                          }`}
+                        >
+                          {shoeImagesBySlot[2] ? (
                             <div className="group relative w-full h-full flex items-center justify-center">
                               <img
-                                src={currentTask.shoesImages![2].preview}
+                                src={shoeImagesBySlot[2]!.preview}
                                 alt="Shoe Side Angle 2"
-                                onClick={() => setZoomedImage(currentTask.shoesImages![2].preview)}
+                                onClick={() => setZoomedImage(shoeImagesBySlot[2]!.preview)}
                                 className="max-h-[100px] w-auto object-contain cursor-pointer"
                               />
                               <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
@@ -2135,12 +2281,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                               </span>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  updateCurrentTask((t) => ({
-                                    ...t,
-                                    shoesImages: t.shoesImages?.filter((_, i) => i !== 2),
-                                  }))
-                                }
+                                onClick={() => removeShoeImageAtSlot(2)}
                                 className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white"
                               >
                                 <X className="h-2.5 w-2.5" />
@@ -2148,7 +2289,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                             </div>
                           ) : (
                             <div
-                              onClick={() => shoesInputRef.current?.click()}
+                              onClick={() => openShoeFilePicker(2)}
                               className="flex flex-col items-center justify-center py-2 cursor-pointer text-center"
                             >
                               <Plus className="h-5 w-5 text-slate-400 mb-0.5" />
@@ -2174,12 +2315,13 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                               key={idx}
                               type="button"
                               onClick={() => {
-                                const newItems: UploadedImage[] = presetGroup.group.map((item) => ({
+                                const newItems: UploadedImage[] = presetGroup.group.slice(0, 3).map((item, itemIndex) => ({
                                   id: crypto.randomUUID(),
                                   preview: item.preview,
                                   base64: item.preview.split(',')[1] || '',
                                   mime: 'image/svg+xml',
                                   name: item.name,
+                                  shoeViewSlot: itemIndex as ShoeViewSlot,
                                 }));
                                 updateCurrentTask((t) => ({ ...t, shoesImages: newItems }));
                               }}
@@ -2206,6 +2348,19 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                       </div>
                     </div>
                   )}
+                  <input
+                    ref={shoesInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      if (event.target.files?.length) {
+                        void handleUploadTarget(event.target.files, 'shoes', shoeUploadSlotRef.current);
+                      }
+                      event.target.value = '';
+                    }}
+                  />
                 </div>
               )}
 

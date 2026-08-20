@@ -309,6 +309,10 @@ export const compileAnglePrompt = (spec: AngleSpec, userRequirement: string = ''
   }
   parts.push(`SUBJECT TORSO & BODY ROTATION: Torso is ${bodyText}.`);
 
+  parts.push(
+    `POSE SCULPTING COORDINATES: Shoulder line yaw ${spec.subject.shoulderYaw} degrees; hip line yaw ${spec.subject.hipYaw} degrees. Treat these as independent anatomical rotations while keeping limbs, garment seams, and body proportions physically coherent.`
+  );
+
   if (spec.subject.bodyYaw !== 0 && az === 0) {
     parts.push('MODEL ROTATION MANDATE: Keep the camera viewpoint fixed and rotate only the model torso.');
   }
@@ -348,6 +352,20 @@ export const compileAnglePrompt = (spec: AngleSpec, userRequirement: string = ''
     environment: 'Full-body wide environmental shot with architectural context',
   };
   parts.push(`FRAMING & COMPOSITION: ${framingMap[spec.composition.framing] || 'Full body shot'}.`);
+
+  const subjectHorizontal = spec.composition.subjectX === 0
+    ? 'centered horizontally'
+    : `${Math.abs(spec.composition.subjectX)}% toward frame ${spec.composition.subjectX > 0 ? 'right' : 'left'}`;
+  const subjectVertical = spec.composition.subjectY === 0
+    ? 'centered vertically'
+    : `${Math.abs(spec.composition.subjectY)}% toward frame ${spec.composition.subjectY > 0 ? 'top' : 'bottom'}`;
+  parts.push(
+    `SUBJECT FRAME POSITION: Place the subject ${subjectHorizontal} and ${subjectVertical}; preserve the requested crop boundary without cutting hands, feet, hair, or garment edges unintentionally.`
+  );
+
+  parts.push(
+    `GEOMETRY ACCURACY CONTRACT: Camera azimuth ${spec.camera.azimuth}°, elevation ${spec.camera.elevation}°, roll ${spec.camera.roll}°, subject body yaw ${spec.subject.bodyYaw}°, head yaw ${spec.subject.headYaw}°, and head pitch ${spec.subject.headPitch}° are independent controls. Match the requested parallax, visible body planes, facial direction, horizon, and perspective consistently. Do not substitute model rotation for camera movement or vice versa.`
+  );
 
   if (userRequirement.trim()) {
     parts.push(`ADDITIONAL USER CREATIVE REQUIREMENT: ${userRequirement.trim()}.`);

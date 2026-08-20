@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Aperture,
@@ -47,6 +47,7 @@ import { Virtual3DStudioCanvas } from './Virtual3DStudioCanvas';
 
 type TaskStatus = 'editing' | 'generating' | 'done' | 'error';
 type RightTabMode = 'camera' | 'pose' | 'compose';
+type ControlLevel = 'guided' | 'pro';
 
 interface AngleAsset {
   id: string;
@@ -127,6 +128,28 @@ const POSE_PRESETS = [
   { id: 'pose-editorial', name: 'Editorial大片', bodyYaw: 30, headYaw: 20, headPitch: -5 },
 ];
 
+const QUICK_SCENES = [
+  { id: 'clean-main', presetId: 'preset-01', name: '电商标准主图', desc: '正面自然、商品信息最清晰', badge: '新手首选' },
+  { id: 'slim-three-quarter', presetId: 'preset-02', name: '显瘦 3/4 角度', desc: '立体轮廓、适合大多数服装', badge: '通用' },
+  { id: 'full-editorial', presetId: 'preset-07', name: '全身大片', desc: '低机位长腿、杂志氛围', badge: '氛围' },
+  { id: 'look-back', presetId: 'preset-08', name: '优雅回眸', desc: '背面细节与面部兼顾', badge: '进阶' },
+] as const;
+
+const GAZE_OPTIONS: Array<{ id: GazeDirection; label: string; desc: string }> = [
+  { id: 'camera', label: '看镜头', desc: '眼神自动追踪相机' },
+  { id: 'forward', label: '看前方', desc: '自然平视远方' },
+  { id: 'away', label: '看画外', desc: '时尚抓拍感' },
+  { id: 'down', label: '微低头', desc: '柔和克制' },
+];
+
+const getLensGuidance = (focalLength: number) => {
+  if (focalLength <= 24) return '空间感强，边缘会拉伸；适合环境大片，不建议面部近拍。';
+  if (focalLength <= 35) return '轻广角、腿部延伸明显；适合全身和低机位。';
+  if (focalLength <= 50) return '接近人眼观感，最稳妥、最容易还原。';
+  if (focalLength <= 85) return '人像压缩自然、脸型更稳定，适合半身和特写。';
+  return '空间压缩明显、背景更近；适合高级肖像，需保持足够距离。';
+};
+
 const createTask = (): AngleTask => ({
   id: crypto.randomUUID(),
   createdAt: Date.now(),
@@ -152,6 +175,7 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
 
   // Active Right Control Tab Mode
   const [rightTab, setRightTab] = useState<RightTabMode>('camera');
+  const [controlLevel, setControlLevel] = useState<ControlLevel>('guided');
 
   // Shot Filmstrip list (Shot 01 ~ Shot 09)
   const [shots, setShots] = useState<ShotItem[]>([
@@ -178,6 +202,16 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
   const [promptFolded, setPromptFolded] = useState(true);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [imagePreview, setImagePreview] = useState<{ url: string; title: string } | null>(null);
+
+  useEffect(() => {
+    setShots((current) =>
+      current.map((shot) =>
+        shot.id === activeShotId
+          ? { ...shot, spec: JSON.parse(JSON.stringify(spec)), status: shot.status === 'pending' ? 'configured' : shot.status }
+          : shot
+      )
+    );
+  }, [activeShotId, spec]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -303,6 +337,20 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
   }, isActive && !busy);
 
   const compiledPromptText = compileAnglePrompt(spec, requirements);
+  const accuracyWarnings: string[] = [];
+  if (spec.camera.focalLength <= 35 && ['face', 'chest'].includes(spec.composition.framing)) {
+    accuracyWarnings.push('广角近拍容易拉伸面部，建议改用 50–85mm。');
+  }
+  if (spec.camera.distanceNum < 2.5 && ['full_body', 'environment'].includes(spec.composition.framing)) {
+    accuracyWarnings.push('全身构图距离过近，可能裁脚；建议距离 ≥ 4.0m。');
+  }
+  if (spec.camera.focalLength >= 105 && spec.camera.distanceNum < 2.5) {
+    accuracyWarnings.push('长焦距离不足，取景范围可能过窄。');
+  }
+  if (spec.subject.gaze === 'camera' && Math.abs(spec.subject.headYaw) > 75) {
+    accuracyWarnings.push('头部侧转过大但要求看镜头，眼神可能不自然。');
+  }
+  const accuracyScore = Math.max(72, 100 - accuracyWarnings.length * 9);
 
   const handleCopyPrompt = () => {
     navigator.clipboard.writeText(compiledPromptText).then(() => {
@@ -321,7 +369,7 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
   };
 
   const handleLookAtCamera = () => {
-    const targetHeadYaw = -spec.camera.azimuth;
+    const targetHeadYaw = Math.max(-90, Math.min(90, -spec.camera.azimuth));
     setSpec((prev) => ({
       ...prev,
       subject: {
@@ -415,13 +463,18 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
           : aspectRatio === '1:1'
           ? AspectRatio.SQUARE
           : AspectRatio.LANDSCAPE_16_9;
+      const targetResolution = resolution === '4K'
+        ? ImageResolution.RES_4K
+        : resolution === '1K'
+        ? ImageResolution.RES_1K
+        : ImageResolution.RES_2K;
 
       const [resultUrl] = await generateImageToImage(
         [{ base64: image.base64, mimeType: image.mime }],
         compiledPromptText,
         {
           aspectRatio: targetRatioEnum,
-          resolution: ImageResolution.RES_2K,
+          resolution: targetResolution,
           modelId: model,
           workflowHint: 'scene-product-lock',
         }
@@ -639,6 +692,7 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
             <div className="relative flex-1 min-h-[34rem] rounded-2xl border border-slate-200/80 bg-white p-2 shadow-xs overflow-hidden">
               <Virtual3DStudioCanvas
                 spec={spec}
+                aspectRatio={aspectRatio}
                 onChangeSpec={(updater) => setSpec((prev) => updater(prev))}
               />
             </div>
@@ -722,6 +776,38 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
           <section className="flex flex-col gap-4">
             {/* THREE TABS CONTROLS: CAMERA | POSE | COMPOSE */}
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
+              <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setControlLevel('guided')}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-black transition ${controlLevel === 'guided' ? 'bg-[#172238] text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+                >
+                  ✨ 新手引导
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setControlLevel('pro')}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-black transition ${controlLevel === 'pro' ? 'bg-[#172238] text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+                >
+                  <Sliders className="mr-1 inline h-3.5 w-3.5" />专业控制
+                </button>
+              </div>
+
+              <div className={`mb-3 rounded-xl border p-3 ${accuracyWarnings.length === 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-black text-slate-800">参数匹配度</span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-black ${accuracyWarnings.length === 0 ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'}`}>
+                    {accuracyScore}%
+                  </span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+                  <div className={`h-full rounded-full transition-all ${accuracyWarnings.length === 0 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${accuracyScore}%` }} />
+                </div>
+                <p className="mt-2 text-[0.65rem] leading-4 text-slate-600">
+                  {accuracyWarnings[0] || `${spec.camera.focalLength}mm 与当前${spec.composition.framing === 'full_body' ? '全身' : '人像'}构图匹配良好。`}
+                </p>
+              </div>
+
               {/* Tab Header Navigation */}
               <div className="flex rounded-xl bg-slate-100 p-1 mb-3">
                 <button
@@ -761,6 +847,54 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
 
               {/* CAMERA TAB WITH DISTANCE, FOCAL LENGTH, APERTURE, ISO, LUT */}
               {rightTab === 'camera' && (
+                controlLevel === 'guided' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-800">你想拍什么效果？</span>
+                        <span className="text-[0.6rem] font-bold text-slate-400">一键联动机位、焦段、姿态与构图</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {QUICK_SCENES.map((scene) => (
+                          <button
+                            key={scene.id}
+                            type="button"
+                            onClick={() => {
+                              const preset = OFFICIAL_ANGLE_PRESETS.find((item) => item.id === scene.presetId);
+                              if (preset) handleApplyPreset(preset.spec);
+                              setAgentStatus(`新手导演 · 已套用「${scene.name}」，可直接在摄影棚拖拽微调`);
+                            }}
+                            className="group rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-left transition hover:border-[#ed6d46] hover:bg-orange-50"
+                          >
+                            <span className="rounded-md bg-white px-1.5 py-0.5 text-[0.58rem] font-black text-[#ed6d46] shadow-xs">{scene.badge}</span>
+                            <strong className="mt-1.5 block text-xs font-black text-slate-900">{scene.name}</strong>
+                            <span className="mt-0.5 block text-[0.62rem] leading-4 text-slate-500">{scene.desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                      <div className="flex items-center gap-2 text-xs font-black text-blue-900">
+                        <Focus className="h-4 w-4" /> 当前镜头会产生什么效果
+                      </div>
+                      <p className="mt-1.5 text-[0.68rem] leading-5 text-blue-800">{getLensGuidance(spec.camera.focalLength)}</p>
+                      <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[0.62rem] font-bold text-slate-600">
+                        <span className="rounded-lg bg-white px-1 py-1.5">{spec.camera.focalLength}mm 焦段</span>
+                        <span className="rounded-lg bg-white px-1 py-1.5">{spec.camera.distanceNum}m 距离</span>
+                        <span className="rounded-lg bg-white px-1 py-1.5">{spec.camera.azimuth}° 方位</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setControlLevel('pro')}
+                      className="w-full rounded-xl border border-slate-200 bg-white py-2 text-xs font-black text-slate-600 transition hover:border-slate-400 hover:text-slate-900"
+                    >
+                      我想精细调整参数 →
+                    </button>
+                  </div>
+                ) : (
                 <div className="space-y-4">
                   {/* 1. CAMERA DISTANCE (拉近拉远 - PRD Feature 2) */}
                   <div>
@@ -898,6 +1032,7 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
                     </div>
                   </div>
                 </div>
+                )
               )}
 
               {/* POSE TAB */}
@@ -932,10 +1067,63 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
                           className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-left hover:border-[#ed6d46] transition"
                         >
                           <strong className="block text-xs font-bold text-slate-800">{p.name}</strong>
+                          <span className="mt-0.5 block text-[0.58rem] text-slate-400">身体 {p.bodyYaw}° · 头部 {p.headYaw}°</span>
                         </button>
                       ))}
                     </div>
                   </div>
+
+                  <div>
+                    <span className="block text-[0.68rem] font-black text-slate-400 mb-1.5">眼神方向</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {GAZE_OPTIONS.map((gaze) => (
+                        <button
+                          key={gaze.id}
+                          type="button"
+                          onClick={() => setSpec((prev) => ({ ...prev, subject: { ...prev.subject, gaze: gaze.id } }))}
+                          className={`rounded-xl border p-2 text-left transition ${spec.subject.gaze === gaze.id ? 'border-[#ed6d46] bg-orange-50 text-slate-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                        >
+                          <strong className="block text-xs font-black">{gaze.label}</strong>
+                          <span className="block text-[0.58rem] text-slate-400">{gaze.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {controlLevel === 'pro' && (
+                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[0.68rem] font-black text-slate-700">姿态精细捏造</span>
+                        <span className="text-[0.58rem] font-bold text-slate-400">也可在摄影棚切换“头部塑形”拖拽</span>
+                      </div>
+                      {([
+                        { key: 'bodyYaw' as const, label: '身体转向', min: -180, max: 180 },
+                        { key: 'shoulderYaw' as const, label: '肩线扭转', min: -30, max: 30 },
+                        { key: 'hipYaw' as const, label: '髋部重心', min: -20, max: 20 },
+                        { key: 'headYaw' as const, label: '头部左右', min: -90, max: 90 },
+                        { key: 'headPitch' as const, label: '抬头 / 低头', min: -25, max: 25 },
+                      ]).map((control) => (
+                        <label key={control.key} className="block">
+                          <span className="mb-1 flex justify-between text-[0.65rem] font-bold text-slate-600">
+                            <span>{control.label}</span>
+                            <span className="font-mono text-[#ed6d46]">{spec.subject[control.key]}°</span>
+                          </span>
+                          <input
+                            type="range"
+                            min={control.min}
+                            max={control.max}
+                            step="1"
+                            value={spec.subject[control.key]}
+                            onChange={(event) => setSpec((prev) => ({
+                              ...prev,
+                              subject: { ...prev.subject, [control.key]: Number(event.target.value) },
+                            }))}
+                            className="w-full cursor-pointer accent-[#ed6d46]"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -971,13 +1159,62 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
                       ))}
                     </div>
                   </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                    <span className="block text-[0.68rem] font-black text-slate-700">人物在画面中的位置</span>
+                    {([
+                      { key: 'subjectX' as const, label: '左右位置', left: '左', right: '右' },
+                      { key: 'subjectY' as const, label: '上下位置', left: '下', right: '上' },
+                    ]).map((control) => (
+                      <label key={control.key} className="block">
+                        <span className="mb-1 flex justify-between text-[0.62rem] font-bold text-slate-500">
+                          <span>{control.label}</span>
+                          <span className="font-mono text-[#ed6d46]">{spec.composition[control.key]}%</span>
+                        </span>
+                        <div className="flex items-center gap-2 text-[0.58rem] font-bold text-slate-400">
+                          <span>{control.left}</span>
+                          <input
+                            type="range"
+                            min="-40"
+                            max="40"
+                            step="1"
+                            value={spec.composition[control.key]}
+                            onChange={(event) => setSpec((prev) => ({
+                              ...prev,
+                              composition: { ...prev.composition, [control.key]: Number(event.target.value) },
+                            }))}
+                            className="min-w-0 flex-1 cursor-pointer accent-[#ed6d46]"
+                          />
+                          <span>{control.right}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {controlLevel === 'pro' && (
+                    <label className="block rounded-xl border border-slate-200 bg-white p-3">
+                      <span className="mb-1 flex justify-between text-[0.65rem] font-bold text-slate-600">
+                        <span>画面倾斜（荷兰角）</span>
+                        <span className="font-mono text-[#ed6d46]">{spec.camera.roll}°</span>
+                      </span>
+                      <input
+                        type="range"
+                        min="-15"
+                        max="15"
+                        step="1"
+                        value={spec.camera.roll}
+                        onChange={(event) => setSpec((prev) => ({ ...prev, camera: { ...prev.camera, roll: Number(event.target.value) } }))}
+                        className="w-full cursor-pointer accent-[#ed6d46]"
+                      />
+                    </label>
+                  )}
                 </div>
               )}
             </div>
 
             {/* GENERATION PARAMETERS & ACTION BUTTON */}
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs space-y-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <span className="block text-[0.65rem] font-bold text-slate-400 mb-1">生成模型</span>
                   <select
@@ -1005,6 +1242,19 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
                         {r.label}
                       </option>
                     ))}
+                  </select>
+                </div>
+
+                <div>
+                  <span className="block text-[0.65rem] font-bold text-slate-400 mb-1">输出画质</span>
+                  <select
+                    value={resolution}
+                    onChange={(e) => setResolution(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2 text-xs font-bold text-slate-800 outline-none"
+                  >
+                    <option value="1K">1K 预览</option>
+                    <option value="2K">2K 推荐</option>
+                    <option value="4K">4K 精修</option>
                   </select>
                 </div>
               </div>

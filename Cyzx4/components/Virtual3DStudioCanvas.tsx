@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { AngleSpec, LUT_PRESETS } from '../services/anglePromptService';
-import { Camera, Focus, RotateCcw, Sparkles, User, ZoomIn } from 'lucide-react';
+import { Camera, CircleHelp, Maximize2, Minimize2, RotateCcw, User, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Virtual3DStudioCanvasProps {
   spec: AngleSpec;
   onChangeSpec: (updater: (prev: AngleSpec) => AngleSpec) => void;
   snapEnabled?: boolean;
+  aspectRatio?: string;
 }
 
-const SNAP_ANGLES = [0, 45, 90, 135, 180, -135, -90, -45];
+const SNAP_ANGLES = [0, 45, 90, 135, 180, -180, -135, -90, -45];
 const SNAP_THRESHOLD = 5.0;
 
 // Convert 35mm focal length (mm) to Vertical Camera FOV degrees
@@ -19,19 +20,44 @@ const focalLengthToFov = (focalMm: number): number => {
   return Math.round(rad * (180 / Math.PI));
 };
 
+const getViewfinderSize = (aspectRatio: string) => {
+  const [widthPart, heightPart] = aspectRatio.split(':').map(Number);
+  const ratio = widthPart > 0 && heightPart > 0 ? widthPart / heightPart : 2 / 3;
+  const maxWidth = 224;
+  const maxHeight = 240;
+  if (ratio >= 1) return { width: maxWidth, height: Math.round(maxWidth / ratio), ratio };
+  return { width: Math.round(maxHeight * ratio), height: maxHeight, ratio };
+};
+
 export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
   spec,
   onChangeSpec,
   snapEnabled = true,
+  aspectRatio = '2:3',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewfinderRef = useRef<HTMLDivElement>(null);
+  const studioRootRef = useRef<HTMLDivElement>(null);
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragMode, setDragMode] = useState<'camera' | 'model'>('camera');
+  const isDraggingRef = useRef(false);
+  const [dragMode, setDragMode] = useState<'camera' | 'model' | 'head'>('camera');
   const [isSnapped, setIsSnapped] = useState(false);
   const [snappedAngleName, setSnappedAngleName] = useState<string>('');
-  const lastMousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showHelp, setShowHelp] = useState(true);
+  const [viewportZoom, setViewportZoom] = useState(1);
+  const dragOriginRef = useRef({
+    x: 0,
+    y: 0,
+    azimuth: 0,
+    elevation: 0,
+    bodyYaw: 0,
+    shoulderYaw: 0,
+    hipYaw: 0,
+    headYaw: 0,
+    headPitch: 0,
+  });
+  const viewfinderSize = getViewfinderSize(aspectRatio);
 
   // Live Camera Viewfinder Draggable Position State (PRD Feature)
   const [vfPos, setVfPos] = useState<{ x: number; y: number } | null>(null);
@@ -42,8 +68,8 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     e.stopPropagation();
     if (!containerRef.current) return;
     const containerRect = containerRef.current.getBoundingClientRect();
-    const currentX = vfPos ? vfPos.x : containerRect.width - 235;
-    const currentY = vfPos ? vfPos.y : containerRect.height - 185;
+    const currentX = vfPos ? vfPos.x : containerRect.width - viewfinderSize.width - 20;
+    const currentY = vfPos ? vfPos.y : containerRect.height - viewfinderSize.height - 44;
 
     isDraggingVf.current = true;
     vfDragOffset.current = {
@@ -55,8 +81,10 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
       if (!isDraggingVf.current || !containerRef.current) return;
-      const newX = e.clientX - vfDragOffset.current.x;
-      const newY = e.clientY - vfDragOffset.current.y;
+      const maxX = Math.max(8, containerRef.current.clientWidth - viewfinderSize.width - 12);
+      const maxY = Math.max(8, containerRef.current.clientHeight - viewfinderSize.height - 38);
+      const newX = Math.max(8, Math.min(maxX, e.clientX - vfDragOffset.current.x));
+      const newY = Math.max(8, Math.min(maxY, e.clientY - vfDragOffset.current.y));
       setVfPos({ x: newX, y: newY });
     };
 
@@ -70,6 +98,15 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
+  }, [viewfinderSize.height, viewfinderSize.width]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === studioRootRef.current);
+      requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
   // Three.js Scene References
@@ -80,9 +117,17 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
   const viewfinderRendererRef = useRef<THREE.WebGLRenderer | null>(null);
 
   const mannequinGroupRef = useRef<THREE.Group | null>(null);
-  const headMeshRef = useRef<THREE.Mesh | null>(null);
+  const headGroupRef = useRef<THREE.Group | null>(null);
+  const shoulderMeshRef = useRef<THREE.Mesh | null>(null);
+  const hipMeshRef = useRef<THREE.Mesh | null>(null);
   const cameraMeshRef = useRef<THREE.Group | null>(null);
   const sightLineRef = useRef<THREE.Line | null>(null);
+
+  useEffect(() => {
+    if (!mainCameraRef.current) return;
+    mainCameraRef.current.zoom = viewportZoom;
+    mainCameraRef.current.updateProjectionMatrix();
+  }, [viewportZoom]);
 
   // Initialize Dual-Camera Three.js WebGL Scene (Main Studio + Viewfinder PIP)
   useEffect(() => {
@@ -104,7 +149,7 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
 
     // 3. Viewfinder Camera (Point of View facing Mannequin)
     const initialFov = focalLengthToFov(spec.camera.focalLength || 50);
-    const vfCamera = new THREE.PerspectiveCamera(initialFov, 1.4, 0.1, 50);
+    const vfCamera = new THREE.PerspectiveCamera(initialFov, viewfinderSize.ratio, 0.1, 50);
     viewfinderCameraRef.current = vfCamera;
 
     // 4. Main WebGL Renderer
@@ -119,10 +164,8 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     mainRendererRef.current = mainRenderer;
 
     // 5. Viewfinder Inset Renderer
-    const vfW = 210;
-    const vfH = 150;
     const vfRenderer = new THREE.WebGLRenderer({ antialias: true });
-    vfRenderer.setSize(vfW, vfH);
+    vfRenderer.setSize(viewfinderSize.width, viewfinderSize.height);
     vfRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     vfRenderer.shadowMap.enabled = true;
 
@@ -213,24 +256,34 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     const shoulderMesh = new THREE.Mesh(shoulderGeo, matteLightGreyMat);
     shoulderMesh.position.y = 1.32;
     mannequinGroup.add(shoulderMesh);
+    shoulderMeshRef.current = shoulderMesh;
+
+    const hipGeo = new THREE.BoxGeometry(0.48, 0.16, 0.26);
+    const hipMesh = new THREE.Mesh(hipGeo, matteLightGreyMat);
+    hipMesh.position.y = 0.58;
+    mannequinGroup.add(hipMesh);
+    hipMeshRef.current = hipMesh;
 
     const neckGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.16, 12);
     const neckMesh = new THREE.Mesh(neckGeo, matteGreyMat);
     neckMesh.position.y = 1.45;
     mannequinGroup.add(neckMesh);
 
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 1.62;
+    mannequinGroup.add(headGroup);
+    headGroupRef.current = headGroup;
+
     const headGeo = new THREE.SphereGeometry(0.2, 24, 24);
     const headMesh = new THREE.Mesh(headGeo, matteLightGreyMat);
-    headMesh.position.y = 1.62;
     headMesh.castShadow = true;
-    mannequinGroup.add(headMesh);
-    headMeshRef.current = headMesh;
+    headGroup.add(headMesh);
 
     const noseGeo = new THREE.ConeGeometry(0.05, 0.18, 12);
     const noseMesh = new THREE.Mesh(noseGeo, accentOrangeMat);
     noseMesh.rotation.x = Math.PI / 2;
-    noseMesh.position.set(0, 1.62, 0.22);
-    mannequinGroup.add(noseMesh);
+    noseMesh.position.set(0, 0, 0.22);
+    headGroup.add(noseMesh);
 
     const armGeo = new THREE.CylinderGeometry(0.07, 0.06, 0.65, 12);
     const leftArm = new THREE.Mesh(armGeo, matteGreyMat);
@@ -313,6 +366,20 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (!viewfinderCameraRef.current || !viewfinderRendererRef.current) return;
+    viewfinderCameraRef.current.aspect = viewfinderSize.ratio;
+    viewfinderCameraRef.current.updateProjectionMatrix();
+    viewfinderRendererRef.current.setSize(viewfinderSize.width, viewfinderSize.height);
+    setVfPos((current) => {
+      if (!current || !containerRef.current) return current;
+      return {
+        x: Math.min(current.x, Math.max(8, containerRef.current.clientWidth - viewfinderSize.width - 12)),
+        y: Math.min(current.y, Math.max(8, containerRef.current.clientHeight - viewfinderSize.height - 38)),
+      };
+    });
+  }, [viewfinderSize.height, viewfinderSize.ratio, viewfinderSize.width]);
+
   // Update 3D Positions & Dynamic Viewfinder FOV Zoom
   useEffect(() => {
     if (!mannequinGroupRef.current || !cameraMeshRef.current || !sightLineRef.current || !viewfinderCameraRef.current) return;
@@ -328,9 +395,15 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     const bodyRad = (spec.subject.bodyYaw * Math.PI) / 180;
     mannequinGroupRef.current.rotation.y = bodyRad;
 
-    if (headMeshRef.current) {
-      headMeshRef.current.rotation.y = (spec.subject.headYaw * Math.PI) / 180;
-      headMeshRef.current.rotation.x = (spec.subject.headPitch * Math.PI) / 180;
+    if (shoulderMeshRef.current) {
+      shoulderMeshRef.current.rotation.y = (spec.subject.shoulderYaw * Math.PI) / 180;
+    }
+    if (hipMeshRef.current) {
+      hipMeshRef.current.rotation.y = (spec.subject.hipYaw * Math.PI) / 180;
+    }
+    if (headGroupRef.current) {
+      headGroupRef.current.rotation.y = (spec.subject.headYaw * Math.PI) / 180;
+      headGroupRef.current.rotation.x = (spec.subject.headPitch * Math.PI) / 180;
     }
 
     // 3. Camera 3D Position & Framing Target Y Scaling
@@ -348,30 +421,43 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     else if (fr === 'mid_thigh') targetY = 0.95;
     else if (fr === 'full_body' || fr === 'calf' || fr === 'knee') targetY = 0.85;
 
+    const targetX = (spec.composition.subjectX / 100) * 0.48;
+    const compositionTargetY = targetY - (spec.composition.subjectY / 100) * 0.42;
     const camX = r * Math.cos(elRad) * Math.sin(azRad);
     const camY = targetY + r * Math.sin(elRad);
     const camZ = r * Math.cos(elRad) * Math.cos(azRad);
 
     cameraMeshRef.current.position.set(camX, camY, camZ);
-    cameraMeshRef.current.lookAt(0, targetY, 0);
+    cameraMeshRef.current.lookAt(targetX, compositionTargetY, 0);
+    cameraMeshRef.current.rotation.z = (-spec.camera.roll * Math.PI) / 180;
 
     // 4. Viewfinder Camera Position & Dynamic Framing LookAt
     viewfinderCameraRef.current.position.set(camX, camY, camZ);
-    viewfinderCameraRef.current.lookAt(0, targetY, 0);
+    viewfinderCameraRef.current.lookAt(targetX, compositionTargetY, 0);
+    viewfinderCameraRef.current.rotation.z = (-spec.camera.roll * Math.PI) / 180;
 
     // 5. Sight Line
     const lineGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(camX, camY, camZ),
-      new THREE.Vector3(0, targetY, 0),
+      new THREE.Vector3(targetX, compositionTargetY, 0),
     ]);
     sightLineRef.current.geometry.dispose();
     sightLineRef.current.geometry = lineGeo;
     sightLineRef.current.computeLineDistances();
   }, [spec]);
 
-  // Mouse Wheel Distance Zoom (PRD Feature 2)
+  const changeViewportZoom = (delta: number) => {
+    setViewportZoom((current) => Math.round(Math.max(0.55, Math.min(3, current + delta)) * 100) / 100);
+  };
+
+  // Wheel controls the editing viewport; Alt + wheel controls the actual shooting distance.
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    studioRootRef.current?.focus();
+    if (!e.altKey) {
+      changeViewportZoom(e.deltaY > 0 ? -0.12 : 0.12);
+      return;
+    }
     const delta = e.deltaY > 0 ? 0.25 : -0.25;
     onChangeSpec((prev) => {
       const curDist = prev.camera.distanceNum || 3.5;
@@ -386,71 +472,149 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
     });
   };
 
-  // Drag Handler with Magnetic Angle Snap
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
+  // Direct manipulation: camera orbit, torso sculpting, or head posing.
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    studioRootRef.current?.focus();
+    isDraggingRef.current = true;
+    dragOriginRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      azimuth: spec.camera.azimuth,
+      elevation: spec.camera.elevation,
+      bodyYaw: spec.subject.bodyYaw,
+      shoulderYaw: spec.subject.shoulderYaw,
+      hipYaw: spec.subject.hipYaw,
+      headYaw: spec.subject.headYaw,
+      headPitch: spec.subject.headPitch,
+    };
+    setIsSnapped(false);
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const deltaX = e.clientX - lastMousePos.current.x;
-    const deltaY = e.clientY - lastMousePos.current.y;
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    const deltaX = e.clientX - dragOriginRef.current.x;
+    const deltaY = e.clientY - dragOriginRef.current.y;
 
     onChangeSpec((prev) => {
       if (dragMode === 'camera') {
-        let rawAz = prev.camera.azimuth + deltaX * 0.85;
+        const sensitivity = e.shiftKey ? 0.07 : 0.22;
+        let rawAz = dragOriginRef.current.azimuth + deltaX * sensitivity;
         if (rawAz > 180) rawAz -= 360;
         if (rawAz < -180) rawAz += 360;
-
-        let finalAz = Math.round(rawAz);
-        let snapped = false;
-        let snapLabel = '';
-
-        if (snapEnabled) {
-          for (const targetDeg of SNAP_ANGLES) {
-            if (Math.abs(rawAz - targetDeg) <= SNAP_THRESHOLD) {
-              finalAz = targetDeg;
-              snapped = true;
-              snapLabel = `${targetDeg > 0 ? `+${targetDeg}°` : `${targetDeg}°`} (自动磁吸已对齐)`;
-              break;
-            }
-          }
-        }
-
-        setIsSnapped(snapped);
-        setSnappedAngleName(snapLabel);
-
-        let newEl = prev.camera.elevation - deltaY * 0.5;
-        newEl = Math.max(-30, Math.min(60, Math.round(newEl)));
+        const newEl = Math.max(-30, Math.min(60, dragOriginRef.current.elevation - deltaY * sensitivity));
 
         return {
           ...prev,
           camera: {
             ...prev.camera,
-            azimuth: finalAz,
-            elevation: newEl,
+            azimuth: Math.round(rawAz * 10) / 10,
+            elevation: Math.round(newEl * 10) / 10,
           },
         };
-      } else {
-        let newBody = prev.subject.bodyYaw + deltaX * 0.85;
+      }
+
+      if (dragMode === 'model') {
+        const sensitivity = e.shiftKey ? 0.09 : 0.28;
+        let newBody = dragOriginRef.current.bodyYaw + deltaX * sensitivity;
         if (newBody > 180) newBody -= 360;
         if (newBody < -180) newBody += 360;
+        const shoulderYaw = Math.max(-45, Math.min(45, dragOriginRef.current.shoulderYaw - deltaY * sensitivity * 0.65));
+        const hipYaw = Math.max(-35, Math.min(35, dragOriginRef.current.hipYaw + deltaY * sensitivity * 0.45));
 
         return {
           ...prev,
           subject: {
             ...prev.subject,
             bodyYaw: Math.round(newBody),
+            shoulderYaw: Math.round(shoulderYaw),
+            hipYaw: Math.round(hipYaw),
           },
         };
       }
+
+      return {
+        ...prev,
+        subject: {
+          ...prev.subject,
+          headYaw: Math.round(Math.max(-90, Math.min(90, dragOriginRef.current.headYaw + deltaX * (e.shiftKey ? 0.08 : 0.24)))),
+          headPitch: Math.round(Math.max(-35, Math.min(35, dragOriginRef.current.headPitch - deltaY * (e.shiftKey ? 0.06 : 0.18)))),
+        },
+      };
     });
   };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    isDraggingRef.current = false;
+    if (dragMode !== 'camera' || !snapEnabled) return;
+    onChangeSpec((prev) => {
+      const nearest = SNAP_ANGLES.reduce((best, angle) =>
+        Math.abs(angle - prev.camera.azimuth) < Math.abs(best - prev.camera.azimuth) ? angle : best
+      );
+      if (Math.abs(nearest - prev.camera.azimuth) > SNAP_THRESHOLD) return prev;
+      setIsSnapped(true);
+      setSnappedAngleName(`${nearest > 0 ? `+${nearest}°` : `${nearest}°`}（松手精准对齐）`);
+      window.setTimeout(() => setIsSnapped(false), 900);
+      return { ...prev, camera: { ...prev.camera, azimuth: nearest } };
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key.toLowerCase() === 'c') return setDragMode('camera');
+    if (e.key.toLowerCase() === 'm') return setDragMode('model');
+    if (e.key.toLowerCase() === 'h') return setDragMode('head');
+    if (e.key === '0') {
+      setViewportZoom(1);
+      onChangeSpec((prev) => ({
+        ...prev,
+        camera: { ...prev.camera, azimuth: 0, elevation: 0, roll: 0, distanceNum: 3.5, focalLength: 50 },
+        subject: { ...prev.subject, bodyYaw: 0, shoulderYaw: 0, hipYaw: 0, headYaw: 0, headPitch: 0 },
+        composition: { ...prev.composition, subjectX: 0, subjectY: 0 },
+      }));
+      return;
+    }
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    e.preventDefault();
+    const horizontal = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    const vertical = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;
+    onChangeSpec((prev) => {
+      if (dragMode === 'camera') {
+        return {
+          ...prev,
+          camera: {
+            ...prev.camera,
+            azimuth: Math.max(-180, Math.min(180, prev.camera.azimuth + horizontal * 5)),
+            elevation: Math.max(-30, Math.min(60, prev.camera.elevation + vertical * 3)),
+          },
+        };
+      }
+      if (dragMode === 'model') {
+        return {
+          ...prev,
+          subject: {
+            ...prev.subject,
+            bodyYaw: Math.max(-180, Math.min(180, prev.subject.bodyYaw + horizontal * 5)),
+            shoulderYaw: Math.max(-45, Math.min(45, prev.subject.shoulderYaw + vertical * 3)),
+            hipYaw: Math.max(-35, Math.min(35, prev.subject.hipYaw - vertical * 2)),
+          },
+        };
+      }
+      return {
+        ...prev,
+        subject: {
+          ...prev.subject,
+          headYaw: Math.max(-90, Math.min(90, prev.subject.headYaw + horizontal * 4)),
+          headPitch: Math.max(-35, Math.min(35, prev.subject.headPitch + vertical * 3)),
+        },
+      };
+    });
+  };
+
+  const toggleFullscreen = async () => {
+    if (!studioRootRef.current) return;
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await studioRootRef.current.requestFullscreen();
   };
 
   // Find LUT CSS filter matching `spec.camera.lutPreset`
@@ -458,16 +622,19 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
 
   return (
     <div
+      ref={studioRootRef}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
       onWheel={handleWheel}
-      className="relative h-full w-full overflow-hidden rounded-2xl border border-slate-200 bg-[#f1f5f9] select-none font-sans shadow-inner"
+      className="relative h-full w-full overflow-hidden rounded-2xl border border-slate-200 bg-[#f1f5f9] select-none font-sans shadow-inner outline-none focus:ring-2 focus:ring-[#ed6d46]/30"
     >
       {/* Main 3D Studio Canvas */}
       <div
         ref={containerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         className="h-full w-full cursor-grab active:cursor-grabbing"
       />
 
@@ -494,6 +661,17 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
           }`}
         >
           <User className="h-3.5 w-3.5" /> 模特转身
+        </button>
+        <button
+          type="button"
+          onClick={() => setDragMode('head')}
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black transition ${
+            dragMode === 'head'
+              ? 'bg-[#172238] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <User className="h-3.5 w-3.5" /> 头部塑形
         </button>
         <div className="h-4 w-px bg-slate-200 my-auto" />
         <button
@@ -534,6 +712,7 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
           type="button"
           onClick={() => {
             setVfPos(null);
+            setViewportZoom(1);
             onChangeSpec((prev) => ({
               ...prev,
               camera: {
@@ -546,9 +725,12 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
               subject: {
                 ...prev.subject,
                 bodyYaw: 0,
+                shoulderYaw: 0,
+                hipYaw: 0,
                 headYaw: 0,
                 headPitch: 0,
               },
+              composition: { ...prev.composition, subjectX: 0, subjectY: 0 },
             }));
           }}
           className="flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[0.68rem] font-black text-slate-700 hover:bg-slate-200 transition"
@@ -557,6 +739,61 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
           <RotateCcw className="h-3 w-3 text-[#ed6d46]" /> 重置视角
         </button>
       </div>
+
+      <div className="absolute right-4 top-4 z-30 flex items-center gap-1 rounded-xl border border-slate-200/80 bg-white/90 p-1.5 shadow-md backdrop-blur-md">
+        <button
+          type="button"
+          onClick={() => setShowHelp((value) => !value)}
+          className={`rounded-lg p-2 transition ${showHelp ? 'bg-orange-50 text-[#ed6d46]' : 'text-slate-600 hover:bg-slate-100'}`}
+          title="操作提示"
+        >
+          <CircleHelp className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"
+          title={isFullscreen ? '退出沉浸模式' : '进入沉浸模式'}
+        >
+          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
+      </div>
+
+      <div className="absolute right-4 top-[4.6rem] z-30 flex items-center gap-1 rounded-xl border border-slate-200/80 bg-white/90 p-1.5 shadow-md backdrop-blur-md">
+        <button
+          type="button"
+          onClick={() => changeViewportZoom(-0.15)}
+          className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"
+          title="缩小画布"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewportZoom(1)}
+          className="min-w-[3.25rem] rounded-lg px-2 py-2 text-[0.65rem] font-black text-slate-700 transition hover:bg-slate-100"
+          title="恢复 100%"
+        >
+          {Math.round(viewportZoom * 100)}%
+        </button>
+        <button
+          type="button"
+          onClick={() => changeViewportZoom(0.15)}
+          className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100"
+          title="放大画布"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </button>
+      </div>
+
+      {showHelp && (
+        <div className="absolute left-4 top-[4.6rem] z-20 max-w-[21rem] rounded-xl border border-slate-200/80 bg-white/92 px-3.5 py-3 text-[0.7rem] leading-5 text-slate-600 shadow-md backdrop-blur-md">
+          <div className="font-black text-slate-900">
+            {dragMode === 'camera' ? '相机模式：拖拽环绕拍摄机位' : dragMode === 'model' ? '身体模式：横向转身，纵向调整肩胯对抗' : '头部模式：拖拽调整转头与俯仰'}
+          </div>
+          <div>按住 Shift 精细拖拽，松手后才磁吸标准角度。滚轮缩放画布；Alt + 滚轮推拉拍摄相机。取景器实时对应最终 {aspectRatio} 画幅。</div>
+        </div>
+      )}
 
       {/* MAGNETIC SNAP INDICATOR BADGE */}
       {isSnapped && (
@@ -569,10 +806,10 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
       <div
         style={
           vfPos
-            ? { left: `${vfPos.x}px`, top: `${vfPos.y}px` }
-            : { bottom: '16px', right: '16px' }
+            ? { left: `${vfPos.x}px`, top: `${vfPos.y}px`, width: `${viewfinderSize.width}px` }
+            : { bottom: '16px', right: '16px', width: `${viewfinderSize.width}px` }
         }
-        className="absolute z-40 overflow-hidden rounded-2xl border-2 border-[#172238] bg-slate-900 shadow-2xl transition-shadow select-none"
+        className="absolute z-40 overflow-hidden rounded-2xl border-2 border-[#172238] bg-slate-900 shadow-2xl transition-[width,box-shadow] select-none"
       >
         {/* DRAGGABLE HEADER BAR */}
         <div
@@ -580,19 +817,23 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
           className="flex cursor-grab active:cursor-grabbing items-center justify-between bg-[#172238] px-3 py-1.5 text-[0.68rem] font-black text-white hover:bg-slate-800 transition"
           title="按住拖拽取景器位置"
         >
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" /> LIVE 取景器 ≡
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" /> LIVE
           </span>
-          <span className="text-orange-300 font-mono">
-            {spec.camera.focalLength}mm · {activeLut.name}
+          <span className="truncate pl-1 text-orange-300 font-mono">
+            {aspectRatio} · {spec.camera.focalLength}mm
           </span>
         </div>
         <div className="relative">
           {/* Viewfinder Canvas Target with Realtime LUT CSS Filter */}
           <div
             ref={viewfinderRef}
-            className="h-[150px] w-[215px] transition-all duration-300"
-            style={{ filter: activeLut.cssFilter }}
+            className="transition-[width,height,filter] duration-300"
+            style={{
+              width: `${viewfinderSize.width}px`,
+              height: `${viewfinderSize.height}px`,
+              filter: activeLut.cssFilter,
+            }}
           />
           {/* Safe Frame Lines & FOV Framing Indicator */}
           <div className="pointer-events-none absolute inset-0 border border-white/20">
@@ -616,6 +857,16 @@ export const Virtual3DStudioCanvas: React.FC<Virtual3DStudioCanvasProps> = ({
         <span>
           模特: <strong className="text-slate-600 font-mono">{spec.subject.bodyYaw}°</strong>
         </span>
+        {dragMode === 'model' && (
+          <span>
+            肩 / 胯: <strong className="text-slate-600 font-mono">{spec.subject.shoulderYaw}° / {spec.subject.hipYaw}°</strong>
+          </span>
+        )}
+        {dragMode === 'head' && (
+          <span>
+            头部: <strong className="text-slate-600 font-mono">{spec.subject.headYaw}° / {spec.subject.headPitch}°</strong>
+          </span>
+        )}
       </div>
     </div>
   );
