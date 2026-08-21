@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Sparkles,
   Plus,
@@ -17,12 +17,17 @@ import {
   ChevronDown,
   PlusCircle,
   Check,
+  Eye,
+  Film,
+  ChevronRight,
+  X,
 } from "lucide-react";
 import PinterestGallery from "../components/PinterestGallery";
 import MaterialLibrary from "./Home/components/MaterialLibrary";
+import ClipperLibraryView from "./Home/components/ClipperLibraryView";
 import { createNewWorkspacePath, workspacePath } from "../utils/routes";
 import { getProjects } from "../services/storage";
-import { Project } from "../types";
+import { Project, AppMode } from "../types";
 import type { ImageModel } from "../types";
 import { safeLocalStorageSetItem } from "../utils/safe-storage";
 import {
@@ -31,6 +36,12 @@ import {
   PREFERRED_IMAGE_MODEL_TO_STORAGE_ID,
   STORAGE_ID_TO_PREFERRED_IMAGE_MODEL,
 } from "./Workspace/modelOptions";
+import {
+  CREATIVE_FEATURES,
+  FEATURE_CATEGORIES,
+  type CreativeFeature,
+  type FeatureCategory,
+} from "../featureRegistry";
 
 type TopTabType = "skill" | "pinterest" | "brand" | "clipper";
 
@@ -43,13 +54,90 @@ interface HomeProps {
   onExit?: () => void;
   onStartWorkspace?: (seed: WorkspaceSeed) => void;
   onAgentEngage?: () => void;
+  onOpenFeature?: (mode: AppMode) => void;
 }
 
-export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEngage }) => {
+const SKILL_CATEGORY_TABS = [
+  { id: "all", label: "为你推荐" },
+  { id: "marketing", label: "E-commerce" },
+  { id: "core", label: "Ads & Creative" },
+  { id: "model", label: "Fashion & Model" },
+  { id: "tools", label: "Utility" },
+];
+
+const SkillCard: React.FC<{
+  feature: CreativeFeature;
+  isSelected: boolean;
+  onToggle: () => void;
+}> = ({ feature, isSelected, onToggle }) => {
+  return (
+    <div
+      onClick={onToggle}
+      className={`group cursor-pointer rounded-2xl bg-white border p-3.5 shadow-2xs hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between relative ${
+        isSelected ? "border-slate-900 ring-2 ring-slate-900/10" : "border-slate-200/80 hover:border-slate-300"
+      }`}
+    >
+      <div>
+        <div className="relative aspect-[16/10] w-full rounded-xl overflow-hidden bg-slate-100 mb-3">
+          <img
+            src={feature.cover}
+            alt={feature.title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            loading="lazy"
+          />
+          <div className="absolute bottom-2 left-2 flex items-center justify-center h-6 w-6 rounded-md bg-black/50 text-white backdrop-blur-xs">
+            {feature.category === "marketing" || feature.mode === AppMode.PRODUCT_VIDEO ? (
+              <Film size={12} />
+            ) : (
+              <ImageIcon size={12} />
+            )}
+          </div>
+          <div className="absolute top-2 right-2">
+            {isSelected ? (
+              <span className="flex items-center justify-center h-7 px-2.5 rounded-lg bg-slate-900 text-white text-xs font-bold shadow-md animate-fade-in">
+                <Check size={13} className="mr-0.5" /> 已选入
+              </span>
+            ) : (
+              <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/80 text-slate-600 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition shadow-xs">
+                <Plus size={14} />
+              </span>
+            )}
+          </div>
+        </div>
+
+        <h4 className="text-sm font-bold text-slate-900 group-hover:text-orange-600 transition-colors line-clamp-1">
+          {feature.title}
+        </h4>
+        <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed font-normal">
+          {feature.description}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEngage, onOpenFeature }) => {
   const navigate = (to: string, _options?: any) => {
     window.location.hash = typeof to === 'string' ? to : '';
   };
-  const [activeTab, setActiveTab] = useState<TopTabType>("brand");
+  const [activeTab, setActiveTab] = useState<TopTabType>("skill");
+  const [skillCategory, setSkillCategory] = useState<string>("all");
+  const [selectedSkills, setSelectedSkills] = useState<CreativeFeature[]>([]);
+
+  const handleToggleSkill = (feature: CreativeFeature) => {
+    setSelectedSkills((prev) => {
+      const exists = prev.some((s) => s.mode === feature.mode);
+      if (exists) {
+        return prev.filter((s) => s.mode !== feature.mode);
+      } else {
+        return [...prev, feature];
+      }
+    });
+  };
+
+  const handleRemoveSkill = (mode: AppMode) => {
+    setSelectedSkills((prev) => prev.filter((s) => s.mode !== mode));
+  };
   // 左侧输入框状态
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -136,14 +224,19 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
   };
 
   const handleSendDesign = () => {
-    if (prompt.trim() || attachments.length > 0) {
+    const skillPrefix = selectedSkills.length > 0
+      ? selectedSkills.map(s => `【使用技能：${s.title}】`).join(' ')
+      : '';
+    const finalPrompt = skillPrefix ? `${skillPrefix} ${prompt}`.trim() : prompt.trim();
+
+    if (finalPrompt || attachments.length > 0) {
       if (onStartWorkspace) {
-        onStartWorkspace({ prompt, attachments });
+        onStartWorkspace({ prompt: finalPrompt, attachments });
         return;
       }
       navigate(createNewWorkspacePath(), {
         state: {
-          initialPrompt: prompt,
+          initialPrompt: finalPrompt,
           initialAttachments: attachments,
         },
       });
@@ -223,19 +316,47 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
               onFocusCapture={onAgentEngage}
               className="flex min-h-[11rem] flex-col justify-between rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-[0_14px_38px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow] focus-within:border-slate-400 focus-within:shadow-[0_18px_44px_rgba(15,23,42,0.09)]"
             >
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                aria-label="设计需求"
-                placeholder="例如：为一款户外咖啡机设计有质感的社交媒体视觉…"
-                className="h-24 w-full resize-none border-none bg-transparent text-sm font-medium leading-6 text-slate-800 outline-none placeholder:text-slate-400"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendDesign();
-                  }
-                }}
-              />
+              <div>
+                {/* 选中的专业技能标签芯片 (复刻对话框内部的 Skill Badge 效果) */}
+                {selectedSkills.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2 pb-2 border-b border-slate-100">
+                    {selectedSkills.map((skill) => (
+                      <span
+                        key={skill.mode}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs transition-all hover:bg-slate-100"
+                      >
+                        <Sparkles size={13} className="text-blue-500 shrink-0" />
+                        <span className="max-w-[150px] truncate">{skill.title}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveSkill(skill.mode);
+                          }}
+                          className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+                          aria-label="移除技能"
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  aria-label="设计需求"
+                  placeholder={selectedSkills.length > 0 ? "描述具体的设计细节或直接发送…" : "例如：为一款户外咖啡机设计有质感的社交媒体视觉…"}
+                  className="h-20 w-full resize-none border-none bg-transparent text-sm font-medium leading-6 text-slate-800 outline-none placeholder:text-slate-400"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendDesign();
+                    }
+                  }}
+                />
+              </div>
 
               {/* Attachments Preview */}
               {attachments.length > 0 && (
@@ -399,68 +520,93 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
           )}
 
           {activeTab === "skill" && (
-            /* Skill 视觉工作坊与最近项目 */
-            <div className="flex-1 overflow-y-auto p-8 no-scrollbar space-y-8">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 mb-4">热门专业技能</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div
-                    onClick={() => navigate(createNewWorkspacePath())}
-                    className="p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:shadow-md cursor-pointer transition group"
-                  >
-                    <div className="aspect-[4/3] rounded-xl bg-gray-200 overflow-hidden mb-3">
-                      <img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80" className="w-full h-full object-cover group-hover:scale-105 transition" />
-                    </div>
-                    <h4 className="text-xs font-bold text-gray-900">电商主图生成</h4>
-                    <p className="text-[10px] text-gray-400 mt-0.5">高品质商品商业展示图</p>
-                  </div>
-                  <div
-                    onClick={() => navigate(createNewWorkspacePath())}
-                    className="p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:shadow-md cursor-pointer transition group"
-                  >
-                    <div className="aspect-[4/3] rounded-xl bg-gray-200 overflow-hidden mb-3">
-                      <img src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80" className="w-full h-full object-cover group-hover:scale-105 transition" />
-                    </div>
-                    <h4 className="text-xs font-bold text-gray-900">产品展示视频</h4>
-                    <p className="text-[10px] text-gray-400 mt-0.5">多镜头AI产品演示组图</p>
-                  </div>
-                  <div
-                    onClick={() => navigate(createNewWorkspacePath())}
-                    className="p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:shadow-md cursor-pointer transition group"
-                  >
-                    <div className="aspect-[4/3] rounded-xl bg-gray-200 overflow-hidden mb-3">
-                      <img src="https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=500&auto=format&fit=crop&q=80" className="w-full h-full object-cover group-hover:scale-105 transition" />
-                    </div>
-                    <h4 className="text-xs font-bold text-gray-900">电商详情页生成</h4>
-                    <p className="text-[10px] text-gray-400 mt-0.5">长图卖点自动构图排版</p>
-                  </div>
-                </div>
+            /* Skill 视觉工作坊 (图 5 UI 风格) */
+            <div className="flex-1 overflow-y-auto p-6 sm:p-8 no-scrollbar space-y-8">
+              {/* 顶部 Category Tabs 切换 (贴合图 5 顶部为你推荐 Tabs) */}
+              <div className="flex items-center gap-6 border-b border-slate-200/80 pb-3 overflow-x-auto no-scrollbar">
+                {SKILL_CATEGORY_TABS.map((tab) => {
+                  const active = skillCategory === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setSkillCategory(tab.id)}
+                      className={`text-xs font-bold transition-all relative pb-2 whitespace-nowrap cursor-pointer ${
+                        active
+                          ? "text-slate-950 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-slate-950 after:rounded-full"
+                          : "text-slate-400 hover:text-slate-700"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
               </div>
 
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 mb-4">最近项目</h3>
-                <div className="grid grid-cols-4 gap-4">
+              {/* 技能列表 (图 5 风格排版: 带 E-commerce > 分类标题与精致卡片) */}
+              <div className="space-y-8">
+                {FEATURE_CATEGORIES.map((cat) => {
+                  if (skillCategory !== "all" && skillCategory !== cat.id) return null;
+                  const catFeatures = CREATIVE_FEATURES.filter((f) => f.category === cat.id);
+                  if (catFeatures.length === 0) return null;
+
+                  const sectionTitle =
+                    cat.id === "marketing"
+                      ? "E-commerce"
+                      : cat.id === "core"
+                      ? "Ads & Creative"
+                      : cat.id === "model"
+                      ? "Fashion & Model"
+                      : "Utility";
+
+                  return (
+                    <section key={cat.id} className="space-y-4">
+                      <div className="flex items-center gap-1.5 cursor-pointer group/title" onClick={() => setSkillCategory(cat.id)}>
+                        <h3 className="text-sm font-black text-slate-900 group-hover/title:text-orange-600 transition-colors">
+                          {sectionTitle}
+                        </h3>
+                        <ChevronRight size={14} className="text-slate-400 group-hover/title:text-orange-600 transition-colors" />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {catFeatures.map((feature) => (
+                          <SkillCard
+                            key={feature.mode}
+                            feature={feature}
+                            isSelected={selectedSkills.some((s) => s.mode === feature.mode)}
+                            onToggle={() => handleToggleSkill(feature)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+
+              {/* 最近项目 */}
+              <div className="pt-4 border-t border-slate-200/60">
+                <h3 className="text-sm font-bold text-slate-900 mb-4">最近项目</h3>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                   <div
                     onClick={() => navigate(createNewWorkspacePath())}
-                    className="aspect-[4/3] rounded-2xl bg-gray-50 border border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 hover:bg-gray-100 cursor-pointer transition"
+                    className="aspect-[4/3] rounded-2xl bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition"
                   >
-                    <PlusCircle size={24} />
+                    <PlusCircle size={22} />
                     <span className="text-xs font-bold mt-2">新建画布项目</span>
                   </div>
                   {recentProjects.map((p) => (
                     <div
                       key={p.id}
                       onClick={() => navigate(workspacePath(p.id))}
-                      className="aspect-[4/3] rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden cursor-pointer hover:shadow-md transition relative group"
+                      className="aspect-[4/3] rounded-2xl bg-slate-50 border border-slate-200/80 overflow-hidden cursor-pointer hover:shadow-md transition relative group"
                     >
                       {p.thumbnail ? (
-                        <img src={p.thumbnail} className="w-full h-full object-cover" />
+                        <img src={p.thumbnail} alt={p.title} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                        <div className="w-full h-full flex items-center justify-center text-slate-300">
                           <Box size={24} />
                         </div>
                       )}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 text-white opacity-0 group-hover:opacity-100 transition">
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2.5 text-white opacity-0 group-hover:opacity-100 transition">
                         <div className="text-xs font-bold truncate">{p.title}</div>
                       </div>
                     </div>
@@ -471,11 +617,11 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
           )}
 
           {activeTab === "clipper" && (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400">
-              <Globe size={32} className="text-emerald-500 mb-3" />
-              <h3 className="text-sm font-bold text-gray-900">Lovart Clipper 网页剪藏</h3>
-              <p className="text-xs text-gray-400 mt-1 max-w-sm">一键将全网网页灵感、商品主图剪藏带入 Lovart 画布进行设计处理。</p>
-            </div>
+            <ClipperLibraryView
+              onAddToConversation={(url, title) => {
+                setPrompt(`参考已被剪藏灵感图「${title}」进行设计：${url}`);
+              }}
+            />
           )}
         </div>
       </div>

@@ -249,6 +249,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
         <div className="flex-1 overflow-hidden min-w-0">
           <Home
             onStartWorkspace={handleStartWorkspace}
+            onOpenFeature={handleOpenFeatureWithRecord}
             onAgentEngage={() =>
               setSidebarCollapseRequest((request) => request + 1)
             }

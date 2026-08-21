@@ -2,22 +2,52 @@
   "manifest_version": 3,
   "name": "XC AI Clipper",
   "version": "1.0.0",
-  "description": "XC AI 官方浏览器与 Pinterest 物理联动远程控制扩展",
+  "description": "一键剪藏全网（含 Pinterest、小红书、Instagram、亚马逊、淘宝）灵感图片至 XC AI 工作台",
   "permissions": [
     "activeTab",
+    "storage",
     "tabs",
     "scripting"
   ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [
+        "https://*.instagram.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://*.rednote.com/*",
+        "https://*.amazon.com/*",
+        "https://*.amazon.cn/*",
+        "https://*.amazon.co.jp/*",
+        "https://*.taobao.com/*",
+        "https://*.tmall.com/*",
         "https://*.pinterest.com/*",
+        "https://*.xcwork-tool.online/*",
+        "https://xcwork-tool.online/*",
         "http://localhost:*/*"
       ],
       "js": [
         "content.js"
       ],
       "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_title": "XC AI Clipper"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

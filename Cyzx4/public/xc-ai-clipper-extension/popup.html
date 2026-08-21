@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XC AI Clipper</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 290px;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* 外层精简卡片：当未展开时，高度严格包裹 Header 胶囊，绝无底部多余黑框 */
+    .popup-card {
+      background: #202023;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      padding: 4px;
+      overflow: hidden;
+    }
+
+    /* 顶部独立胶囊 Header (未展开时紧凑充盈整体) */
+    .top-header-pill {
+      background-color: #272729;
+      border-radius: 16px;
+      padding: 6px 8px 6px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .user-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .avatar-circle {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background-color: #3a3a3c;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .user-name-text {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #ffffff;
+      letter-spacing: -0.2px;
+    }
+
+    .header-right-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* 设置齿轮/🎛️图标按钮 */
+    .btn-settings-circle {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background-color: #3a3a3c;
+      border: none;
+      color: #d1d5db;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-settings-circle:hover {
+      background-color: #48484a;
+      color: #ffffff;
+    }
+
+    .btn-settings-circle.active {
+      background-color: #3b82f6;
+      color: #ffffff;
+      transform: rotate(45deg);
+    }
+
+    .btn-view-pill {
+      background-color: #ffffff;
+      color: #0066cc;
+      font-weight: 700;
+      font-size: 12.5px;
+      padding: 5px 13px;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.15s, background-color 0.15s;
+    }
+
+    .btn-view-pill:hover {
+      background-color: #f3f4f6;
+      transform: scale(1.03);
+    }
+
+    /* 下方折叠设置面板 (点击 ⚙️ 设置按钮后展开) */
+    .sites-dropdown-panel {
+      display: none; /* 默认关闭 */
+      margin-top: 4px;
+      background-color: #171719;
+      border-radius: 16px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .sites-dropdown-panel.open {
+      display: block;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ENABLED SITES 标语 */
+    .section-eyebrow {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #64748b;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    /* 网站切换列表 */
+    .sites-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .site-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .site-left-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .site-icon-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10.5px;
+      font-weight: 900;
+      color: #ffffff;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    .icon-ig { background: linear-gradient(45deg, #f09433, #e6683c, #bc1888); }
+    .icon-red { background: #ff2442; }
+    .icon-amz { background: #ff9900; }
+    .icon-tb { background: #ff5000; }
+    .icon-pin { background: #e60023; }
+
+    .site-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    /* iOS 蓝白开关 */
+    .ios-switch {
+      position: relative;
+      display: inline-block;
+      width: 42px;
+      height: 23px;
+    }
+
+    .ios-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .switch-track {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #374151;
+      transition: background-color 0.25s ease;
+      border-radius: 23px;
+    }
+
+    .switch-track:before {
+      position: absolute;
+      content: "";
+      height: 17px;
+      width: 17px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #ffffff;
+      transition: transform 0.25s ease;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    input:checked + .switch-track {
+      background-color: #3b82f6;
+    }
+
+    input:checked + .switch-track:before {
+      transform: translateX(19px);
+    }
+
+    /* 底部批量抓取按钮 */
+    .btn-batch-clip {
+      width: 100%;
+      margin-top: 14px;
+      padding: 10px;
+      background-color: #272729;
+      border: 1px solid #38383a;
+      border-radius: 12px;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.2s, border-color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-batch-clip:hover {
+      background-color: #323235;
+      border-color: #48484a;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-card">
+    <!-- 顶部独立胶囊 Header (初始高度完全自适应胶囊) -->
+    <div class="top-header-pill">
+      <div class="user-left">
+        <div class="avatar-circle">B</div>
+        <div class="user-name-text">bruce Tien</div>
+      </div>
+      <div class="header-right-actions">
+        <!-- 点击 ⚙️ 展开/收起下方网站列表 -->
+        <button class="btn-settings-circle" title="网站开关设置" id="btnSettings">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button class="btn-view-pill" id="btnView">View</button>
+      </div>
+    </div>
+
+    <!-- 下方折叠设置面板 (初始隐藏，点击设置图标展示) -->
+    <div class="sites-dropdown-panel" id="dropdownPanel">
+      <div class="section-eyebrow">ENABLED SITES</div>
+
+      <div class="sites-container">
+        <div class="site-row">
+          <div class="site-left-info">
+            <div class="site-icon-badge icon-ig">IG</div>
+            <span class="site-label">Instagram</span>
+          </div>
+          <label class="ios-switch">
+            <input type="checkbox" id="site-ig" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+
+        <div class="site-row">
+          <div class="site-left-info">
+            <div class="site-icon-badge icon-red">小</div>
+            <span class="site-label">Rednote</span>
+          </div>
+          <label class="ios-switch">
+            <input type="checkbox" id="site-red" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+
+        <div class="site-row">
+          <div class="site-left-info">
+            <div class="site-icon-badge icon-amz">亚</div>
+            <span class="site-label">Amazon</span>
+          </div>
+          <label class="ios-switch">
+            <input type="checkbox" id="site-amz" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+
+        <div class="site-row">
+          <div class="site-left-info">
+            <div class="site-icon-badge icon-tb">淘</div>
+            <span class="site-label">Taobao</span>
+          </div>
+          <label class="ios-switch">
+            <input type="checkbox" id="site-tb" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+
+        <div class="site-row">
+          <div class="site-left-info">
+            <div class="site-icon-badge icon-pin">P</div>
+            <span class="site-label">Pinterest</span>
+          </div>
+          <label class="ios-switch">
+            <input type="checkbox" id="site-pin" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 底部批量抓取按钮 -->
+      <button class="btn-batch-clip" id="btnBatchClip">
+        ✨ 批量抓取当前网页图片至 XC AI
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
