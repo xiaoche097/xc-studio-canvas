@@ -1,17 +1,23 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Wand2,
-  Folder,
-  Flame,
-  Clock,
-  ListTodo,
-  Headphones,
-  BookOpen,
   ArrowLeft,
+  BookOpen,
+  Clock3,
+  Flame,
+  Folder,
+  Headphones,
+  Home,
+  Layers3,
+  ListTodo,
+  PanelLeftClose,
+  PanelLeftOpen,
+  WandSparkles,
 } from 'lucide-react';
 
 export type SidebarItem =
+  | 'home'
   | 'creation'
+  | 'canvas'
   | 'assets'
   | 'trending'
   | 'recent'
@@ -25,161 +31,163 @@ interface GlobalSidebarProps {
   onBack: () => void;
 }
 
+const SIDEBAR_STORAGE_KEY = 'xc_global_sidebar_collapsed';
+
+const primaryItems = [
+  { id: 'home' as const, label: '首页', icon: Home, color: 'text-indigo-500' },
+  { id: 'creation' as const, label: '创作', icon: WandSparkles, color: 'text-orange-500' },
+  { id: 'canvas' as const, label: '画布', icon: Layers3, color: 'text-cyan-500' },
+  { id: 'assets' as const, label: '资产', icon: Folder, color: 'text-blue-500' },
+  { id: 'trending' as const, label: '爆款', icon: Flame, color: 'text-rose-500' },
+];
+
+const utilityGroups = [
+  {
+    label: '常用与历史',
+    items: [
+      { id: 'recent' as const, label: '最近使用', icon: Clock3 },
+      { id: 'tasks' as const, label: '任务中心', icon: ListTodo },
+    ],
+  },
+  {
+    label: '支持与服务',
+    items: [
+      { id: 'support' as const, label: '联系客服', icon: Headphones },
+      { id: 'tutorials' as const, label: '使用教程', icon: BookOpen },
+    ],
+  },
+];
+
 export const GlobalSidebar: React.FC<GlobalSidebarProps> = ({
   activeSidebarItem,
   onSelectSidebarItem,
   onBack,
 }) => {
-  return (
-    <aside className="hidden w-56 sm:w-60 flex-col border-r border-slate-200/80 bg-white p-4 dark:border-white/10 dark:bg-[#111622] md:flex shrink-0 h-full font-sans select-none">
-      {/* 1. 顶部 Logo 标题区 (点击触发 onBack 返回首页，悬停过渡显示“返回首页”) */}
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return activeSidebarItem === 'home';
+  });
+
+  useEffect(() => {
+    if (activeSidebarItem !== 'home') return;
+    setCollapsed(true);
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, 'true');
+    } catch {}
+  }, [activeSidebarItem]);
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const navButton = (
+    item: { id: SidebarItem; label: string; icon: React.ComponentType<{ className?: string }> },
+    color = 'text-slate-400',
+  ) => {
+    const Icon = item.icon;
+    const active = activeSidebarItem === item.id;
+    return (
       <button
+        key={item.id}
         type="button"
-        onClick={onBack}
-        className="group/home flex w-full items-center gap-3 rounded-2xl p-2 mb-2 border-b border-slate-100 dark:border-white/5 text-left transition-all duration-300 hover:bg-slate-100/90 dark:hover:bg-slate-800/90 active:scale-[0.98]"
-        title="点击返回首页"
+        onClick={() => onSelectSidebarItem(item.id)}
+        title={collapsed ? item.label : undefined}
+        aria-label={item.label}
+        aria-current={active ? 'page' : undefined}
+        className={`group relative flex min-h-11 w-full cursor-pointer items-center rounded-xl text-sm font-bold outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 dark:focus-visible:ring-white ${
+          collapsed ? 'justify-center px-0' : 'gap-3 px-3'
+        } ${
+          active
+            ? 'bg-slate-950 text-white shadow-[0_8px_18px_rgba(15,23,42,0.12)] dark:bg-white dark:text-slate-950'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white'
+        }`}
       >
-        {/* 左侧 Icon 区域 */}
-        <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-slate-900 to-slate-700 text-white font-black text-xs shadow-xs transition-all duration-300 group-hover/home:from-orange-500 group-hover/home:to-amber-500">
-          <span className="transition-all duration-300 group-hover/home:opacity-0 group-hover/home:scale-50 absolute">
-            AI
-          </span>
-          <ArrowLeft className="h-4 w-4 transition-all duration-300 opacity-0 scale-50 group-hover/home:opacity-100 group-hover/home:scale-100 absolute text-white" />
-        </div>
-
-        {/* 右侧文本区域 */}
-        <div className="relative min-w-0 flex-1 h-8 overflow-hidden">
-          <div className="absolute inset-0 flex flex-col justify-center transition-all duration-300 ease-out group-hover/home:-translate-y-full group-hover/home:opacity-0">
-            <h2 className="truncate text-sm font-black tracking-tight text-slate-900 dark:text-white">
-              AI 视觉工作工坊
-            </h2>
-            <p className="truncate text-[0.68rem] text-slate-400 font-bold">
-              C端商业生成面板
-            </p>
-          </div>
-
-          <div className="absolute inset-0 flex flex-col justify-center translate-y-full opacity-0 transition-all duration-300 ease-out group-hover/home:translate-y-0 group-hover/home:opacity-100">
-            <h2 className="truncate text-sm font-black tracking-tight text-orange-600 dark:text-orange-400 flex items-center gap-1">
-              返回首页
-            </h2>
-            <p className="truncate text-[0.68rem] text-slate-400 font-bold">
-              点击离开主控制台
-            </p>
-          </div>
-        </div>
+        <span className={`absolute left-0 h-5 w-0.5 rounded-r-full ${active ? 'bg-orange-500' : 'bg-transparent'}`} />
+        <Icon className={`h-[1.125rem] w-[1.125rem] shrink-0 ${active ? 'text-white dark:text-slate-950' : color}`} />
+        {!collapsed && <span className="truncate">{item.label}</span>}
       </button>
+    );
+  };
 
-      {/* 2. 侧边栏菜单列 (完全还原图 2 样式) */}
-      <nav className="space-y-1.5 flex-1">
-        {/* 创作 (点击直接一键切回功能列表) */}
+  return (
+    <aside
+      className={`relative hidden h-full shrink-0 select-none flex-col border-r border-slate-200/80 bg-white transition-[width,padding] duration-300 motion-reduce:transition-none dark:border-white/10 dark:bg-[#111622] md:flex ${
+        collapsed ? 'w-[4.5rem] px-3 py-4' : 'w-60 p-4'
+      }`}
+      aria-label="主导航"
+    >
+      <div className={`flex min-h-11 items-center ${collapsed ? 'justify-center' : 'gap-2'}`}>
         <button
           type="button"
-          onClick={() => onSelectSidebarItem('creation')}
-          className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-bold transition ${
-            activeSidebarItem === 'creation'
-              ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'
-          }`}
+          onClick={onBack}
+          title="返回工作室"
+          aria-label="返回工作室"
+          className="group grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-[0.9rem] bg-slate-950 text-white outline-none transition-colors hover:bg-orange-500 focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
         >
-          <Wand2 className="h-[1.125rem] w-[1.125rem] text-orange-500" />
-          <span>创作</span>
+          <span className="text-xs font-black group-hover:hidden">AI</span>
+          <ArrowLeft className="hidden h-4 w-4 group-hover:block" />
         </button>
 
-        {/* 资产 */}
+        {!collapsed && (
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-sm font-black tracking-[-0.02em] text-slate-950 dark:text-white">AI 视觉工作坊</h1>
+            <p className="truncate text-[0.65rem] font-semibold text-slate-400">商业创意工作台</p>
+          </div>
+        )}
+
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-xl text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950 dark:hover:bg-white/10 dark:hover:text-white"
+            aria-label="收起主导航"
+            aria-expanded={!collapsed}
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {collapsed && (
         <button
           type="button"
-          onClick={() => onSelectSidebarItem('assets')}
-          className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-bold transition ${
-            activeSidebarItem === 'assets'
-              ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'
-          }`}
+          onClick={toggleCollapsed}
+          className="mt-3 grid h-11 w-full cursor-pointer place-items-center rounded-xl border border-slate-200 text-slate-400 outline-none transition-colors hover:border-slate-300 hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-white/10 dark:hover:bg-white/10 dark:hover:text-white"
+          aria-label="展开主导航"
+          aria-expanded={!collapsed}
+          title="展开导航"
         >
-          <Folder className="h-[1.125rem] w-[1.125rem] text-blue-500" />
-          <span>资产</span>
+          <PanelLeftOpen className="h-4 w-4" />
         </button>
+      )}
 
-        {/* 爆款 */}
-        <button
-          type="button"
-          onClick={() => onSelectSidebarItem('trending')}
-          className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-bold transition ${
-            activeSidebarItem === 'trending'
-              ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'
-          }`}
-        >
-          <Flame className="h-[1.125rem] w-[1.125rem] text-red-500" />
-          <span>爆款</span>
-        </button>
+      <div className="my-4 h-px bg-slate-200/80 dark:bg-white/10" />
 
-        <div className="pt-4 pb-1">
-          <span className="px-3.5 text-xs font-bold text-slate-400 tracking-wider">常用与历史</span>
-        </div>
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden" aria-label="工作区导航">
+        {primaryItems.map((item) => navButton(item, item.color))}
 
-        {/* 最近使用 */}
-        <button
-          type="button"
-          onClick={() => onSelectSidebarItem('recent')}
-          className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-bold transition ${
-            activeSidebarItem === 'recent'
-              ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'
-          }`}
-        >
-          <Clock className="h-[1.125rem] w-[1.125rem] text-slate-400" />
-          <span>最近使用</span>
-        </button>
-
-        {/* 任务中心 */}
-        <button
-          type="button"
-          onClick={() => onSelectSidebarItem('tasks')}
-          className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-bold transition ${
-            activeSidebarItem === 'tasks'
-              ? 'bg-slate-100 text-slate-900 font-black dark:bg-slate-800 dark:text-white'
-              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'
-          }`}
-        >
-          <ListTodo className="h-[1.125rem] w-[1.125rem] text-slate-400" />
-          <span>任务中心</span>
-        </button>
-
-        <div className="pt-4 pb-1">
-          <span className="px-3.5 text-xs font-bold text-slate-400 tracking-wider">支持与服务</span>
-        </div>
-
-        {/* 联系客服 */}
-        <button
-          type="button"
-          onClick={() => onSelectSidebarItem('support')}
-          className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 transition"
-        >
-          <Headphones className="h-[1.125rem] w-[1.125rem] text-slate-400" />
-          <span>联系客服</span>
-        </button>
-
-        {/* 使用教程 */}
-        <button
-          type="button"
-          onClick={() => onSelectSidebarItem('tutorials')}
-          className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 transition"
-        >
-          <BookOpen className="h-[1.125rem] w-[1.125rem] text-slate-400" />
-          <span>使用教程</span>
-        </button>
+        {utilityGroups.map((group) => (
+          <div key={group.label} className={collapsed ? 'pt-3' : 'pt-5'}>
+            {!collapsed && <p className="mb-1.5 px-3 text-[0.65rem] font-bold uppercase tracking-[0.12em] text-slate-400">{group.label}</p>}
+            {collapsed && <div className="mx-auto mb-2 h-px w-5 bg-slate-200 dark:bg-white/10" />}
+            <div className="space-y-1">{group.items.map((item) => navButton(item))}</div>
+          </div>
+        ))}
       </nav>
 
-      {/* 3. 底部用户极简信息区 (完全还原图 2 底部) */}
-      <div className="rounded-xl border border-slate-200/70 bg-slate-50 p-2.5 dark:border-white/5 dark:bg-slate-800/50 mt-auto">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[0.68rem] font-bold text-white dark:bg-white dark:text-slate-900">
-            XC
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-bold text-slate-900 dark:text-white">商业用户</p>
-            <p className="truncate text-[0.62rem] text-slate-400 font-medium">无限生成模式</p>
-          </div>
+      <div className={`mt-4 border-t border-slate-200/80 pt-4 dark:border-white/10 ${collapsed ? 'flex justify-center' : ''}`}>
+        <div className={`flex min-h-11 items-center rounded-xl bg-slate-50 dark:bg-white/5 ${collapsed ? 'h-11 w-11 justify-center' : 'gap-2.5 px-2.5'}`} title={collapsed ? '商业用户 · 无限生成模式' : undefined}>
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-950 text-[0.65rem] font-black text-white dark:bg-white dark:text-slate-950">XC</div>
+          {!collapsed && <div className="min-w-0"><p className="truncate text-xs font-bold text-slate-950 dark:text-white">商业用户</p><p className="truncate text-[0.65rem] font-medium text-slate-400">无限生成模式</p></div>}
         </div>
       </div>
     </aside>

@@ -22,7 +22,7 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
   const [activeMode, setActiveMode] = useState<AppMode | null>(null);
   const [visitedModes, setVisitedModes] = useState<Set<AppMode>>(() => new Set());
   const [workspaceView, setWorkspaceView] = useState<'hub' | 'feature'>('hub');
-  const [hubSidebarItem, setHubSidebarItem] = useState<SidebarItem>('creation');
+  const [hubSidebarItem, setHubSidebarItem] = useState<SidebarItem>('home');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const activeFeature = useMemo(() => getFeatureByMode(activeMode), [activeMode]);
@@ -54,7 +54,7 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
   };
 
   const openHub = () => {
-    setHubSidebarItem('creation');
+    setHubSidebarItem('home');
     setWorkspaceView('hub');
     setIsMobileSidebarOpen(false);
   };

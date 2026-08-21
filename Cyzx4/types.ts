@@ -1,3 +1,4 @@
+import type { Content } from '@google/genai';
 
 export enum AppMode {
   PLANNING = 'PLANNING',     // Visual Planning (Was Director)
@@ -66,3 +67,177 @@ export interface EditPoint {
   y: number;
   snapshot?: string;
 }
+
+// --------------------------------------------------------
+// XC-STUDIO Canvas 画布全量类型定义
+// --------------------------------------------------------
+
+export type ImageModel =
+  | 'Nano Banana Pro'
+  | 'NanoBanana2'
+  | 'GPT Image 1.5'
+  | 'Flux.2 Max'
+  | 'Seedream5.0'
+  | string;
+
+export type VideoModel =
+  | 'Veo 3.1'
+  | 'Veo 3.1 Fast'
+  | 'Seedance 2.0 Fast'
+  | 'Sora 2.0'
+  | 'Sora 2'
+  | 'Kling 2.0'
+  | 'kling-3.0'
+  | string;
+
+export type ShapeType =
+  | 'rectangle'
+  | 'circle'
+  | 'triangle'
+  | 'star'
+  | 'square'
+  | 'arrow-right'
+  | 'arrow-left'
+  | 'bubble'
+  | string;
+
+export interface Marker {
+  id: number | string;
+  elementId: string;
+  x: number;
+  y: number;
+  label?: string;
+  description?: string;
+  analysis?: any;
+  cropUrl?: string;
+}
+
+export interface CanvasElement {
+  id: string;
+  type: 'image' | 'text' | 'shape' | 'video' | 'gen-image' | 'gen-video' | 'group' | string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+  url?: string;
+  originalUrl?: string;
+  proxyUrl?: string;
+  originalWidth?: number;
+  originalHeight?: number;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  color?: string;
+  fontWeight?: string | number;
+  fontStyle?: string;
+  textDecoration?: string;
+  textAlign?: string;
+  lineHeight?: any;
+  letterSpacing?: any;
+  textTransform?: string;
+  shapeType?: ShapeType;
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+  cornerRadius?: number;
+  videoUri?: string;
+  prompt?: string;
+  aspectRatio?: string;
+  imageModel?: ImageModel;
+  videoModel?: VideoModel;
+  duration?: string;
+  resolution?: any;
+  genModel?: string;
+  genStartFrame?: string;
+  genEndFrame?: string;
+  genVideoRefs?: any;
+  genRefImages?: any;
+  genRefImage?: any;
+  genAspectRatio?: string;
+  genDuration?: string;
+  genPrompt?: string;
+  genResolution?: any;
+  genQuality?: any;
+  genFirstLastMode?: any;
+  generatingType?: string;
+  aspectRatioLocked?: boolean;
+  status?: 'idle' | 'generating' | 'success' | 'error' | string;
+  errorMessage?: string;
+  children?: string[];
+  isCollapsed?: boolean;
+  isLocked?: boolean;
+  isHidden?: boolean;
+  groupId?: string;
+  rotation?: number;
+  opacity?: number;
+  isGenerating?: boolean;
+  genError?: string;
+  originalChildData?: any;
+  filters?: {
+    brightness?: number;
+    contrast?: number;
+    saturation?: number;
+    blur?: number;
+  };
+}
+
+export interface Template {
+  id: string;
+  title: string;
+  description: string;
+  image: string;
+}
+
+export interface InputBlock {
+  id: string;
+  type: 'text' | 'file' | string;
+  text?: string;
+  file?: File;
+  previewUrl?: string;
+  name?: string;
+  size?: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system' | 'model' | string;
+  content?: string;
+  text?: string;
+  timestamp: number;
+  attachments?: any;
+  attachmentMetadata?: any;
+  inputBlocks?: InputBlock[];
+  thinking?: string;
+  suggestedPrompts?: string[];
+  agentData?: any;
+  skillData?: any;
+  kind?: string;
+  workflowUi?: any;
+  error?: boolean | string;
+}
+
+export interface ConversationSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessage[];
+  systemInstruction?: string;
+}
+
+export interface Project {
+  id: string;
+  title: string;
+  updatedAt: string;
+  createdAt?: string;
+  elements: CanvasElement[];
+  markers?: Marker[];
+  conversations?: ConversationSession[];
+  activeConversationId?: string;
+  thumbnail?: string;
+}
+
+export * from './types/common';
+export * from './types/agent.types';
+export * from './types/skill.types';

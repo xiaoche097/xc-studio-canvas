@@ -26,6 +26,8 @@ import AssetsManager from './AssetsManager';
 import RecentUsedManager from './RecentUsedManager';
 import TaskCenterManager from './TaskCenterManager';
 import GlobalSidebar, { type SidebarItem } from './GlobalSidebar';
+import Home from '../pages/Home';
+import AgentWorkspace, { type WorkspaceSeed } from '../pages/AgentWorkspace';
 
 type CategoryFilter = 'all' | 'fashion' | 'video' | 'architecture' | 'food' | 'utility';
 
@@ -125,6 +127,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [workspaceSeed, setWorkspaceSeed] = useState<WorkspaceSeed | null>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
   const normalizedQuery = normalizeSearch(query);
@@ -223,17 +226,35 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
     onOpenFeature(mode);
   };
 
+  const handleStartWorkspace = (seed: WorkspaceSeed) => {
+    setWorkspaceSeed(seed);
+    onSelectSidebarItem('canvas');
+  };
+
   return (
     <div className="flex h-full min-h-screen bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100 overflow-hidden font-sans">
-      {/* 1. LEFT SIDEBAR (全局统一图2侧边栏) */}
-      <GlobalSidebar
-        activeSidebarItem={activeSidebarItem}
-        onSelectSidebarItem={onSelectSidebarItem}
-        onBack={onBack}
-      />
+      {/* 1. LEFT SIDEBAR (在进入画布模式时隐藏全局侧边栏) */}
+      {activeSidebarItem !== 'canvas' && (
+        <GlobalSidebar
+          activeSidebarItem={activeSidebarItem}
+          onSelectSidebarItem={onSelectSidebarItem}
+          onBack={onBack}
+        />
+      )}
 
       {/* 2. RIGHT MAIN CONTENT AREA */}
-      {activeSidebarItem === 'assets' ? (
+      {activeSidebarItem === 'home' ? (
+        <div className="flex-1 overflow-hidden min-w-0">
+          <Home onStartWorkspace={handleStartWorkspace} />
+        </div>
+      ) : activeSidebarItem === 'canvas' ? (
+        <div className="flex-1 overflow-hidden min-w-0">
+          <AgentWorkspace
+            seed={workspaceSeed}
+            onBack={() => onSelectSidebarItem('home')}
+          />
+        </div>
+      ) : activeSidebarItem === 'assets' ? (
         <div className="flex-1 overflow-hidden min-w-0">
           <AssetsManager />
         </div>
