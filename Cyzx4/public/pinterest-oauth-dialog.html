@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>(4) Pinterest - 授权应用程序</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4 m-0 font-sans select-none">
+  {/* 授权应用程序 核心卡片 (1:1 复刻截图 2) */}
+  <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center flex flex-col items-center space-y-5 border border-gray-100 relative">
+    {/* 红色 P Icon */}
+    <div class="w-12 h-12 rounded-full bg-red-600 text-white font-serif font-black text-2xl flex items-center justify-center shadow-md">
+      P
+    </div>
+
+    <div>
+      <h2 class="text-xl font-extrabold text-gray-900 tracking-tight">
+        授权应用程序
+      </h2>
+      <p class="text-xs text-gray-400 font-medium mt-1">
+        <span class="font-bold text-gray-800">XcAi App</span> 想：
+      </p>
+    </div>
+
+    {/* 权限清单 */}
+    <div class="w-full bg-gray-50/80 rounded-2xl p-4 text-xs text-gray-600 space-y-2.5 text-left border border-gray-100 font-medium">
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
+        <span>查看你的公开图板，包括你加入的群组图板</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
+        <span>查看你的私密图板</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
+        <span>查看你的公开 Pin 图与私密 Pin 图</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
+        <span>查看你的用户帐户和粉丝（专为 XcAi 定制）</span>
+      </div>
+    </div>
+
+    {/* 用户账户指示 */}
+    <div class="flex items-center gap-4 py-1">
+      <div class="w-9 h-9 rounded-full bg-black text-white font-bold text-xs flex items-center justify-center shadow-xs">
+        XC
+      </div>
+      <span class="text-gray-300 font-light">↔</span>
+      <div class="w-9 h-9 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
+        <img
+          src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
+          alt="User"
+          class="w-full h-full object-cover"
+        />
+      </div>
+    </div>
+
+    <div class="text-xs text-gray-500">
+      以 <span class="font-bold text-gray-900">XcDesign</span> 登录
+    </div>
+
+    {/* 提交授权红按钮 */}
+    <button
+      id="grantBtn"
+      onclick="handleGrant()"
+      class="w-full py-3 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-lg transition"
+    >
+      提供访问权限
+    </button>
+  </div>
+
+  <script>
+    function handleGrant() {
+      const btn = document.getElementById('grantBtn');
+      btn.innerText = '正在完成授权...';
+      btn.disabled = true;
+
+      // 向父窗口通知授权成功
+      if (window.opener) {
+        window.opener.postMessage({
+          type: 'PINTEREST_CONNECTED',
+          code: 'xc_auth_code_' + Date.now(),
+          state: 'xc_state'
+        }, '*');
+      }
+
+      setTimeout(() => {
+        window.close();
+      }, 300);
+    }
+  </script>
+</body>
+</html>

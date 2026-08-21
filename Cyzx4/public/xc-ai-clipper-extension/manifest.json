@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "XC AI Clipper",
+  "version": "1.0.0",
+  "description": "XC AI 官方浏览器与 Pinterest 物理联动远程控制扩展",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.pinterest.com/*",
+        "http://localhost:*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ]
+}

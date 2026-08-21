@@ -8,6 +8,7 @@ import {
   ImageOff,
   LoaderCircle,
   LogOut,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -176,6 +177,52 @@ export const PinterestGallery: React.FC<PinterestGalleryProps> = ({ onSelectPin,
           </button>
           <p className="mt-3 text-xs leading-5 text-stone-400">会打开 Pinterest 官方授权窗口；我们不会获取你的 Pinterest 密码。</p>
         </div>
+      </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col bg-white text-stone-900">
+        <header className="shrink-0 border-b border-stone-200 px-4 pt-3">
+          <div className="flex min-h-10 items-center justify-between gap-3">
+            <h2 className="text-base font-bold">Pinterest</h2>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => void loadLibrary(activeBoard)} aria-label="刷新 Pinterest" className="grid h-11 w-11 place-items-center rounded-xl text-stone-500 outline-none transition hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-stone-950"><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></button>
+              <button type="button" onClick={handleDisconnect} aria-label="Pinterest 更多选项与断开连接" title="断开 Pinterest" className="grid h-11 w-11 place-items-center rounded-xl text-stone-500 outline-none transition hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-stone-950"><MoreHorizontal className="h-4 w-4" /></button>
+            </div>
+          </div>
+          <nav className="flex gap-5" aria-label="Pinterest 分类">
+            <button type="button" onClick={() => { setActiveView('pins'); setActiveBoard(null); void loadLibrary(null); }} className={`relative min-h-10 text-sm font-medium ${activeView === 'pins' ? 'text-stone-950 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-stone-950' : 'text-stone-500'}`}>Pins</button>
+            <button type="button" onClick={() => setActiveView('boards')} className={`relative min-h-10 text-sm font-medium ${activeView === 'boards' ? 'text-stone-950 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-stone-950' : 'text-stone-500'}`}>Boards</button>
+          </nav>
+        </header>
+
+        {activeBoard && activeView === 'pins' && (
+          <div className="flex min-h-12 items-center gap-2 border-b border-stone-200 px-3 text-sm"><button type="button" onClick={() => { setActiveBoard(null); setActiveView('boards'); }} className="grid h-11 w-11 place-items-center rounded-xl text-stone-500 hover:bg-stone-100" aria-label="返回图板"><ArrowLeft className="h-4 w-4" /></button><span className="truncate font-bold">{activeBoard.name}</span></div>
+        )}
+
+        {error && <div className="mx-3 mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">{error}</div>}
+
+        <main className="min-h-0 flex-1 overflow-y-auto p-3">
+          {isLoading ? (
+            <div className="grid grid-cols-2 gap-3">{Array.from({ length: 8 }).map((_, index) => <div key={index} className={`animate-pulse rounded-xl bg-stone-200 ${index % 3 === 0 ? 'h-64' : 'h-44'}`} />)}</div>
+          ) : activeView === 'boards' ? (
+            boards.length ? <div className="space-y-3">{boards.map((board) => {
+              const cover = PinterestService.getBoardCover(board);
+              return <button key={board.id} type="button" onClick={() => void handleBoardOpen(board)} className="flex min-h-24 w-full items-center gap-3 rounded-xl border border-stone-200 bg-white p-2 text-left transition hover:border-stone-400">{cover ? <img src={cover} alt="" className="h-20 w-20 rounded-lg object-cover" /> : <span className="grid h-20 w-20 place-items-center rounded-lg bg-stone-100"><ImageOff className="h-5 w-5 text-stone-300" /></span>}<span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{board.name}</span><span className="mt-1 block text-xs text-stone-400">{board.pin_count ?? 0} 个 Pin</span></span><ChevronRight className="h-4 w-4 text-stone-300" /></button>;
+            })}</div> : <EmptyState label="这个账号还没有可读取的图板" />
+          ) : pins.length ? (
+            <>
+              <div className="columns-2 gap-2.5">{pins.map((pin) => {
+                const imageUrl = PinterestService.getPinImage(pin);
+                const title = pin.title || pin.alt_text || '未命名 Pin';
+                return <button key={pin.id} type="button" disabled={!imageUrl} onClick={() => imageUrl && onSelectPin?.(imageUrl, title)} className="group relative mb-2.5 block w-full break-inside-avoid overflow-hidden rounded-xl bg-stone-100 text-left outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-stone-950">{imageUrl ? <img src={imageUrl} alt={pin.alt_text || title} loading="lazy" className="h-auto w-full object-cover" /> : <span className="grid aspect-[4/5] place-items-center"><ImageOff className="h-6 w-6 text-stone-300" /></span>}<span className="sr-only">添加 {title}</span></button>;
+              })}</div>
+              {pinsBookmark && <button type="button" onClick={handleLoadMore} disabled={isLoadingMore} className="mt-3 min-h-11 w-full rounded-xl border border-stone-300 text-sm font-semibold">{isLoadingMore ? '正在加载…' : '加载更多'}</button>}
+            </>
+          ) : <EmptyState label={activeBoard ? '这个图板还没有 Pin' : '这个账号还没有可读取的 Pin'} />}
+        </main>
       </div>
     );
   }

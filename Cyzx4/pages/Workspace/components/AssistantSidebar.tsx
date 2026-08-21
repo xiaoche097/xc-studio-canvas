@@ -1,0 +1,571 @@
+import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    MessageSquare, ChevronDown, CirclePlus, Clock, Search, X, Share2, Eraser,
+    File as FileIcon, Image as ImageIcon, Video, Download, Store, Layout, Globe, FileText, PanelLeftClose, Compass, Pin, Sparkles
+} from 'lucide-react';
+import { useAgentStore } from '../../../stores/agent.store';
+import { useClothingStudioChatStore } from '../../../stores/clothingStudioChat.store';
+import { deleteTopicMemory } from '../../../services/topic-memory';
+import { getMemoryKey } from '../../../services/topicMemory/key';
+import { MessageList } from './MessageList';
+import { InputArea } from './InputArea';
+
+import { ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
+import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
+
+interface AssistantSidebarProps {
+    workspaceId: string;
+    showAssistant: boolean;
+    setShowAssistant: (show: boolean) => void;
+    conversations: ConversationSession[];
+    setConversations: React.Dispatch<React.SetStateAction<ConversationSession[]>>;
+    activeConversationId: string;
+    setActiveConversationId: (id: string) => void;
+    handleSend: (overridePrompt?: string, overrideAttachments?: File[], overrideWeb?: boolean, skillData?: any) => Promise<void>;
+    handleSmartGenerate: (prompt: string, proposalId?: string) => void;
+    setPreviewUrl: (url: string) => void;
+    creationMode: 'agent' | 'chat' | 'image' | 'video';
+    setCreationMode: (mode: 'agent' | 'chat' | 'image' | 'video') => void;
+    setPrompt: (prompt: string) => void;
+    handleModeSwitch: (mode: 'thinking' | 'fast') => void;
+    fileInputRef: React.RefObject<HTMLInputElement | null>;
+    selectedChipId: string | null;
+    setSelectedChipId: (id: string | null) => void;
+    hoveredChipId: string | null;
+    setHoveredChipId: (id: string | null) => void;
+    // New props for InputArea
+    showModeSelector: boolean;
+    setShowModeSelector: (v: boolean) => void;
+    showModelPreference: boolean;
+    setShowModelPreference: (v: boolean) => void;
+    modelPreferenceTab: 'image' | 'video' | '3d';
+    setModelPreferenceTab: (tab: 'image' | 'video' | '3d') => void;
+    autoModelSelect: boolean;
+    setAutoModelSelect: (v: boolean) => void;
+    preferredImageModel: ImageModel;
+    setPreferredImageModel: (v: ImageModel) => void;
+    preferredVideoModel: VideoModel;
+    setPreferredVideoModel: (v: VideoModel) => void;
+    preferred3DModel: string;
+    setPreferred3DModel: (v: string) => void;
+    showRatioPicker: boolean;
+    setShowRatioPicker: (v: boolean) => void;
+    showModelPicker: boolean;
+    setShowModelPicker: (v: boolean) => void;
+    isInputFocused: boolean;
+    setIsInputFocused: (v: boolean) => void;
+    isDragOver: boolean;
+    setIsDragOver: (v: boolean) => void;
+    isVideoPanelHovered: boolean;
+    setIsVideoPanelHovered: (v: boolean) => void;
+    showVideoSettingsDropdown: boolean;
+    setShowVideoSettingsDropdown: (v: boolean) => void;
+    markers: Marker[];
+    onSaveMarkerLabel?: (markerId: string, label: string) => void;
+    onClothingSubmitRequirements?: (data: Requirements) => void;
+    onClothingGenerateModel?: (data: ModelGenOptions) => void;
+    onClothingPickModelCandidate?: (url: string) => void;
+    onClothingInsertToCanvas?: (url: string, label?: string) => void;
+    onClothingRetryFailed?: () => void;
+}
+
+export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
+    workspaceId,
+    showAssistant, setShowAssistant, conversations, setConversations,
+    activeConversationId, setActiveConversationId,
+    handleSend, handleSmartGenerate, setPreviewUrl,
+    creationMode, setCreationMode, setPrompt,
+    handleModeSwitch, fileInputRef,
+    selectedChipId, setSelectedChipId, hoveredChipId, setHoveredChipId,
+    showModeSelector, setShowModeSelector,
+    showModelPreference, setShowModelPreference,
+    modelPreferenceTab, setModelPreferenceTab,
+    autoModelSelect, setAutoModelSelect,
+    preferredImageModel, setPreferredImageModel,
+    preferredVideoModel, setPreferredVideoModel,
+    preferred3DModel, setPreferred3DModel,
+    showRatioPicker, setShowRatioPicker,
+    showModelPicker, setShowModelPicker,
+    isInputFocused, setIsInputFocused,
+    isDragOver, setIsDragOver,
+    isVideoPanelHovered, setIsVideoPanelHovered,
+    showVideoSettingsDropdown, setShowVideoSettingsDropdown,
+    markers, onSaveMarkerLabel,
+    onClothingSubmitRequirements,
+    onClothingGenerateModel,
+    onClothingPickModelCandidate,
+    onClothingInsertToCanvas,
+    onClothingRetryFailed,
+}) => {
+    const messages = useAgentStore(s => s.messages);
+    const inputBlocks = useAgentStore(s => s.inputBlocks);
+    const currentTask = useAgentStore(s => s.currentTask);
+    const { setMessages, clearMessages, setIsAgentMode } = useAgentStore(s => s.actions);
+    const webEnabled = useAgentStore(s => s.webEnabled);
+    const clothingActions = useClothingStudioChatStore(s => s.actions);
+
+    const [showHistoryPopover, setShowHistoryPopover] = useState(false);
+    const [historySearch, setHistorySearch] = useState('');
+    const [showFileListModal, setShowFileListModal] = useState(false);
+    const [activeQuickSkill, setActiveQuickSkill] = useState<any | null>(null);
+
+    useEffect(() => {
+        const current = conversations.find((c) => c.id === activeConversationId);
+        const skill = (current as any)?.meta?.activeQuickSkill || null;
+        setActiveQuickSkill(skill);
+    }, [activeConversationId, conversations]);
+
+    const setConversationQuickSkill = (conversationId: string, skill: any | null) => {
+        setConversations((prev) => prev.map((c) => {
+            if (c.id !== conversationId) return c;
+            const nextMeta = { ...((c as any).meta || {}), activeQuickSkill: skill || undefined };
+            return { ...c, meta: nextMeta } as any;
+        }));
+    };
+
+    const setActiveQuickSkillSynced = (skill: any | null) => {
+        setActiveQuickSkill(skill);
+        if (activeConversationId) {
+            setConversationQuickSkill(activeConversationId, skill);
+        }
+    };
+
+    const STORYBOARD_SKILL = { id: 'cameron', name: '分镜故事板', iconName: 'Film' };
+    const CLOTHING_SKILL = { id: 'clothing-studio', name: '服装棚拍组图', iconName: 'Shirt' };
+
+    const buildQuickSkillPrompt = (base: string) => {
+        const extra = readCurrentInputText();
+        if (!extra) return base;
+        return `${base}\n补充要求：${extra}`;
+    };
+
+    const readCurrentInputText = () => inputBlocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join(' ')
+        .trim();
+
+    const handleSendWithQuickSkill = (
+        overridePrompt?: string,
+        overrideAttachments?: File[],
+        overrideWeb?: boolean,
+        skillData?: any,
+    ) => {
+        const fallbackSkill = creationMode === 'agent' ? activeQuickSkill : undefined;
+        return handleSend(overridePrompt, overrideAttachments, overrideWeb, skillData || fallbackSkill);
+    };
+
+    const handleStoryboardQuickSend = () => {
+        const prompt = buildQuickSkillPrompt('请基于参考图开始分镜故事板创作');
+        void handleSend(prompt, undefined, webEnabled, STORYBOARD_SKILL);
+    };
+
+    const handleStoryboardSetActive = () => {
+        setCreationMode('agent');
+        setIsAgentMode(true);
+        setActiveQuickSkillSynced(STORYBOARD_SKILL);
+    };
+
+    const createConversationId = () => `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const toMemoryKey = (conversationId: string) => {
+        if (!workspaceId || !conversationId) return conversationId;
+        if (conversationId.includes(':')) return conversationId;
+        return getMemoryKey(workspaceId, conversationId);
+    };
+
+
+
+    return (
+        <motion.div
+            aria-hidden={!showAssistant}
+            initial={{ x: -400, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -400, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="fixed inset-y-0 left-0 z-50 flex h-full min-h-0 w-[min(25rem,100vw)] flex-col overflow-hidden border-r border-gray-200 bg-[#f8f9fc] pt-14 shadow-[10px_0_30px_rgba(0,0,0,0.04)] lg:relative lg:inset-auto lg:w-[25rem] lg:shrink-0 lg:shadow-none"
+            style={{ display: showAssistant ? undefined : 'none' }}
+        >
+            {/* Header with Toolbar - Lovart Style */}
+            <div className="px-3 py-2.5 flex items-center justify-between border-b border-gray-100 z-20 shrink-0 select-none">
+                <span className="text-sm font-semibold text-gray-900 pl-1">
+                    {messages.length > 0
+                        ? (conversations.find(c => c.id === activeConversationId)?.title || '对话中')
+                        : '新对话'}
+                </span>
+                <div className="flex items-center gap-0.5">
+                    <button
+                        className="h-7 px-2.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center rounded-lg transition-all"
+                        onClick={() => { setActiveConversationId(createConversationId()); clearMessages(); setPrompt(''); setCreationMode('agent'); setActiveQuickSkillSynced(null); }}
+                    >
+                        <CirclePlus size={15} strokeWidth={1.5} className="mr-1" />
+                        新对话
+                    </button>
+
+                    <div className="relative">
+                        <button
+                            className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
+                            onClick={(e) => { e.stopPropagation(); setShowHistoryPopover(!showHistoryPopover); }}
+                        >
+                            <Clock size={15} strokeWidth={1.8} />
+                        </button>
+
+                        {showHistoryPopover && (
+                            <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 p-3 z-[60] animate-in fade-in zoom-in-95 duration-200 text-left">
+                                <div className="flex items-center justify-between mb-3 px-1">
+                                    <h3 className="font-medium text-sm text-gray-900">历史对话</h3>
+                                    <div className="relative">
+                                        <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                                        <input
+                                            type="text"
+                                            placeholder="搜索对话..."
+                                            value={historySearch}
+                                            onChange={e => setHistorySearch(e.target.value)}
+                                            className="w-32 h-7 pl-7 pr-2 text-xs bg-gray-50 border border-transparent rounded-md focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder:text-gray-400"
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    className="w-full flex items-center justify-center h-8 text-xs mb-3 border border-dashed rounded-md hover:bg-gray-50 transition-colors"
+                                    onClick={() => { setActiveConversationId(createConversationId()); clearMessages(); setShowHistoryPopover(false); setActiveQuickSkillSynced(null); }}
+                                >
+                                    <CirclePlus size={14} strokeWidth={1.5} className="mr-1" />
+                                    新对话
+                                </button>
+
+                                <div className="space-y-1 max-h-[280px] overflow-y-auto pr-1 -mr-1 custom-scrollbar">
+                                    {conversations
+                                        .filter(c => !historySearch || c.title.toLowerCase().includes(historySearch.toLowerCase()))
+                                        .sort((a, b) => b.updatedAt - a.updatedAt)
+                                        .map(conversation => (
+                                            <div
+                                                key={conversation.id}
+                                                className={`p-2 rounded-lg cursor-pointer transition flex items-center gap-2 ${activeConversationId === conversation.id ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50'}`}
+                                                onClick={() => {
+                                                    if (activeConversationId === conversation.id) return;
+                                                    setActiveConversationId(conversation.id);
+                                                    setMessages(conversation.messages);
+                                                    setShowHistoryPopover(false);
+                                                }}
+                                            >
+                                                <MessageSquare size={13} className="text-gray-400 flex-shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-xs font-medium text-gray-700 truncate">{conversation.title}</div>
+                                                    <div className="text-[10px] text-gray-400 mt-0.5">{new Date(conversation.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                                                </div>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const updated = conversations.filter(c => c.id !== conversation.id);
+                                                        setConversations(updated);
+                                                        void deleteTopicMemory(toMemoryKey(conversation.id));
+                                                        if (activeConversationId === conversation.id) { setActiveConversationId(createConversationId()); clearMessages(); }
+                                                    }}
+                                                    className="text-gray-300 hover:text-red-400 transition flex-shrink-0"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    {conversations.length === 0 && (
+                                        <div className="text-center text-xs text-gray-400 py-6">暂无历史对话</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <button className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all" title="Share">
+                        <Share2 size={15} strokeWidth={1.5} />
+                    </button>
+
+                    <div className="relative">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setShowFileListModal(!showFileListModal); }}
+                            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all ${showFileListModal ? 'text-gray-700 bg-gray-100' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+                            title="Files"
+                        >
+                            <FileIcon size={15} strokeWidth={1.5} />
+                        </button>
+                        {showFileListModal && (
+                            <div className="absolute top-full right-0 mt-2 w-[320px] bg-white rounded-xl shadow-xl border border-gray-200 z-50 animate-in fade-in zoom-in-95 duration-200 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                                <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100 bg-gray-50/50">
+                                    <h3 className="font-bold text-gray-900 text-sm">已生成文件列表</h3>
+                                    <span className="text-[10px] text-gray-400">{messages.flatMap(m => m.agentData?.imageUrls || []).length} 个文件</span>
+                                </div>
+                                {(() => {
+                                    const allFiles = messages.flatMap((m, mi) => {
+                                        const imgs = (m.agentData?.imageUrls || []).map((url, fi) => ({
+                                            url,
+                                            type: 'image' as const,
+                                            title: m.agentData?.title || `生成图片 ${mi + 1}-${fi + 1}`,
+                                            time: m.timestamp,
+                                            model: m.agentData?.model || 'AI'
+                                        }));
+                                        const vids = (m.agentData?.videoUrls || []).map((url, fi) => ({
+                                            url,
+                                            type: 'video' as const,
+                                            title: m.agentData?.title || `生成视频 ${mi + 1}-${fi + 1}`,
+                                            time: m.timestamp,
+                                            model: m.agentData?.model || 'AI'
+                                        }));
+                                        return [...imgs, ...vids];
+                                    });
+                                    if (allFiles.length === 0) {
+                                        return (
+                                            <div className="h-[250px] flex flex-col items-center justify-center text-gray-400 gap-2">
+                                                <ImageIcon size={28} className="opacity-20" />
+                                                <span className="text-xs text-gray-400">暂无生成文件</span>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div className="max-h-[350px] overflow-y-auto no-scrollbar p-2 space-y-1">
+                                            {allFiles.reverse().map((file, i) => (
+                                                <div key={i} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-gray-50 cursor-pointer transition group" onClick={() => file.type === 'image' ? setPreviewUrl(file.url) : window.open(file.url)}>
+                                                    <div className="w-10 h-10 rounded-md overflow-hidden flex-shrink-0 border border-gray-100 bg-gray-50 flex items-center justify-center">
+                                                        {file.type === 'image' ? (
+                                                            <img src={file.url} className="w-full h-full object-cover" alt="" />
+                                                        ) : (
+                                                            <Video size={16} className="text-gray-400" />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-xs font-medium text-gray-700 truncate">{file.title}</div>
+                                                        <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+                                                            <span>{file.model}</span>
+                                                            <span>·</span>
+                                                            <span>{new Date(file.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                    </div>
+                                                    <a href={file.url} download={`${file.title}.${file.type === 'image' ? 'png' : 'mp4'}`} onClick={(e) => e.stopPropagation()} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-700 transition">
+                                                        <Download size={14} />
+                                                    </a>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="w-px h-3.5 bg-gray-200 mx-1 opacity-50"></div>
+
+                    <button onClick={() => setShowAssistant(false)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all" title="Collapse">
+                        <PanelLeftClose size={15} strokeWidth={1.5} />
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 no-scrollbar relative">
+                {messages.length === 0 ? (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+                        <div className="flex items-center gap-2.5 mb-6">
+                            <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-white font-bold text-[10px] tracking-wide shadow-sm">XC</div>
+                            <span className="font-bold text-base text-gray-900 tracking-tight">XcAI Studio</span>
+                        </div>
+
+                        <h3 className="text-xl font-bold text-gray-900 leading-tight mb-2">试试这些 XcAI Skills</h3>
+                        <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+                            点击下方技能，即刻开始专业创作
+                        </p>
+
+                        <div className="flex flex-wrap gap-2.5">
+                            <button
+                                onClick={() => handleSend(buildQuickSkillPrompt('请帮我设计一套亚马逊产品Listing图'), undefined, webEnabled, { id: 'amazon-listing', name: '亚马逊产品套图', iconName: 'Store', config: { twoStep: true, defaults: { aspectRatio: '3:4', count: 3, imageSize: '2K', model: 'nanobanana2' } } })}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <Store size={15} strokeWidth={1.8} />
+                                <span>亚马逊产品套图</span>
+                            </button>
+                            <button
+                                onClick={() => handleSend(buildQuickSkillPrompt('请帮我设计一套品牌Logo视觉系统'), undefined, webEnabled, { id: 'logo-design', name: 'Logo 与品牌', iconName: 'Layout', config: { twoStep: true } })}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <Layout size={15} strokeWidth={1.8} />
+                                <span>Logo 与品牌</span>
+                            </button>
+                            <button
+                                onClick={() => handleSend(buildQuickSkillPrompt('请帮我设计一套社交媒体视觉素材'), undefined, webEnabled, { id: 'social-media', name: '社交媒体', iconName: 'Globe', config: { twoStep: true } })}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <Globe size={15} strokeWidth={1.8} />
+                                <span>社交媒体</span>
+                            </button>
+                            <button
+                                onClick={() => handleSend(buildQuickSkillPrompt('请帮我设计一套营销宣传册'), undefined, webEnabled, { id: 'brochure', name: '营销宣传册', iconName: 'FileText', config: { twoStep: true } })}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <FileText size={15} strokeWidth={1.8} />
+                                <span>营销宣传册</span>
+                            </button>
+                            <button
+                                onClick={handleStoryboardQuickSend}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <Video size={15} strokeWidth={1.8} />
+                                <span>分镜故事板</span>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setActiveQuickSkillSynced(CLOTHING_SKILL);
+                                    handleSend(
+                                        buildQuickSkillPrompt('请帮我进行服装棚拍组图设计'),
+                                        undefined,
+                                        webEnabled,
+                                        {
+                                            id: 'clothing-studio',
+                                            name: '服装棚拍组图',
+                                            iconName: 'Shirt',
+                                            config: {
+                                                twoStep: true,
+                                                defaults: {
+                                                    aspectRatio: '3:4',
+                                                    count: 3,
+                                                    model: 'nanobanana2',
+                                                },
+                                            },
+                                        }
+                                    );
+                                }}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <ImageIcon size={15} strokeWidth={1.8} />
+                                <span>服装棚拍组图</span>
+                            </button>
+                            <button
+                                onClick={() => handleSend(
+                                    '执行一键全流程',
+                                    undefined,
+                                    webEnabled,
+                                    {
+                                        id: 'xcai-oneclick',
+                                        name: 'SKYSPER视觉',
+                                        iconName: 'Compass',
+                                        config: {
+                                            mode: 'standard',
+                                            outputs: {
+                                                startup_pack: true,
+                                                p0_strategy: true,
+                                                p1_visual: true,
+                                                p2_copy: true,
+                                                p3_main_image: true,
+                                                p4_secondary_images: true,
+                                                p5_aplus: true,
+                                                final_image_generation: false,
+                                            },
+                                        },
+                                    }
+                                )}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <Compass size={15} strokeWidth={1.8} />
+                                <span>SKYSPER视觉</span>
+                            </button>
+                        </div>
+                    </motion.div>
+                ) : (
+                    <MessageList
+                        onSend={handleSend}
+                        onSmartGenerate={handleSmartGenerate}
+                        onPreview={setPreviewUrl}
+                        onClothingSubmitRequirements={onClothingSubmitRequirements}
+                        onClothingGenerateModel={onClothingGenerateModel}
+                        onClothingPickModelCandidate={onClothingPickModelCandidate}
+                        onClothingInsertToCanvas={onClothingInsertToCanvas}
+                        onClothingRetryFailed={onClothingRetryFailed}
+                    />
+                )}
+            </div>
+
+            {/* [XC-STUDIO] 生成进度展示位 - 仅在分析或执行生图阶段显示 */}
+            <AnimatePresence mode="wait">
+                {currentTask && currentTask.status === 'analyzing' && (
+                    <motion.div 
+                        key="analyzing"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        className="mx-5 mb-4 flex items-center gap-3 px-4 py-2.5 bg-[#F1F3F5] rounded-xl"
+                    >
+                        <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shadow-sm transform scale-90 text-white font-bold text-[9px] tracking-wide">
+                           XC
+                        </div>
+                        <span className="text-[11px] font-bold text-gray-400">AI 正在深度分析中...</span>
+                        <div className="flex items-center gap-1 opacity-10 ml-auto">
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce"></span>
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                        </div>
+                    </motion.div>
+                )}
+
+                {currentTask && currentTask.status === 'executing' && (
+                    <motion.div 
+                        key="executing"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        className="mx-5 mb-4 flex items-center gap-3 px-4 py-2.5 bg-[#F1F3F5] rounded-xl"
+                    >
+                        <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shadow-sm transform scale-90 text-white font-bold text-[9px] tracking-wide">
+                           XC
+                        </div>
+                        <span className="text-[11px] font-bold text-gray-400">正在生成设计中...</span>
+                        <div className="flex items-center gap-1 opacity-10 ml-auto">
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce"></span>
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                        </div>
+                    </motion.div>
+                )}
+
+
+            </AnimatePresence>
+
+            <div className="shrink-0 flex-shrink-0 border-t border-gray-100 bg-[#f8f9fc]">
+                <InputArea
+                    creationMode={creationMode}
+                    setCreationMode={setCreationMode}
+                    handleSend={handleSendWithQuickSkill}
+                    handleModeSwitch={handleModeSwitch}
+                    fileInputRef={fileInputRef}
+                    selectedChipId={selectedChipId}
+                    setSelectedChipId={setSelectedChipId}
+                    hoveredChipId={hoveredChipId}
+                    setHoveredChipId={setHoveredChipId}
+                    showModeSelector={showModeSelector}
+                    setShowModeSelector={setShowModeSelector}
+                    showModelPreference={showModelPreference}
+                    setShowModelPreference={setShowModelPreference}
+                    modelPreferenceTab={modelPreferenceTab}
+                    setModelPreferenceTab={setModelPreferenceTab}
+                    autoModelSelect={autoModelSelect}
+                    setAutoModelSelect={setAutoModelSelect}
+                    preferredImageModel={preferredImageModel}
+                    setPreferredImageModel={setPreferredImageModel}
+                    preferredVideoModel={preferredVideoModel}
+                    setPreferredVideoModel={setPreferredVideoModel}
+                    preferred3DModel={preferred3DModel}
+                    setPreferred3DModel={setPreferred3DModel}
+                    showRatioPicker={showRatioPicker}
+                    setShowRatioPicker={setShowRatioPicker}
+                    showModelPicker={showModelPicker}
+                    setShowModelPicker={setShowModelPicker}
+                    isInputFocused={isInputFocused}
+                    setIsInputFocused={setIsInputFocused}
+                    isDragOver={isDragOver}
+                    setIsDragOver={setIsDragOver}
+                    isVideoPanelHovered={isVideoPanelHovered}
+                    setIsVideoPanelHovered={setIsVideoPanelHovered}
+                    showVideoSettingsDropdown={showVideoSettingsDropdown}
+                    setShowVideoSettingsDropdown={setShowVideoSettingsDropdown}
+                    markers={markers}
+                    onSaveMarkerLabel={onSaveMarkerLabel}
+                    activeQuickSkill={activeQuickSkill}
+                    onClearQuickSkill={() => setActiveQuickSkillSynced(null)}
+                />
+            </div>
+        </motion.div>
+    );
+};

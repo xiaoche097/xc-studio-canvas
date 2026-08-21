@@ -5,7 +5,8 @@ export const STORE_NAME = 'projects';
 export const TOPIC_SNAPSHOT_STORE = 'topic_snapshots';
 export const TOPIC_MEMORY_ITEM_STORE = 'topic_memory_items';
 export const TOPIC_ASSET_STORE = 'topic_assets';
-const DB_VERSION = 3;
+export const MATERIAL_LIBRARY_STORE = 'material_library';
+const DB_VERSION = 4;
 
 export const openWorkspaceDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -60,6 +61,12 @@ export const openWorkspaceDB = (): Promise<IDBDatabase> => {
             store.createIndex('memoryKey', 'memoryKey', { unique: false });
           }
         } catch (e) { console.warn('Upgrade TOPIC_ASSET_STORE skipped:', e); }
+      }
+
+      if (!db.objectStoreNames.contains(MATERIAL_LIBRARY_STORE)) {
+        const store = db.createObjectStore(MATERIAL_LIBRARY_STORE, { keyPath: 'id' });
+        store.createIndex('kind', 'kind', { unique: false });
+        store.createIndex('updatedAt', 'updatedAt', { unique: false });
       }
     };
   });

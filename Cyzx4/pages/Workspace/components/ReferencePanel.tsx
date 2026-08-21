@@ -1,0 +1,265 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Box,
+  ChevronRight,
+  Image as ImageIcon,
+  Images,
+  Package,
+  Palette,
+  Paperclip,
+  Plus,
+  SlidersHorizontal,
+  UserRound,
+  X,
+} from 'lucide-react';
+import PinterestGallery from '../../../components/PinterestGallery';
+import { listMaterials, type MaterialKind, type MaterialRecord } from '../../../services/materialLibrary';
+import type { CanvasElement, ChatMessage } from '../../../types';
+
+type ReferenceTab = 'reference' | 'assets' | 'pins' | 'plugins';
+
+interface ReferencePanelProps {
+  elements: CanvasElement[];
+  messages: ChatMessage[];
+  onAddImage: (url: string, label?: string) => void;
+  onAttachToAgent: (url: string, label?: string) => void | Promise<void>;
+  assistantOpen?: boolean;
+  pages: Array<{ id: string; title: string }>;
+  activePageId: string;
+  onSelectPage: (id: string) => void;
+  onAddPage: () => void;
+  onDeletePage: (id: string) => void;
+}
+
+interface VisualAsset {
+  id: string;
+  url: string;
+  title: string;
+  source: 'canvas' | 'generated' | 'upload';
+}
+
+const materialTabs: Array<{ kind: MaterialKind; label: string }> = [
+  { kind: 'brand', label: '品牌套件' },
+  { kind: 'character', label: '角色' },
+  { kind: 'product', label: '产品' },
+  { kind: 'custom', label: '自定义' },
+];
+
+const materialIcon: Record<MaterialKind, React.ComponentType<{ className?: string }>> = {
+  brand: Box,
+  character: UserRound,
+  product: Package,
+  custom: Palette,
+};
+
+const ChromeMark = ({ small = false }: { small?: boolean }) => (
+  <span
+    aria-hidden="true"
+    className={`relative inline-grid shrink-0 place-items-center rounded-full ${small ? 'h-4 w-4' : 'h-12 w-12'}`}
+    style={{ background: 'conic-gradient(from -30deg,#ea4335 0 33%,#fbbc05 33% 46%,#34a853 46% 66%,#4285f4 66% 100%)' }}
+  >
+    <span className={`rounded-full border-white bg-[#4285f4] ${small ? 'h-1.5 w-1.5 border' : 'h-5 w-5 border-[3px]'}`} />
+  </span>
+);
+
+const PinterestMark = () => (
+  <span className="grid h-5 w-5 place-items-center rounded-full bg-[#e60023] font-serif text-[0.65rem] font-black text-white">P</span>
+);
+
+const ReferencePanel: React.FC<ReferencePanelProps> = ({
+  elements,
+  messages,
+  onAddImage,
+  onAttachToAgent,
+  assistantOpen = true,
+  pages,
+  activePageId,
+  onSelectPage,
+  onAddPage,
+  onDeletePage,
+}) => {
+  const [activeTab, setActiveTab] = useState<ReferenceTab>('reference');
+  const [uploads, setUploads] = useState<VisualAsset[]>([]);
+  const [materials, setMaterials] = useState<MaterialRecord[]>([]);
+  const [materialKind, setMaterialKind] = useState<MaterialKind>('brand');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    listMaterials().then((records) => { if (active) setMaterials(records); }).catch(console.error);
+    return () => { active = false; };
+  }, [activeTab]);
+
+  const canvasAssets = useMemo<VisualAsset[]>(() => elements
+    .filter((element) => element.type === 'image' && Boolean(element.url))
+    .map((element) => ({
+      id: `canvas-${element.id}`,
+      url: element.url!,
+      title: element.genPrompt || element.prompt || '画布图片',
+      source: 'canvas',
+    })), [elements]);
+
+  const generatedAssets = useMemo<VisualAsset[]>(() => messages.flatMap((message, messageIndex) =>
+    (message.agentData?.imageUrls || []).map((url: string, imageIndex: number) => ({
+      id: `generated-${message.id}-${imageIndex}`,
+      url,
+      title: message.agentData?.title || `生成图片 ${messageIndex + 1}-${imageIndex + 1}`,
+      source: 'generated' as const,
+    })),
+  ), [messages]);
+
+  const allAssets = useMemo(() => {
+    const seen = new Set<string>();
+    return [...uploads, ...generatedAssets, ...canvasAssets].filter((asset) => {
+      if (seen.has(asset.url)) return false;
+      seen.add(asset.url);
+      return true;
+    });
+  }, [canvasAssets, generatedAssets, uploads]);
+
+  const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+    files.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || '');
+        if (!url) return;
+        const asset: VisualAsset = { id: `upload-${Date.now()}-${index}`, url, title: file.name, source: 'upload' };
+        setUploads((current) => [asset, ...current]);
+        void onAttachToAgent(url, file.name);
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = '';
+  };
+
+  const visibleMaterials = materials.filter((material) => material.kind === materialKind);
+
+  return (
+    <aside className="relative z-50 hidden h-full min-h-0 w-80 shrink-0 flex-col border-r border-slate-200 bg-white pt-14 xl:flex" aria-label="项目工具栏">
+      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
+
+      <nav
+        className="absolute top-0 flex h-14 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2"
+        style={{
+          left: assistantOpen ? 0 : '20rem',
+          width: assistantOpen
+            ? 'calc(100vw - 25rem)'
+            : 'calc(100vw - 20rem)',
+        }}
+        aria-label="项目资源页面"
+      >
+        <span className="flex shrink-0 items-center gap-1">
+          <ToolButton active={activeTab === 'reference'} label="参考" onClick={() => setActiveTab('reference')}><Paperclip className="h-4 w-4" /></ToolButton>
+          <ToolButton active={activeTab === 'assets'} label="我的素材" onClick={() => setActiveTab('assets')}><Images className="h-4 w-4" /></ToolButton>
+          <ToolButton active={activeTab === 'pins'} label="Pinterest" onClick={() => setActiveTab('pins')}><PinterestMark /></ToolButton>
+          <ToolButton active={activeTab === 'plugins'} label="Lovart Clipper" onClick={() => setActiveTab('plugins')}><ChromeMark small /></ToolButton>
+        </span>
+        <span className="mx-1 h-4 w-px shrink-0 bg-slate-200" />
+        {pages.map((page) => {
+          const isActive = activePageId === page.id;
+          return (
+            <div
+              key={page.id}
+              className={`group flex h-9 shrink-0 items-center rounded-lg text-xs font-semibold transition ${
+                isActive
+                  ? 'bg-slate-200 text-slate-950'
+                  : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelectPage(page.id)}
+                aria-current={isActive ? 'page' : undefined}
+                className="flex h-full items-center gap-1.5 rounded-l-lg py-1 pl-3 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-950"
+              >
+                <span className="grid h-4 w-4 place-items-center rounded border border-current">
+                  <span className="h-1.5 w-1.5 rounded-sm bg-current" />
+                </span>
+                <span>{page.title}</span>
+              </button>
+              {pages.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onDeletePage(page.id)}
+                  aria-label={`删除${page.title}`}
+                  title={`删除${page.title}`}
+                  className={`mr-1 grid h-7 w-7 place-items-center rounded-md outline-none transition hover:bg-slate-300 focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                    isActive
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                  }`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <button type="button" onClick={onAddPage} aria-label="添加新页面" className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-400 outline-none transition hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" /></button>
+      </nav>
+
+      {activeTab === 'pins' ? (
+        <div className="min-h-0 flex-1 overflow-hidden"><PinterestGallery compact onSelectPin={(url, title) => onAddImage(url, title)} /></div>
+      ) : activeTab === 'plugins' ? (
+        <section className="flex min-h-0 flex-1 flex-col">
+          <header className="flex min-h-14 shrink-0 items-center border-b border-slate-100 px-4"><h2 className="text-base font-bold text-slate-950">Lovart Clipper</h2></header>
+          <div className="flex flex-1 items-center justify-center px-6 pb-20 text-center">
+            <div>
+              <ChromeMark />
+              <p className="mt-5 text-sm font-medium leading-6 text-slate-800">安装 XC AI Clipper，一键收集网页灵感图</p>
+              <button type="button" onClick={() => window.open('https://chromewebstore.google.com/', '_blank', 'noopener,noreferrer')} className="mt-4 min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-950">前往安装</button>
+            </div>
+          </div>
+        </section>
+      ) : activeTab === 'assets' ? (
+        <section className="min-h-0 flex-1 overflow-y-auto">
+          <header className="border-b border-slate-200 px-4 pt-4">
+            <h2 className="text-base font-black text-slate-950">我的素材</h2>
+            <div className="mt-3 flex gap-5 overflow-x-auto">
+              {materialTabs.map(({ kind, label }) => <button key={kind} type="button" onClick={() => setMaterialKind(kind)} className={`relative min-h-10 shrink-0 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${materialKind === kind ? 'text-slate-950 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-slate-950' : 'text-slate-500 hover:text-slate-800'}`}>{label}</button>)}
+            </div>
+          </header>
+
+          <div className="space-y-3 p-3">
+            <button type="button" onClick={() => { window.location.hash = '#/'; }} className="flex min-h-16 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white text-xs font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-950"><span className="grid h-4 w-4 place-items-center rounded-full bg-lime-300 text-[0.65rem] text-slate-900">+</span>{materialKind === 'brand' ? '创建品牌套件' : `创建${materialTabs.find((item) => item.kind === materialKind)?.label || '素材'}`}</button>
+
+            {visibleMaterials.map((material) => {
+              const Icon = materialIcon[material.kind];
+              const preview = [...material.logos, ...material.references, ...material.files].find((file) => file.type.startsWith('image/'));
+              return (
+                <button key={material.id} type="button" disabled={!preview} onClick={() => preview && onAddImage(preview.dataUrl, material.name)} className="group flex min-h-28 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left outline-none transition hover:border-slate-400 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-default">
+                  <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-100">{preview ? <img src={preview.dataUrl} alt="" className="h-full w-full object-cover" /> : <Icon className="h-5 w-5 text-slate-400" />}</span>
+                  <span className="min-w-0 flex-1 self-start pt-1"><span className="block truncate text-sm font-semibold text-slate-950">{material.name || '未命名'}</span><span className="mt-1 block text-xs text-slate-400">{material.guide || '素材套件'}</span></span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                </button>
+              );
+            })}
+
+            {visibleMaterials.length === 0 && <p className="px-4 py-8 text-center text-xs leading-5 text-slate-400">还没有这类素材，创建后会显示在这里。</p>}
+          </div>
+        </section>
+      ) : (
+        <section className="min-h-0 flex-1 overflow-y-auto">
+          <header className="flex min-h-14 items-center justify-between px-4"><h2 className="text-base font-black text-slate-950">参考</h2><button type="button" aria-label="筛选参考素材" className="grid h-11 w-11 place-items-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><SlidersHorizontal className="h-4 w-4" /></button></header>
+          <div className="grid grid-cols-2 gap-3 px-3 pb-4">
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="flex aspect-square flex-col items-center justify-center rounded-xl bg-slate-100 text-slate-500 outline-none transition hover:bg-slate-200 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-6 w-6" /><span className="sr-only">添加参考素材</span></button>
+            {allAssets.map((asset) => (
+              <button key={asset.id} type="button" onClick={() => void onAttachToAgent(asset.url, asset.title)} className="group overflow-hidden rounded-xl bg-white text-left outline-none transition hover:shadow-md focus-visible:ring-2 focus-visible:ring-slate-950">
+                <img src={asset.url} alt={asset.title} loading="lazy" className="aspect-[3/4] w-full object-cover" />
+                <p className="line-clamp-2 px-1 py-2 text-xs leading-4 text-slate-500">{asset.title}</p>
+              </button>
+            ))}
+          </div>
+          {allAssets.length === 0 && <div className="mx-3 mt-2 grid min-h-44 place-items-center rounded-xl border border-dashed border-slate-300 px-5 text-center"><div><ImageIcon className="mx-auto h-6 w-6 text-slate-300" /><p className="mt-2 text-xs leading-5 text-slate-400">这里会同步当前项目上传和生成的图片。</p></div></div>}
+        </section>
+      )}
+    </aside>
+  );
+};
+
+const ToolButton: React.FC<{ active: boolean; label: string; onClick: () => void; children: React.ReactNode }> = ({ active, label, onClick, children }) => (
+  <button type="button" onClick={onClick} title={label} aria-label={label} aria-pressed={active} className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${active ? 'bg-violet-100 text-violet-600' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}>{children}</button>
+);
+
+export default ReferencePanel;

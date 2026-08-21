@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Pinterest OAuth Callback</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fafafa; }
+    .card { background: white; padding: 24px 32px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; }
+    .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #e60023; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 12px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <div style="font-weight: bold; font-size: 14px; margin-top: 8px;">正在完成 Pinterest 授权连接...</div>
+    <div style="font-size: 12px; color: #888; margin-top: 4px;">授权窗口即将自动关闭</div>
+  </div>
+
+  <script>
+    (function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      const state = urlParams.get('state');
+      const error = urlParams.get('error');
+
+      if (error) {
+        if (window.opener) {
+          window.opener.postMessage({ type: 'PINTEREST_ERROR', error }, '*');
+        }
+        setTimeout(() => window.close(), 1500);
+        return;
+      }
+
+      if (code && window.opener) {
+        // 向主页面 opener 广播 PINTEREST_CONNECTED 消息
+        window.opener.postMessage({
+          type: 'PINTEREST_CONNECTED',
+          code: code,
+          state: state
+        }, '*');
+      }
+
+      setTimeout(() => {
+        window.close();
+      }, 600);
+    })();
+  </script>
+</body>
+</html>

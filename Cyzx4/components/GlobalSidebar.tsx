@@ -29,9 +29,8 @@ interface GlobalSidebarProps {
   activeSidebarItem: SidebarItem | string;
   onSelectSidebarItem: (item: SidebarItem) => void;
   onBack: () => void;
+  collapseRequest?: number;
 }
-
-const SIDEBAR_STORAGE_KEY = 'xc_global_sidebar_collapsed';
 
 const primaryItems = [
   { id: 'home' as const, label: '首页', icon: Home, color: 'text-indigo-500' },
@@ -62,31 +61,17 @@ export const GlobalSidebar: React.FC<GlobalSidebarProps> = ({
   activeSidebarItem,
   onSelectSidebarItem,
   onBack,
+  collapseRequest = 0,
 }) => {
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-      if (saved !== null) return saved === 'true';
-    } catch {}
-    return activeSidebarItem === 'home';
-  });
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    if (activeSidebarItem !== 'home') return;
+    if (collapseRequest <= 0) return;
     setCollapsed(true);
-    try {
-      localStorage.setItem(SIDEBAR_STORAGE_KEY, 'true');
-    } catch {}
-  }, [activeSidebarItem]);
+  }, [collapseRequest]);
 
   const toggleCollapsed = () => {
-    setCollapsed((current) => {
-      const next = !current;
-      try {
-        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
-      } catch {}
-      return next;
-    });
+    setCollapsed((current) => !current);
   };
 
   const navButton = (

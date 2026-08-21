@@ -3873,11 +3873,10 @@ export const App: React.FC<VideoStationAppProps> = ({
                     {/* Button 2: Document/Edit Button */}
                     <button 
                         onClick={() => {
-                            setActiveSidebarPanel('workflow');
                             setIsSettingsOpen(true);
                         }} 
                         className="w-10 h-10 rounded-full flex items-center justify-center bg-[#0d0d10]/90 backdrop-blur-3xl border border-white/5 text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-all shadow-2xl"
-                        title="系统配置 / 工作流"
+                        title="系统配置"
                     >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                     </button>

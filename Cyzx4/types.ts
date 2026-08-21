@@ -236,6 +236,13 @@ export interface Project {
   conversations?: ConversationSession[];
   activeConversationId?: string;
   thumbnail?: string;
+  pages?: Array<{
+    id: string;
+    title: string;
+    elements: CanvasElement[];
+    markers: Marker[];
+  }>;
+  activePageId?: string;
 }
 
 export * from './types/common';

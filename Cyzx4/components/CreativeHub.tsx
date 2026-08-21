@@ -26,8 +26,8 @@ import AssetsManager from './AssetsManager';
 import RecentUsedManager from './RecentUsedManager';
 import TaskCenterManager from './TaskCenterManager';
 import GlobalSidebar, { type SidebarItem } from './GlobalSidebar';
-import Home from '../pages/Home';
-import AgentWorkspace, { type WorkspaceSeed } from '../pages/AgentWorkspace';
+import Home, { type WorkspaceSeed } from '../pages/Home';
+import CanvasStudioManager from './CanvasStudioManager';
 
 type CategoryFilter = 'all' | 'fashion' | 'video' | 'architecture' | 'food' | 'utility';
 
@@ -128,6 +128,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [workspaceSeed, setWorkspaceSeed] = useState<WorkspaceSeed | null>(null);
+  const [sidebarCollapseRequest, setSidebarCollapseRequest] = useState(0);
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
   const normalizedQuery = normalizeSearch(query);
@@ -239,19 +240,26 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
           activeSidebarItem={activeSidebarItem}
           onSelectSidebarItem={onSelectSidebarItem}
           onBack={onBack}
+          collapseRequest={sidebarCollapseRequest}
         />
       )}
 
       {/* 2. RIGHT MAIN CONTENT AREA */}
       {activeSidebarItem === 'home' ? (
         <div className="flex-1 overflow-hidden min-w-0">
-          <Home onStartWorkspace={handleStartWorkspace} />
+          <Home
+            onStartWorkspace={handleStartWorkspace}
+            onAgentEngage={() =>
+              setSidebarCollapseRequest((request) => request + 1)
+            }
+          />
         </div>
       ) : activeSidebarItem === 'canvas' ? (
         <div className="flex-1 overflow-hidden min-w-0">
-          <AgentWorkspace
-            seed={workspaceSeed}
-            onBack={() => onSelectSidebarItem('home')}
+          <CanvasStudioManager
+            initialPrompt={workspaceSeed?.prompt}
+            initialAttachments={workspaceSeed?.attachments}
+            onBackToHub={() => onSelectSidebarItem('home')}
           />
         </div>
       ) : activeSidebarItem === 'assets' ? (

@@ -16,30 +16,49 @@ import {
   Image as ImageIcon,
   ChevronDown,
   PlusCircle,
+  Check,
 } from "lucide-react";
 import PinterestGallery from "../components/PinterestGallery";
-import type { WorkspaceSeed } from "./AgentWorkspace";
+import MaterialLibrary from "./Home/components/MaterialLibrary";
 import { createNewWorkspacePath, workspacePath } from "../utils/routes";
 import { getProjects } from "../services/storage";
 import { Project } from "../types";
+import type { ImageModel } from "../types";
+import { safeLocalStorageSetItem } from "../utils/safe-storage";
+import {
+  DEFAULT_AUTO_IMAGE_MODEL,
+  IMAGE_MODEL_OPTIONS,
+  PREFERRED_IMAGE_MODEL_TO_STORAGE_ID,
+  STORAGE_ID_TO_PREFERRED_IMAGE_MODEL,
+} from "./Workspace/modelOptions";
 
 type TopTabType = "skill" | "pinterest" | "brand" | "clipper";
+
+export interface WorkspaceSeed {
+  prompt: string;
+  attachments: File[];
+}
 
 interface HomeProps {
   onExit?: () => void;
   onStartWorkspace?: (seed: WorkspaceSeed) => void;
+  onAgentEngage?: () => void;
 }
 
-export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace }) => {
+export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEngage }) => {
   const navigate = (to: string, _options?: any) => {
     window.location.hash = typeof to === 'string' ? to : '';
   };
   const [activeTab, setActiveTab] = useState<TopTabType>("brand");
-  const [brandSubTab, setBrandSubTab] = useState<"kit" | "role" | "product" | "custom">("kit");
   // 左侧输入框状态
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelPreferenceRef = useRef<HTMLDivElement>(null);
+  const [showModelPreference, setShowModelPreference] = useState(false);
+  const [autoModelSelect, setAutoModelSelect] = useState(true);
+  const [preferredImageModel, setPreferredImageModel] =
+    useState<ImageModel>(DEFAULT_AUTO_IMAGE_MODEL);
 
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
 
@@ -50,6 +69,71 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace }) => {
     };
     load();
   }, []);
+
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(
+        localStorage.getItem("setting_image_models") || "[]",
+      );
+      const first = Array.isArray(parsed)
+        ? String(parsed[0] || "").trim()
+        : "";
+      if (!first || first === "Auto") {
+        setAutoModelSelect(true);
+        setPreferredImageModel(DEFAULT_AUTO_IMAGE_MODEL);
+        return;
+      }
+      const mapped = STORAGE_ID_TO_PREFERRED_IMAGE_MODEL[first];
+      if (mapped) {
+        setAutoModelSelect(false);
+        setPreferredImageModel(mapped);
+      }
+    } catch {
+      setAutoModelSelect(true);
+      setPreferredImageModel(DEFAULT_AUTO_IMAGE_MODEL);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showModelPreference) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!modelPreferenceRef.current?.contains(event.target as Node)) {
+        setShowModelPreference(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowModelPreference(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showModelPreference]);
+
+  const updateAutoModelSelect = (enabled: boolean) => {
+    setAutoModelSelect(enabled);
+    const selected = enabled
+      ? ["Auto"]
+      : [
+          PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[preferredImageModel] ||
+            preferredImageModel,
+        ];
+    safeLocalStorageSetItem("setting_image_models", JSON.stringify(selected));
+  };
+
+  const selectPreferredImageModel = (model: ImageModel) => {
+    setPreferredImageModel(model);
+    setAutoModelSelect(false);
+    safeLocalStorageSetItem(
+      "setting_image_models",
+      JSON.stringify([
+        PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[model] || model,
+      ]),
+    );
+    setShowModelPreference(false);
+  };
 
   const handleSendDesign = () => {
     if (prompt.trim() || attachments.length > 0) {
@@ -135,7 +219,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace }) => {
             </div>
 
             {/* AI 设计输入框 */}
-            <div className="flex min-h-[11rem] flex-col justify-between rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-[0_14px_38px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow] focus-within:border-slate-400 focus-within:shadow-[0_18px_44px_rgba(15,23,42,0.09)]">
+            <div
+              onFocusCapture={onAgentEngage}
+              className="flex min-h-[11rem] flex-col justify-between rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-[0_14px_38px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow] focus-within:border-slate-400 focus-within:shadow-[0_18px_44px_rgba(15,23,42,0.09)]"
+            >
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -180,9 +267,85 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace }) => {
                 />
 
                 <div className="flex items-center gap-2">
-                  <button type="button" aria-label="从素材库选择" className="grid h-11 w-11 cursor-pointer place-items-center rounded-xl text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950">
-                    <Box size={16} />
-                  </button>
+                  <div ref={modelPreferenceRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowModelPreference((visible) => !visible)}
+                      aria-label="模型偏好"
+                      aria-haspopup="dialog"
+                      aria-expanded={showModelPreference}
+                      className={`grid h-11 w-11 cursor-pointer place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                        showModelPreference
+                          ? "bg-slate-100 text-slate-950"
+                          : "text-slate-400 hover:bg-slate-100 hover:text-slate-950"
+                      }`}
+                    >
+                      <Box size={16} />
+                    </button>
+
+                    {showModelPreference && (
+                      <section
+                        role="dialog"
+                        aria-label="模型偏好"
+                        className="absolute bottom-full right-0 z-50 mb-3 w-[min(21rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-[0_22px_60px_rgba(15,23,42,0.16)]"
+                      >
+                        <header className="flex items-center justify-between gap-4">
+                          <div>
+                            <h3 className="text-sm font-black text-slate-950">模型偏好</h3>
+                            <p className="mt-0.5 text-[0.68rem] text-slate-400">图像生成模型</p>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                            <span>自动</span>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={autoModelSelect}
+                              onClick={() => updateAutoModelSelect(!autoModelSelect)}
+                              className={`relative h-6 w-11 rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                                autoModelSelect ? "bg-slate-950" : "bg-slate-200"
+                              }`}
+                            >
+                              <span
+                                className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                                  autoModelSelect ? "translate-x-5" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </header>
+
+                        <div className="mt-4 max-h-64 space-y-1 overflow-y-auto pr-1">
+                          {IMAGE_MODEL_OPTIONS.map((model) => {
+                            const selected = preferredImageModel === model.id;
+                            return (
+                              <button
+                                key={model.id}
+                                type="button"
+                                onClick={() => selectPreferredImageModel(model.id)}
+                                className={`flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                                  selected
+                                    ? "bg-slate-100 text-slate-950"
+                                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                                }`}
+                              >
+                                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border text-xs font-black ${selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"}`}>AI</span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center gap-2 text-xs font-bold">
+                                    {model.name}
+                                    {autoModelSelect && model.id === DEFAULT_AUTO_IMAGE_MODEL && (
+                                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[0.6rem] text-blue-600">自动默认</span>
+                                    )}
+                                  </span>
+                                  <span className="mt-0.5 block truncate text-[0.68rem] text-slate-400">{model.desc} · {model.time}</span>
+                                </span>
+                                {selected && <Check className="h-4 w-4 shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+                  </div>
                   <button
                     onClick={handleSendDesign}
                     disabled={!prompt.trim() && attachments.length === 0}
@@ -228,71 +391,11 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace }) => {
           )}
 
           {activeTab === "brand" && (
-            /* 品牌素材与统一套件 (图 1) */
-            <div className="w-full h-full flex flex-col">
-              {/* 子导航 */}
-              <div className="flex items-center gap-6 px-8 py-3 border-b border-gray-100 text-xs font-bold text-gray-400">
-                <button
-                  onClick={() => setBrandSubTab("kit")}
-                  className={`pb-1 transition ${brandSubTab === "kit" ? "text-black border-b-2 border-black font-extrabold" : "hover:text-gray-600"}`}
-                >
-                  品牌套件
-                </button>
-                <button
-                  onClick={() => setBrandSubTab("role")}
-                  className={`pb-1 transition ${brandSubTab === "role" ? "text-black border-b-2 border-black font-extrabold" : "hover:text-gray-600"}`}
-                >
-                  角色
-                </button>
-                <button
-                  onClick={() => setBrandSubTab("product")}
-                  className={`pb-1 transition ${brandSubTab === "product" ? "text-black border-b-2 border-black font-extrabold" : "hover:text-gray-600"}`}
-                >
-                  产品
-                </button>
-                <button
-                  onClick={() => setBrandSubTab("custom")}
-                  className={`pb-1 transition ${brandSubTab === "custom" ? "text-black border-b-2 border-black font-extrabold" : "hover:text-gray-600"}`}
-                >
-                  自定义
-                </button>
-              </div>
-
-              {/* 品牌素材卡片展示 */}
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#FBFBFB]">
-                <div className="max-w-md space-y-6">
-                  {/* 预设卡片图 */}
-                  <div className="relative rounded-3xl overflow-hidden border border-gray-200/80 shadow-2xl shadow-gray-200/50 bg-white p-2">
-                    <img
-                      src="https://images.unsplash.com/photo-1542744094-3a31b272c490?w=800&auto=format&fit=crop&q=80"
-                      alt="Brand Kit"
-                      className="w-full h-48 object-cover rounded-2xl"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-4">
-                      <div className="flex items-center gap-2 text-white font-bold text-sm">
-                        <Box size={18} className="text-yellow-400" /> Lovart Brand Kit
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-base font-extrabold text-gray-900">
-                      保持品牌风格一致
-                    </h3>
-                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                      创建品牌套件，让生成结果保持一致 — 可将其关联到项目，或在对话中随时提及。
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => navigate(createNewWorkspacePath())}
-                    className="px-6 py-2.5 bg-gray-900 text-white font-bold text-xs rounded-xl shadow-lg hover:bg-black transition active:scale-95"
-                  >
-                    新建品牌套件
-                  </button>
-                </div>
-              </div>
-            </div>
+            <MaterialLibrary
+              onAddToConversation={(material) => {
+                setPrompt(`请使用「${material.name || '未命名'}」${material.kind === 'brand' ? '品牌套件' : '素材'}完成这次设计。${material.guide ? `设计指南：${material.guide}` : ''}`);
+              }}
+            />
           )}
 
           {activeTab === "skill" && (
