@@ -141,6 +141,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
   // 左侧输入框状态
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachedClipperItems, setAttachedClipperItems] = useState<Array<{ id: string; url: string; title: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelPreferenceRef = useRef<HTMLDivElement>(null);
   const [showModelPreference, setShowModelPreference] = useState(false);
@@ -227,9 +228,12 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     const skillPrefix = selectedSkills.length > 0
       ? selectedSkills.map(s => `【使用技能：${s.title}】`).join(' ')
       : '';
-    const finalPrompt = skillPrefix ? `${skillPrefix} ${prompt}`.trim() : prompt.trim();
+    const clipperRefText = attachedClipperItems.length > 0
+      ? attachedClipperItems.map((i) => `【参考灵感图「${i.title}」: ${i.url}】`).join(' ')
+      : '';
+    const finalPrompt = [skillPrefix, clipperRefText, prompt.trim()].filter(Boolean).join(' ');
 
-    if (finalPrompt || attachments.length > 0) {
+    if (finalPrompt || attachments.length > 0 || attachedClipperItems.length > 0) {
       if (onStartWorkspace) {
         onStartWorkspace({ prompt: finalPrompt, attachments });
         return;
@@ -317,8 +321,8 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
               className="flex min-h-[11rem] flex-col justify-between rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-[0_14px_38px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow] focus-within:border-slate-400 focus-within:shadow-[0_18px_44px_rgba(15,23,42,0.09)]"
             >
               <div>
-                {/* 选中的专业技能标签芯片 (复刻对话框内部的 Skill Badge 效果) */}
-                {selectedSkills.length > 0 && (
+                {/* 选中的专业技能标签芯片 & 剪藏灵感图 Tag 胶囊 (100% 极简对齐图 2 效果) */}
+                {(selectedSkills.length > 0 || attachedClipperItems.length > 0) && (
                   <div className="flex flex-wrap gap-2 mb-2 pb-2 border-b border-slate-100">
                     {selectedSkills.map((skill) => (
                       <span
@@ -337,6 +341,30 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                           aria-label="移除技能"
                         >
                           <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+
+                    {/* 剪藏灵感图胶囊卡片 (100% 复刻图 2 Photo by ... 胶囊外观) */}
+                    {attachedClipperItems.map((item) => (
+                      <span
+                        key={item.id}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-2xs transition-all hover:border-slate-300"
+                      >
+                        <img src={item.url} alt={item.title} className="h-5 w-5 rounded-md object-cover bg-slate-100" />
+                        <span className="max-w-[130px] truncate">
+                          {item.title ? (item.title.startsWith('Photo by') ? item.title : `Photo by ${item.title}`) : 'Photo by Clipper'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAttachedClipperItems((prev) => prev.filter((i) => i.id !== item.id));
+                          }}
+                          className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                          aria-label="移除剪藏参考图"
+                        >
+                          <X size={11} />
                         </button>
                       </span>
                     ))}
@@ -619,7 +647,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
           {activeTab === "clipper" && (
             <ClipperLibraryView
               onAddToConversation={(url, title) => {
-                setPrompt(`参考已被剪藏灵感图「${title}」进行设计：${url}`);
+                setAttachedClipperItems((prev) => {
+                  if (prev.some((i) => i.url === url)) return prev;
+                  return [...prev, { id: `clip-${Date.now()}-${Math.random()}`, url, title }];
+                });
               }}
             />
           )}

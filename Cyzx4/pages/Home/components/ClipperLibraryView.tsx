@@ -70,6 +70,9 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  // 点击放大查看大图 Modal 状态
+  const [previewItem, setPreviewItem] = useState<ClippedItem | null>(null);
+
   useEffect(() => {
     try {
       localStorage.setItem('xc_ai_clipped_items', JSON.stringify(items));
@@ -332,11 +335,13 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                 <div
                   key={item.id}
                   onClick={() => {
-                    if (isSelectMode) toggleSelectCard(item.id);
+                    if (isSelectMode) {
+                      toggleSelectCard(item.id);
+                    } else {
+                      setPreviewItem(item);
+                    }
                   }}
-                  className={`group relative flex flex-col overflow-hidden rounded-[1.2rem] bg-white transition-all duration-300 ${
-                    isSelectMode ? 'cursor-pointer' : ''
-                  }`}
+                  className="group relative flex flex-col overflow-hidden rounded-[1.2rem] bg-white transition-all duration-300 cursor-pointer"
                 >
                   {/* 图片容器 */}
                   <div
@@ -564,6 +569,84 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               >
                 创建
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 放大查看图片 Modal (Lightbox 高清预览) */}
+      {previewItem && (
+        <div
+          onClick={() => setPreviewItem(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex max-h-[90vh] max-w-[90vw] flex-col items-center overflow-hidden rounded-3xl bg-slate-900 border border-white/10 p-4 text-white shadow-2xl"
+          >
+            {/* 右上角关闭按钮 ✕ */}
+            <button
+              type="button"
+              onClick={() => setPreviewItem(null)}
+              className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition hover:bg-white/20"
+              aria-label="关闭预览"
+            >
+              <X size={18} />
+            </button>
+
+            {/* 大图预览 */}
+            <div className="flex max-h-[75vh] w-full items-center justify-center overflow-hidden rounded-2xl bg-black/40">
+              <img
+                src={previewItem.url}
+                alt={previewItem.title}
+                className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-lg"
+              />
+            </div>
+
+            {/* 底部信息与快速操作按键 */}
+            <div className="mt-4 flex w-full items-center justify-between gap-4 px-2">
+              <div>
+                <h4 className="text-sm font-bold text-white line-clamp-1">{previewItem.title || '剪藏灵感图'}</h4>
+                <p className="text-xs text-slate-400 mt-0.5">平台: {getCategoryLabel(previewItem.platform || 'other')}</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onAddToConversation) {
+                      onAddToConversation(previewItem.url, previewItem.title);
+                      setToastMsg('✨ 已添加到对话框');
+                      setTimeout(() => setToastMsg(null), 2000);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-slate-200 shadow-md cursor-pointer"
+                >
+                  <Plus size={14} />
+                  添加到对话
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyImage(previewItem.url)}
+                  className="flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-xs font-bold text-white backdrop-blur-md transition hover:bg-white/20 cursor-pointer"
+                >
+                  <Copy size={14} />
+                  复制
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDeleteItem(previewItem.id);
+                    setPreviewItem(null);
+                  }}
+                  className="flex items-center gap-1.5 rounded-full bg-rose-500/20 px-3.5 py-2 text-xs font-bold text-rose-400 transition hover:bg-rose-500/30 cursor-pointer"
+                >
+                  <Trash2 size={14} />
+                  删除
+                </button>
+              </div>
             </div>
           </div>
         </div>
