@@ -59,26 +59,19 @@ interface ClipperLibraryViewProps {
   onAddToConversation?: (imageUrl: string, title: string) => void;
 }
 
-const DEMO_TEST_ITEMS: ClippedItem[] = [
-  {
-    id: 'demo-item-1',
-    title: 'Instagram 潮服搭配参考',
-    url: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80',
-    sourceUrl: 'https://www.instagram.com',
-    platform: 'instagram',
-    category: 'uncategorized',
-    timestamp: Date.now() - 3600000,
-  },
-  {
-    id: 'demo-item-2',
-    title: '小红书极简氛围质感图',
-    url: 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=800&q=80',
-    sourceUrl: 'https://www.xiaohongshu.com',
-    platform: 'xiaohongshu',
-    category: 'uncategorized',
-    timestamp: Date.now() - 7200000,
-  },
+const EXTENSION_DOWNLOAD_URL = `${import.meta.env.BASE_URL}xc-ai-clipper-extension.zip`;
+const LEGACY_DEMO_ITEM_IDS = new Set(['demo-item-1', 'demo-item-2']);
+const LEGACY_DEMO_IMAGE_MARKERS = [
+  'photo-1515886657613-9f3515b0c78f',
+  'photo-1539109136881-3be0616acf4b',
 ];
+
+const removeLegacyDemoItems = (items: ClippedItem[]): ClippedItem[] => (
+  items.filter((item) => (
+    !LEGACY_DEMO_ITEM_IDS.has(item.id)
+    && !LEGACY_DEMO_IMAGE_MARKERS.some((marker) => item.url.includes(marker))
+  ))
+);
 
 export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   onAddToConversation,
@@ -88,10 +81,10 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
       const stored = localStorage.getItem('xc_ai_clipped_items');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return removeLegacyDemoItems(parsed);
       }
     } catch {}
-    return DEMO_TEST_ITEMS;
+    return [];
   });
   const [clipperStorageReady, setClipperStorageReady] = useState(false);
   const receivedClipIdsRef = useRef(new Map<string, string>());
@@ -131,7 +124,9 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     loadClippedItems()
       .then((storedItems) => {
         if (cancelled) return;
-        if (storedItems.length > 0) setItems(storedItems as ClippedItem[]);
+        if (storedItems.length > 0) {
+          setItems(removeLegacyDemoItems(storedItems as ClippedItem[]));
+        }
       })
       .catch((error) => console.warn('[clipper] Failed to load IndexedDB library.', error))
       .finally(() => {
@@ -376,8 +371,18 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
           })}
         </div>
 
-        {/* 右侧仅有两个极其精致的图标 (精确复刻图 0 右侧: 【+】新建分类 & 【🎛️】选择模式) */}
+        {/* 右侧提供扩展下载、分类和批量选择入口 */}
         <div className="flex items-center gap-1">
+          <a
+            href={EXTENSION_DOWNLOAD_URL}
+            download="xc-ai-clipper-extension.zip"
+            title="下载 XC AI Clipper"
+            className="mr-1 inline-flex min-h-9 items-center gap-2 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">下载扩展</span>
+          </a>
+
           {/* 图标 1: 【+】直接触发新建分类弹窗 */}
           <button
             type="button"
@@ -547,25 +552,36 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
             })}
           </div>
         ) : (
-          <div className="flex min-h-[22rem] flex-col items-center justify-center px-6 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400 mb-4">
-              <Download size={20} />
+          <div className="flex min-h-[24rem] flex-col items-center justify-center px-6 text-center">
+            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 shadow-sm">
+              <Download size={22} strokeWidth={1.8} />
             </div>
-            <h3 className="text-base font-semibold text-slate-900">
-              安装 XC AI Clipper
+            <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+              从浏览器收集你的视觉灵感
             </h3>
-            <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500">
-              安装扩展后，采集的网页图片会自动出现在这里。
+            <p className="mt-2 max-w-md text-xs leading-5 text-slate-500">
+              当前灵感库还是空的。安装 XC AI Clipper 后，即可把网页图片一键保存到这里，并带入 Agent 对话继续创作。
             </p>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="mt-5 inline-flex min-h-12 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-500 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-            >
-              <Download size={13} />
-              下载 Chrome 扩展
-            </button>
-            <p className="mt-3 max-w-sm text-[11px] leading-5 text-slate-400">下载后在 chrome://extensions 开启开发者模式，并加载解压后的文件夹。</p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+              <a
+                href={EXTENSION_DOWNLOAD_URL}
+                download="xc-ai-clipper-extension.zip"
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-5 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+              >
+                <Download size={15} />
+                下载 XC AI Clipper
+              </a>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex min-h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+              >
+                查看安装步骤
+              </button>
+            </div>
+            <p className="mt-3 max-w-sm text-[11px] leading-5 text-slate-400">
+              下载 ZIP 并解压后，在 chrome://extensions 开启开发者模式并加载文件夹。
+            </p>
           </div>
         )}
       </main>
