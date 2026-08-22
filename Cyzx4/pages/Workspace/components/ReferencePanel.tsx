@@ -15,6 +15,8 @@ import {
 import PinterestGallery from '../../../components/PinterestGallery';
 import { listMaterials, type MaterialKind, type MaterialRecord } from '../../../services/materialLibrary';
 import type { CanvasElement, ChatMessage } from '../../../types';
+import { extractLegacyMessageReferences } from '../../../utils/message-references';
+import { getReadableAttachmentLabel } from '../../../utils/attachment-label';
 
 type ReferenceTab = 'reference' | 'assets' | 'pins' | 'plugins';
 
@@ -91,13 +93,38 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
   }, [activeTab]);
 
   const canvasAssets = useMemo<VisualAsset[]>(() => elements
-    .filter((element) => element.type === 'image' && Boolean(element.url))
+    .filter((element) => (element.type === 'image' || element.type === 'gen-image') && Boolean(element.url))
     .map((element) => ({
       id: `canvas-${element.id}`,
       url: element.url!,
       title: element.genPrompt || element.prompt || '画布图片',
-      source: 'canvas',
+      source: element.type === 'gen-image' ? 'generated' : 'canvas',
     })), [elements]);
+
+  const messageUploads = useMemo<VisualAsset[]>(() => messages.flatMap((message) => {
+    if (message.role !== 'user' || !Array.isArray(message.attachments)) return [];
+    return message.attachments
+      .filter((url): url is string => typeof url === 'string' && Boolean(url))
+      .map((url, index) => ({
+        id: `message-upload-${message.id}-${index}`,
+        url,
+        title: getReadableAttachmentLabel(
+          message.attachmentMetadata?.[index]?.markerName
+            || message.attachmentMetadata?.[index]?.name,
+          index,
+        ),
+        source: 'upload' as const,
+      }));
+  }), [messages]);
+
+  const legacyMessageUploads = useMemo<VisualAsset[]>(() => messages.flatMap((message) => (
+    extractLegacyMessageReferences(message.text).map((reference, index) => ({
+      id: `legacy-message-upload-${message.id}-${index}`,
+      url: reference.url,
+      title: reference.title,
+      source: 'upload' as const,
+    }))
+  )), [messages]);
 
   const generatedAssets = useMemo<VisualAsset[]>(() => messages.flatMap((message, messageIndex) =>
     (message.agentData?.imageUrls || []).map((url: string, imageIndex: number) => ({
@@ -110,12 +137,12 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
 
   const allAssets = useMemo(() => {
     const seen = new Set<string>();
-    return [...uploads, ...generatedAssets, ...canvasAssets].filter((asset) => {
+    return [...uploads, ...messageUploads, ...legacyMessageUploads, ...generatedAssets, ...canvasAssets].filter((asset) => {
       if (seen.has(asset.url)) return false;
       seen.add(asset.url);
       return true;
     });
-  }, [canvasAssets, generatedAssets, uploads]);
+  }, [canvasAssets, generatedAssets, legacyMessageUploads, messageUploads, uploads]);
 
   const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
@@ -124,7 +151,7 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
       reader.onload = () => {
         const url = String(reader.result || '');
         if (!url) return;
-        const asset: VisualAsset = { id: `upload-${Date.now()}-${index}`, url, title: file.name, source: 'upload' };
+        const asset: VisualAsset = { id: `upload-${Date.now()}-${index}`, url, title: getReadableAttachmentLabel(file.name, index), source: 'upload' };
         setUploads((current) => [asset, ...current]);
         void onAttachToAgent(url, file.name);
       };
@@ -153,7 +180,7 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
           <ToolButton active={activeTab === 'reference'} label="参考" onClick={() => setActiveTab('reference')}><Paperclip className="h-4 w-4" /></ToolButton>
           <ToolButton active={activeTab === 'assets'} label="我的素材" onClick={() => setActiveTab('assets')}><Images className="h-4 w-4" /></ToolButton>
           <ToolButton active={activeTab === 'pins'} label="Pinterest" onClick={() => setActiveTab('pins')}><PinterestMark /></ToolButton>
-          <ToolButton active={activeTab === 'plugins'} label="Lovart Clipper" onClick={() => setActiveTab('plugins')}><ChromeMark small /></ToolButton>
+          <ToolButton active={activeTab === 'plugins'} label="XC AI Clipper" onClick={() => setActiveTab('plugins')}><ChromeMark small /></ToolButton>
         </span>
         <span className="mx-1 h-4 w-px shrink-0 bg-slate-200" />
         {pages.map((page) => {
@@ -203,7 +230,7 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
         <div className="min-h-0 flex-1 overflow-hidden"><PinterestGallery compact onSelectPin={(url, title) => onAddImage(url, title)} /></div>
       ) : activeTab === 'plugins' ? (
         <section className="flex min-h-0 flex-1 flex-col">
-          <header className="flex min-h-14 shrink-0 items-center border-b border-slate-100 px-4"><h2 className="text-base font-bold text-slate-950">Lovart Clipper</h2></header>
+          <header className="flex min-h-14 shrink-0 items-center border-b border-slate-100 px-4"><h2 className="text-base font-bold text-slate-950">XC AI Clipper</h2></header>
           <div className="flex flex-1 items-center justify-center px-6 pb-20 text-center">
             <div>
               <ChromeMark />

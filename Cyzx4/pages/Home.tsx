@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import {
   Sparkles,
   Plus,
@@ -30,6 +30,13 @@ import { getProjects } from "../services/storage";
 import { Project, AppMode } from "../types";
 import type { ImageModel } from "../types";
 import { safeLocalStorageSetItem } from "../utils/safe-storage";
+import { fetchImageBlob } from "../utils/imageDownload";
+import { getReadableAttachmentLabel } from "../utils/attachment-label";
+import { createConversationId } from "../utils/conversation";
+import {
+  buildCreativeSkillData,
+  type CreativeSkillData,
+} from "../services/skills/creative-capabilities";
 import {
   DEFAULT_AUTO_IMAGE_MODEL,
   IMAGE_MODEL_OPTIONS,
@@ -46,13 +53,17 @@ import {
 type TopTabType = "skill" | "pinterest" | "brand" | "clipper";
 
 export interface WorkspaceSeed {
+  projectId: string;
+  conversationId?: string;
   prompt: string;
   attachments: File[];
+  skillData?: CreativeSkillData;
 }
 
 interface HomeProps {
   onExit?: () => void;
   onStartWorkspace?: (seed: WorkspaceSeed) => void;
+  onOpenProject?: (projectId: string) => void;
   onAgentEngage?: () => void;
   onOpenFeature?: (mode: AppMode) => void;
 }
@@ -64,6 +75,17 @@ const SKILL_CATEGORY_TABS = [
   { id: "model", label: "Fashion & Model" },
   { id: "tools", label: "Utility" },
 ];
+
+const MAX_HOME_IMAGE_ATTACHMENTS = 10;
+
+const isImageFile = (file: File) => (
+  file.type.startsWith('image/') || /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(file.name)
+);
+
+const normalizeComposerText = (value: string) => {
+  const normalized = value.replace(/\u200B/g, '').replace(/\u00A0/g, ' ');
+  return normalized.trim().length > 0 ? normalized : '';
+};
 
 const SkillCard: React.FC<{
   feature: CreativeFeature;
@@ -110,7 +132,7 @@ const SkillCard: React.FC<{
   );
 };
 
-export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEngage, onOpenFeature }) => {
+export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProject, onAgentEngage, onOpenFeature }) => {
   const navigate = (to: string, _options?: any) => {
     window.location.hash = typeof to === 'string' ? to : '';
   };
@@ -136,8 +158,14 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachedClipperItems, setAttachedClipperItems] = useState<Array<{ id: string; url: string; title: string }>>([]);
+  const [isPreparingWorkspace, setIsPreparingWorkspace] = useState(false);
+  const [workspaceLaunchError, setWorkspaceLaunchError] = useState('');
+  const [composerUploadError, setComposerUploadError] = useState('');
+  const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const composerDragDepthRef = useRef(0);
   const [selectedComposerTokenIndex, setSelectedComposerTokenIndex] = useState<number | null>(null);
   const [isCaretBeforeComposerTokens, setIsCaretBeforeComposerTokens] = useState(false);
+  const [composerTextPosition, setComposerTextPosition] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const richTextEditorRef = useRef<HTMLDivElement>(null);
   const modelPreferenceRef = useRef<HTMLDivElement>(null);
@@ -152,6 +180,8 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     () => attachments.map((file) => ({ file, url: URL.createObjectURL(file) })),
     [attachments],
   );
+  const composerTokenCount = selectedSkills.length + attachedClipperItems.length + attachments.length;
+  const previousComposerTokenCountRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -159,12 +189,25 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     };
   }, [attachmentPreviews]);
 
+  // New tokens are inserted at the current text caret position. Keeping the old
+  // numeric position prevents a newly uploaded image from jumping in front of
+  // text that the user typed first (null means "after the previous last token").
+  useLayoutEffect(() => {
+    const previousCount = previousComposerTokenCountRef.current;
+    if (composerTokenCount > previousCount) {
+      setComposerTextPosition((current) => (
+        current === null ? previousCount : Math.min(current, previousCount)
+      ));
+    }
+    previousComposerTokenCountRef.current = composerTokenCount;
+  }, [composerTokenCount]);
+
   useEffect(() => {
     const editor = richTextEditorRef.current;
     if (editor && editor.innerText !== prompt) {
       editor.innerText = prompt;
     }
-  }, [prompt]);
+  }, [prompt, composerTextPosition, composerTokenCount]);
 
   useEffect(() => {
     const load = async () => {
@@ -239,26 +282,46 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     setShowModelPreference(false);
   };
 
-  const handleSendDesign = () => {
-    const skillPrefix = selectedSkills.length > 0
-      ? selectedSkills.map(s => `【使用技能：${s.title}】`).join(' ')
-      : '';
-    const clipperRefText = attachedClipperItems.length > 0
-      ? attachedClipperItems.map((i) => `【参考灵感图「${i.title}」: ${i.url}】`).join(' ')
-      : '';
-    const finalPrompt = [skillPrefix, clipperRefText, prompt.trim()].filter(Boolean).join(' ');
+  const handleSendDesign = async () => {
+    if (isPreparingWorkspace) return;
+    const skillData = buildCreativeSkillData(selectedSkills);
+    // 图片是结构化附件，不再把 URL 拼进消息正文。
+    // Skill 同样通过结构化 capability 传给 Agent，不再伪装成普通提示词前缀。
+    const finalPrompt = prompt.trim() || (skillData ? '请根据附件完成所选创作任务。' : '');
 
     if (finalPrompt || attachments.length > 0 || attachedClipperItems.length > 0) {
-      if (onStartWorkspace) {
-        onStartWorkspace({ prompt: finalPrompt, attachments });
-        return;
+      setIsPreparingWorkspace(true);
+      setWorkspaceLaunchError('');
+      try {
+        const clipperFiles = await Promise.all(attachedClipperItems.map(async (item, index) => {
+          const blob = await fetchImageBlob(item.url);
+          const extension = blob.type.includes('jpeg') ? 'jpg' : blob.type.includes('webp') ? 'webp' : blob.type.includes('gif') ? 'gif' : 'png';
+          const safeName = (item.title || `clipper-reference-${index + 1}`)
+            .replace(/[\\/:*?"<>|]+/g, '-')
+            .slice(0, 80);
+          return new File([blob], `${safeName}.${extension}`, { type: blob.type || 'image/png' });
+        }));
+        const allAttachments = [...attachments, ...clipperFiles];
+        const projectId = `workspace-${Date.now()}`;
+        const conversationId = createConversationId('home');
+
+        if (onStartWorkspace) {
+          onStartWorkspace({ projectId, conversationId, prompt: finalPrompt, attachments: allAttachments, skillData });
+          return;
+        }
+        navigate(workspacePath(projectId), {
+          state: {
+            initialPrompt: finalPrompt,
+            initialAttachments: allAttachments,
+            initialSkillData: skillData,
+          },
+        });
+      } catch (error) {
+        console.error('[Home] Failed to prepare reference images:', error);
+        setWorkspaceLaunchError('参考图片读取失败，请检查图片链接或网络后重试。');
+      } finally {
+        setIsPreparingWorkspace(false);
       }
-      navigate(createNewWorkspacePath(), {
-        state: {
-          initialPrompt: finalPrompt,
-          initialAttachments: attachments,
-        },
-      });
     }
   };
 
@@ -276,6 +339,81 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     });
   };
 
+  const appendImageFiles = (candidates: File[]) => {
+    const imageFiles = candidates.filter(isImageFile);
+    if (imageFiles.length === 0) {
+      setComposerUploadError('这里只支持拖入或粘贴图片文件。');
+      return;
+    }
+
+    setAttachments((current) => {
+      const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+      const uniqueFiles = imageFiles.filter((file) => {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const availableSlots = Math.max(0, MAX_HOME_IMAGE_ATTACHMENTS - current.length);
+      if (uniqueFiles.length > availableSlots) {
+        setComposerUploadError(`最多添加 ${MAX_HOME_IMAGE_ATTACHMENTS} 张图片，超出的图片未加入。`);
+      } else {
+        setComposerUploadError('');
+      }
+      return [...current, ...uniqueFiles.slice(0, availableSlots)];
+    });
+  };
+
+  const appendRemoteImage = async (url: string) => {
+    try {
+      const blob = await fetchImageBlob(url);
+      const extension = blob.type.includes('jpeg') ? 'jpg' : blob.type.includes('webp') ? 'webp' : blob.type.includes('gif') ? 'gif' : 'png';
+      const rawName = decodeURIComponent(new URL(url).pathname.split('/').pop() || `copied-image.${extension}`);
+      const fileName = /\.[a-z0-9]{2,5}$/i.test(rawName) ? rawName : `${rawName}.${extension}`;
+      appendImageFiles([new File([blob], fileName, { type: blob.type || 'image/png' })]);
+    } catch (error) {
+      console.error('[Home] Failed to import dragged or copied image URL:', error);
+      setComposerUploadError('无法读取这张网络图片，请保存到本地后再拖入。');
+    }
+  };
+
+  const handleComposerPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const pastedFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (pastedFiles.length > 0) {
+      event.preventDefault();
+      appendImageFiles(pastedFiles);
+      return;
+    }
+
+    const html = event.clipboardData.getData('text/html');
+    const copiedImageUrl = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
+    if (/^https?:\/\//i.test(copiedImageUrl || '')) {
+      event.preventDefault();
+      void appendRemoteImage(copiedImageUrl!);
+    }
+  };
+
+  const handleComposerDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    composerDragDepthRef.current = 0;
+    setIsDraggingImages(false);
+
+    const droppedFiles = Array.from(event.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      appendImageFiles(droppedFiles);
+      return;
+    }
+
+    const droppedUrl = (event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain'))
+      .split(/\r?\n/)
+      .find((value) => /^https?:\/\//i.test(value.trim()))
+      ?.trim();
+    if (droppedUrl) void appendRemoteImage(droppedUrl);
+  };
+
   const canSendDesign = Boolean(
     prompt.trim()
     || attachments.length > 0
@@ -283,17 +421,21 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     || selectedSkills.length > 0,
   );
 
-  const composerTokenCount = selectedSkills.length + attachedClipperItems.length + attachments.length;
+  const activeComposerTextPosition = composerTextPosition === null
+    ? composerTokenCount
+    : Math.min(composerTextPosition, composerTokenCount);
 
   useEffect(() => {
     if (composerTokenCount === 0) {
       setSelectedComposerTokenIndex(null);
       setIsCaretBeforeComposerTokens(false);
+      setComposerTextPosition(null);
       return;
     }
     setSelectedComposerTokenIndex((current) => (
       current !== null && current >= composerTokenCount ? composerTokenCount - 1 : current
     ));
+    setComposerTextPosition((current) => current === null ? null : Math.min(current, composerTokenCount));
   }, [composerTokenCount]);
 
   const focusRichTextAtStart = () => {
@@ -332,6 +474,27 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     return leadingRange.toString().length === 0;
   };
 
+  const isRichTextCaretAtEnd = () => {
+    const editor = richTextEditorRef.current;
+    const selection = window.getSelection();
+    if (
+      !editor
+      || !selection
+      || selection.rangeCount === 0
+      || !selection.isCollapsed
+      || !selection.anchorNode
+      || !editor.contains(selection.anchorNode)
+    ) {
+      return false;
+    }
+
+    const currentRange = selection.getRangeAt(0);
+    const trailingRange = document.createRange();
+    trailingRange.selectNodeContents(editor);
+    trailingRange.setStart(currentRange.endContainer, currentRange.endOffset);
+    return trailingRange.toString().length === 0;
+  };
+
   const removeComposerTokenAt = (tokenIndex: number, keepKeyboardNavigation = false) => {
     if (tokenIndex < selectedSkills.length) {
       setSelectedSkills((current) => current.filter((_, index) => index !== tokenIndex));
@@ -349,7 +512,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
         setIsCaretBeforeComposerTokens(false);
       } else {
         setSelectedComposerTokenIndex(null);
-        setIsCaretBeforeComposerTokens(true);
+        setIsCaretBeforeComposerTokens(false);
       }
     } else {
       setSelectedComposerTokenIndex((current) => {
@@ -359,6 +522,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
       });
       setIsCaretBeforeComposerTokens(false);
     }
+    setComposerTextPosition((current) => {
+      if (current === null) return null;
+      return current > tokenIndex ? Math.max(0, current - 1) : current;
+    });
     focusRichTextAtStart();
   };
 
@@ -368,22 +535,20 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     if (event.key === "ArrowLeft" && !event.shiftKey) {
       if (isCaretBeforeComposerTokens) {
         event.preventDefault();
+        focusComposerTextPosition(0);
         return;
       }
       if (selectedComposerTokenIndex !== null) {
         event.preventDefault();
-        if (selectedComposerTokenIndex > 0) {
-          setSelectedComposerTokenIndex(selectedComposerTokenIndex - 1);
-        } else {
-          setSelectedComposerTokenIndex(null);
-          setIsCaretBeforeComposerTokens(true);
-        }
+        focusComposerTextPosition(selectedComposerTokenIndex);
         return;
       }
       if (composerTokenCount > 0 && isRichTextCaretAtStart()) {
         event.preventDefault();
-        setSelectedComposerTokenIndex(composerTokenCount - 1);
-        setIsCaretBeforeComposerTokens(false);
+        if (activeComposerTextPosition > 0) {
+          setSelectedComposerTokenIndex(activeComposerTextPosition - 1);
+          setIsCaretBeforeComposerTokens(false);
+        }
         return;
       }
     }
@@ -392,18 +557,24 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
       if (isCaretBeforeComposerTokens) {
         event.preventDefault();
         setIsCaretBeforeComposerTokens(false);
-        if (composerTokenCount > 0) setSelectedComposerTokenIndex(0);
+        if (activeComposerTextPosition === 0) focusRichTextAtStart();
+        else if (composerTokenCount > 0) setSelectedComposerTokenIndex(0);
         else focusRichTextAtStart();
         return;
       }
       if (selectedComposerTokenIndex !== null) {
         event.preventDefault();
-        if (selectedComposerTokenIndex < composerTokenCount - 1) {
-          setSelectedComposerTokenIndex(selectedComposerTokenIndex + 1);
-        } else {
-          setSelectedComposerTokenIndex(null);
-          focusRichTextAtStart();
-        }
+        focusComposerTextPosition(selectedComposerTokenIndex + 1);
+        return;
+      }
+      if (
+        composerTokenCount > 0
+        && activeComposerTextPosition < composerTokenCount
+        && isRichTextCaretAtEnd()
+      ) {
+        event.preventDefault();
+        setSelectedComposerTokenIndex(activeComposerTextPosition);
+        setIsCaretBeforeComposerTokens(false);
         return;
       }
     }
@@ -416,13 +587,16 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
 
     if (event.key === "Backspace" && isCaretBeforeComposerTokens) {
       event.preventDefault();
+      focusComposerTextPosition(0);
       return;
     }
 
     if (event.key === "Backspace" && composerTokenCount > 0 && isRichTextCaretAtStart()) {
       event.preventDefault();
-      setSelectedComposerTokenIndex(composerTokenCount - 1);
-      setIsCaretBeforeComposerTokens(false);
+      if (activeComposerTextPosition > 0) {
+        setSelectedComposerTokenIndex(activeComposerTextPosition - 1);
+        setIsCaretBeforeComposerTokens(false);
+      }
       return;
     }
 
@@ -449,6 +623,84 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
       event.preventDefault();
       handleSendDesign();
     }
+  };
+
+  const focusComposerTextPosition = (position: number) => {
+    setComposerTextPosition(position === composerTokenCount ? null : position);
+    setSelectedComposerTokenIndex(null);
+    setIsCaretBeforeComposerTokens(false);
+    focusRichTextAtStart();
+  };
+
+  const renderComposerTextPosition = (position: number) => {
+    if (position !== activeComposerTextPosition) {
+      return (
+        <span
+          key={`composer-gap-${position}`}
+          role="button"
+          tabIndex={0}
+          aria-label={`将光标放在第 ${position + 1} 个位置`}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            focusComposerTextPosition(position);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              focusComposerTextPosition(position);
+            }
+          }}
+          className="group/caret relative h-7 w-2 shrink-0 cursor-text rounded-sm outline-none after:absolute after:-inset-x-1 after:inset-y-0 hover:bg-slate-100/80 focus-visible:bg-blue-500/10"
+        >
+          <span className="pointer-events-none absolute left-1/2 top-0 h-7 w-px -translate-x-1/2 bg-transparent transition group-hover/caret:bg-slate-400 group-focus-visible/caret:bg-blue-500" />
+        </span>
+      );
+    }
+
+    const hasComposerText = normalizeComposerText(prompt).length > 0;
+    const compactCaret = composerTokenCount > 0 && !hasComposerText;
+    const editorWidthClass = compactCaret
+      ? 'w-[2px] shrink-0'
+      : hasComposerText
+        ? 'w-fit max-w-full shrink-0'
+        : 'min-w-[12rem] flex-[1_1_12rem]';
+    return (
+      <div
+        key={`composer-editor-${position}`}
+        className={`relative min-h-7 ${editorWidthClass}`}
+      >
+        {!hasComposerText && composerTokenCount === 0 && (
+          <span className="pointer-events-none absolute inset-x-0 top-0 text-sm font-normal leading-7 text-slate-400">
+            让 XC AI 制作一张高转化的电商产品图
+          </span>
+        )}
+        <div
+          ref={richTextEditorRef}
+          role="textbox"
+          contentEditable
+          suppressContentEditableWarning
+          aria-label="设计需求"
+          aria-multiline="true"
+          className={`relative inline-block min-h-7 min-w-[1px] max-w-full whitespace-pre-wrap break-words bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${compactCaret ? 'w-[2px]' : hasComposerText ? 'w-fit' : 'w-full'} ${
+            selectedComposerTokenIndex !== null || isCaretBeforeComposerTokens ? 'caret-transparent' : ''
+          }`}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            setSelectedComposerTokenIndex(null);
+            setIsCaretBeforeComposerTokens(false);
+          }}
+          onInput={(event) => {
+            const nextText = normalizeComposerText(event.currentTarget.innerText);
+            setPrompt(nextText);
+            if (!nextText && event.currentTarget.innerHTML) {
+              event.currentTarget.innerHTML = '';
+            }
+          }}
+          onKeyDown={handleRichTextKeyDown}
+        />
+      </div>
+    );
   };
 
   return (
@@ -506,11 +758,11 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
         {/* 左侧区域：极简 AI 问答输入框 (精确复刻图 1 左侧) */}
         {/* ============================================================ */}
         <aside
-          className="relative min-h-[22rem] w-full shrink-0 border-b border-slate-200/80 bg-[#FCFCFB] p-5 sm:p-8 lg:min-h-0 lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
+          className="relative min-h-[22rem] w-full shrink-0 border-b border-slate-200/80 bg-[#FCFCFB] p-5 sm:p-7 lg:min-h-0 lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
         >
           <div className="mx-auto flex h-full w-full max-w-[30rem] flex-col justify-center">
-            <div className="mb-6 text-center">
-              <h2 className="text-[1.35rem] font-semibold tracking-[-0.035em] text-slate-950">
+            <div className="mb-7 text-center">
+              <h2 className="text-xl font-medium tracking-[-0.025em] text-slate-950">
                 你想设计什么？
               </h2>
             </div>
@@ -518,21 +770,46 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
             {/* 富文本 AI 设计输入框：技能、剪藏图和上传图片都作为内容芯片呈现 */}
             <div
               onFocusCapture={onAgentEngage}
+              onPaste={handleComposerPaste}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                composerDragDepthRef.current += 1;
+                setIsDraggingImages(true);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+              }}
+              onDragLeave={(event) => {
+                event.preventDefault();
+                composerDragDepthRef.current = Math.max(0, composerDragDepthRef.current - 1);
+                if (composerDragDepthRef.current === 0) setIsDraggingImages(false);
+              }}
+              onDrop={handleComposerDrop}
               onClick={() => {
                 setSelectedComposerTokenIndex(null);
                 setIsCaretBeforeComposerTokens(false);
                 richTextEditorRef.current?.focus();
               }}
-              className="flex min-h-[8rem] cursor-text flex-col justify-between rounded-[12px] border border-[#D4D4D4] bg-white px-4 pb-3 pt-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:border-slate-500 focus-within:shadow-[0_0_0_3px_rgba(15,23,42,0.08)]"
+              className={`relative flex min-h-[7.5rem] cursor-text flex-col justify-between rounded-[1.5rem] border bg-white px-4 pb-2 pt-3 shadow-[0_2px_6px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow,background-color] focus-within:border-slate-400 focus-within:shadow-[0_3px_10px_rgba(15,23,42,0.09)] ${
+                isDraggingImages
+                  ? 'border-blue-500 bg-blue-50/60 shadow-[0_0_0_3px_rgba(59,130,246,0.14)]'
+                  : 'border-[#D4D4D4]'
+              }`}
             >
-              <div className="relative flex min-h-[4.5rem] flex-wrap content-start items-center gap-x-1.5 gap-y-1.5">
-                {isCaretBeforeComposerTokens && (
-                  <span aria-hidden="true" className="absolute -left-1 top-0 h-7 w-px animate-pulse bg-slate-950" />
-                )}
+              {isDraggingImages && (
+                <div className="pointer-events-none absolute inset-2 z-20 grid place-items-center rounded-lg border border-dashed border-blue-400 bg-blue-50/90 text-sm font-semibold text-blue-700">
+                  松开即可添加图片
+                </div>
+              )}
+              <div className="relative flex min-h-[3.75rem] flex-wrap content-start items-center gap-x-0 gap-y-1.5">
+                {renderComposerTextPosition(0)}
                 {selectedSkills.map((skill, skillIndex) => (
+                    <React.Fragment key={skill.mode}>
                       <span
-                        key={skill.mode}
                         contentEditable={false}
+                        tabIndex={0}
+                        aria-label={`技能 ${skill.title}`}
                         aria-selected={selectedComposerTokenIndex === skillIndex}
                         onMouseDown={(event) => {
                           event.preventDefault();
@@ -541,35 +818,59 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                           setIsCaretBeforeComposerTokens(false);
                           richTextEditorRef.current?.focus();
                         }}
+                        onFocus={() => {
+                          setSelectedComposerTokenIndex(skillIndex);
+                          setIsCaretBeforeComposerTokens(false);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            focusComposerTextPosition(
+                              event.key === 'ArrowLeft' ? skillIndex : skillIndex + 1,
+                            );
+                          }
+                          if (event.key === 'Backspace' || event.key === 'Delete') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            removeComposerTokenAt(skillIndex);
+                          }
+                        }}
                         onClick={(event) => event.stopPropagation()}
-                        className={`inline-flex min-h-7 max-w-full items-center gap-1 rounded-lg border bg-white pl-2 pr-1 text-xs font-medium text-slate-900 shadow-2xs transition ${
+                        className={`inline-flex min-h-6 max-w-full items-center gap-1 rounded-md border bg-white px-1 text-[0.7rem] font-medium text-slate-900 shadow-2xs transition ${
                           selectedComposerTokenIndex === skillIndex
                             ? 'border-blue-500 ring-2 ring-blue-500/15'
                             : 'border-slate-300'
                         }`}
                       >
-                        <Sparkles size={12} className="shrink-0 text-slate-600" />
-                        <span className="max-w-[9.5rem] truncate">{skill.title}</span>
+                        <span className="grid h-4 w-4 shrink-0 place-items-center rounded bg-slate-100 text-slate-600">
+                          <Sparkles size={10} />
+                        </span>
+                        <span className="max-w-[6rem] truncate" title={skill.title}>{skill.title}</span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeComposerTokenAt(skillIndex);
                           }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
                           aria-label="移除技能"
                         >
                           <X size={10} />
                         </button>
                       </span>
+                      {renderComposerTextPosition(skillIndex + 1)}
+                    </React.Fragment>
                     ))}
 
                     {attachedClipperItems.map((item, clipperIndex) => {
                       const tokenIndex = selectedSkills.length + clipperIndex;
                       return (
+                      <React.Fragment key={item.id}>
                       <span
-                        key={item.id}
                         contentEditable={false}
+                        tabIndex={0}
+                        aria-label={`预览图片 ${item.title || 'Clipper 参考图'}`}
                         aria-selected={selectedComposerTokenIndex === tokenIndex}
                         onMouseDown={(event) => {
                           event.preventDefault();
@@ -579,40 +880,52 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                           richTextEditorRef.current?.focus();
                         }}
                         onClick={(event) => event.stopPropagation()}
-                        className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-lg border bg-white pl-1 pr-1 text-xs font-medium text-slate-900 shadow-2xs transition ${
+                        className={`group relative inline-flex min-h-6 max-w-full items-center gap-1 rounded-md border bg-white px-1 text-[0.7rem] font-medium text-slate-900 shadow-2xs transition ${
                           selectedComposerTokenIndex === tokenIndex
                             ? 'border-blue-500 ring-2 ring-blue-500/15'
                             : 'border-slate-300'
                         }`}
                       >
+                        <span className="pointer-events-none invisible absolute bottom-full left-0 z-[70] mb-3 w-32 max-w-[calc(100vw-2rem)] translate-y-1 rounded-xl border border-slate-200 bg-white p-1 opacity-0 shadow-[0_12px_32px_rgba(15,23,42,0.18)] transition duration-150 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100">
+                          <img
+                            src={item.url}
+                            alt=""
+                            className="block max-h-48 w-full rounded-lg bg-slate-100 object-contain"
+                          />
+                        </span>
                         <img
                           src={item.url}
                           alt={item.title}
-                          className="h-5 w-5 shrink-0 rounded-md bg-slate-100 object-cover"
+                          className="h-4 w-4 shrink-0 rounded bg-slate-100 object-cover"
                         />
-                        <span className="max-w-[7.5rem] truncate">{item.title || 'Clipper 参考图'}</span>
+                        <span className="max-w-[6rem] truncate">{item.title || 'Clipper 参考图'}</span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeComposerTokenAt(tokenIndex);
                           }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
                           aria-label="移除剪藏参考图"
                         >
                           <X size={10} />
                         </button>
                       </span>
+                      {renderComposerTextPosition(tokenIndex + 1)}
+                      </React.Fragment>
                       );
                     })}
 
-                    {attachmentPreviews.map(({ file, url }, index) => (
+                    {attachmentPreviews.map(({ file, url }, index) => {
+                      const tokenIndex = selectedSkills.length + attachedClipperItems.length + index;
+                      return (
+                      <React.Fragment key={`${file.name}-${file.lastModified}-${index}`}>
                       <span
-                        key={`${file.name}-${file.lastModified}-${index}`}
                         contentEditable={false}
-                        aria-selected={selectedComposerTokenIndex === selectedSkills.length + attachedClipperItems.length + index}
+                        tabIndex={0}
+                        aria-label={`预览图片 ${getReadableAttachmentLabel(file.name, index)}`}
+                        aria-selected={selectedComposerTokenIndex === tokenIndex}
                         onMouseDown={(event) => {
-                          const tokenIndex = selectedSkills.length + attachedClipperItems.length + index;
                           event.preventDefault();
                           event.stopPropagation();
                           setSelectedComposerTokenIndex(tokenIndex);
@@ -620,63 +933,51 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                           richTextEditorRef.current?.focus();
                         }}
                         onClick={(event) => event.stopPropagation()}
-                        className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-lg border bg-white pl-1 pr-1 text-xs font-medium text-slate-900 shadow-2xs transition ${
-                          selectedComposerTokenIndex === selectedSkills.length + attachedClipperItems.length + index
+                        className={`group relative inline-flex min-h-6 max-w-full items-center gap-1 rounded-md border bg-white px-1 text-[0.7rem] font-medium text-slate-900 shadow-2xs transition ${
+                          selectedComposerTokenIndex === tokenIndex
                             ? 'border-blue-500 ring-2 ring-blue-500/15'
                             : 'border-slate-300'
                         }`}
                       >
-                        <img src={url} alt="" className="h-5 w-5 shrink-0 rounded-md bg-slate-100 object-cover" />
-                        <span className="max-w-[7.5rem] truncate">{file.name}</span>
+                        <span className="pointer-events-none invisible absolute bottom-full left-0 z-[70] mb-3 w-32 max-w-[calc(100vw-2rem)] translate-y-1 rounded-xl border border-slate-200 bg-white p-1 opacity-0 shadow-[0_12px_32px_rgba(15,23,42,0.18)] transition duration-150 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100">
+                          <img
+                            src={url}
+                            alt=""
+                            className="block max-h-48 w-full rounded-lg bg-slate-100 object-contain"
+                          />
+                        </span>
+                        <img src={url} alt="" className="h-4 w-4 shrink-0 rounded bg-slate-100 object-cover" />
+                        <span className="max-w-[6rem] truncate" title={file.name}>{getReadableAttachmentLabel(file.name, index)}</span>
                         <button
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            removeComposerTokenAt(selectedSkills.length + attachedClipperItems.length + index);
+                            removeComposerTokenAt(tokenIndex);
                           }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
                           aria-label={`移除图片 ${file.name}`}
                         >
                           <X size={10} />
                         </button>
                       </span>
-                ))}
-
-                <div className="relative min-h-7 min-w-[8rem] flex-[1_1_8rem]">
-                  {!prompt && (
-                    <span className="pointer-events-none absolute inset-x-0 top-0 text-sm font-normal leading-7 text-slate-400">
-                      让 XC AI 制作一张高转化的电商产品图
-                    </span>
-                  )}
-                  <div
-                    ref={richTextEditorRef}
-                    role="textbox"
-                    contentEditable
-                    suppressContentEditableWarning
-                    aria-label="设计需求"
-                    aria-multiline="true"
-                    className={`relative min-h-7 w-full whitespace-pre-wrap break-words bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${
-                      selectedComposerTokenIndex !== null || isCaretBeforeComposerTokens ? 'caret-transparent' : ''
-                    }`}
-                    onPointerDown={() => {
-                      setSelectedComposerTokenIndex(null);
-                      setIsCaretBeforeComposerTokens(false);
-                    }}
-                    onInput={(event) => setPrompt(event.currentTarget.innerText)}
-                    onKeyDown={handleRichTextKeyDown}
-                  />
-                </div>
+                      {renderComposerTextPosition(tokenIndex + 1)}
+                      </React.Fragment>
+                      );
+                    })}
               </div>
 
-              <div className="mt-2 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="添加参考图片"
-                  className="grid h-12 w-12 cursor-pointer place-items-center rounded-xl text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
-                >
-                  <Plus size={16} />
-                </button>
+              <div className="mt-1 flex items-center justify-between">
+                <div className="flex min-w-0 items-center">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="添加参考图片"
+                    title="添加参考图片"
+                    className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -685,8 +986,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                   multiple
                   onChange={(e) => {
                     if (e.target.files) {
-                      const selectedFiles = Array.from(e.target.files);
-                      setAttachments((current) => [...current, ...selectedFiles]);
+                      appendImageFiles(Array.from(e.target.files));
                       e.target.value = '';
                     }
                   }}
@@ -700,13 +1000,13 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                       aria-label="模型偏好"
                       aria-haspopup="dialog"
                       aria-expanded={showModelPreference}
-                      className={`grid h-12 w-12 cursor-pointer place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                      className={`grid h-11 w-11 cursor-pointer place-items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
                         showModelPreference
                           ? "bg-slate-100 text-slate-950"
                           : "text-slate-400 hover:bg-slate-100 hover:text-slate-950"
                       }`}
                     >
-                      <Box size={16} />
+                    <Box size={15} />
                     </button>
 
                     {showModelPreference && (
@@ -774,16 +1074,22 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                   </div>
                   <button
                     onClick={handleSendDesign}
-                    disabled={!canSendDesign}
+                    disabled={!canSendDesign || isPreparingWorkspace}
                     aria-label="开始创作"
-                    className={`grid h-12 w-12 place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
-                      canSendDesign ? "cursor-pointer bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300"
+                    className={`grid h-11 w-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                      canSendDesign && !isPreparingWorkspace ? "cursor-pointer bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300"
                     }`}
                   >
-                    <ArrowUp size={14} />
+                    {isPreparingWorkspace ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <ArrowUp size={14} />}
                   </button>
                 </div>
               </div>
+              {workspaceLaunchError && (
+                <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{workspaceLaunchError}</p>
+              )}
+              {composerUploadError && (
+                <p role="alert" className="mt-2 text-xs font-medium text-amber-600">{composerUploadError}</p>
+              )}
             </div>
 
             {/* 下方引导快捷操作 */}
@@ -901,7 +1207,14 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                 <h3 className="mb-4 text-sm font-semibold text-slate-900">最近项目</h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                   <div
-                    onClick={() => navigate(createNewWorkspacePath())}
+                    onClick={() => onStartWorkspace
+                      ? onStartWorkspace({
+                          projectId: `workspace-${Date.now()}`,
+                          conversationId: createConversationId('home'),
+                          prompt: '',
+                          attachments: [],
+                        })
+                      : navigate(createNewWorkspacePath())}
                     className="aspect-[4/3] rounded-xl bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition"
                   >
                     <PlusCircle size={22} />
@@ -910,7 +1223,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                   {recentProjects.map((p) => (
                     <div
                       key={p.id}
-                      onClick={() => navigate(workspacePath(p.id))}
+                      onClick={() => onOpenProject ? onOpenProject(p.id) : navigate(workspacePath(p.id))}
                       className="aspect-[4/3] rounded-xl bg-slate-50 border border-slate-200 overflow-hidden cursor-pointer hover:border-slate-400 transition relative group"
                     >
                       {p.thumbnail ? (

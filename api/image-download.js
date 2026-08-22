@@ -1,5 +1,26 @@
 const MAX_IMAGE_BYTES = 40 * 1024 * 1024;
-const ALLOWED_HOST_SUFFIXES = ['aiproxy.vip', 'apilio.ai'];
+const ALLOWED_HOST_SUFFIXES = [
+  'aiproxy.vip',
+  'apilio.ai',
+  'pinimg.com',
+  'pinterest.com',
+  'images.unsplash.com',
+  'unsplash.com',
+  'xhscdn.com',
+  'xiaohongshu.com',
+  'cdninstagram.com',
+  'fbcdn.net',
+  'media-amazon.com',
+  'ssl-images-amazon.com',
+  'alicdn.com',
+  'i.ibb.co',
+  'ibb.co',
+  'imgur.com',
+  'googleusercontent.com',
+  'gstatic.com',
+  'storage.googleapis.com',
+  'cloudfront.net',
+];
 
 const isVirseStorageUrl = (parsed) => (
   parsed.hostname.toLowerCase() === 'storage.googleapis.com'

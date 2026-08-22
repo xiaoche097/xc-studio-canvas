@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactDOM from 'react-dom';
+import { getReadableAttachmentLabel } from '../../../utils/attachment-label';
 
 interface MessageAttachmentsProps {
   attachments?: string[];
@@ -21,6 +22,8 @@ export const MessageAttachments: React.FC<MessageAttachmentsProps> = ({
       {attachments.map((url, index) => {
         const metadata = attachmentMetadata?.[index];
         const isMarker = !!metadata?.markerInfo;
+        const rawLabel = metadata?.markerName || metadata?.name;
+        const displayLabel = getReadableAttachmentLabel(rawLabel, index);
         
         return (
           <div key={`${url}-${index}`} className="relative group/chip">
@@ -30,14 +33,14 @@ export const MessageAttachments: React.FC<MessageAttachmentsProps> = ({
               onClick={() => onPreview?.(url)}
               onMouseEnter={() => setHoveredIdx(index)}
               onMouseLeave={() => setHoveredIdx(null)}
-              className="inline-flex items-center gap-1.5 bg-white border border-gray-100 rounded-lg pl-1 pr-2 py-0.5 select-none hover:bg-gray-50 transition duration-200 cursor-pointer shadow-sm"
-              title={metadata?.markerName || `参考内容 ${index + 1}`}
+              className="inline-flex min-w-0 max-w-full items-center gap-1.5 bg-white border border-gray-100 rounded-lg pl-1 pr-2 py-0.5 select-none hover:bg-gray-50 transition duration-200 cursor-pointer shadow-sm"
+              title={rawLabel || displayLabel}
             >
               <div className="w-5 h-5 rounded-sm overflow-hidden flex-shrink-0 bg-white">
                 <img src={url} className="w-full h-full object-cover" />
               </div>
-              <span className="text-[11px] text-gray-600 font-medium">
-                {metadata?.markerName || `参考内容 ${index + 1}`}
+              <span className="max-w-[9.5rem] truncate whitespace-nowrap text-[11px] text-gray-600 font-medium">
+                {displayLabel}
               </span>
             </button>
 

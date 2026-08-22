@@ -274,8 +274,11 @@
       try {
         const stored = localStorage.getItem('xc_ai_clipped_items');
         const list = stored ? JSON.parse(stored) : [];
-        const filtered = list.filter((i) => i.id !== request.item.id && i.url !== request.item.url);
-        const updated = [request.item, ...filtered];
+        const metadataItem = request.item.url.startsWith('data:image/')
+          ? { ...request.item, url: request.item.originalUrl || '' }
+          : request.item;
+        const filtered = list.filter((i) => i.id !== metadataItem.id && i.url !== metadataItem.url);
+        const updated = metadataItem.url ? [metadataItem, ...filtered] : filtered;
         localStorage.setItem('xc_ai_clipped_items', JSON.stringify(updated));
       } catch (e) {}
 
@@ -896,4 +899,17 @@
       }
     }
   });
+
+  // Re-deliver extension-owned clips whenever the workbench opens. This restores
+  // cached image bytes even when the original CDN URL has expired.
+  if (isTrustedWorkbench()) {
+    setTimeout(() => {
+      chrome.runtime.sendMessage({ action: 'GET_CLIPPED_IMAGES' }, (response) => {
+        if (chrome.runtime.lastError || !Array.isArray(response?.items)) return;
+        response.items.forEach((item) => {
+          window.postMessage({ type: 'XC_CLIPPER_SAVE_IMAGE', item }, '*');
+        });
+      });
+    }, 1500);
+  }
 })();

@@ -295,7 +295,14 @@ export const useAgentStore = create<AgentState>()(
 
         setMessages: (messages) => set({ messages }),
 
-        clearMessages: () => set({ messages: [], inputBlocks: [{ id: 'init', type: 'text', text: '' }], pendingAttachments: [], confirmedAttachments: [] }),
+        clearMessages: () => set({
+          messages: [],
+          inputBlocks: [{ id: 'init', type: 'text', text: '' }],
+          pendingAttachments: [],
+          confirmedAttachments: [],
+          currentTask: null,
+          isTyping: false,
+        }),
 
         setInputBlocks: (blocks) => {
           const normalized = normalizeInputBlocks(blocks);

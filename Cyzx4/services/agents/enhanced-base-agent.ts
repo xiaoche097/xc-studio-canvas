@@ -190,8 +190,21 @@ export abstract class EnhancedBaseAgent {
     metadata?: Record<string, any>,
   ): boolean {
     // 两步交互 skill 的第一步不强制生图，让 AI 先分析并输出 suggestions
-    const skillData = metadata?.skillData as { config?: { twoStep?: boolean } } | undefined;
+    const skillData = metadata?.skillData as {
+      config?: { twoStep?: boolean; forceSkillExecution?: boolean };
+      capabilities?: Array<{ primaryTool?: string; outputType?: string }>;
+    } | undefined;
     if (skillData?.config?.twoStep) return false;
+
+    // 首页显式选择的图像生成能力，应像画布生图任务一样保证返回可执行调用。
+    if (
+      skillData?.config?.forceSkillExecution === true &&
+      skillData.capabilities?.some(
+        (capability) => capability.primaryTool === 'generateImage' && capability.outputType === 'image',
+      )
+    ) {
+      return true;
+    }
 
     // 上游可显式强制
     if (
@@ -217,6 +230,61 @@ export abstract class EnhancedBaseAgent {
       console.log(`[${this.agentInfo.id}] Detect Image Intent: Forced tool call activated.`);
     }
     return result;
+  }
+
+  private getSelectedCreativeCapabilities(metadata?: Record<string, any>): any[] {
+    const capabilities = metadata?.skillData?.capabilities;
+    return Array.isArray(capabilities)
+      ? capabilities.filter((capability) => capability && typeof capability.primaryTool === 'string')
+      : [];
+  }
+
+  private buildCreativeCapabilityFallbackCall(
+    capability: any,
+    message: string,
+    attachments?: File[],
+    metadata?: Record<string, any>,
+  ): any {
+    const instruction = [
+      capability?.purpose,
+      ...(Array.isArray(capability?.instructions) ? capability.instructions : []),
+      message,
+    ].filter(Boolean).join('. ');
+    const attachmentRefs = (attachments || []).map((_, index) => `ATTACHMENT_${index}`);
+
+    if (capability?.primaryTool === 'generateVideo') {
+      return {
+        skillName: 'generateVideo',
+        params: {
+          prompt: instruction,
+          aspectRatio: metadata?.preferredAspectRatio || '16:9',
+          ...(attachmentRefs[0] ? { startFrame: attachmentRefs[0], referenceImages: attachmentRefs } : {}),
+        },
+      };
+    }
+
+    if (capability?.primaryTool === 'smartEdit') {
+      return {
+        skillName: 'smartEdit',
+        params: {
+          sourceUrl: attachmentRefs[0] || 'ATTACHMENT_0',
+          editType: capability?.defaults?.editType || 'style-transfer',
+          parameters: {
+            prompt: instruction,
+            preservePrompt: 'Preserve identity, composition, lighting, materials, text, and every untouched area.',
+            aspectRatio: metadata?.preferredAspectRatio || '1:1',
+            referenceImages: attachmentRefs.slice(1),
+          },
+        },
+      };
+    }
+
+    const call = this.buildForcedGenerateImageCall(message, attachments, metadata);
+    call.params.prompt = `${instruction}. ${call.params.prompt}`;
+    if (capability?.defaults && typeof capability.defaults === 'object') {
+      Object.assign(call.params, capability.defaults);
+    }
+    return call;
   }
 
   private buildForcedGenerateImageCall(
@@ -984,7 +1052,31 @@ export abstract class EnhancedBaseAgent {
       }
     }
 
-    if (requestedCountFromMessage > 1) {
+    const selectedCreativeCapabilities = this.getSelectedCreativeCapabilities(task.input.metadata);
+    const forceSelectedSkill = task.input.metadata?.forceSelectedSkill === true;
+    if (forceSelectedSkill && selectedCreativeCapabilities.length > 0) {
+      const primaryTools = Array.from(new Set(
+        selectedCreativeCapabilities.map((capability) => capability.primaryTool),
+      ));
+
+      // A selected Skill is an executable contract. Discard unrelated model calls and
+      // guarantee at least one call to each selected primary function.
+      activeSkillCalls = activeSkillCalls.filter((call: any) => primaryTools.includes(call?.skillName));
+      for (const capability of selectedCreativeCapabilities) {
+        if (!activeSkillCalls.some((call: any) => call?.skillName === capability.primaryTool)) {
+          activeSkillCalls.push(this.buildCreativeCapabilityFallbackCall(
+            capability,
+            message,
+            task.input.attachments,
+            task.input.metadata,
+          ));
+        }
+      }
+    }
+
+    const selectedSkillsAreImageGeneration = selectedCreativeCapabilities.length === 0
+      || selectedCreativeCapabilities.every((capability) => capability.primaryTool === 'generateImage');
+    if (requestedCountFromMessage > 1 && selectedSkillsAreImageGeneration) {
       if (activeSkillCalls.length <= 1) {
         activeSkillCalls = this.buildMultiImageFallbackCalls(
           message,
@@ -1262,6 +1354,35 @@ ${truncateText(finalPinnedText, MAX_TOPIC_CONTEXT_CHARS)}
 `
         : "";
 
+      const selectedCreativeCapabilities = this.getSelectedCreativeCapabilities(metadata);
+      const creativeCapabilitySection = selectedCreativeCapabilities.length > 0
+        ? `
+【用户显式选择的创作 Skills（最高优先级能力合同）】
+${selectedCreativeCapabilities.map((capability, index) => `
+${index + 1}. ${capability.title || capability.id}
+- 目标: ${capability.purpose || '按用户要求完成创作'}
+- 主执行函数: ${capability.primaryTool}
+- 可用兜底函数: ${(capability.fallbackTools || []).join(', ') || '无'}
+- 产出类型: ${capability.outputType || 'image'}
+- 必要输入: ${(capability.requiredInputs || []).join('；') || '按用户请求判断'}
+- 附件角色: ${(capability.attachmentRoles || []).join('；') || '按附件顺序识别'}
+- 执行说明: ${(capability.instructions || []).join('；') || '严格完成用户请求'}
+- 默认参数: ${compactJson(capability.defaults || {}, 800)}
+`).join('')}
+强制规则:
+- Skill 不是提示词标签，也不是跳转页面；它是你必须理解并调用的函数能力。
+- 输入足够时，skillCalls 必须使用所选 Skill 的 primaryTool，参数必须遵循上面的附件角色和执行说明。
+- 输入不足时，只询问缺失的必要输入，不得伪造附件、蒙版、产品信息或完成结果。
+- 多个 Skills 同时选择时，按用户目标决定串联顺序；前一步结果是后一步输入，不得把所有功能混成一个含糊 prompt。
+- 生成或编辑成功后，结果必须作为资产返回，由系统自动加入当前画布。
+`
+        : '';
+
+      const capabilityToolNames = selectedCreativeCapabilities
+        .flatMap((capability) => [capability.primaryTool, ...(capability.fallbackTools || [])])
+        .filter((toolName, index, all) => typeof toolName === 'string' && all.indexOf(toolName) === index);
+      const availableSkillNames = Array.from(new Set([...this.preferredSkills, ...capabilityToolNames]));
+
       const fullPrompt = `${this.systemPrompt}
 
 【语言要求】你必须用中文回复所有内容（analysis、message、title、description 等字段全部用中文）。只有 prompt 字段用英文（因为图片生成模型需要英文 prompt）。
@@ -1292,10 +1413,10 @@ ${(attachments || [])
 对话历史 (Context):
 ${compactConversationHistory || '无'}
 
-可用技能: ${this.preferredSkills.join(", ")}
+可用技能: ${availableSkillNames.join(", ")}
 ${smartEditSection}
 用户请求: ${message}
-${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${multimodalSection}${topicPinnedContext}${designSessionSection}
+${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${creativeCapabilitySection}${multimodalSection}${topicPinnedContext}${designSessionSection}
 请分析用户需求，严格遵守“先判定性质、再分析、最后执行”的逻辑：
 1. analysis: 【严禁跳步】必须首先确认主体范畴（真人/物件），再进行细节描述。如果是人像，锁定其生物特征；如果是物品，锁定物理材质。
 2. message: 【核心】用感性设计师口吻复述。例如：“我看见您提供了一张真人图片，是一位[描述特征]的模特，我将为您保留其韵味并设计方案...”

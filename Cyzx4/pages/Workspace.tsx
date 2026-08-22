@@ -216,6 +216,7 @@ import {
 import { uploadImage } from "../utils/uploader";
 import { fetchImageBlob } from "../utils/imageDownload";
 import { safeLocalStorageSetItem } from "../utils/safe-storage";
+import { createConversationId } from "../utils/conversation";
 import { useImageHostStore } from "../stores/imageHost.store";
 import {
   extractWebPage,
@@ -824,13 +825,18 @@ const LayerItem = ({
 
 interface WorkspaceProps {
   onBackToHub?: () => void;
+  projectId?: string;
+  initialConversationId?: string;
   initialPrompt?: string;
   initialAttachments?: File[];
+  initialSkillData?: any;
 }
 
 interface WorkspaceLaunchState {
+  initialConversationId?: string;
   initialPrompt?: string;
   initialAttachments?: File[];
+  initialSkillData?: any;
   initialModelMode?: 'thinking' | 'fast';
   initialWebEnabled?: boolean;
   initialImageModel?: boolean;
@@ -847,13 +853,16 @@ interface WorkspacePage {
 
 const Workspace: React.FC<WorkspaceProps> = ({
   onBackToHub,
+  projectId,
+  initialConversationId,
   initialPrompt,
   initialAttachments,
+  initialSkillData,
 }) => {
-  const id = "default-workspace";
+  const id = projectId || "default-workspace";
   const location: { state: WorkspaceLaunchState | null } = {
-    state: initialPrompt || initialAttachments?.length
-      ? { initialPrompt, initialAttachments }
+    state: initialPrompt || initialAttachments?.length || initialSkillData
+      ? { initialConversationId, initialPrompt, initialAttachments, initialSkillData }
       : null,
   };
 
@@ -980,7 +989,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
   // 对话历史管理
   const [conversations, setConversations] = useState<ConversationSession[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string>("");
-  const isLoadingRecord = useRef(false);
+  const isLoadingRecord = useRef(true);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   const [historySearch, setHistorySearch] = useState("");
   const [showAssistant, setShowAssistant] = useState(true);
@@ -1181,9 +1191,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const [clothingWorkflowError, setClothingWorkflowError] = useState<
     string | null
   >(null);
-
-  const createConversationId = () =>
-    `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const projectActions = useProjectStore((s) => s.actions);
 
@@ -1925,12 +1932,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         : [];
       const first = (selected[0] || "").trim();
 
-      if (
-        !first ||
-        first === "Auto" ||
-        first === "gemini-3-pro-image-preview" ||
-        first === "Nano Banana Pro"
-      ) {
+      if (!first || first === "Auto") {
         setAutoModelSelect(true);
         setPreferredImageModel(DEFAULT_AUTO_IMAGE_MODEL);
         return;
@@ -2688,6 +2690,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
     overrideAttachments?: File[],
     overrideWeb?: boolean,
     skillData?: any,
+    overrideConversationId?: string,
   ) => {
     if (isUploadingAttachments) {
       addMessage({
@@ -2719,6 +2722,14 @@ const Workspace: React.FC<WorkspaceProps> = ({
         .filter((b) => b.type === "file" && b.file)
         .map((b) => b.file!) as File[]);
     const isWeb = overrideWeb ?? webEnabled;
+    const resolveConversationId = () => {
+      const requestedId = String(overrideConversationId || '').trim();
+      if (requestedId) {
+        setActiveConversationId(requestedId);
+        return requestedId;
+      }
+      return ensureConversationId();
+    };
 
     // Chat mode: pure conversation (inspiration / prompt refinement).
     // Keeps web search + modelMode + multimodal attachments, but avoids agent routing.
@@ -2726,11 +2737,12 @@ const Workspace: React.FC<WorkspaceProps> = ({
       const updateMessage = (msgId: string, patch: any) => {
         addMessage({ id: msgId, ...patch });
       };
-      const effectiveConversationId = ensureConversationId();
+      const effectiveConversationId = resolveConversationId();
       const _effectiveTopicId = buildMemoryKey(effectiveConversationId);
 
-      const attachmentPreviews = attachments.map((f) => URL.createObjectURL(f));
+      const attachmentPreviews = await Promise.all(attachments.map(fileToDataUrl));
       const attachmentMetadata = attachments.map((f) => ({
+        name: f.name,
         markerId: (f as any).markerId,
         markerName: (f as any).markerName,
         markerInfo: (f as any).markerInfo,
@@ -3181,11 +3193,13 @@ const Workspace: React.FC<WorkspaceProps> = ({
     if (!text && attachments.length === 0) return;
 
     // 首次发送时初始化会话 ID，确保消息能关联到正确的会话
-    const effectiveConversationId = ensureConversationId();
+    const effectiveConversationId = resolveConversationId();
     const effectiveTopicId = buildMemoryKey(effectiveConversationId);
 
-    const attachmentPreviews = attachments.map((f) => URL.createObjectURL(f));
+    // 对话会写入 IndexedDB；使用 data URL，避免刷新后 blob URL 失效。
+    const attachmentPreviews = await Promise.all(attachments.map(fileToDataUrl));
     const attachmentMetadata = attachments.map((f) => ({
+      name: f.name,
       markerId: (f as any).markerId,
       markerName: (f as any).markerName,
       markerInfo: (f as any).markerInfo,
@@ -3309,16 +3323,26 @@ const Workspace: React.FC<WorkspaceProps> = ({
       const aspectRatioOverride =
         parseAspectRatioFromText(text) ||
         (typeof skillDefaults.aspectRatio === 'string' ? skillDefaults.aspectRatio : null);
+      const selectedCapabilityOutput = skillData?.capabilities?.[0]?.outputType;
+      const effectiveCreationMode = selectedCapabilityOutput === 'video' ? 'video' : creationMode;
+      const selectedPrimaryTool = skillData?.capabilities?.[0]?.primaryTool;
+      const selectedSkillHasRequiredSource = selectedPrimaryTool !== 'smartEdit' || attachments.length > 0;
+      const forceSelectedSkillExecution =
+        skillData?.config?.forceSkillExecution === true && selectedSkillHasRequiredSource;
 
       const requestMetadata = {
         topicId: effectiveTopicId,
+        conversationId: effectiveConversationId,
+        entrySource: overrideConversationId ? 'home-agent' : 'canvas-agent',
         enableWebSearch: isWeb,
-        creationMode,
+        creationMode: effectiveCreationMode,
         preferredAspectRatio:
           aspectRatioOverride ||
-          (creationMode === "video" ? videoGenRatio : imageGenRatio),
+          (effectiveCreationMode === "video" ? videoGenRatio : imageGenRatio),
         skillData,
         forceToolCall: hasMarkers, // 标记点场景强制出图
+        forceSkills: hasMarkers || forceSelectedSkillExecution,
+        forceSelectedSkill: forceSelectedSkillExecution,
         multimodalContext: {
           referenceImageUrls: Array.from(
             new Set([
@@ -4037,6 +4061,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         markers: markersRef.current,
         thumbnail,
         conversations,
+        activeConversationId,
         pages: pagesToSave,
         activePageId,
       });
@@ -4045,6 +4070,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
     return () => clearTimeout(timeout);
   }, [
     activePageId,
+    activeConversationId,
     conversations,
     elements,
     id,
@@ -4766,6 +4792,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
     if (id) {
       const load = async () => {
         isLoadingRecord.current = true;
+        setLoadedProjectId(null);
+        initialPromptProcessedRef.current = false;
         console.log("[Workspace] Loading project:", id);
 
         // 1. 立即同步清空当前项目的本地状态，防止 UI 闪烁旧数据
@@ -4818,7 +4846,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
             if (project.title) setProjectTitle(project.title);
             if (project.conversations && project.conversations.length > 0) {
               setConversations(project.conversations);
-              const activeC = [...project.conversations].sort(
+              const activeC = project.conversations.find(
+                (conversation) => conversation.id === project.activeConversationId,
+              ) || [...project.conversations].sort(
                 (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
               )[0];
               if (activeC) {
@@ -4827,7 +4857,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
                 useAgentStore.getState().actions.setMessages(activeC.messages);
               }
             } else {
-              setActiveConversationId(createConversationId());
+              setActiveConversationId(initialConversationId || createConversationId());
             }
             setHistory([
               {
@@ -4840,6 +4870,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
             // New project: save initial record to IndexedDB immediately
             // so it appears in the recent projects list
             console.log("[Workspace] New project, saving initial record");
+            const newConversationId = initialConversationId || createConversationId();
+            setActiveConversationId(newConversationId);
             await saveProject({
               id,
               title: "未命名",
@@ -4848,6 +4880,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
               markers: [],
               thumbnail: "",
               conversations: [],
+              activeConversationId: newConversationId,
               pages: [
                 {
                   id: "page-1",
@@ -4862,59 +4895,12 @@ const Workspace: React.FC<WorkspaceProps> = ({
         } catch (err) {
           console.error("[Workspace] Load failed:", err);
         } finally {
-          // 延迟释放标识位，确保所有 React 状态变更已排队
-          setTimeout(() => {
-            isLoadingRecord.current = false;
-            console.log("[Workspace] Load complete, persistence enabled");
-          }, 300);
+          isLoadingRecord.current = false;
+          setLoadedProjectId(id);
+          console.log("[Workspace] Load complete, persistence enabled");
         }
       };
       load();
-    }
-    if (location.state?.initialPrompt || location.state?.initialAttachments) {
-      if (!initialPromptProcessedRef.current) {
-        initialPromptProcessedRef.current = true;
-        const blocks: InputBlock[] = [];
-        if (location.state.initialAttachments) {
-          (location.state.initialAttachments as File[]).forEach((f, i) => {
-            blocks.push({
-              id: `file-${Date.now()}-${i}`,
-              type: "file",
-              file: f,
-            });
-            blocks.push({
-              id: `text-${Date.now()}-${i}`,
-              type: "text",
-              text: "",
-            });
-          });
-        }
-        if (location.state.initialPrompt) {
-          if (blocks.length > 0 && blocks[blocks.length - 1].type === "text") {
-            blocks[blocks.length - 1].text = location.state.initialPrompt;
-          } else {
-            blocks.push({
-              id: `text-${Date.now()}`,
-              type: "text",
-              text: location.state.initialPrompt,
-            });
-          }
-        }
-        if (blocks.length === 0)
-          blocks.push({ id: "init", type: "text", text: "" });
-        setInputBlocks(blocks);
-
-        if (location.state.initialModelMode)
-          setModelMode(location.state.initialModelMode);
-        if (location.state.initialWebEnabled)
-          setWebEnabled(location.state.initialWebEnabled);
-        if (location.state.initialImageModel) setImageModelEnabled(true);
-        handleSend(
-          location.state.initialPrompt,
-          location.state.initialAttachments,
-          location.state.initialWebEnabled,
-        );
-      }
     }
     if (location.state?.backgroundUrl) {
       const type = location.state.backgroundType || "image";
@@ -4942,6 +4928,56 @@ const Workspace: React.FC<WorkspaceProps> = ({
       chatSessionRef.current = createChatSession("gemini-3-pro-preview");
     }
   }, [id]);
+
+  // 必须等项目恢复完成后再发送首页种子，避免异步加载把刚加入的附件、消息或画布结果清空。
+  useEffect(() => {
+    if (loadedProjectId !== id || initialPromptProcessedRef.current) return;
+    if (!location.state?.initialPrompt && !location.state?.initialAttachments?.length) return;
+
+    initialPromptProcessedRef.current = true;
+    const launchConversationId = location.state.initialConversationId
+      || initialConversationId
+      || createConversationId();
+    setActiveConversationId(launchConversationId);
+    clearMessages();
+    const blocks: InputBlock[] = [];
+    location.state.initialAttachments?.forEach((file, index) => {
+      blocks.push({
+        id: `file-${Date.now()}-${index}`,
+        type: "file",
+        file,
+      });
+      blocks.push({
+        id: `text-${Date.now()}-${index}`,
+        type: "text",
+        text: "",
+      });
+    });
+    if (location.state.initialPrompt) {
+      const lastBlock = blocks[blocks.length - 1];
+      if (lastBlock?.type === "text") {
+        lastBlock.text = location.state.initialPrompt;
+      } else {
+        blocks.push({
+          id: `text-${Date.now()}`,
+          type: "text",
+          text: location.state.initialPrompt,
+        });
+      }
+    }
+    setInputBlocks(blocks.length > 0 ? blocks : [{ id: "init", type: "text", text: "" }]);
+
+    if (location.state.initialModelMode) setModelMode(location.state.initialModelMode);
+    if (location.state.initialWebEnabled) setWebEnabled(location.state.initialWebEnabled);
+    if (location.state.initialImageModel) setImageModelEnabled(true);
+    void handleSend(
+      location.state.initialPrompt,
+      location.state.initialAttachments,
+      location.state.initialWebEnabled,
+      location.state.initialSkillData,
+      launchConversationId,
+    );
+  }, [id, loadedProjectId]);
 
   // Ctrl 键监听：用于切换自定义光标
   useEffect(() => {
@@ -7824,7 +7860,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
                 </button>
                 {showResPicker && (
                   <div className="absolute bottom-full mb-2 right-0 w-28 bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[60]">
-                    {(el.genModel === 'NanoBanana2' ? ["0.5K", "1K", "2K", "4K"] : ["1K", "2K", "4K"]).map((r) => (
+                    {((el.genModel === 'NanoBanana2' || el.genModel === 'gemini-3.1-flash-image-preview') ? ["0.5K", "1K", "2K", "4K"] : ["1K", "2K", "4K"]).map((r) => (
                       <button
                         key={r}
                         onClick={() => {
@@ -7862,7 +7898,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
                     </div>
                     {ASPECT_RATIOS.filter(r => {
                       if (['1:4', '4:1', '1:8', '8:1'].includes(r.value)) {
-                        return el.genModel === 'NanoBanana2';
+                        return el.genModel === 'NanoBanana2' || el.genModel === 'gemini-3.1-flash-image-preview';
                       }
                       return true;
                     }).map((r) => {

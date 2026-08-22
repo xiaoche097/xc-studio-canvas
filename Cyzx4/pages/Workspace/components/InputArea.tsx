@@ -10,6 +10,7 @@ import { useAgentStore } from '../../../stores/agent.store';
 import { useCanvasStore } from '../../../stores/canvas.store';
 import { ImageModel, VideoModel, Marker } from '../../../types';
 import { IMAGE_MODEL_OPTIONS } from '../modelOptions';
+import { getReadableAttachmentLabel } from '../../../utils/attachment-label';
 
 const VIDEO_RATIOS = [
     { label: '16:9', value: '16:9', icon: 'rectangle-horizontal' },
@@ -22,13 +23,13 @@ const isSora2Model = (model?: string | null) => /sora\s*2/i.test(String(model ||
 const MODEL_OPTIONS: Record<string, { id: string; name: string; desc: string; time?: string; icon: React.ElementType; badge?: string }[]> = {
     image: IMAGE_MODEL_OPTIONS.map((model) => ({
         ...model,
-        icon: model.id === 'Nano Banana Pro'
+        icon: model.id === 'gemini-3-pro-image-preview'
             ? Banana
-            : model.id === 'NanoBanana2'
+            : model.id === 'gemini-3.1-flash-image-preview'
                 ? Zap
-                : model.id === 'Seedream5.0'
+                : model.id === 'mj_imagine'
                     ? Activity
-                    : model.id === 'Flux.2 Max'
+                    : model.id === 'qwen-image-3.0-pro'
                         ? Layers
                         : Sparkles,
     })),
@@ -79,6 +80,53 @@ const setCECursorPos = (el: HTMLElement, pos: number) => {
     range.collapse(false);
     sel.removeAllRanges();
     sel.addRange(range);
+};
+
+const clampToRange = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), Math.max(min, max));
+
+const getHoverPreviewRect = (
+    anchor: DOMRect,
+    naturalWidth: number,
+    naturalHeight: number,
+    preferredMaxWidth = 260,
+    preferredMaxHeight = 340,
+) => {
+    const viewportMargin = 12;
+    const anchorGap = 12;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const maxWidth = Math.max(1, Math.min(preferredMaxWidth, viewportWidth - viewportMargin * 2));
+    const maxHeight = Math.max(1, Math.min(preferredMaxHeight, viewportHeight - viewportMargin * 2));
+    const aspectRatio = naturalWidth > 0 && naturalHeight > 0
+        ? naturalWidth / naturalHeight
+        : 4 / 5;
+
+    let width = maxWidth;
+    let height = width / aspectRatio;
+    if (height > maxHeight) {
+        height = maxHeight;
+        width = height * aspectRatio;
+    }
+
+    const left = clampToRange(
+        anchor.left + anchor.width / 2 - width / 2,
+        viewportMargin,
+        viewportWidth - width - viewportMargin,
+    );
+    const aboveTop = anchor.top - height - anchorGap;
+    const roomAbove = anchor.top - anchorGap - viewportMargin;
+    const roomBelow = viewportHeight - anchor.bottom - anchorGap - viewportMargin;
+    const preferredTop = aboveTop >= viewportMargin || roomAbove >= roomBelow
+        ? aboveTop
+        : anchor.bottom + anchorGap;
+    const top = clampToRange(
+        preferredTop,
+        viewportMargin,
+        viewportHeight - height - viewportMargin,
+    );
+
+    return { left, top, width, height };
 };
 
 interface InputAreaProps {
@@ -178,6 +226,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const sendSkill = creationMode === 'agent' ? (activeQuickSkill || undefined) : undefined;
     const objectUrlMapRef = useRef<Map<File, string>>(new Map());
     const isSoraVideoModel = isSora2Model(videoGenModel);
+    const hasInlineComposerTokens = inputBlocks.some((block) => block.type === 'file')
+        || pendingAttachments.length > 0
+        || Boolean(activeQuickSkill && creationMode === 'agent');
 
     const getObjectUrl = (file?: File | null) => {
         if (!file) return '';
@@ -323,9 +374,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
     };
 
     return (
-        <div className="px-3 py-2 z-20 flex-shrink-0">
+        <div className="z-20 flex-shrink-0 px-3 py-2">
             <div
-                className={`bg-white rounded-2xl border border-gray-200 shadow-sm transition-all duration-200 relative group focus-within:shadow-md focus-within:border-gray-300 flex flex-col overflow-visible ${isDragOver ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30' : ''}`}
+                className={`group relative flex min-h-[7.5rem] flex-col overflow-visible rounded-[1.5rem] border bg-white shadow-[0_2px_6px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow,background-color] duration-200 focus-within:border-slate-400 focus-within:shadow-[0_3px_10px_rgba(15,23,42,0.09)] ${isDragOver ? 'border-blue-500 bg-blue-50/40 shadow-[0_0_0_3px_rgba(59,130,246,0.14)]' : 'border-[#D4D4D4]'}`}
                 onMouseEnter={() => setIsVideoPanelHovered(true)}
                 onMouseLeave={() => setIsVideoPanelHovered(false)}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
@@ -345,7 +396,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             >
                 {/* Drag overlay */}
                 {isDragOver && (
-                    <div className="absolute inset-0 z-30 rounded-[20px] bg-blue-50/80 border-2 border-dashed border-blue-400 flex items-center justify-center pointer-events-none">
+                    <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-[1rem] border border-dashed border-blue-400 bg-blue-50/90">
                         <div className="flex flex-col items-center gap-2">
                             <ImageIcon size={24} className="text-blue-500" />
                             <span className="text-sm font-medium text-blue-600">将文件拖拽至此处添加至对话</span>
@@ -503,9 +554,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
                     </div>
                 )}
 
-                {/* Text Input Area - Lovart style: inline mixed chips + text */}
+                {/* Unified inline composer: Skill, files and text share one ordered flow. */}
                 <div
-                    className={`px-3 pt-1.5 pb-1.5 cursor-text transition-all`}
+                    className="cursor-text px-4 pb-1 pt-3 transition-all"
                     onKeyDownCapture={(e) => {
                         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
                             e.preventDefault();
@@ -545,9 +596,41 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         el?.focus();
                     }}>
                     <div
-                        className="input-flow-container flex flex-wrap items-start content-start gap-[2px] pt-2 min-h-[80px] max-h-[200px] overflow-y-auto pr-1"
-                        style={{ minHeight: '80px', maxHeight: '200px', overflowY: 'auto', wordBreak: 'break-word', lineHeight: '22px' }}
+                        className="input-flow-container flex min-h-[3.75rem] max-h-48 flex-wrap content-start items-center gap-x-0.5 gap-y-1.5 overflow-y-auto pr-1"
+                        style={{ wordBreak: 'break-word', lineHeight: '1.75rem' }}
                     >
+                        {activeQuickSkill && creationMode === 'agent' && (
+                            <div
+                                id={`skill-chip-${activeQuickSkill.id}`}
+                                tabIndex={0}
+                                className="inline-flex min-h-6 max-w-full shrink-0 select-none items-center gap-1 rounded-md border border-slate-300 bg-white px-1 text-[0.7rem] font-medium text-slate-900 shadow-2xs outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Backspace' || event.key === 'Delete') {
+                                        event.preventDefault();
+                                        onClearQuickSkill?.();
+                                    }
+                                    if (event.key === 'ArrowRight') {
+                                        event.preventDefault();
+                                        const firstText = inputBlocks.find((block) => block.type === 'text');
+                                        const firstEditor = firstText && document.getElementById(`input-block-${firstText.id}`);
+                                        if (firstEditor) setCECursorPos(firstEditor, 0);
+                                    }
+                                }}
+                            >
+                                <span className="grid h-4 w-4 shrink-0 place-items-center rounded bg-slate-100 text-slate-600">
+                                    <Sparkles size={10} />
+                                </span>
+                                <span className="max-w-[6rem] truncate" title={activeQuickSkill.name}>{activeQuickSkill.name}</span>
+                                <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); onClearQuickSkill?.(); }}
+                                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                                    aria-label="移除技能"
+                                >
+                                    <X size={10} />
+                                </button>
+                            </div>
+                        )}
                         {inputBlocks.map((block) => {
                             if (block.type === 'file' && block.file) {
                                 const file = block.file!;
@@ -563,7 +646,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                             id={`marker-chip-${block.id}`}
                                             initial={{ scale: 0, opacity: 0 }}
                                             animate={{ scale: 1, opacity: 1 }}
-                                            className={`inline-flex items-center gap-0 rounded-full pl-[2px] pr-1 cursor-default relative group select-none h-6 transition-all border ${isAllInputSelected || isSelected ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-400' : 'bg-gray-50/50 border-gray-100 hover:bg-gray-100'}`}
+                                            className={`group relative inline-flex min-h-6 max-w-full shrink-0 cursor-default select-none items-center gap-1 rounded-md border bg-white px-1 text-[0.7rem] font-medium text-slate-900 shadow-2xs transition ${isAllInputSelected || isSelected ? 'border-blue-500 ring-2 ring-blue-500/15' : 'border-slate-300 hover:border-slate-400'}`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setIsAllInputSelected(false);
@@ -578,46 +661,39 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                             onMouseEnter={() => setHoveredChipId(block.id)}
                                             onMouseLeave={() => setHoveredChipId(null)}
                                         >
-                                            <div className="flex items-center -space-x-1.5 flex-shrink-0">
-                                                <div className="w-5 h-5 rounded-full overflow-hidden border border-gray-100 flex-shrink-0 shadow-sm">
+                                            <div className="flex shrink-0 items-center -space-x-1">
+                                                <div className="h-4 w-4 shrink-0 overflow-hidden rounded border border-slate-100 bg-slate-100">
                                                     <img src={getObjectUrl(file)} className="w-full h-full object-cover" />
                                                 </div>
-                                                <div className="w-3.5 h-3.5 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-sm flex-shrink-0 border border-white z-10">
+                                                <div className="z-10 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border border-white bg-blue-500 text-[0.45rem] font-bold text-white">
                                                     {markers.findIndex(m => m.id === markerId) + 1 || '?'}
                                                 </div>
                                             </div>
-                                            <span className="text-[11px] text-gray-700 font-bold max-w-[80px] truncate ml-1">{(file as any).markerName || '区域'}</span>
-                                            <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100"><X size={10} /></button>
+                                            <span className="max-w-[6rem] truncate">{(file as any).markerName || '区域'}</span>
+                                            <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"><X size={10} /></button>
 
                                             {isHovered && markerInfo && (() => {
-                                                const MAX_SIZE = 220;
-                                                const ratio = markerInfo.imageWidth / markerInfo.imageHeight;
-                                                let renderWidth = MAX_SIZE;
-                                                let renderHeight = MAX_SIZE;
-
-                                                if (ratio > 1) {
-                                                    renderHeight = MAX_SIZE / ratio;
-                                                } else {
-                                                    renderWidth = MAX_SIZE * ratio;
-                                                }
+                                                const chipRect = document.getElementById(`marker-chip-${block.id}`)?.getBoundingClientRect();
+                                                if (!chipRect) return null;
+                                                const previewRect = getHoverPreviewRect(
+                                                    chipRect,
+                                                    Number(markerInfo.imageWidth),
+                                                    Number(markerInfo.imageHeight),
+                                                );
 
                                                 return ReactDOM.createPortal(
-                                                    <div className="fixed z-[9999] pointer-events-none" style={{
-                                                        left: (document.getElementById(`marker-chip-${block.id}`)?.getBoundingClientRect().left || 0) + (document.getElementById(`marker-chip-${block.id}`)?.getBoundingClientRect().width || 0) / 2 - (renderWidth / 2),
-                                                        top: (document.getElementById(`marker-chip-${block.id}`)?.getBoundingClientRect().top || 0) - renderHeight - 12,
-                                                        width: renderWidth, height: renderHeight
-                                                    }}>
+                                                    <div className="fixed z-[9999] pointer-events-none" style={previewRect}>
                                                         <motion.div
                                                             initial={{ opacity: 0, scale: 0.9, y: 8 }}
                                                             animate={{ opacity: 1, scale: 1, y: 0 }}
                                                             transition={{ duration: 0.2 }}
-                                                            className="w-full h-full bg-white rounded-2xl shadow-xl overflow-hidden relative border border-gray-200"
+                                                            className="relative h-full w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-1 shadow-xl"
                                                         >
                                                             {/* 先显示完整原图（scale=1），再动画缩放到标记区域（scale=3） */}
                                                             <motion.div
-                                                                className="absolute inset-0"
+                                                                className="absolute inset-1 overflow-hidden rounded-[0.75rem] bg-slate-50"
                                                                 initial={{ scale: 1 }}
-                                                                animate={{ scale: 3 }}
+                                                                animate={{ scale: 1 }}
                                                                 transition={{
                                                                     delay: 0.5,
                                                                     duration: 0.8,
@@ -627,7 +703,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                                                     transformOrigin: `${(markerInfo.x + markerInfo.width / 2) / markerInfo.imageWidth * 100}% ${(markerInfo.y + markerInfo.height / 2) / markerInfo.imageHeight * 100}%`
                                                                 }}
                                                             >
-                                                                <img src={markerInfo.fullImageUrl || getObjectUrl(file)} className="w-full h-full object-cover" />
+                                                                <img src={markerInfo.fullImageUrl || getObjectUrl(file)} className="h-full w-full object-contain" />
                                                                 {/* 在图片上覆盖绘制对应的标记点 */}
                                                                 <div
                                                                     className="absolute"
@@ -642,7 +718,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                                                         className="relative flex flex-col items-center"
                                                                         // 因为外层最终会放大到 scale=3，我们让标记反向缩小到 scale: 0.33，这样它在放大状态下刚好是正常大小
                                                                         initial={{ scale: 1, opacity: 0 }}
-                                                                        animate={{ scale: 0.333, opacity: 1 }}
+                                                                        animate={{ scale: 1, opacity: 1 }}
                                                                         transition={{ delay: 0.5, duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
                                                                         style={{ transformOrigin: 'bottom center' }}
                                                                     >
@@ -662,17 +738,19 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                     );
                                 } else {
                                     const isCanvasAuto = (file as any)._canvasAutoInsert;
-                                    const chipLabel = isCanvasAuto ? `图片${inputBlocks.filter(b => b.type === 'file' && (b.file as any)?._canvasAutoInsert).indexOf(block) + 1}` : file.name.replace(/\.[^/.]+$/, '');
+                                    const fileIndex = inputBlocks.filter((candidate) => candidate.type === 'file').indexOf(block);
+                                    const chipLabel = isCanvasAuto
+                                        ? `图片${inputBlocks.filter(b => b.type === 'file' && (b.file as any)?._canvasAutoInsert).indexOf(block) + 1}`
+                                        : getReadableAttachmentLabel(file.name, Math.max(0, fileIndex)).replace(/\.[^/.]+$/, '');
                                     const fileAny = file as any;
-                                    const imageWidth = Number(fileAny._canvasWidth || fileAny._canvasW || 0);
-                                    const imageHeight = Number(fileAny._canvasHeight || fileAny._canvasH || 0);
-                                    const hasValidAspect = imageWidth > 0 && imageHeight > 0;
+                                    const imageWidth = Number(fileAny._previewNaturalWidth || fileAny._canvasWidth || fileAny._canvasW || 0);
+                                    const imageHeight = Number(fileAny._previewNaturalHeight || fileAny._canvasHeight || fileAny._canvasH || 0);
                                     const chipPreviewUrl = fileAny._chipPreviewUrl || (fileAny._chipPreviewUrl = getObjectUrl(file));
                                     return (
                                         <div
                                             key={block.id}
                                             id={`file-chip-${block.id}`}
-                                            className={`inline-flex items-center gap-1 rounded-full pl-[2px] pr-1.5 select-none relative group h-6 cursor-default transition-all border shrink-0 ${isAllInputSelected || isSelected ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-400' : isInputFocused ? 'bg-blue-50/30 border-blue-100' : 'bg-gray-50/50 border-gray-100 hover:bg-gray-100'}`}
+                                            className={`group relative inline-flex min-h-6 max-w-full shrink-0 cursor-default select-none items-center gap-1 rounded-md border bg-white px-1 text-[0.7rem] font-medium text-slate-900 shadow-2xs transition ${isAllInputSelected || isSelected ? 'border-blue-500 ring-2 ring-blue-500/15' : 'border-slate-300 hover:border-slate-400'}`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setIsAllInputSelected(false);
@@ -687,38 +765,42 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                             onMouseEnter={() => setHoveredChipId(block.id)}
                                             onMouseLeave={() => setHoveredChipId(null)}
                                         >
-                                            <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0 border border-gray-100 shadow-sm">
-                                                {file.type.startsWith('image/') ? <img src={chipPreviewUrl} className="w-full h-full object-cover" /> : <FileText size={10} className="text-gray-500" />}
+                                            <div className="h-4 w-4 shrink-0 overflow-hidden rounded border border-slate-100 bg-slate-100">
+                                                {file.type.startsWith('image/') ? (
+                                                    <img
+                                                        src={chipPreviewUrl}
+                                                        className="h-full w-full object-cover"
+                                                        onLoad={(event) => {
+                                                            const image = event.currentTarget;
+                                                            if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                                                                fileAny._previewNaturalWidth = image.naturalWidth;
+                                                                fileAny._previewNaturalHeight = image.naturalHeight;
+                                                            }
+                                                        }}
+                                                    />
+                                                ) : <FileText size={10} className="text-gray-500" />}
                                             </div>
-                                            <span className="text-[11px] text-gray-700 font-bold max-w-[100px] truncate ml-0.5">{chipLabel}</span>
-                                            <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100 ml-0.5"><X size={10} /></button>
+                                            <span className="max-w-[6rem] truncate" title={file.name}>{chipLabel}</span>
+                                            <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"><X size={10} /></button>
 
                                             {isHovered && file.type.startsWith('image/') && (() => {
                                                 const chipRect = document.getElementById(`file-chip-${block.id}`)?.getBoundingClientRect();
                                                 if (!chipRect) return null;
 
-                                                const maxSize = 220;
-                                                const ratio = hasValidAspect ? imageWidth / imageHeight : 1;
-                                                const renderWidth = ratio > 1 ? maxSize : Math.max(120, maxSize * ratio);
-                                                const renderHeight = ratio > 1 ? Math.max(120, maxSize / ratio) : maxSize;
+                                                const previewRect = getHoverPreviewRect(chipRect, imageWidth, imageHeight);
 
                                                 return ReactDOM.createPortal(
                                                     <div
                                                         className="fixed z-[9999] pointer-events-none"
-                                                        style={{
-                                                            left: chipRect.left + chipRect.width / 2 - renderWidth / 2,
-                                                            top: chipRect.top - renderHeight - 12,
-                                                            width: renderWidth,
-                                                            height: renderHeight,
-                                                        }}
+                                                        style={previewRect}
                                                     >
                                                         <motion.div
                                                             initial={{ opacity: 0, scale: 0.94, y: 8 }}
                                                             animate={{ opacity: 1, scale: 1, y: 0 }}
                                                             transition={{ duration: 0.18 }}
-                                                            className="w-full h-full bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200"
+                                                            className="h-full w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-1 shadow-xl"
                                                         >
-                                                            <img src={chipPreviewUrl} className="w-full h-full object-cover" />
+                                                            <img src={chipPreviewUrl} className="h-full w-full rounded-[0.75rem] bg-slate-50 object-contain" />
                                                         </motion.div>
                                                     </div>,
                                                     document.body
@@ -733,9 +815,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                 const textBlocks = inputBlocks.filter(b => b.type === 'text');
                                 const isLastTextBlock = textBlocks[textBlocks.length - 1]?.id === block.id;
                                 const hasText = (block.text || '').trim().length > 0;
-                                const placeholder = isLastTextBlock && textBlocks.length <= 1 && pendingAttachments.length === 0
+                                const placeholder = isLastTextBlock && textBlocks.length <= 1 && !hasInlineComposerTokens
                                     ? (creationMode === 'agent' ? "请输入你的设计需求" : creationMode === 'chat' ? "聊聊灵感、方向、文案、风格..." : "今天我们要创作什么")
                                     : "";
+                                const textFlex = hasText
+                                    ? '0 1 auto'
+                                    : hasInlineComposerTokens
+                                        ? '0 0 2px'
+                                        : '1 1 12rem';
 
                                 return (
                                     <span
@@ -743,9 +830,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                         id={`input-block-${block.id}`}
                                         contentEditable
                                         suppressContentEditableWarning
-                                        className={`ce-placeholder border-none outline-none text-sm ${isAllInputSelected && hasText ? 'bg-blue-100 text-blue-900 rounded px-0.5' : 'bg-transparent text-gray-800'}`}
+                                        className={`ce-placeholder inline-block min-h-7 max-w-full whitespace-pre-wrap break-words border-none bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${isAllInputSelected && hasText ? 'rounded bg-blue-100 px-0.5 text-blue-900' : ''}`}
                                         data-placeholder={placeholder}
-                                        style={{ display: 'inline-block', verticalAlign: 'top', lineHeight: '22px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', caretColor: '#111827', minWidth: '4px', margin: '0 2px', flex: isLastTextBlock ? (pendingAttachments.length > 0 ? '0 1 auto' : '1 1 auto') : '0 1 auto' }}
+                                        style={{ verticalAlign: 'top', wordBreak: 'break-word', caretColor: '#0f172a', minWidth: hasInlineComposerTokens && !hasText ? '2px' : '1px', margin: '0 1px', flex: textFlex }}
                                         ref={el => { if (el && document.activeElement !== el && el.textContent !== (block.text || '')) el.textContent = block.text || ''; }}
                                         onInput={(e) => {
                                             if (isAllInputSelected) setIsAllInputSelected(false);
@@ -893,17 +980,17 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         {pendingAttachments.map((pending) => (
                             <div
                                 key={pending.id}
-                                className="inline-flex items-center gap-1 rounded-full pl-[2px] pr-1 select-none relative h-6 cursor-default transition-all border border-dashed border-blue-300 bg-blue-50/50 shrink-0 opacity-60 hover:opacity-100 group/pending"
+                                className="group/pending relative inline-flex min-h-6 max-w-full shrink-0 cursor-default select-none items-center gap-1 rounded-md border border-dashed border-blue-300 bg-blue-50/50 px-1 text-[0.7rem] font-medium text-blue-700 opacity-70 transition hover:opacity-100"
                             >
-                                <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0 border border-blue-200 shadow-sm">
+                                <div className="h-4 w-4 shrink-0 overflow-hidden rounded border border-blue-200 bg-blue-100">
                                     {pending.file.type.startsWith('image/')
                                         ? <img src={getObjectUrl(pending.file)} className="w-full h-full object-cover" />
                                         : <FileText size={10} className="text-blue-500" />}
                                 </div>
-                                <span className="text-[11px] text-blue-700 font-bold max-w-[100px] truncate ml-0.5">待确认</span>
+                                <span className="max-w-[6rem] truncate">待确认</span>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); removePendingAttachment(pending.id); }}
-                                    className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-blue-400 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover/pending:opacity-100"
+                                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-blue-400 transition hover:bg-white hover:text-slate-800"
                                 >
                                     <X size={10} />
                                 </button>
@@ -913,18 +1000,23 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 </div>
 
                 {/* Bottom Toolbar */}
-                <div className="px-3 py-1.5 flex items-center justify-between relative border-t border-gray-100/80">
-                    <div className="flex items-center gap-1">
+                <div className="relative mt-1 flex min-w-0 items-center justify-between px-2 pb-2">
+                    <div className="flex min-w-0 items-center gap-0.5">
                         {(creationMode === 'agent' || creationMode === 'chat') && (
-                            <button onClick={() => fileInputRef.current?.click()} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-                                <Paperclip size={17} strokeWidth={1.8} />
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                aria-label="添加参考图片"
+                                title="添加参考图片"
+                                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
+                            >
+                                <Plus size={18} strokeWidth={1.8} />
                             </button>
                         )}
 
                         <div className="relative">
                             <button
                                 onClick={() => setShowModeSelector(!showModeSelector)}
-                                className="h-8 px-3.5 rounded-full flex items-center justify-center gap-1.5 text-[13px] font-medium transition-all bg-white border border-blue-200 text-blue-500 hover:bg-blue-50/50 hover:border-blue-300 shadow-sm"
+                                className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full border border-blue-200 bg-white px-3 text-xs font-medium text-blue-500 shadow-sm outline-none transition hover:bg-blue-50/50 hover:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-500/30"
                             >
                                  {creationMode === 'agent' && <><Sparkles size={15} /> Agent</>}
                                  {creationMode === 'chat' && <><MessageSquare size={15} /> Chat</>}
@@ -955,7 +1047,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                     <div className="absolute bottom-full left-0 mb-3 w-[260px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-5 z-[70] animate-in fade-in slide-in-from-bottom-2 duration-300">
                                         <div className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-4">分辨率</div>
                                         <div className="flex gap-2 mb-6">
-                                            {(preferredImageModel === 'NanoBanana2' ? ['0.5K', '1K', '2K', '4K'] : ['1K', '2K', '4K']).map(res => (
+                                            {(preferredImageModel === 'gemini-3.1-flash-image-preview' ? ['0.5K', '1K', '2K', '4K'] : ['1K', '2K', '4K']).map(res => (
                                                 <button key={res} onClick={() => setImageGenRes(res)} className={`flex-1 py-1.5 text-[12px] font-bold rounded-xl transition-all ${imageGenRes === res ? 'bg-gray-200 text-black shadow-inner' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
                                                     {res}
                                                 </button>
@@ -967,7 +1059,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                                 { r: '21:9', i: 'w-5 h-2' }, { r: '16:9', i: 'w-5 h-3' }, { r: '4:3', i: 'w-5 h-3.5' }, { r: '3:2', i: 'w-5 h-3.5' },
                                                 { r: '1:1', i: 'w-4 h-4' }, { r: '9:16', i: 'w-3 h-5' }, { r: '3:4', i: 'w-3.5 h-5' }, { r: '2:3', i: 'w-3.5 h-5' },
                                                 { r: '5:4', i: 'w-4.5 h-4' }, { r: '4:5', i: 'w-4 h-4.5' },
-                                                ...(preferredImageModel === 'NanoBanana2' ? [
+                                                ...(preferredImageModel === 'gemini-3.1-flash-image-preview' ? [
                                                     { r: '1:4', i: 'w-2 h-6' }, { r: '4:1', i: 'w-6 h-2' }, { r: '1:8', i: 'w-1.5 h-7' }, { r: '8:1', i: 'w-7 h-1.5' }
                                                 ] : [])
                                             ].map(item => (
@@ -1038,7 +1130,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-0.5">
 
                         {/* Model / Send Controls */}
                         {(creationMode === 'image' || creationMode === 'video') && (
@@ -1134,15 +1226,15 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
                         {(creationMode === 'agent' || creationMode === 'chat') && (
                             <>
-                                <div className="h-8 bg-gray-100 rounded-full flex items-center p-1 gap-1">
-                                    <button onClick={() => handleModeSwitch('thinking')} className={`w-6 h-6 flex items-center justify-center rounded-full ${modelMode === 'thinking' ? 'bg-white shadow-sm' : 'text-gray-400'}`}><Lightbulb size={14} /></button>
-                                    <button onClick={() => handleModeSwitch('fast')} className={`w-6 h-6 flex items-center justify-center rounded-full ${modelMode === 'fast' ? 'bg-white shadow-sm' : 'text-gray-400'}`}><Zap size={14} /></button>
+                                <div className="flex h-10 items-center gap-0.5 rounded-full bg-slate-100 p-1">
+                                    <button aria-label="深度思考" onClick={() => handleModeSwitch('thinking')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'thinking' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Lightbulb size={14} /></button>
+                                    <button aria-label="快速生成" onClick={() => handleModeSwitch('fast')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'fast' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Zap size={14} /></button>
                                 </div>
-                                <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full flex items-center justify-center ${webEnabled ? 'text-blue-500' : 'text-gray-500'}`}><Globe size={16} /></button>
+                                <button aria-label="联网搜索" onClick={() => setWebEnabled(!webEnabled)} className={`flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-slate-100 ${webEnabled ? 'bg-blue-50 text-blue-500' : 'text-slate-500'}`}><Globe size={16} /></button>
                                 <div className="relative">
-                                    <button onClick={() => setShowModelPreference(!showModelPreference)} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-500"><Box size={16} /></button>
+                                    <button aria-label="模型偏好" onClick={() => setShowModelPreference(!showModelPreference)} className="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100"><Box size={16} /></button>
                                     {showModelPreference && (
-                                        <div className="absolute bottom-full right-0 mb-4 w-[350px] bg-white rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] border border-gray-100 z-50 p-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
+                                        <div className="absolute bottom-full -right-5 mb-4 w-[min(350px,calc(100vw-16px))] max-h-[min(70vh,620px)] overflow-y-auto bg-white rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] border border-gray-100 z-50 p-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
                                             {/* Header */}
                                             <div className="flex items-center justify-between mb-6">
                                                 <h3 className="text-[17px] font-bold tracking-tight text-gray-900 font-display">模型偏好</h3>
@@ -1275,28 +1367,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         {/* Send button always available (agent/chat/image/video) */}
                         <button
                             onClick={() => handleSend(undefined, undefined, undefined, sendSkill)}
-                            className="w-9 h-9 rounded-full flex items-center justify-center bg-black text-white hover:bg-gray-800 transition shadow-md shrink-0"
+                            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-950 text-white shadow-sm outline-none transition-colors hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
                         >
-                            <ArrowUp size={18} strokeWidth={2.5} />
+                            <ArrowUp size={16} strokeWidth={2.5} />
                         </button>
                     </div>
                 </div>
-
-                {activeQuickSkill && creationMode === 'agent' && (
-                    <div className="px-3 pb-2">
-                        <div className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 pl-2.5 pr-1.5 py-1 text-[11px] font-semibold">
-                            <Sparkles size={12} strokeWidth={2} />
-                            <span>{activeQuickSkill.name}</span>
-                            <button
-                                onClick={() => onClearQuickSkill?.()}
-                                className="w-4 h-4 rounded-full hover:bg-blue-100 flex items-center justify-center"
-                                title="清除当前技能"
-                            >
-                                <X size={11} />
-                            </button>
-                        </div>
-                    </div>
-                )}
 
                 {/* Hidden file input for selecting files */}
                 <input

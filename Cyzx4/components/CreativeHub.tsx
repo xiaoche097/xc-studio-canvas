@@ -232,6 +232,11 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
     onSelectSidebarItem('canvas');
   };
 
+  const handleOpenProject = (projectId: string) => {
+    setWorkspaceSeed({ projectId, prompt: '', attachments: [] });
+    onSelectSidebarItem('canvas');
+  };
+
   return (
     <div className="flex h-full min-h-screen bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100 overflow-hidden font-sans">
       {/* 1. LEFT SIDEBAR (在进入画布模式时隐藏全局侧边栏) */}
@@ -249,6 +254,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
         <div className="flex-1 overflow-hidden min-w-0">
           <Home
             onStartWorkspace={handleStartWorkspace}
+            onOpenProject={handleOpenProject}
             onOpenFeature={handleOpenFeatureWithRecord}
             onAgentEngage={() =>
               setSidebarCollapseRequest((request) => request + 1)
@@ -258,8 +264,12 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
       ) : activeSidebarItem === 'canvas' ? (
         <div className="flex-1 overflow-hidden min-w-0">
           <CanvasStudioManager
+            key={workspaceSeed?.projectId || 'workspace-empty'}
+            projectId={workspaceSeed?.projectId}
+            initialConversationId={workspaceSeed?.conversationId}
             initialPrompt={workspaceSeed?.prompt}
             initialAttachments={workspaceSeed?.attachments}
+            initialSkillData={workspaceSeed?.skillData}
             onBackToHub={() => onSelectSidebarItem('home')}
           />
         </div>

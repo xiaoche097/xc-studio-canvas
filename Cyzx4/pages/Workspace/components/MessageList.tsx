@@ -7,6 +7,7 @@ import { useAgentStore } from '../../../stores/agent.store';
 import { TaskProgress } from '../../../components/agents/TaskProgress';
 import { MessageAttachments } from './MessageAttachments';
 import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
+import { extractLegacyMessageReferences, stripLegacyMessageReferences } from '../../../utils/message-references';
 
 interface MessageListProps {
     onSend: (text: string) => void;
@@ -40,7 +41,18 @@ export const MessageList: React.FC<MessageListProps> = ({
 
     return (
         <div className="space-y-4 pb-4 px-2 md:px-3">
-            {messages.map(msg => (
+            {messages.map(msg => {
+                const legacyReferences = msg.role === 'user' ? extractLegacyMessageReferences(msg.text) : [];
+                const attachmentUrls = [
+                    ...(Array.isArray(msg.attachments) ? msg.attachments : []),
+                    ...legacyReferences.map((reference) => reference.url),
+                ];
+                const attachmentMetadata = [
+                    ...(Array.isArray(msg.attachmentMetadata) ? msg.attachmentMetadata : []),
+                    ...legacyReferences.map((reference) => ({ name: reference.title })),
+                ];
+                const visibleText = legacyReferences.length > 0 ? stripLegacyMessageReferences(msg.text) : msg.text;
+                return (
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -57,11 +69,11 @@ export const MessageList: React.FC<MessageListProps> = ({
                             )}
                             <div className="w-full rounded-2xl bg-gray-100 px-4 py-3 flex flex-col gap-2 overflow-hidden">
                                 <MessageAttachments 
-                                    attachments={msg.attachments} 
-                                   attachmentMetadata={msg.attachmentMetadata} 
+                                   attachments={attachmentUrls}
+                                   attachmentMetadata={attachmentMetadata}
                                    onPreview={onPreview} 
                                 />
-                                <div className="text-[14px] text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{msg.text}</div>
+                                {visibleText && <div className="text-[14px] text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{visibleText}</div>}
                             </div>
                         </div>
                     ) : msg.error && !msg.agentData ? (
@@ -82,7 +94,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                         />
                     )}
                 </motion.div>
-            ))}
+                );
+            })}
             {/* 进度反馈已统一移至侧边栏输入框上方，此处仅在无任务状态时作为兜底显示 */}
             {isTyping && !currentTask && (
                 <div className="flex justify-start mb-6 mt-2 ml-1">

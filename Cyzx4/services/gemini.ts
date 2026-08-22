@@ -1637,6 +1637,51 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     const references = config.referenceImages || (config.referenceImage ? [config.referenceImage] : []);
     const hasReferences = references.length > 0;
 
+    // Virse 是当前启用的图片服务时必须优先走 Virse，不能先请求旧的 Gemini/代理模型。
+    // 这里放在 Seedream 和通用 fallback 之前，覆盖 Workspace/Agent 共用的主生成入口。
+    const virseEnabled = typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true';
+    if (virseEnabled) {
+        const virseApiKey = window.localStorage.getItem('virse_api_key')?.trim() || '';
+        if (!virseApiKey) {
+            throw new Error('Virse 已启用但 API Key 为空，请先完成 Virse 配置。');
+        }
+
+        const virseImages: Array<{ base64: string; mimeType: string }> = [];
+        for (const imageInput of [...references, ...(config.maskImage ? [config.maskImage] : [])]) {
+            const normalized = await normalizeReferenceToDataUrl(imageInput);
+            const match = normalized?.match(/^data:(.+);base64,(.+)$/);
+            if (match) virseImages.push({ mimeType: match[1], base64: match[2] });
+        }
+
+        const strength = clamp01(Number.isFinite(config.referenceStrength as number) ? Number(config.referenceStrength) : 0.75);
+        const finalPrompt = hasReferences || config.consistencyContext?.forbiddenChanges?.length || config.consistencyContext?.referenceSummary
+            ? buildConstrainedPrompt(config.prompt, {
+                strength,
+                mode: config.referenceMode || 'product',
+                referenceCount: references.length,
+                priority: config.referencePriority || (references.length > 1 ? 'all' : 'first'),
+                forbiddenChanges: config.consistencyContext?.forbiddenChanges,
+                approvedSummary: config.consistencyContext?.referenceSummary,
+            })
+            : config.prompt;
+        const maskRule = config.maskImage
+            ? '\n\n[Mask Rule]\n- The final reference is a binary mask. White is editable and black is locked.'
+            : '';
+        const configuredVirseModel = window.localStorage.getItem('virse_model')?.trim() || 'nano-banana-2';
+        const { generateImageToImage } = await import('./geminiService');
+        console.info('[image-gen] Routing through Virse first', {
+            model: configuredVirseModel,
+            refs: virseImages.length,
+            aspectRatio: config.aspectRatio,
+        });
+        const results = await generateImageToImage(virseImages, `${finalPrompt}${maskRule}`, {
+            modelId: configuredVirseModel,
+            aspectRatio: config.aspectRatio as any,
+            resolution: (config.imageSize || '2K') as any,
+        });
+        return results[0] || null;
+    }
+
     // Seedream 使用 dall-e-3 格式，走单独的路径
     if (config.model === 'Seedream5.0' && !hasReferences) {
         try {

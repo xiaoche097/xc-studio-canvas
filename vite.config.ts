@@ -4,7 +4,28 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { executeVirseRequest } from './api/virse-core.js';
 
-const ALLOWED_IMAGE_HOST_SUFFIXES = ['aiproxy.vip', 'apilio.ai'];
+const ALLOWED_IMAGE_HOST_SUFFIXES = [
+  'aiproxy.vip',
+  'apilio.ai',
+  'pinimg.com',
+  'pinterest.com',
+  'images.unsplash.com',
+  'unsplash.com',
+  'xhscdn.com',
+  'xiaohongshu.com',
+  'cdninstagram.com',
+  'fbcdn.net',
+  'media-amazon.com',
+  'ssl-images-amazon.com',
+  'alicdn.com',
+  'i.ibb.co',
+  'ibb.co',
+  'imgur.com',
+  'googleusercontent.com',
+  'gstatic.com',
+  'storage.googleapis.com',
+  'cloudfront.net',
+];
 
 const isVirseStorageUrl = (parsed: URL) => (
   parsed.hostname.toLowerCase() === 'storage.googleapis.com'

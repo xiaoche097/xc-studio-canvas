@@ -13,6 +13,7 @@ import { InputArea } from './InputArea';
 
 import { ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
 import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
+import { createConversationId } from '../../../utils/conversation';
 
 interface AssistantSidebarProps {
     workspaceId: string;
@@ -167,7 +168,6 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
         setActiveQuickSkillSynced(STORYBOARD_SKILL);
     };
 
-    const createConversationId = () => `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const toMemoryKey = (conversationId: string) => {
         if (!workspaceId || !conversationId) return conversationId;
         if (conversationId.includes(':')) return conversationId;
@@ -187,15 +187,15 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
             style={{ display: showAssistant ? undefined : 'none' }}
         >
             {/* Header with Toolbar - Lovart Style */}
-            <div className="px-3 py-2.5 flex items-center justify-between border-b border-gray-100 z-20 shrink-0 select-none">
-                <span className="text-sm font-semibold text-gray-900 pl-1">
+            <div className="px-3 py-2.5 flex flex-nowrap items-center justify-between gap-2 border-b border-gray-100 z-20 shrink-0 select-none">
+                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-sm font-semibold text-gray-900 pl-1" title={messages.length > 0 ? (conversations.find(c => c.id === activeConversationId)?.title || '对话中') : '新对话'}>
                     {messages.length > 0
                         ? (conversations.find(c => c.id === activeConversationId)?.title || '对话中')
                         : '新对话'}
                 </span>
-                <div className="flex items-center gap-0.5">
+                <div className="flex shrink-0 flex-nowrap items-center gap-0.5">
                     <button
-                        className="h-7 px-2.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center rounded-lg transition-all"
+                        className="h-7 shrink-0 whitespace-nowrap px-2.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center rounded-lg transition-all"
                         onClick={() => { setActiveConversationId(createConversationId()); clearMessages(); setPrompt(''); setCreationMode('agent'); setActiveQuickSkillSynced(null); }}
                     >
                         <CirclePlus size={15} strokeWidth={1.5} className="mr-1" />

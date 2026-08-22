@@ -31,6 +31,14 @@ const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any
 
 const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 6;
 
+const getAgentExecutionTimeoutMs = (): number => {
+  if (typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true') {
+    return 420000;
+  }
+  // 图片服务自身最多等待约 300 秒，外层不能在 180 秒时提前判失败。
+  return 330000;
+};
+
 interface CanvasState {
   elements: CanvasElement[];
   pan: { x: number; y: number };
@@ -71,10 +79,17 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
   }>>([]);
 
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs))
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }, []);
 
   const addAssetsToCanvas = useCallback(async (assets: GeneratedAsset[]) => {
@@ -240,12 +255,14 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       // Read conversation history from store (single source of truth)
       const hostProvider = useImageHostStore.getState().selectedProvider;
+      const requestedConversationId = String(normalizedMetadata.conversationId || '').trim();
       const updatedContext = {
         ...projectContext,
+        conversationId: requestedConversationId || projectContext.conversationId,
         conversationHistory: useAgentStore.getState().messages.slice(-MAX_ORCHESTRATOR_HISTORY_MESSAGES)
       };
 
-      const activeConversationId = String(projectContext.conversationId || '').trim();
+      const activeConversationId = String(updatedContext.conversationId || '').trim();
       const topicId = String(
         (normalizedMetadata as any)?.topicId ||
         (activeConversationId ? getMemoryKey(projectContext.projectId, activeConversationId) : '') ||
@@ -334,7 +351,10 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       }
 
       // Pipeline detection
-      const pipelineId = !useOptimizeThenExecute ? detectPipeline(messageForExecution) : null;
+      // 用户显式选择创作 Skill 时，交给它自己的 capability 合同执行，避免关键词流水线抢走任务。
+      const pipelineId = !useOptimizeThenExecute && !normalizedMetadata?.skillData?.capabilities?.length
+        ? detectPipeline(messageForExecution)
+        : null;
       if (pipelineId && PIPELINES[pipelineId]) {
         const pipeline = PIPELINES[pipelineId];
         console.log('[useAgentOrchestrator] Pipeline detected:', pipeline.name);
@@ -354,7 +374,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
             console.log(`[useAgentOrchestrator] Pipeline step ${stepIdx} done:`, stepResult.status);
             setCurrentTask(stepResult);
           }),
-          180000,
+          getAgentExecutionTimeoutMs(),
           '流水线执行超时，请稍后重试'
         );
         console.log('[useAgentOrchestrator] Pipeline request done');
@@ -377,6 +397,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       // Single agent routing — try local keyword match first to skip API call
       console.log('[useAgentOrchestrator] Routing to agent...');
       const localAgent = localPreRoute(messageForExecution);
+      const skillPreferredAgent = normalizedMetadata?.skillData?.config?.preferredAgent as AgentType | undefined;
+      const validSkillAgents: AgentType[] = ['coco', 'vireo', 'cameron', 'poster', 'package', 'motion', 'campaign', 'prompt-optimizer'];
       let decision;
       if (pinnedAgent) {
         decision = {
@@ -385,6 +407,15 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
           complexity: 'simple' as const,
           handoffMessage: `用户请求(已优化): ${messageForExecution}`,
           confidence: 0.9,
+        };
+      } else if (skillPreferredAgent && validSkillAgents.includes(skillPreferredAgent)) {
+        decision = {
+          action: 'route' as const,
+          targetAgent: skillPreferredAgent,
+          taskType: 'creative-skill-routed',
+          complexity: 'simple' as const,
+          handoffMessage: `按用户选择的创作 Skill 执行: ${messageForExecution}`,
+          confidence: 1,
         };
       } else if (localAgent) {
         console.log('[useAgentOrchestrator] Local pre-route hit:', localAgent);
@@ -580,7 +611,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       console.log('[useAgentOrchestrator] 发起 Agent 执行请求...');
       const result = await withTimeout(
         executeAgentTask(task),
-        180000,
+        getAgentExecutionTimeoutMs(),
         '任务执行超时，请稍后重试'
       );
       console.log('[useAgentOrchestrator] 收到 Agent 执行回复');
@@ -638,8 +669,13 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       console.error('生成流中断:', error);
       console.error('[useAgentOrchestrator] Error:', error);
       const rawMessage = error instanceof Error ? error.message : String(error || '');
+      const timedOut = /超时|timeout/i.test(rawMessage);
       const imageFailure = /图片|image|upload|base64|attachment|mime|格式/i.test(rawMessage);
-      const failMessage = imageFailure
+      const failMessage = timedOut
+        ? (typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true'
+          ? 'Virse 生成等待超时，任务可能仍在所选 Virse 画布处理中，请稍后查看或重试。'
+          : '生成等待超时，请稍后重试。')
+        : imageFailure
         ? '图片处理失败，请检查网络或重新上传'
         : '抱歉，生成过程中遇到网络或解析错误，请重试。';
       const curTask = useAgentStore.getState().currentTask;
@@ -718,7 +754,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       console.log('[useAgentOrchestrator] Proposal request start', { proposalId });
       const result = await withTimeout(
         executeAgentTask(task),
-        180000,
+        getAgentExecutionTimeoutMs(),
         '方案执行超时，请稍后重试'
       );
       console.log('[useAgentOrchestrator] Proposal request done', { status: result.status });

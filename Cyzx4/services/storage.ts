@@ -6,7 +6,8 @@ export const TOPIC_SNAPSHOT_STORE = 'topic_snapshots';
 export const TOPIC_MEMORY_ITEM_STORE = 'topic_memory_items';
 export const TOPIC_ASSET_STORE = 'topic_assets';
 export const MATERIAL_LIBRARY_STORE = 'material_library';
-const DB_VERSION = 4;
+export const CLIPPER_ITEM_STORE = 'clipper_items';
+const DB_VERSION = 5;
 
 export const openWorkspaceDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -67,6 +68,12 @@ export const openWorkspaceDB = (): Promise<IDBDatabase> => {
         const store = db.createObjectStore(MATERIAL_LIBRARY_STORE, { keyPath: 'id' });
         store.createIndex('kind', 'kind', { unique: false });
         store.createIndex('updatedAt', 'updatedAt', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(CLIPPER_ITEM_STORE)) {
+        const store = db.createObjectStore(CLIPPER_ITEM_STORE, { keyPath: 'id' });
+        store.createIndex('timestamp', 'timestamp', { unique: false });
+        store.createIndex('category', 'category', { unique: false });
       }
     };
   });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Trash2,
@@ -12,35 +12,89 @@ import {
   Download,
 } from 'lucide-react';
 import ClipperModal from '../../../components/ClipperModal';
+import { loadClippedItems, replaceClippedItems } from '../../../services/clipper-storage';
+import { useImageHostStore } from '../../../stores/imageHost.store';
+import { fetchImageBlob } from '../../../utils/imageDownload';
+import { uploadImage } from '../../../utils/uploader';
 
 export interface ClippedItem {
   id: string;
   title: string;
   url: string;
+  originalUrl?: string;
   sourceUrl?: string;
   platform?: 'xiaohongshu' | 'instagram' | 'amazon' | 'taobao' | 'pinterest' | 'other';
   category?: string; // 'uncategorized' | custom category
   timestamp: number;
 }
 
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => typeof reader.result === 'string'
+    ? resolve(reader.result)
+    : reject(new Error('Image conversion returned an invalid result'));
+  reader.onerror = () => reject(reader.error || new Error('Image conversion failed'));
+  reader.readAsDataURL(blob);
+});
+
+const stabilizeClippedItem = async (item: ClippedItem): Promise<ClippedItem> => {
+  try {
+    const blob = await fetchImageBlob(item.url);
+    const extension = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+    const file = new File([blob], `clip-${item.timestamp}.${extension}`, { type: blob.type });
+    const provider = useImageHostStore.getState().selectedProvider;
+    const stableUrl = provider === 'none' ? await blobToDataUrl(blob) : await uploadImage(file);
+    return {
+      ...item,
+      originalUrl: item.originalUrl || (/^https?:\/\//i.test(item.url) ? item.url : undefined),
+      url: stableUrl,
+    };
+  } catch (error) {
+    console.warn('[clipper] Failed to persist clipped image; keeping its original source.', error);
+    return item;
+  }
+};
+
 interface ClipperLibraryViewProps {
   onAddToConversation?: (imageUrl: string, title: string) => void;
 }
 
+const DEMO_TEST_ITEMS: ClippedItem[] = [
+  {
+    id: 'demo-item-1',
+    title: 'Instagram 潮服搭配参考',
+    url: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80',
+    sourceUrl: 'https://www.instagram.com',
+    platform: 'instagram',
+    category: 'uncategorized',
+    timestamp: Date.now() - 3600000,
+  },
+  {
+    id: 'demo-item-2',
+    title: '小红书极简氛围质感图',
+    url: 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=800&q=80',
+    sourceUrl: 'https://www.xiaohongshu.com',
+    platform: 'xiaohongshu',
+    category: 'uncategorized',
+    timestamp: Date.now() - 7200000,
+  },
+];
+
 export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   onAddToConversation,
 }) => {
-  // 不再放入硬编码示例图片，初始为空数组 (完美响应“不要有的那些图片进占位”)
   const [items, setItems] = useState<ClippedItem[]>(() => {
     try {
       const stored = localStorage.getItem('xc_ai_clipped_items');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {}
-    return [];
+    return DEMO_TEST_ITEMS;
   });
+  const [clipperStorageReady, setClipperStorageReady] = useState(false);
+  const receivedClipIdsRef = useRef(new Map<string, string>());
 
   // 分类 Tabs：默认【只保留全部和未分类】，用户自行新建分类
   const [categories, setCategories] = useState<string[]>(() => {
@@ -73,10 +127,34 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   const [previewItem, setPreviewItem] = useState<ClippedItem | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    loadClippedItems()
+      .then((storedItems) => {
+        if (cancelled) return;
+        if (storedItems.length > 0) setItems(storedItems as ClippedItem[]);
+      })
+      .catch((error) => console.warn('[clipper] Failed to load IndexedDB library.', error))
+      .finally(() => {
+        if (!cancelled) setClipperStorageReady(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!clipperStorageReady) return;
+    void replaceClippedItems(items).catch((error) => {
+      console.warn('[clipper] Failed to save IndexedDB library.', error);
+    });
+
+    // Keep only lightweight metadata here for compatibility with older extension builds.
+    // Image bytes live in IndexedDB so localStorage quota cannot make clips disappear.
     try {
-      localStorage.setItem('xc_ai_clipped_items', JSON.stringify(items));
+      const metadata = items.map((item) => item.url.startsWith('data:image/')
+        ? { ...item, url: item.originalUrl || '' }
+        : item);
+      localStorage.setItem('xc_ai_clipped_items', JSON.stringify(metadata));
     } catch {}
-  }, [items]);
+  }, [clipperStorageReady, items]);
 
   useEffect(() => {
     if (!activeMenuId) return;
@@ -91,44 +169,56 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   // 1. 跨标签页 0ms 实时接收（BroadcastChannel 频道）
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
+    const ingestClippedItem = (raw: Partial<ClippedItem>) => {
+      if (!raw.url) return;
+      if (raw.id) {
+        const previousUrl = receivedClipIdsRef.current.get(raw.id);
+        if (previousUrl === raw.url) return;
+        if (previousUrl?.startsWith('data:image/') && !raw.url.startsWith('data:image/')) return;
+        receivedClipIdsRef.current.set(raw.id, raw.url);
+      }
+      const newItem: ClippedItem = {
+        id: raw.id || `clip-${Date.now()}`,
+        title: raw.title || '全网剪藏灵感图',
+        url: raw.url,
+        originalUrl: raw.originalUrl,
+        sourceUrl: raw.sourceUrl,
+        platform: raw.platform || 'other',
+        category: raw.category || 'uncategorized',
+        timestamp: raw.timestamp || Date.now(),
+      };
+
+      setItems((prev) => [
+        newItem,
+        ...prev.filter((item) => (
+          item.id !== newItem.id
+          && item.url !== newItem.url
+          && (!newItem.originalUrl || item.originalUrl !== newItem.originalUrl)
+        )),
+      ]);
+
+      void stabilizeClippedItem(newItem).then((stableItem) => {
+        if (stableItem.url === newItem.url) return;
+        setItems((prev) => prev.map((item) => item.id === newItem.id ? stableItem : item));
+      });
+      setToastMsg('已接收并保存新灵感图');
+      setTimeout(() => setToastMsg(null), 2500);
+    };
+
     try {
       bc = new BroadcastChannel('xc_ai_clipper_channel');
       bc.onmessage = (event) => {
         if (event.data && (event.data.type === 'XC_CLIPPER_SAVE_IMAGE' || event.data.action === 'CLIP_IMAGE')) {
-          const raw = event.data.item || event.data;
-          if (raw.url) {
-            const newItem: ClippedItem = {
-              id: raw.id || `clip-${Date.now()}`,
-              title: raw.title || '全网剪藏灵感图',
-              url: raw.url,
-              sourceUrl: raw.sourceUrl,
-              platform: raw.platform || 'other',
-              category: 'uncategorized',
-              timestamp: raw.timestamp || Date.now(),
-            };
-            setItems((prev) => [newItem, ...prev.filter((i) => i.id !== newItem.id && i.url !== newItem.url)]);
-            setToastMsg('已接收新灵感图');
-            setTimeout(() => setToastMsg(null), 2500);
-          }
+          ingestClippedItem(event.data.item || event.data);
         }
       };
     } catch {}
 
     // 2. 监听来自 window.postMessage 消息
     const handleMessage = (event: MessageEvent) => {
-      if (event.data && (event.data.type === 'XC_CLIPPER_SAVE_IMAGE' || event.data.type === 'CLIP_IMAGE') && event.data.url) {
-        const newItem: ClippedItem = {
-          id: `clip-${Date.now()}`,
-          title: event.data.title || '全网剪藏灵感图',
-          url: event.data.url,
-          sourceUrl: event.data.sourceUrl,
-          platform: event.data.platform || 'other',
-          category: 'uncategorized',
-          timestamp: Date.now(),
-        };
-        setItems((prev) => [newItem, ...prev.filter((i) => i.url !== newItem.url)]);
-        setToastMsg('已接收新灵感图');
-        setTimeout(() => setToastMsg(null), 2500);
+      if (event.source !== window || !event.data) return;
+      if (event.data.type === 'XC_CLIPPER_SAVE_IMAGE' || event.data.type === 'CLIP_IMAGE') {
+        ingestClippedItem(event.data.item || event.data);
       }
     };
 
@@ -136,29 +226,13 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'xc_ai_clipped_items' && e.newValue) {
         try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) setItems(parsed);
+          const parsed = JSON.parse(e.newValue) as ClippedItem[];
+          if (Array.isArray(parsed)) {
+            parsed.filter((item) => item?.url).forEach(ingestClippedItem);
+          }
         } catch {}
       }
     };
-
-    // 4. 定时轮询读取 localStorage 以确保 100% 实时同屏同步
-    const interval = setInterval(() => {
-      try {
-        const stored = localStorage.getItem('xc_ai_clipped_items');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setItems((prev) => {
-              if (JSON.stringify(prev) !== JSON.stringify(parsed)) {
-                return parsed;
-              }
-              return prev;
-            });
-          }
-        }
-      } catch {}
-    }, 1000);
 
     window.addEventListener('message', handleMessage);
     window.addEventListener('storage', handleStorageChange);
@@ -167,7 +241,6 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
       if (bc) bc.close();
       window.removeEventListener('message', handleMessage);
       window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
     };
   }, []);
 
@@ -365,6 +438,11 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                     <img
                       src={item.url}
                       alt={item.title}
+                      onError={(event) => {
+                        if (item.originalUrl && event.currentTarget.src !== item.originalUrl) {
+                          event.currentTarget.src = item.originalUrl;
+                        }
+                      }}
                       className="h-full w-full object-cover transition-opacity duration-200 group-hover:opacity-95"
                       loading="lazy"
                     />
@@ -612,6 +690,11 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               <img
                 src={previewItem.url}
                 alt={previewItem.title}
+                onError={(event) => {
+                  if (previewItem.originalUrl && event.currentTarget.src !== previewItem.originalUrl) {
+                    event.currentTarget.src = previewItem.originalUrl;
+                  }
+                }}
                 className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-lg"
               />
             </div>

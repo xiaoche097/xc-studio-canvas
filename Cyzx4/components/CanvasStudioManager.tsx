@@ -1,12 +1,16 @@
 import React, { Component, ReactNode } from 'react';
 import Workspace from '../pages/Workspace';
 import { AppMode } from '../types';
+import type { CreativeSkillData } from '../services/skills/creative-capabilities';
 
 interface CanvasStudioManagerProps {
   onOpenFeature?: (mode: AppMode) => void;
   onBackToHub?: () => void;
+  projectId?: string;
+  initialConversationId?: string;
   initialPrompt?: string;
   initialAttachments?: File[];
+  initialSkillData?: CreativeSkillData;
 }
 
 interface ErrorBoundaryProps {
@@ -58,16 +62,22 @@ class CanvasErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
 
 export const CanvasStudioManager: React.FC<CanvasStudioManagerProps> = ({
   onBackToHub,
+  projectId,
+  initialConversationId,
   initialPrompt,
   initialAttachments,
+  initialSkillData,
 }) => {
   return (
     <CanvasErrorBoundary>
       <div className="w-full h-full relative overflow-hidden bg-[#F9FAFB]">
         <Workspace
           onBackToHub={onBackToHub}
+          projectId={projectId}
+          initialConversationId={initialConversationId}
           initialPrompt={initialPrompt}
           initialAttachments={initialAttachments}
+          initialSkillData={initialSkillData}
         />
       </div>
     </CanvasErrorBoundary>

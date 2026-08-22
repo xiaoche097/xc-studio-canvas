@@ -7,54 +7,62 @@ export interface ImageModelOption {
   time: string;
 }
 
-export const DEFAULT_AUTO_IMAGE_MODEL: ImageModel = 'NanoBanana2';
+export const DEFAULT_AUTO_IMAGE_MODEL: ImageModel = 'gemini-3.1-flash-image-preview';
 
 export const PREFERRED_IMAGE_MODEL_TO_STORAGE_ID: Partial<Record<ImageModel, string>> = {
   'Nano Banana Pro': 'gemini-3-pro-image-preview',
   NanoBanana2: 'gemini-3.1-flash-image-preview',
   'Seedream5.0': 'doubao-seedream-5-0-260128',
+  'gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
+  'gpt-image-2': 'gpt-image-2',
+  mj_imagine: 'mj_imagine',
+  'qwen-image-3.0-pro': 'qwen-image-3.0-pro',
 };
 
 export const STORAGE_ID_TO_PREFERRED_IMAGE_MODEL: Record<string, ImageModel> = {
-  'gemini-3-pro-image-preview': 'Nano Banana Pro',
-  'Nano Banana Pro': 'Nano Banana Pro',
-  'gemini-3.1-flash-image-preview': 'NanoBanana2',
-  NanoBanana2: 'NanoBanana2',
-  'doubao-seedream-5-0-260128': 'Seedream5.0',
-  'Seedream5.0': 'Seedream5.0',
-  'GPT Image 1.5': 'GPT Image 1.5',
-  'Flux.2 Max': 'Flux.2 Max',
+  'gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
+  'Nano Banana Pro': 'gemini-3-pro-image-preview',
+  nanobananapro: 'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
+  NanoBanana2: 'gemini-3.1-flash-image-preview',
+  nanobanana2: 'gemini-3.1-flash-image-preview',
+  'gpt-image-2': 'gpt-image-2',
+  'GPT Image 2': 'gpt-image-2',
+  mj_imagine: 'mj_imagine',
+  Midjourney: 'mj_imagine',
+  'qwen-image-3.0-pro': 'qwen-image-3.0-pro',
 };
 
 export const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
   {
-    id: 'Nano Banana Pro',
-    name: 'Nano Banana Pro',
-    desc: '高质量图像生成，细节丰富',
-    time: '~20s',
+    id: 'gemini-3.1-flash-image-preview',
+    name: 'Banana 2',
+    desc: 'gemini-3.1-flash-image-preview',
+    time: '3.1 Flash',
   },
   {
-    id: 'NanoBanana2',
-    name: 'Nano Banana 2',
-    desc: '新一代极速图像生成',
-    time: '~5s',
+    id: 'gemini-3-pro-image-preview',
+    name: 'Banana Pro',
+    desc: 'gemini-3-pro-image-preview',
+    time: '3.0 Pro',
   },
   {
-    id: 'Seedream5.0',
-    name: 'Seedream 5.0',
-    desc: '深度审美，电影级画质',
-    time: '~15s',
+    id: 'gpt-image-2',
+    name: 'GPT Image 2',
+    desc: 'gpt-image-2',
+    time: 'Ultra Quality',
   },
   {
-    id: 'GPT Image 1.5',
-    name: 'GPT Image 1.5',
-    desc: '创意图像生成，风格多样',
-    time: '~120s',
+    id: 'mj_imagine',
+    name: 'Midjourney',
+    desc: 'mj_imagine',
+    time: 'MJ Imagine',
   },
   {
-    id: 'Flux.2 Max',
-    name: 'Flux.2 Max',
-    desc: '快速图像生成，效率优先',
-    time: '~10s',
+    id: 'qwen-image-3.0-pro',
+    name: '千问 3.0 Pro',
+    desc: 'qwen-image-3.0-pro',
+    time: 'Qwen Image',
   },
 ];
