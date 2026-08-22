@@ -6,6 +6,7 @@
   console.log('[XC AI Clipper] In-page overlay active');
 
   const WORKBENCH_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'xcwork-tool.online', 'www.xcwork-tool.online']);
+  const CLIPPER_LIBRARY_URL = 'https://www.xcwork-tool.online/?view=creative&tab=clipper';
 
   function isHttpPage() {
     return window.location.protocol === 'http:' || window.location.protocol === 'https:';
@@ -223,7 +224,7 @@
 
     if (btnView) {
       btnView.addEventListener('click', () => {
-        window.open('https://www.xcwork-tool.online/#clipper', '_blank');
+        window.open(CLIPPER_LIBRARY_URL, '_blank');
       });
     }
 
@@ -845,7 +846,7 @@
     document.body.appendChild(toast);
 
     document.getElementById('xc-toast-view-btn').addEventListener('click', () => {
-      window.open('https://www.xcwork-tool.online/#clipper', '_blank');
+      window.open(CLIPPER_LIBRARY_URL, '_blank');
     });
 
     setTimeout(() => {

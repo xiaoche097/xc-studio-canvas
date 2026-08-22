@@ -65,7 +65,7 @@ type PinnedPatch = {
   mode?: 'merge' | 'replace';
 };
 
-type TopicMemoryItem = {
+export type TopicMemoryItem = {
   id: string;
   memoryKey: string;
   topicId: string; // deprecated: kept for backward compatibility
@@ -229,6 +229,47 @@ export async function addTopicMemoryItem(input: Omit<TopicMemoryItem, 'id' | 'cr
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+}
+
+export async function loadTopicMemoryItems(topicId: string, limit = 250): Promise<TopicMemoryItem[]> {
+  if (!topicId) return [];
+
+  const db = await openWorkspaceDB();
+  const keys = getCandidateKeys(topicId);
+  const itemsById = new Map<string, TopicMemoryItem>();
+
+  const readIndex = (indexName: 'memoryKey' | 'topicId', value: string) => (
+    new Promise<TopicMemoryItem[]>((resolve, reject) => {
+      const tx = db.transaction(TOPIC_MEMORY_ITEM_STORE, 'readonly');
+      const request = tx.objectStore(TOPIC_MEMORY_ITEM_STORE).index(indexName).getAll(value);
+      request.onsuccess = () => resolve((request.result as TopicMemoryItem[]) || []);
+      request.onerror = () => reject(request.error);
+    })
+  );
+
+  const primaryKey = keys[0];
+  const primaryItems = primaryKey ? await readIndex('memoryKey', primaryKey) : [];
+  for (const item of primaryItems) {
+    if (item?.id && item.text?.trim()) itemsById.set(item.id, item);
+  }
+
+  // Composite workspace/conversation keys are authoritative. Only consult legacy
+  // conversation-only records when no scoped records exist, preventing memory
+  // from leaking between workspaces that happen to reuse a conversation id.
+  const fallbackKeys = primaryItems.length > 0 ? [] : keys.slice(isCompositeMemoryKey(topicId) ? 1 : 0);
+  for (const key of fallbackKeys) {
+    const [byMemoryKey, byLegacyTopicId] = await Promise.all([
+      readIndex('memoryKey', key),
+      readIndex('topicId', key),
+    ]);
+    for (const item of [...byMemoryKey, ...byLegacyTopicId]) {
+      if (item?.id && item.text?.trim()) itemsById.set(item.id, item);
+    }
+  }
+
+  return [...itemsById.values()]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, Math.max(1, limit));
 }
 
 export async function saveTopicAsset(topicId: string, role: TopicAssetRole, data: { url?: string; blob?: Blob; mime?: string }): Promise<AssetRef | null> {

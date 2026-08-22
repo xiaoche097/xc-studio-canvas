@@ -84,7 +84,7 @@ function storeAndBroadcastItem(item, sendResponse) {
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     chrome.tabs.create({
-      url: 'https://www.xcwork-tool.online/#clipper-installed',
+      url: 'https://www.xcwork-tool.online/?view=creative&tab=clipper&installed=1',
     });
   }
 });

@@ -52,6 +52,19 @@ import {
 
 type TopTabType = "skill" | "pinterest" | "brand" | "clipper";
 
+const isClipperDeepLink = (hash: string) =>
+  /^#\/?clipper(?:-installed)?(?:[/?]|$)/i.test(hash.trim());
+
+const TOP_TABS = new Set<TopTabType>(["skill", "pinterest", "brand", "clipper"]);
+
+const getInitialTopTab = (): TopTabType => {
+  if (typeof window === "undefined") return "skill";
+
+  const requestedTab = new URLSearchParams(window.location.search).get("tab") as TopTabType | null;
+  if (requestedTab && TOP_TABS.has(requestedTab)) return requestedTab;
+  return isClipperDeepLink(window.location.hash) ? "clipper" : "skill";
+};
+
 export interface WorkspaceSeed {
   projectId: string;
   conversationId?: string;
@@ -136,9 +149,33 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
   const navigate = (to: string, _options?: any) => {
     window.location.hash = typeof to === 'string' ? to : '';
   };
-  const [activeTab, setActiveTab] = useState<TopTabType>("skill");
+  const [activeTab, setActiveTab] = useState<TopTabType>(getInitialTopTab);
   const [skillCategory, setSkillCategory] = useState<string>("all");
   const [selectedSkills, setSelectedSkills] = useState<CreativeFeature[]>([]);
+
+  const selectTopTab = (tab: TopTabType) => {
+    setActiveTab(tab);
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "creative");
+    url.searchParams.set("tab", tab);
+    if (isClipperDeepLink(url.hash)) url.hash = "";
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+
+  useEffect(() => {
+    const syncTabFromLocation = () => {
+      setActiveTab(getInitialTopTab());
+    };
+    syncTabFromLocation();
+    window.addEventListener("hashchange", syncTabFromLocation);
+    window.addEventListener("popstate", syncTabFromLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncTabFromLocation);
+      window.removeEventListener("popstate", syncTabFromLocation);
+    };
+  }, []);
 
   const handleToggleSkill = (feature: CreativeFeature) => {
     setSelectedSkills((prev) => {
@@ -710,7 +747,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
         <div className="flex min-w-max items-center gap-0.5">
           {/* Top Tabs */}
           <button
-            onClick={() => setActiveTab("skill")}
+            onClick={() => selectTopTab("skill")}
             className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
               activeTab === "skill" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
@@ -719,7 +756,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
           </button>
 
           <button
-            onClick={() => setActiveTab("pinterest")}
+            onClick={() => selectTopTab("pinterest")}
             className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
               activeTab === "pinterest" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
@@ -729,7 +766,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
           </button>
 
           <button
-            onClick={() => setActiveTab("brand")}
+            onClick={() => selectTopTab("brand")}
             className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
               activeTab === "brand" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
@@ -738,7 +775,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
           </button>
 
           <button
-            onClick={() => setActiveTab("clipper")}
+            onClick={() => selectTopTab("clipper")}
             className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
               activeTab === "clipper" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
@@ -1095,7 +1132,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
             {/* 下方引导快捷操作 */}
             <div className="mt-5 space-y-1.5">
               <button
-                onClick={() => setActiveTab("skill")}
+                onClick={() => selectTopTab("skill")}
                 className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-normal text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
               >
                 <Sparkles size={14} className="text-blue-500" />
@@ -1103,7 +1140,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
               </button>
 
               <button
-                onClick={() => setActiveTab("clipper")}
+                onClick={() => selectTopTab("clipper")}
                 className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-normal text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
               >
                 <Globe size={14} className="text-emerald-500" />
@@ -1111,7 +1148,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
               </button>
 
               <button
-                onClick={() => setActiveTab("pinterest")}
+                onClick={() => selectTopTab("pinterest")}
                 className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-normal text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-red-600"
               >
                 <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#e60023] font-serif text-[0.6rem] font-bold text-white">P</span>

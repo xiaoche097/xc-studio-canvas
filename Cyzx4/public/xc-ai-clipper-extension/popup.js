@@ -1,6 +1,7 @@
 // XC AI Clipper Popup Script
 
 document.addEventListener('DOMContentLoaded', () => {
+  const clipperLibraryUrl = 'https://www.xcwork-tool.online/?view=creative&tab=clipper';
   const btnView = document.getElementById('btnView');
   const btnSettings = document.getElementById('btnSettings');
   const dropdownPanel = document.getElementById('dropdownPanel');
@@ -43,11 +44,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // 点击 View 按钮自动打开或切换至 XC AI Web 应用
   if (btnView) {
     btnView.addEventListener('click', () => {
-      chrome.tabs.query({ url: 'http://localhost:3000/*' }, (tabs) => {
+      chrome.tabs.query({
+        url: [
+          'https://xcwork-tool.online/*',
+          'https://www.xcwork-tool.online/*',
+          'http://localhost:3000/*',
+        ],
+      }, (tabs) => {
         if (tabs.length > 0) {
-          chrome.tabs.update(tabs[0].id, { active: true });
+          chrome.tabs.update(tabs[0].id, { active: true, url: clipperLibraryUrl });
+          if (tabs[0].windowId) chrome.windows.update(tabs[0].windowId, { focused: true });
         } else {
-          chrome.tabs.create({ url: 'http://localhost:3000/#clipper' });
+          chrome.tabs.create({ url: clipperLibraryUrl });
         }
       });
     });

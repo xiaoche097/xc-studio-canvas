@@ -7,7 +7,7 @@ import { useAgentStore } from '../stores/agent.store';
 import { uploadImage } from '../utils/uploader';
 import { useImageHostStore } from '../stores/imageHost.store';
 import { localPreRoute } from '../services/agents/local-router';
-import { addTopicMemoryItem, buildTopicPinnedContext, extractConstraintHints, mergeUniqueStrings, upsertTopicSnapshot } from '../services/topic-memory';
+import { addTopicMemoryItem, extractConstraintHints, mergeUniqueStrings, upsertTopicSnapshot } from '../services/topic-memory';
 import { summarizeReferenceSet } from '../services/topic-memory';
 import { getMemoryKey } from '../services/topicMemory/key';
 import {
@@ -18,6 +18,7 @@ import {
 import { optimizeUserText } from '../services/agents/prompt-optimizer/service';
 import { useProjectStore } from '../stores/project.store';
 import { rememberApprovedAsset } from '../services/topic-memory';
+import { buildVisualRagContext, type VisualRagDiagnostics } from '../services/visual-rag';
 
 const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any>) => {
   const lower = String(message || '').toLowerCase();
@@ -270,15 +271,21 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       ).trim();
       let topicPinnedContext = '';
       let topicPinnedRefs: string[] = [];
+      let visualRagDiagnostics: VisualRagDiagnostics | undefined;
       const projectActions = useProjectStore.getState().actions;
       const inferredTaskMode = inferTaskModeFromRequest(message, normalizedMetadata);
       projectActions.setTaskMode(inferredTaskMode);
 
       if (topicId) {
         try {
-          const pinned = await buildTopicPinnedContext(topicId);
-          topicPinnedContext = pinned.text;
-          topicPinnedRefs = pinned.refs;
+          const retrieved = await buildVisualRagContext({
+            topicId,
+            query: message,
+            enabled: import.meta.env.VITE_VISUAL_RAG_ENABLED !== 'false',
+          });
+          topicPinnedContext = retrieved.text;
+          topicPinnedRefs = retrieved.refs;
+          visualRagDiagnostics = retrieved.diagnostics;
 
           const hints = extractConstraintHints(message);
           if (hints.length > 0) {
@@ -485,6 +492,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
          imageHostProvider: hostProvider,
          topicId,
          topicPinnedContext,
+         visualRag: visualRagDiagnostics,
          taskMode: inferredTaskMode,
          originalMessage: message,
          optimizedMessage: optimizedMessageForTrace,

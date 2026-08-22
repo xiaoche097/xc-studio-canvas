@@ -19,6 +19,23 @@ const ModelFactoryApp = lazy(() => import('./ModelFactory/App'));
 type ViewState = 'home' | 'chat' | 'video' | 'doll-factory' | 'creative' | 'ai-video' | 'yunwu' | 'model-factory';
 type SystemNoticeTab = 'notice' | 'guide';
 
+const getInitialView = (): ViewState => {
+  if (typeof window === 'undefined') return 'home';
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get('view') === 'creative' ? 'creative' : 'home';
+};
+
+const clearCreativeDeepLink = () => {
+  if (typeof window === 'undefined') return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete('view');
+  url.searchParams.delete('tab');
+  url.searchParams.delete('installed');
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+};
+
 const LoadingScreen: React.FC<{ label?: string }> = ({ label = 'Loading workspace...' }) => (
   <div className="flex h-full w-full items-center justify-center bg-[#F8FAFC] dark:bg-[#050505]">
     <div className="rounded-2xl border border-gray-200 bg-white/80 px-6 py-5 text-sm font-medium text-gray-600 shadow-lg backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
@@ -126,7 +143,7 @@ const SystemNoticeModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({
 };
 
 const App: React.FC = () => {
-  const [view, setView] = useState<ViewState>('home');
+  const [view, setView] = useState<ViewState>(getInitialView);
   const [initialData, setInitialData] = useState<{ text: string; images: string[]; model: string; step?: number }>({
     text: '',
     images: [],
@@ -168,6 +185,16 @@ const App: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const syncDeepLinkedView = () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'creative') setView('creative');
+    };
+
+    window.addEventListener('popstate', syncDeepLinkedView);
+    return () => window.removeEventListener('popstate', syncDeepLinkedView);
+  }, []);
+
   const toggleTheme = () => {
     const newDark = !isDark;
     setIsDark(newDark);
@@ -187,6 +214,11 @@ const App: React.FC = () => {
 
   const handleBackToHome = () => {
     setInitialData({ text: '', images: [], model: 'gemini-3-pro-preview' });
+    setView('home');
+  };
+
+  const handleExitCreativeCenter = () => {
+    clearCreativeDeepLink();
     setView('home');
   };
 
@@ -241,7 +273,7 @@ const App: React.FC = () => {
     if (view === 'creative') {
       return (
         <div className="relative w-full h-full bg-[#f0f7ff] dark:bg-[#050505] z-[100]">
-          <CreativeCenterApp onBack={() => setView('home')} />
+          <CreativeCenterApp onBack={handleExitCreativeCenter} />
         </div>
       );
     }
