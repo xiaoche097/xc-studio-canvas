@@ -1,13 +1,42 @@
 // XC AI Clipper Content Script (Manifest V3 - 免弹窗框 网页原生悬浮)
 (function () {
+  if (window.__XC_AI_CLIPPER_CONTENT_LOADED__) return;
+  window.__XC_AI_CLIPPER_CONTENT_LOADED__ = true;
+
   console.log('[XC AI Clipper] In-page overlay active');
+
+  const WORKBENCH_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'xcwork-tool.online', 'www.xcwork-tool.online']);
+
+  function isHttpPage() {
+    return window.location.protocol === 'http:' || window.location.protocol === 'https:';
+  }
+
+  function isTrustedWorkbench() {
+    return isHttpPage() && WORKBENCH_HOSTS.has(window.location.hostname.toLowerCase());
+  }
+
+  function isSaveSurfaceEnabled() {
+    return isHttpPage() && !isTrustedWorkbench();
+  }
+
+  function getSafeImageUrl(img) {
+    if (!img) return '';
+    const raw = img.currentSrc || img.src || img.getAttribute('src') || '';
+    try {
+      const url = new URL(raw, document.baseURI);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+    } catch {
+      return '';
+    }
+  }
 
   // 心跳与初始化广播
   function announceExtension() {
+    if (!isTrustedWorkbench()) return;
     window.postMessage(
       {
         type: 'XC_CLIPPER_PONG',
-        version: '1.0.0',
+        version: '1.0.1',
         isPinterest: window.location.hostname.includes('pinterest.com'),
         url: window.location.href,
       },
@@ -18,21 +47,9 @@
   setInterval(announceExtension, 1000);
   announceExtension();
 
-  // 仅在指定 5 大目标平台上开启 UI 悬浮（严格排除 XC AI 网页本身及无关网页）
-  function isSupportedSite() {
-    const host = window.location.hostname.toLowerCase();
-    if (host.includes('localhost') || host.includes('127.0.0.1') || host.includes('xc-ai') || host.includes('xcwork-tool.online')) {
-      return false;
-    }
-    return (
-      host.includes('instagram.com') ||
-      host.includes('xiaohongshu.com') ||
-      host.includes('rednote.com') ||
-      host.includes('amazon.') ||
-      host.includes('taobao.com') ||
-      host.includes('tmall.com') ||
-      host.includes('pinterest.com')
-    );
+  // 普通 HTTP(S) 页面支持保存，可信工作台只保留工作台同步，不显示图片保存按钮。
+  function canClipPageImages() {
+    return isSaveSurfaceEnabled();
   }
 
   // 1. 全网网页右上角常驻/点击展开与关闭的极简无框胶囊组件
@@ -40,11 +57,17 @@
   let isPanelOpen = false;
 
   function initInPageWidget() {
-    if (!isSupportedSite()) return;
-    if (document.getElementById('xc-ai-clipper-inpage-overlay')) return;
+    if (!isHttpPage()) return false;
+    const existingOverlay = document.getElementById('xc-ai-clipper-inpage-overlay');
+    if (existingOverlay) {
+      overlayContainer = existingOverlay;
+      overlayContainer.style.display = 'block';
+      return false;
+    }
 
     overlayContainer = document.createElement('div');
     overlayContainer.id = 'xc-ai-clipper-inpage-overlay';
+    overlayContainer.dataset.xcAiClipperUi = 'true';
     overlayContainer.style.cssText = `
       position: fixed !important;
       top: 14px !important;
@@ -75,19 +98,19 @@
               width: 26px;
               height: 26px;
               border-radius: 50%;
-              background-color: #38383a;
+              background-color: #050505;
               display: flex;
               align-items: center;
               justify-content: center;
               font-weight: 700;
               font-size: 12.5px;
               color: #ffffff;
-            ">B</div>
-            <span style="font-size: 12.5px; font-weight: 600; color: #ffffff;">bruce Tien</span>
+            ">XC</div>
+            <span style="font-size: 12.5px; font-weight: 600; color: #ffffff;">XC AI Clipper</span>
           </div>
 
           <div style="display: flex; align-items: center; gap: 4px;">
-            <button id="xc-btn-settings" title="Enabled sites" style="
+            <button id="xc-btn-settings" title="Works on all websites" style="
               width: 26px;
               height: 26px;
               border-radius: 50%;
@@ -115,7 +138,7 @@
           </div>
         </div>
 
-        <!-- 点击 🎛️ 展出的 Enabled sites 面板 (100% 精确复刻图 1) -->
+        <!-- 点击设置按钮展示 Works on all websites 面板 -->
         <div id="xc-dropdown-panel" style="
           display: none;
           margin-top: 6px;
@@ -125,7 +148,7 @@
           border: 1px solid rgba(255, 255, 255, 0.12);
           box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
         ">
-          <div style="font-size: 11px; font-weight: 500; color: #8e8e93; margin-bottom: 12px;">Enabled sites</div>
+          <div style="font-size: 11px; font-weight: 500; color: #8e8e93; margin-bottom: 12px;">Works on all websites</div>
 
           <div style="display: flex; flex-direction: column; gap: 13px;">
             <!-- Instagram -->
@@ -224,20 +247,29 @@
         openBatchModal();
       });
     }
+
+    return true;
   }
 
   // 点击扩展图标开关与接收图片剪藏广播（在通用网页及 Localhost WebApp 中均生效）
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'TOGGLE_WIDGET') {
-      if (!overlayContainer) {
-        initInPageWidget();
+      if (!overlayContainer || !document.body.contains(overlayContainer)) {
+        const created = initInPageWidget();
+        sendResponse({ success: created, visible: created });
       } else {
-        overlayContainer.style.display = overlayContainer.style.display === 'none' ? 'block' : 'none';
+        const visible = overlayContainer.style.display === 'none';
+        overlayContainer.style.display = visible ? 'block' : 'none';
+        sendResponse({ success: true, visible });
       }
-      sendResponse({ success: true });
+      return true;
     }
 
     if (request.action === 'CLIP_IMAGE' && request.item) {
+      if (!isTrustedWorkbench()) {
+        sendResponse({ success: false, error: 'Clip image messages are only accepted by the trusted workbench.' });
+        return false;
+      }
       // 1. 同步保存到 本地 WebApp localStorage 存储
       try {
         const stored = localStorage.getItem('xc_ai_clipped_items');
@@ -257,14 +289,9 @@
       } catch (e) {}
 
       sendResponse({ success: true });
+      return true;
     }
   });
-
-  if (document.readyState === 'complete') {
-    initInPageWidget();
-  } else {
-    window.addEventListener('DOMContentLoaded', initInPageWidget);
-  }
 
   // 2. Hover 悬浮“Save to XcStudio” & “Save all images”按钮组件
   // 采用 flex-direction: column-reverse + bottom 锁定，确保单图按钮永不下坠溢出，Save all 100% 向上展开
@@ -275,7 +302,8 @@
     if (hoverButtonsWrapper) return;
 
     hoverButtonsWrapper = document.createElement('div');
-    hoverButtonsWrapper.id = 'xc-ai-hover-buttons-wrapper';
+    hoverButtonsWrapper.id = 'xc-ai-hover-actions';
+    hoverButtonsWrapper.dataset.xcAiClipperUi = 'true';
 
     hoverButtonsWrapper.innerHTML = `
       <!-- 单图保存按钮 (固定置底，带右侧 ∨ 展开箭头) -->
@@ -304,7 +332,8 @@
           width: 17px;
           height: 17px;
           border-radius: 50%;
-          border: 1.5px solid rgba(255, 255, 255, 0.95);
+          background: #050505;
+          border: 1px solid rgba(255, 255, 255, 0.32);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -387,9 +416,10 @@
     document.getElementById('xc-btn-save-single').addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      if (currentTargetImg && currentTargetImg.src) {
-        saveImageToClipper(currentTargetImg.src, document.title);
-        showSuccessToast(currentTargetImg.src);
+      const imageUrl = getSafeImageUrl(currentTargetImg);
+      if (imageUrl) {
+        saveImageToClipper(imageUrl, document.title);
+        showSuccessToast(imageUrl);
       }
     });
 
@@ -484,7 +514,7 @@
 
     let scannedImgs = Array.from(searchRoot.querySelectorAll('img'))
       .filter((img) => {
-        if (!img.src) return false;
+        if (!getSafeImageUrl(img)) return false;
         // 过滤掉页面导航小图标或微型头像 (分辨率过滤)
         const width = img.naturalWidth || img.clientWidth || 0;
         const height = img.naturalHeight || img.clientHeight || 0;
@@ -499,8 +529,9 @@
     // 去重相同 URL
     const uniqueMap = new Map();
     scannedImgs.forEach((img) => {
-      if (img.src && !uniqueMap.has(img.src)) {
-        uniqueMap.set(img.src, img);
+      const imageUrl = getSafeImageUrl(img);
+      if (imageUrl && !uniqueMap.has(imageUrl)) {
+        uniqueMap.set(imageUrl, img);
       }
     });
     scannedImgs = Array.from(uniqueMap.values()).slice(0, 16);
@@ -509,6 +540,7 @@
 
     const modalOverlay = document.createElement('div');
     modalOverlay.id = 'xc-batch-select-modal';
+    modalOverlay.dataset.xcAiClipperUi = 'true';
     modalOverlay.style.cssText = `
       position: fixed !important;
       inset: 0 !important;
@@ -522,7 +554,7 @@
       user-select: none !important;
     `;
 
-    const firstImgUrl = scannedImgs[0]?.src || currentTargetImg?.src || '';
+    const firstImgUrl = getSafeImageUrl(scannedImgs[0]) || getSafeImageUrl(currentTargetImg);
 
     modalOverlay.innerHTML = `
       <div style="
@@ -703,9 +735,10 @@
         let firstImg = '';
         selectedSet.forEach((idx) => {
           const img = scannedImgs[idx];
-          if (img && img.src) {
-            if (!firstImg) firstImg = img.src;
-            saveImageToClipper(img.src, document.title);
+          const imageUrl = getSafeImageUrl(img);
+          if (imageUrl) {
+            if (!firstImg) firstImg = imageUrl;
+            saveImageToClipper(imageUrl, document.title);
           }
         });
         modalOverlay.remove();
@@ -727,32 +760,35 @@
       timestamp: Date.now(),
     };
 
-    window.postMessage(itemData, '*');
+    if (isTrustedWorkbench()) {
+      window.postMessage(itemData, '*');
 
-    try {
-      const bc = new BroadcastChannel('xc_ai_clipper_channel');
-      bc.postMessage({ type: 'XC_CLIPPER_SAVE_IMAGE', item: itemData });
-      bc.close();
-    } catch {}
-
-    try {
-      chrome.runtime.sendMessage({
-        action: 'CLIP_IMAGE',
-        url: imgSrc,
-        title: title || document.title,
-        sourceUrl: window.location.href,
-        platform: platform,
-      });
-    } catch {}
+      try {
+        const bc = new BroadcastChannel('xc_ai_clipper_channel');
+        bc.postMessage({ type: 'XC_CLIPPER_SAVE_IMAGE', item: itemData });
+        bc.close();
+      } catch {}
+    } else {
+      try {
+        chrome.runtime.sendMessage({
+          action: 'CLIP_IMAGE',
+          url: imgSrc,
+          title: title || document.title,
+          sourceUrl: window.location.href,
+          platform: platform,
+        });
+      } catch {}
+    }
   }
 
   function getPlatformName() {
     const host = window.location.hostname.toLowerCase();
     if (host.includes('pinterest')) return 'pinterest';
-    if (host.includes('xiaohongshu')) return 'xiaohongshu';
+    if (host.includes('xiaohongshu') || host.includes('rednote')) return 'rednote';
     if (host.includes('instagram')) return 'instagram';
     if (host.includes('amazon')) return 'amazon';
     if (host.includes('taobao')) return 'taobao';
+    if (host.includes('tmall')) return 'tmall';
     return 'other';
   }
 
@@ -763,6 +799,7 @@
 
     toast = document.createElement('div');
     toast.id = 'xc-ai-save-success-toast';
+    toast.dataset.xcAiClipperUi = 'true';
     toast.style.cssText = `
       position: fixed !important;
       top: 16px !important;
@@ -820,9 +857,10 @@
 
   // 监听网页元素 Hover 悬浮 (兼容 Instagram / 小红书 / Pinterest / 亚马逊 / 淘宝等网页遮罩层 Div)
   document.addEventListener('mouseover', (e) => {
-    if (!isSupportedSite()) return;
+    if (!canClipPageImages()) return;
     const target = e.target;
     if (!target) return;
+    if (target.closest && target.closest('#xc-ai-clipper-inpage-overlay, #xc-ai-hover-actions, #xc-batch-select-modal, [data-xc-ai-clipper-ui]')) return;
 
     let targetImg = null;
 
@@ -849,7 +887,7 @@
       }
     }
 
-    if (targetImg && targetImg.src) {
+    if (targetImg && getSafeImageUrl(targetImg)) {
       const rect = targetImg.getBoundingClientRect();
       if (rect.width >= 100 && rect.height >= 100) {
         createHoverButtons();

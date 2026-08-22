@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "XC AI Clipper",
-  "version": "1.0.0",
-  "description": "一键剪藏全网（含 Pinterest、小红书、Instagram、亚马逊、淘宝）灵感图片至 XC AI 工作台",
+  "version": "1.0.1",
+  "description": "在所有 HTTP/HTTPS 网页中快速保存灵感图片至 XC AI 工作台",
   "permissions": [
     "activeTab",
     "storage",
@@ -10,7 +10,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -18,18 +19,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.instagram.com/*",
-        "https://*.xiaohongshu.com/*",
-        "https://*.rednote.com/*",
-        "https://*.amazon.com/*",
-        "https://*.amazon.cn/*",
-        "https://*.amazon.co.jp/*",
-        "https://*.taobao.com/*",
-        "https://*.tmall.com/*",
-        "https://*.pinterest.com/*",
-        "https://*.xcwork-tool.online/*",
-        "https://xcwork-tool.online/*",
-        "http://localhost:*/*"
+        "http://*/*",
+        "https://*/*"
       ],
       "js": [
         "content.js"
@@ -38,16 +29,18 @@
     }
   ],
   "action": {
-    "default_title": "XC AI Clipper"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
+    "default_title": "XC AI Clipper",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
-  ]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }

@@ -152,19 +152,19 @@ const PreviewArtwork: React.FC<{ kind: MaterialKind; compact?: boolean; material
 const MaterialEmptyState: React.FC<{ kind: MaterialKind; onCreate: () => void }> = ({ kind, onCreate }) => {
   const meta = kindMeta[kind];
   return (
-    <div className="flex min-h-full items-center justify-center px-5 py-10 sm:px-8">
-      <div className="w-full max-w-[28rem] text-center">
-        <div className="mx-auto aspect-[1.78/1] w-full max-w-[24rem] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_16px_42px_rgba(15,23,42,0.06)]"><PreviewArtwork kind={kind} /></div>
-        <h2 className="mt-7 text-lg font-black tracking-[-0.03em] text-slate-950">{meta.headline}</h2>
-        <p className="mx-auto mt-2 max-w-[34rem] text-sm leading-6 text-slate-500">{meta.description}</p>
-        <button type="button" onClick={onCreate} className="mt-6 min-h-11 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2">{meta.action}</button>
+    <div className="p-4 sm:p-5 lg:p-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <button type="button" onClick={onCreate} className="flex min-h-32 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white text-sm font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950">
+          <Plus className="h-4 w-4" />{meta.action}
+        </button>
       </div>
+      <p className="mt-4 text-xs leading-5 text-slate-400">创建后，这里会显示可复用的{meta.tab}。</p>
     </div>
   );
 };
 
 const MaterialCard: React.FC<{ material: MaterialRecord; onOpen: () => void }> = ({ material, onOpen }) => (
-  <button type="button" onClick={onOpen} className="group min-h-36 overflow-hidden rounded-xl border border-slate-200 bg-white text-left outline-none transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-slate-950">
+  <button type="button" onClick={onOpen} className="group min-h-36 overflow-hidden rounded-lg border border-slate-200 bg-white text-left outline-none transition hover:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-950">
     <div className="h-24 overflow-hidden bg-slate-50"><PreviewArtwork kind={material.kind} compact material={material} /></div>
     <div className="flex items-center justify-between gap-3 px-4 py-3"><span className="truncate text-sm font-bold text-slate-900">{material.name || '未命名'}</span><span className="text-xs text-slate-400 transition group-hover:text-slate-700">编辑</span></div>
   </button>
@@ -230,14 +230,14 @@ const MaterialEditor: React.FC<{
       <input ref={fileInputRef} type="file" multiple accept="image/png,image/jpeg,application/pdf" className="hidden" onChange={(event) => { if (event.target.files) void processFiles(event.target.files); event.target.value = ''; }} />
       <input ref={colorInputRef} type="color" className="sr-only" onChange={(event) => { if (!draft.colors.includes(event.target.value)) patch({ colors: [...draft.colors, event.target.value] }); }} />
 
-      <div className="flex min-h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 sm:px-5">
-        <button type="button" onClick={onBack} aria-label="返回素材列表" className="grid h-11 w-11 place-items-center rounded-xl text-slate-600 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><ArrowLeft className="h-4 w-4" /></button>
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 sm:px-5">
+        <button type="button" onClick={onBack} aria-label="返回素材列表" className="grid h-12 w-12 place-items-center rounded-lg text-slate-600 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><ArrowLeft className="h-4 w-4" /></button>
         <input value={draft.name} onChange={(event) => patch({ name: event.target.value })} aria-label={`${editorTitle}名称`} className="min-h-11 min-w-0 flex-1 border-0 bg-transparent text-sm font-bold text-slate-950 outline-none placeholder:text-slate-400" placeholder="未命名" />
-        <button type="button" aria-label="更多操作" className="grid h-11 w-11 place-items-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><MoreHorizontal className="h-4 w-4" /></button>
+        <button type="button" aria-label="更多操作" className="grid h-12 w-12 place-items-center rounded-lg text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><MoreHorizontal className="h-4 w-4" /></button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-5 sm:px-6 lg:px-8">
-        <button type="button" onClick={() => openUpload('files')} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setUploadTarget('files'); void processFiles(event.dataTransfer.files, 'files'); }} className="flex min-h-28 w-full items-center gap-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 text-left text-slate-500 outline-none transition hover:border-slate-500 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950">
+        <button type="button" onClick={() => openUpload('files')} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setUploadTarget('files'); void processFiles(event.dataTransfer.files, 'files'); }} className="flex min-h-28 w-full items-center gap-4 rounded-lg border border-dashed border-[#E5E5E5] bg-slate-50 px-6 text-left text-slate-500 outline-none transition hover:border-slate-500 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950">
           <Upload className="h-5 w-5 shrink-0" />
           <span><span className="block text-sm font-semibold">拖拽或上传文件，或导入 URL</span><span className="mt-1 block text-xs text-slate-400">PNG、JPG、PDF · 最大 20MB</span></span>
         </button>
@@ -248,7 +248,7 @@ const MaterialEditor: React.FC<{
 
         <section className="mt-7 border-y border-slate-200 py-6">
           <label className="text-sm font-bold text-slate-900">设计指南</label>
-          <textarea value={draft.guide} onChange={(event) => patch({ guide: event.target.value })} className="mt-3 min-h-20 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-slate-500 focus:bg-white" placeholder={`描述你的${editorTitle}设计指南…`} />
+          <textarea value={draft.guide} onChange={(event) => patch({ guide: event.target.value })} className="mt-3 min-h-20 w-full resize-y rounded-lg border border-[#E5E5E5] bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-slate-500 focus:bg-white" placeholder={`描述你的${editorTitle}设计指南…`} />
         </section>
 
         {(draft.kind === 'brand' || draft.kind === 'custom') && (
@@ -270,11 +270,11 @@ const MaterialEditor: React.FC<{
         </EditorRow>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 flex min-h-16 items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:left-auto lg:w-[calc(100%-0px)]">
-        <button type="button" onClick={async () => { await deleteMaterial(draft.id); onDeleted(draft.id); }} className="grid h-11 w-11 place-items-center rounded-xl text-slate-400 outline-none transition hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-600" aria-label="删除素材"><Trash2 className="h-4 w-4" /></button>
+      <div className="absolute inset-x-0 bottom-0 flex min-h-16 items-center justify-between gap-3 border-t border-[#E5E5E5] bg-white px-4 sm:px-6 lg:left-auto lg:w-[calc(100%-0px)]">
+        <button type="button" onClick={async () => { await deleteMaterial(draft.id); onDeleted(draft.id); }} className="grid h-12 w-12 place-items-center rounded-lg text-slate-400 outline-none transition hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-600" aria-label="删除素材"><Trash2 className="h-4 w-4" /></button>
         <div className="flex gap-2">
-          <button type="button" onClick={() => void handleSave()} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-950">{saved ? <span className="flex items-center gap-2"><Check className="h-4 w-4" />已保存</span> : '保存'}</button>
-          <button type="button" onClick={() => void handleAdd()} className="min-h-11 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2">添加到对话</button>
+          <button type="button" onClick={() => void handleSave()} className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-950">{saved ? <span className="flex items-center gap-2"><Check className="h-4 w-4" />已保存</span> : '保存'}</button>
+          <button type="button" onClick={() => void handleAdd()} className="min-h-12 rounded-lg bg-slate-950 px-5 text-sm font-bold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2">添加到对话</button>
         </div>
       </div>
     </div>
@@ -285,14 +285,14 @@ const EditorRow: React.FC<{ label: string; icon: React.ComponentType<{ className
   <section className="border-b border-slate-200 py-5">
     <div className="flex min-h-11 items-center justify-between gap-4">
       <h3 className="flex items-center gap-2 text-sm font-bold text-slate-950"><Icon className="h-4 w-4 text-slate-400" />{label}</h3>
-      <button type="button" onClick={onAdd} className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-slate-600 outline-none transition hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" />添加</button>
+      <button type="button" onClick={onAdd} className="flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-600 outline-none transition hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" />添加</button>
     </div>
     {children && <div className="mt-3">{children}</div>}
   </section>
 );
 
 const FileChip: React.FC<{ file: MaterialFile; onRemove: () => void }> = ({ file, onRemove }) => (
-  <div className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+  <div className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
     {file.type.startsWith('image/') ? <img src={file.dataUrl} alt={file.name} className="h-full w-full object-cover" /> : <span className="grid h-full place-items-center"><FileText className="h-7 w-7 text-slate-400" /></span>}
     <button type="button" onClick={onRemove} aria-label={`删除 ${file.name}`} className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded-lg bg-slate-950/80 text-white opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button>
   </div>
@@ -337,20 +337,20 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({ onAddToConversation }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
-      <nav className="flex min-h-14 shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 px-3 sm:gap-3 sm:px-5" aria-label="我的素材分类">
+      <nav className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 px-3 sm:gap-3 sm:px-5" aria-label="我的素材分类">
         {(Object.keys(kindMeta) as MaterialKind[]).map((kind) => (
-          <button key={kind} type="button" onClick={() => setActiveKind(kind)} className={`relative min-h-11 shrink-0 px-3 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${activeKind === kind ? 'text-slate-950 after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-slate-950' : 'text-slate-400 hover:text-slate-700'}`}>{kindMeta[kind].tab}</button>
+          <button key={kind} type="button" onClick={() => setActiveKind(kind)} className={`relative min-h-12 shrink-0 px-3 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${activeKind === kind ? 'text-slate-950 after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-slate-950' : 'text-slate-400 hover:text-slate-700'}`}>{kindMeta[kind].tab}</button>
         ))}
       </nav>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-[#fdfdfc]">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-white">
         {loading ? (
           <div className="grid h-full place-items-center text-sm font-semibold text-slate-400">正在读取素材库…</div>
         ) : visible.length === 0 ? (
           <MaterialEmptyState kind={activeKind} onCreate={() => setEditing(createDraft(activeKind))} />
         ) : (
           <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:p-8 2xl:grid-cols-3">
-            <button type="button" onClick={() => setEditing(createDraft(activeKind))} className="flex min-h-36 items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white text-sm font-semibold text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" />{kindMeta[activeKind].action}</button>
+            <button type="button" onClick={() => setEditing(createDraft(activeKind))} className="flex min-h-36 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white text-sm font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" />{kindMeta[activeKind].action}</button>
             {visible.map((material) => <MaterialCard key={material.id} material={material} onOpen={() => setEditing(material)} />)}
           </div>
         )}

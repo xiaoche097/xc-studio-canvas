@@ -71,48 +71,42 @@ const SkillCard: React.FC<{
   onToggle: () => void;
 }> = ({ feature, isSelected, onToggle }) => {
   return (
-    <div
+    <button
+      type="button"
+      aria-pressed={isSelected}
       onClick={onToggle}
-      className={`group cursor-pointer rounded-2xl bg-white border p-3.5 shadow-2xs hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between relative ${
-        isSelected ? "border-slate-900 ring-2 ring-slate-900/10" : "border-slate-200/80 hover:border-slate-300"
-      }`}
+      className="group block w-full bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
     >
       <div>
-        <div className="relative aspect-[16/10] w-full rounded-xl overflow-hidden bg-slate-100 mb-3">
+        <div className={`relative aspect-[16/10] w-full overflow-hidden rounded-[10px] bg-slate-100 mb-3 ${isSelected ? "ring-2 ring-slate-950 ring-offset-2" : ""}`}>
           <img
             src={feature.cover}
             alt={feature.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            className="h-full w-full object-cover transition-opacity duration-200 group-hover:opacity-95"
             loading="lazy"
           />
-          <div className="absolute bottom-2 left-2 flex items-center justify-center h-6 w-6 rounded-md bg-black/50 text-white backdrop-blur-xs">
+          <div className="absolute bottom-2 left-2 flex h-6 w-6 items-center justify-center rounded-md bg-black/55 text-white">
             {feature.category === "marketing" || feature.mode === AppMode.PRODUCT_VIDEO ? (
               <Film size={12} />
             ) : (
               <ImageIcon size={12} />
             )}
           </div>
-          <div className="absolute top-2 right-2">
-            {isSelected ? (
-              <span className="flex items-center justify-center h-7 px-2.5 rounded-lg bg-slate-900 text-white text-xs font-bold shadow-md animate-fade-in">
-                <Check size={13} className="mr-0.5" /> 已选入
-              </span>
-            ) : (
-              <span className="flex items-center justify-center h-7 w-7 rounded-lg bg-white/80 text-slate-600 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition shadow-xs">
-                <Plus size={14} />
-              </span>
-            )}
-          </div>
+          {isSelected && (
+            <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-950 text-white">
+              <Check size={13} />
+            </span>
+          )}
         </div>
 
-        <h4 className="text-sm font-bold text-slate-900 group-hover:text-orange-600 transition-colors line-clamp-1">
+        <h4 className="line-clamp-1 text-sm font-medium text-slate-900">
           {feature.title}
         </h4>
-        <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed font-normal">
+        <p className="mt-1.5 line-clamp-2 text-xs font-normal leading-relaxed text-slate-500">
           {feature.description}
         </p>
       </div>
-    </div>
+    </button>
   );
 };
 
@@ -142,7 +136,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachedClipperItems, setAttachedClipperItems] = useState<Array<{ id: string; url: string; title: string }>>([]);
+  const [selectedComposerTokenIndex, setSelectedComposerTokenIndex] = useState<number | null>(null);
+  const [isCaretBeforeComposerTokens, setIsCaretBeforeComposerTokens] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const richTextEditorRef = useRef<HTMLDivElement>(null);
   const modelPreferenceRef = useRef<HTMLDivElement>(null);
   const [showModelPreference, setShowModelPreference] = useState(false);
   const [autoModelSelect, setAutoModelSelect] = useState(true);
@@ -150,6 +147,24 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
     useState<ImageModel>(DEFAULT_AUTO_IMAGE_MODEL);
 
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
+
+  const attachmentPreviews = useMemo(
+    () => attachments.map((file) => ({ file, url: URL.createObjectURL(file) })),
+    [attachments],
+  );
+
+  useEffect(() => {
+    return () => {
+      attachmentPreviews.forEach(({ url }) => URL.revokeObjectURL(url));
+    };
+  }, [attachmentPreviews]);
+
+  useEffect(() => {
+    const editor = richTextEditorRef.current;
+    if (editor && editor.innerText !== prompt) {
+      editor.innerText = prompt;
+    }
+  }, [prompt]);
 
   useEffect(() => {
     const load = async () => {
@@ -248,53 +263,238 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
   };
 
   const handleSelectPin = (imageUrl: string, title: string) => {
-    setPrompt(`参考这张 Pinterest 视觉：${title}`);
+    setAttachedClipperItems((current) => {
+      if (current.some((item) => item.url === imageUrl)) return current;
+      return [
+        ...current,
+        {
+          id: `pinterest-${Date.now()}`,
+          url: imageUrl,
+          title: title || 'Pinterest 参考图',
+        },
+      ];
+    });
+  };
+
+  const canSendDesign = Boolean(
+    prompt.trim()
+    || attachments.length > 0
+    || attachedClipperItems.length > 0
+    || selectedSkills.length > 0,
+  );
+
+  const composerTokenCount = selectedSkills.length + attachedClipperItems.length + attachments.length;
+
+  useEffect(() => {
+    if (composerTokenCount === 0) {
+      setSelectedComposerTokenIndex(null);
+      setIsCaretBeforeComposerTokens(false);
+      return;
+    }
+    setSelectedComposerTokenIndex((current) => (
+      current !== null && current >= composerTokenCount ? composerTokenCount - 1 : current
+    ));
+  }, [composerTokenCount]);
+
+  const focusRichTextAtStart = () => {
+    requestAnimationFrame(() => {
+      const editor = richTextEditorRef.current;
+      if (!editor) return;
+      editor.focus();
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+  };
+
+  const isRichTextCaretAtStart = () => {
+    const editor = richTextEditorRef.current;
+    const selection = window.getSelection();
+    if (
+      !editor
+      || !selection
+      || selection.rangeCount === 0
+      || !selection.isCollapsed
+      || !selection.anchorNode
+      || !editor.contains(selection.anchorNode)
+    ) {
+      return false;
+    }
+
+    const currentRange = selection.getRangeAt(0);
+    const leadingRange = document.createRange();
+    leadingRange.selectNodeContents(editor);
+    leadingRange.setEnd(currentRange.startContainer, currentRange.startOffset);
+    return leadingRange.toString().length === 0;
+  };
+
+  const removeComposerTokenAt = (tokenIndex: number, keepKeyboardNavigation = false) => {
+    if (tokenIndex < selectedSkills.length) {
+      setSelectedSkills((current) => current.filter((_, index) => index !== tokenIndex));
+    } else if (tokenIndex < selectedSkills.length + attachedClipperItems.length) {
+      const clipperIndex = tokenIndex - selectedSkills.length;
+      setAttachedClipperItems((current) => current.filter((_, index) => index !== clipperIndex));
+    } else {
+      const attachmentIndex = tokenIndex - selectedSkills.length - attachedClipperItems.length;
+      setAttachments((current) => current.filter((_, index) => index !== attachmentIndex));
+    }
+
+    if (keepKeyboardNavigation) {
+      if (tokenIndex > 0) {
+        setSelectedComposerTokenIndex(tokenIndex - 1);
+        setIsCaretBeforeComposerTokens(false);
+      } else {
+        setSelectedComposerTokenIndex(null);
+        setIsCaretBeforeComposerTokens(true);
+      }
+    } else {
+      setSelectedComposerTokenIndex((current) => {
+        if (current === null) return null;
+        if (current === tokenIndex) return null;
+        return current > tokenIndex ? current - 1 : current;
+      });
+      setIsCaretBeforeComposerTokens(false);
+    }
+    focusRichTextAtStart();
+  };
+
+  const handleRichTextKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing) return;
+
+    if (event.key === "ArrowLeft" && !event.shiftKey) {
+      if (isCaretBeforeComposerTokens) {
+        event.preventDefault();
+        return;
+      }
+      if (selectedComposerTokenIndex !== null) {
+        event.preventDefault();
+        if (selectedComposerTokenIndex > 0) {
+          setSelectedComposerTokenIndex(selectedComposerTokenIndex - 1);
+        } else {
+          setSelectedComposerTokenIndex(null);
+          setIsCaretBeforeComposerTokens(true);
+        }
+        return;
+      }
+      if (composerTokenCount > 0 && isRichTextCaretAtStart()) {
+        event.preventDefault();
+        setSelectedComposerTokenIndex(composerTokenCount - 1);
+        setIsCaretBeforeComposerTokens(false);
+        return;
+      }
+    }
+
+    if (event.key === "ArrowRight" && !event.shiftKey) {
+      if (isCaretBeforeComposerTokens) {
+        event.preventDefault();
+        setIsCaretBeforeComposerTokens(false);
+        if (composerTokenCount > 0) setSelectedComposerTokenIndex(0);
+        else focusRichTextAtStart();
+        return;
+      }
+      if (selectedComposerTokenIndex !== null) {
+        event.preventDefault();
+        if (selectedComposerTokenIndex < composerTokenCount - 1) {
+          setSelectedComposerTokenIndex(selectedComposerTokenIndex + 1);
+        } else {
+          setSelectedComposerTokenIndex(null);
+          focusRichTextAtStart();
+        }
+        return;
+      }
+    }
+
+    if ((event.key === "Backspace" || event.key === "Delete") && selectedComposerTokenIndex !== null) {
+      event.preventDefault();
+      removeComposerTokenAt(selectedComposerTokenIndex, true);
+      return;
+    }
+
+    if (event.key === "Backspace" && isCaretBeforeComposerTokens) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === "Backspace" && composerTokenCount > 0 && isRichTextCaretAtStart()) {
+      event.preventDefault();
+      setSelectedComposerTokenIndex(composerTokenCount - 1);
+      setIsCaretBeforeComposerTokens(false);
+      return;
+    }
+
+    if (event.key === "Escape" && (selectedComposerTokenIndex !== null || isCaretBeforeComposerTokens)) {
+      event.preventDefault();
+      setSelectedComposerTokenIndex(null);
+      setIsCaretBeforeComposerTokens(false);
+      focusRichTextAtStart();
+      return;
+    }
+
+    if (
+      (selectedComposerTokenIndex !== null || isCaretBeforeComposerTokens)
+      && !event.ctrlKey
+      && !event.metaKey
+      && !event.altKey
+      && (event.key.length === 1 || (event.key === "Enter" && event.shiftKey))
+    ) {
+      setSelectedComposerTokenIndex(null);
+      setIsCaretBeforeComposerTokens(false);
+    }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSendDesign();
+    }
   };
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-white font-sans text-slate-950">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-white font-sans text-slate-950">
       {/* 顶部主 Tabs 栏 (参照图 1 / 图 3 顶栏) */}
-      <div className="z-10 flex min-h-14 shrink-0 items-center overflow-x-auto border-b border-slate-200/80 bg-white px-3 sm:px-6">
-        <div className="flex min-w-max items-center gap-1 py-1.5">
+      <div className="z-10 flex h-12 min-h-12 shrink-0 items-center overflow-x-auto border-b border-slate-200/80 bg-white px-3 sm:px-6 lg:absolute lg:left-[30rem] lg:right-0 lg:top-0 xl:left-[34rem]">
+        <div className="flex min-w-max items-center gap-0.5">
           {/* Top Tabs */}
           <button
             onClick={() => setActiveTab("skill")}
-            className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3.5 text-xs font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+            className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
               activeTab === "skill" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
           >
-            <Sparkles size={13} className="text-blue-500" /> Skill
+            <Sparkles size={13} className="text-slate-500" /> Skill
           </button>
 
           <button
             onClick={() => setActiveTab("pinterest")}
-            className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3.5 text-xs font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-red-600 ${
-              activeTab === "pinterest" ? "bg-red-50 text-[#d90b2b]" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
+            className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+              activeTab === "pinterest" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
           >
-            <span className="w-3.5 h-3.5 rounded-full bg-red-600 text-white font-serif font-black text-[9px] flex items-center justify-center">P</span>
+            <span className="w-3.5 h-3.5 rounded-full bg-red-600 text-white font-serif font-bold text-[9px] flex items-center justify-center">P</span>
             Pinterest
           </button>
 
           <button
             onClick={() => setActiveTab("brand")}
-            className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3.5 text-xs font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-amber-500 ${
-              activeTab === "brand" ? "bg-amber-50 text-amber-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
+            className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+              activeTab === "brand" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
           >
-            <Box size={13} className="text-amber-500" /> 我的素材
+            <Box size={13} className="text-slate-500" /> 我的素材
           </button>
 
           <button
             onClick={() => setActiveTab("clipper")}
-            className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3.5 text-xs font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-              activeTab === "clipper" ? "bg-emerald-50 text-emerald-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
+            className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md px-3 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+              activeTab === "clipper" ? "bg-slate-100 text-slate-950" : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
             }`}
           >
-            <Globe size={13} className="text-emerald-500" /> XC AI Clipper
+            <Globe size={13} className="text-slate-500" /> XC AI Clipper
           </button>
 
-          <button type="button" aria-label="添加工作区" className="grid h-10 w-10 cursor-pointer place-items-center rounded-lg text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950">
+          <button type="button" aria-label="添加工作区" className="grid h-12 w-12 cursor-pointer place-items-center rounded-md text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950">
             <Plus size={14} />
           </button>
         </div>
@@ -306,38 +506,57 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
         {/* 左侧区域：极简 AI 问答输入框 (精确复刻图 1 左侧) */}
         {/* ============================================================ */}
         <aside
-          className="relative min-h-[22rem] w-full shrink-0 border-b border-slate-200/80 bg-[#fbfaf7] p-5 sm:p-8 lg:min-h-0 lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
+          className="relative min-h-[22rem] w-full shrink-0 border-b border-slate-200/80 bg-[#FCFCFB] p-5 sm:p-8 lg:min-h-0 lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
         >
           <div className="mx-auto flex h-full w-full max-w-[30rem] flex-col justify-center">
-            <div className="mb-6">
-              <p className="text-[0.65rem] font-black uppercase tracking-[0.2em] text-blue-600">Creative brief</p>
-              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">你想设计什么？</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">描述目标，或从右侧选择一个视觉参考。</p>
+            <div className="mb-6 text-center">
+              <h2 className="text-[1.35rem] font-semibold tracking-[-0.035em] text-slate-950">
+                你想设计什么？
+              </h2>
             </div>
 
-            {/* AI 设计输入框 */}
+            {/* 富文本 AI 设计输入框：技能、剪藏图和上传图片都作为内容芯片呈现 */}
             <div
               onFocusCapture={onAgentEngage}
-              className="flex min-h-[11rem] flex-col justify-between rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-[0_14px_38px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow] focus-within:border-slate-400 focus-within:shadow-[0_18px_44px_rgba(15,23,42,0.09)]"
+              onClick={() => {
+                setSelectedComposerTokenIndex(null);
+                setIsCaretBeforeComposerTokens(false);
+                richTextEditorRef.current?.focus();
+              }}
+              className="flex min-h-[8rem] cursor-text flex-col justify-between rounded-[12px] border border-[#D4D4D4] bg-white px-4 pb-3 pt-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:border-slate-500 focus-within:shadow-[0_0_0_3px_rgba(15,23,42,0.08)]"
             >
-              <div>
-                {/* 选中的专业技能标签芯片 & 剪藏灵感图 Tag 胶囊 (100% 极简对齐图 2 效果) */}
-                {(selectedSkills.length > 0 || attachedClipperItems.length > 0) && (
-                  <div className="flex flex-wrap gap-2 mb-2 pb-2 border-b border-slate-100">
-                    {selectedSkills.map((skill) => (
+              <div className="relative flex min-h-[4.5rem] flex-wrap content-start items-center gap-x-1.5 gap-y-1.5">
+                {isCaretBeforeComposerTokens && (
+                  <span aria-hidden="true" className="absolute -left-1 top-0 h-7 w-px animate-pulse bg-slate-950" />
+                )}
+                {selectedSkills.map((skill, skillIndex) => (
                       <span
                         key={skill.mode}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-800 shadow-2xs transition-all hover:bg-slate-100"
+                        contentEditable={false}
+                        aria-selected={selectedComposerTokenIndex === skillIndex}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSelectedComposerTokenIndex(skillIndex);
+                          setIsCaretBeforeComposerTokens(false);
+                          richTextEditorRef.current?.focus();
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        className={`inline-flex min-h-7 max-w-full items-center gap-1 rounded-lg border bg-white pl-2 pr-1 text-xs font-medium text-slate-900 shadow-2xs transition ${
+                          selectedComposerTokenIndex === skillIndex
+                            ? 'border-blue-500 ring-2 ring-blue-500/15'
+                            : 'border-slate-300'
+                        }`}
                       >
-                        <Sparkles size={13} className="text-blue-500 shrink-0" />
-                        <span className="max-w-[150px] truncate">{skill.title}</span>
+                        <Sparkles size={12} className="shrink-0 text-slate-600" />
+                        <span className="max-w-[9.5rem] truncate">{skill.title}</span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleRemoveSkill(skill.mode);
+                            removeComposerTokenAt(skillIndex);
                           }}
-                          className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
                           aria-label="移除技能"
                         >
                           <X size={10} />
@@ -345,64 +564,116 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                       </span>
                     ))}
 
-                    {/* 剪藏灵感图胶囊卡片 (100% 复刻图 2 Photo by ... 胶囊外观) */}
-                    {attachedClipperItems.map((item) => (
+                    {attachedClipperItems.map((item, clipperIndex) => {
+                      const tokenIndex = selectedSkills.length + clipperIndex;
+                      return (
                       <span
                         key={item.id}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-2xs transition-all hover:border-slate-300"
+                        contentEditable={false}
+                        aria-selected={selectedComposerTokenIndex === tokenIndex}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSelectedComposerTokenIndex(tokenIndex);
+                          setIsCaretBeforeComposerTokens(false);
+                          richTextEditorRef.current?.focus();
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-lg border bg-white pl-1 pr-1 text-xs font-medium text-slate-900 shadow-2xs transition ${
+                          selectedComposerTokenIndex === tokenIndex
+                            ? 'border-blue-500 ring-2 ring-blue-500/15'
+                            : 'border-slate-300'
+                        }`}
                       >
-                        <img src={item.url} alt={item.title} className="h-5 w-5 rounded-md object-cover bg-slate-100" />
-                        <span className="max-w-[130px] truncate">
-                          {item.title ? (item.title.startsWith('Photo by') ? item.title : `Photo by ${item.title}`) : 'Photo by Clipper'}
-                        </span>
+                        <img
+                          src={item.url}
+                          alt={item.title}
+                          className="h-5 w-5 shrink-0 rounded-md bg-slate-100 object-cover"
+                        />
+                        <span className="max-w-[7.5rem] truncate">{item.title || 'Clipper 参考图'}</span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setAttachedClipperItems((prev) => prev.filter((i) => i.id !== item.id));
+                            removeComposerTokenAt(tokenIndex);
                           }}
-                          className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
                           aria-label="移除剪藏参考图"
                         >
-                          <X size={11} />
+                          <X size={10} />
                         </button>
                       </span>
-                    ))}
-                  </div>
-                )}
+                      );
+                    })}
 
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  aria-label="设计需求"
-                  placeholder={selectedSkills.length > 0 ? "描述具体的设计细节或直接发送…" : "例如：为一款户外咖啡机设计有质感的社交媒体视觉…"}
-                  className="h-20 w-full resize-none border-none bg-transparent text-sm font-medium leading-6 text-slate-800 outline-none placeholder:text-slate-400"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendDesign();
-                    }
-                  }}
-                />
+                    {attachmentPreviews.map(({ file, url }, index) => (
+                      <span
+                        key={`${file.name}-${file.lastModified}-${index}`}
+                        contentEditable={false}
+                        aria-selected={selectedComposerTokenIndex === selectedSkills.length + attachedClipperItems.length + index}
+                        onMouseDown={(event) => {
+                          const tokenIndex = selectedSkills.length + attachedClipperItems.length + index;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSelectedComposerTokenIndex(tokenIndex);
+                          setIsCaretBeforeComposerTokens(false);
+                          richTextEditorRef.current?.focus();
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-lg border bg-white pl-1 pr-1 text-xs font-medium text-slate-900 shadow-2xs transition ${
+                          selectedComposerTokenIndex === selectedSkills.length + attachedClipperItems.length + index
+                            ? 'border-blue-500 ring-2 ring-blue-500/15'
+                            : 'border-slate-300'
+                        }`}
+                      >
+                        <img src={url} alt="" className="h-5 w-5 shrink-0 rounded-md bg-slate-100 object-cover" />
+                        <span className="max-w-[7.5rem] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeComposerTokenAt(selectedSkills.length + attachedClipperItems.length + index);
+                          }}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                          aria-label={`移除图片 ${file.name}`}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                ))}
+
+                <div className="relative min-h-7 min-w-[8rem] flex-[1_1_8rem]">
+                  {!prompt && (
+                    <span className="pointer-events-none absolute inset-x-0 top-0 text-sm font-normal leading-7 text-slate-400">
+                      让 XC AI 制作一张高转化的电商产品图
+                    </span>
+                  )}
+                  <div
+                    ref={richTextEditorRef}
+                    role="textbox"
+                    contentEditable
+                    suppressContentEditableWarning
+                    aria-label="设计需求"
+                    aria-multiline="true"
+                    className={`relative min-h-7 w-full whitespace-pre-wrap break-words bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${
+                      selectedComposerTokenIndex !== null || isCaretBeforeComposerTokens ? 'caret-transparent' : ''
+                    }`}
+                    onPointerDown={() => {
+                      setSelectedComposerTokenIndex(null);
+                      setIsCaretBeforeComposerTokens(false);
+                    }}
+                    onInput={(event) => setPrompt(event.currentTarget.innerText)}
+                    onKeyDown={handleRichTextKeyDown}
+                  />
+                </div>
               </div>
 
-              {/* Attachments Preview */}
-              {attachments.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto py-1 no-scrollbar">
-                  {attachments.map((file, i) => (
-                    <div key={i} className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-                      <img src={URL.createObjectURL(file)} alt={file.name} className="h-full w-full object-cover" />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+              <div className="mt-2 flex items-center justify-between">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="添加参考图片"
-                  className="grid h-11 w-11 cursor-pointer place-items-center rounded-xl text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
+                  className="grid h-12 w-12 cursor-pointer place-items-center rounded-xl text-slate-400 outline-none transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
                 >
                   <Plus size={16} />
                 </button>
@@ -410,8 +681,14 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                   type="file"
                   ref={fileInputRef}
                   className="hidden"
+                  accept="image/*"
+                  multiple
                   onChange={(e) => {
-                    if (e.target.files) setAttachments(Array.from(e.target.files));
+                    if (e.target.files) {
+                      const selectedFiles = Array.from(e.target.files);
+                      setAttachments((current) => [...current, ...selectedFiles]);
+                      e.target.value = '';
+                    }
                   }}
                 />
 
@@ -423,7 +700,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                       aria-label="模型偏好"
                       aria-haspopup="dialog"
                       aria-expanded={showModelPreference}
-                      className={`grid h-11 w-11 cursor-pointer place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                      className={`grid h-12 w-12 cursor-pointer place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
                         showModelPreference
                           ? "bg-slate-100 text-slate-950"
                           : "text-slate-400 hover:bg-slate-100 hover:text-slate-950"
@@ -436,11 +713,11 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                       <section
                         role="dialog"
                         aria-label="模型偏好"
-                        className="absolute bottom-full right-0 z-50 mb-3 w-[min(21rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-[0_22px_60px_rgba(15,23,42,0.16)]"
+                        className="absolute bottom-full right-0 z-50 mb-3 w-[min(21rem,calc(100vw-2rem))] rounded-[10px] border border-[#E5E5E5] bg-white p-4 text-left shadow-[0_8px_24px_rgba(0,0,0,0.10)]"
                       >
                         <header className="flex items-center justify-between gap-4">
                           <div>
-                            <h3 className="text-sm font-black text-slate-950">模型偏好</h3>
+                            <h3 className="text-sm font-semibold text-slate-950">模型偏好</h3>
                             <p className="mt-0.5 text-[0.68rem] text-slate-400">图像生成模型</p>
                           </div>
                           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
@@ -471,15 +748,15 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                                 key={model.id}
                                 type="button"
                                 onClick={() => selectPreferredImageModel(model.id)}
-                                className={`flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                                className={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${
                                   selected
                                     ? "bg-slate-100 text-slate-950"
                                     : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
                                 }`}
                               >
-                                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border text-xs font-black ${selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"}`}>AI</span>
+                                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border text-xs font-semibold ${selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"}`}>AI</span>
                                 <span className="min-w-0 flex-1">
-                                  <span className="flex items-center gap-2 text-xs font-bold">
+                                  <span className="flex items-center gap-2 text-xs font-semibold">
                                     {model.name}
                                     {autoModelSelect && model.id === DEFAULT_AUTO_IMAGE_MODEL && (
                                       <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[0.6rem] text-blue-600">自动默认</span>
@@ -497,10 +774,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                   </div>
                   <button
                     onClick={handleSendDesign}
-                    disabled={!prompt.trim() && attachments.length === 0}
+                    disabled={!canSendDesign}
                     aria-label="开始创作"
-                    className={`grid h-11 w-11 place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
-                      prompt.trim() || attachments.length > 0 ? "cursor-pointer bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300"
+                    className={`grid h-12 w-12 place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                      canSendDesign ? "cursor-pointer bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300"
                     }`}
                   >
                     <ArrowUp size={14} />
@@ -513,18 +790,26 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
             <div className="mt-5 space-y-1.5">
               <button
                 onClick={() => setActiveTab("skill")}
-                className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-600 outline-none transition-colors hover:bg-white hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-normal text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
               >
                 <Sparkles size={14} className="text-blue-500" />
-                <span>选择专业技能开始设计</span>
+                <span>选择一个专业技能，完成你的电商、创意设计</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("clipper")}
-                className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-600 outline-none transition-colors hover:bg-white hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-normal text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"
               >
                 <Globe size={14} className="text-emerald-500" />
                 <span>添加 XC AI Clipper</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("pinterest")}
+                className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-3 text-sm font-normal text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-red-600"
+              >
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#e60023] font-serif text-[0.6rem] font-bold text-white">P</span>
+                <span>使用我的 Pinterest 参考图</span>
               </button>
             </div>
           </div>
@@ -533,7 +818,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
         {/* ============================================================ */}
         {/* 右侧主区域：根据 Tab 动态展现 (Pinterest / 品牌素材 / Skill) */}
         {/* ============================================================ */}
-        <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[#fcfbfa]">
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-white lg:pt-12">
           {activeTab === "pinterest" && (
             /* 📌 Pinterest 瀑布流灵感库 (图 3 & 图 4) */
             <PinterestGallery onSelectPin={handleSelectPin} />
@@ -549,18 +834,18 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
 
           {activeTab === "skill" && (
             /* Skill 视觉工作坊 (图 5 UI 风格) */
-            <div className="flex-1 overflow-y-auto p-6 sm:p-8 no-scrollbar space-y-8">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {/* 顶部 Category Tabs 切换 (贴合图 5 顶部为你推荐 Tabs) */}
-              <div className="flex items-center gap-6 border-b border-slate-200/80 pb-3 overflow-x-auto no-scrollbar">
+              <div className="flex h-12 shrink-0 items-center gap-6 overflow-x-auto border-b border-slate-200 px-5 no-scrollbar sm:px-7">
                 {SKILL_CATEGORY_TABS.map((tab) => {
                   const active = skillCategory === tab.id;
                   return (
                     <button
                       key={tab.id}
                       onClick={() => setSkillCategory(tab.id)}
-                      className={`text-xs font-bold transition-all relative pb-2 whitespace-nowrap cursor-pointer ${
+                      className={`min-h-12 text-xs font-medium transition-all relative pb-2 whitespace-nowrap cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-slate-950 ${
                         active
-                          ? "text-slate-950 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-slate-950 after:rounded-full"
+                          ? "text-slate-950 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-slate-950"
                           : "text-slate-400 hover:text-slate-700"
                       }`}
                     >
@@ -571,7 +856,8 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
               </div>
 
               {/* 技能列表 (图 5 风格排版: 带 E-commerce > 分类标题与精致卡片) */}
-              <div className="space-y-8">
+              <div className="flex-1 overflow-y-auto p-5 no-scrollbar sm:p-7">
+                <div className="space-y-8">
                 {FEATURE_CATEGORIES.map((cat) => {
                   if (skillCategory !== "all" && skillCategory !== cat.id) return null;
                   const catFeatures = CREATIVE_FEATURES.filter((f) => f.category === cat.id);
@@ -588,14 +874,14 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
 
                   return (
                     <section key={cat.id} className="space-y-4">
-                      <div className="flex items-center gap-1.5 cursor-pointer group/title" onClick={() => setSkillCategory(cat.id)}>
-                        <h3 className="text-sm font-black text-slate-900 group-hover/title:text-orange-600 transition-colors">
+                      <button type="button" className="flex items-center gap-1.5 cursor-pointer group/title outline-none focus-visible:ring-2 focus-visible:ring-slate-950" onClick={() => setSkillCategory(cat.id)}>
+                        <h3 className="text-sm font-semibold text-slate-900 transition-colors">
                           {sectionTitle}
                         </h3>
-                        <ChevronRight size={14} className="text-slate-400 group-hover/title:text-orange-600 transition-colors" />
-                      </div>
+                        <ChevronRight size={14} className="text-slate-400" />
+                      </button>
 
-                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      <div className="grid grid-cols-1 min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-x-4 gap-y-6">
                         {catFeatures.map((feature) => (
                           <SkillCard
                             key={feature.mode}
@@ -608,15 +894,15 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                     </section>
                   );
                 })}
-              </div>
+                </div>
 
               {/* 最近项目 */}
-              <div className="pt-4 border-t border-slate-200/60">
-                <h3 className="text-sm font-bold text-slate-900 mb-4">最近项目</h3>
+              <div className="pt-4 border-t border-slate-200">
+                <h3 className="mb-4 text-sm font-semibold text-slate-900">最近项目</h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                   <div
                     onClick={() => navigate(createNewWorkspacePath())}
-                    className="aspect-[4/3] rounded-2xl bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition"
+                    className="aspect-[4/3] rounded-xl bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition"
                   >
                     <PlusCircle size={22} />
                     <span className="text-xs font-bold mt-2">新建画布项目</span>
@@ -625,7 +911,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                     <div
                       key={p.id}
                       onClick={() => navigate(workspacePath(p.id))}
-                      className="aspect-[4/3] rounded-2xl bg-slate-50 border border-slate-200/80 overflow-hidden cursor-pointer hover:shadow-md transition relative group"
+                      className="aspect-[4/3] rounded-xl bg-slate-50 border border-slate-200 overflow-hidden cursor-pointer hover:border-slate-400 transition relative group"
                     >
                       {p.thumbnail ? (
                         <img src={p.thumbnail} alt={p.title} className="w-full h-full object-cover" />
@@ -640,6 +926,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onAgentEng
                     </div>
                   ))}
                 </div>
+              </div>
               </div>
             </div>
           )}

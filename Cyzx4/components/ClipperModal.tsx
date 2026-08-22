@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, ChevronRight, Download, CheckCircle2, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, ChevronRight, Download, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 
 interface ClipperModalProps {
   isOpen: boolean;
@@ -12,6 +12,9 @@ export const ClipperModal: React.FC<ClipperModalProps> = ({
   onClose,
   onDownloadExtension,
 }) => {
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+
   if (!isOpen) return null;
 
   const platforms = [
@@ -52,16 +55,53 @@ export const ClipperModal: React.FC<ClipperModalProps> = ({
     },
   ];
 
-  const handleDownload = () => {
-    // 创建一个提示下载打包好的 Chrome 扩展压缩包
-    const zipUrl = '/xc-ai-clipper-extension.zip';
-    const a = document.createElement('a');
-    a.href = zipUrl;
-    a.download = 'xc-ai-clipper-extension.zip';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    if (onDownloadExtension) onDownloadExtension();
+  const handleDownload = async () => {
+    if (isDownloading) return;
+
+    setIsDownloading(true);
+    setDownloadError('');
+
+    try {
+      const zipUrl = new URL(
+        `${import.meta.env.BASE_URL}xc-ai-clipper-extension.zip`,
+        window.location.origin,
+      );
+      const response = await fetch(zipUrl, { cache: 'no-store' });
+
+      if (!response.ok) {
+        throw new Error(`扩展包请求失败（${response.status}）`);
+      }
+
+      const blob = await response.blob();
+      const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+      const hasZipSignature = signature.length === 4
+        && signature[0] === 0x50
+        && signature[1] === 0x4b
+        && (
+          (signature[2] === 0x03 && signature[3] === 0x04)
+          || (signature[2] === 0x05 && signature[3] === 0x06)
+          || (signature[2] === 0x07 && signature[3] === 0x08)
+        );
+
+      if (!hasZipSignature) {
+        throw new Error('服务器返回的不是有效 ZIP 文件，请重新部署静态资源');
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = 'xc-ai-clipper-extension.zip';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      onDownloadExtension?.();
+    } catch (err) {
+      console.error('Download error:', err);
+      setDownloadError(err instanceof Error ? err.message : '下载失败，请稍后重试');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -106,14 +146,21 @@ export const ClipperModal: React.FC<ClipperModalProps> = ({
               <button
                 type="button"
                 onClick={handleDownload}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-xs font-bold text-white shadow-lg transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 hover:scale-[1.02] cursor-pointer"
+                disabled={isDownloading}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-xs font-bold text-white shadow-lg transition hover:scale-[1.02] hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70 dark:bg-white dark:text-slate-900"
               >
-                <Download size={15} />
-                下载 Chrome 扩展包
+                {isDownloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                {isDownloading ? '正在准备扩展包…' : '下载 Chrome 扩展包'}
               </button>
               <p className="mt-2 text-[11px] text-slate-400">
                 下载解压后在 chrome://extensions 开启“开发者模式”加载即可
               </p>
+              {downloadError && (
+                <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs font-semibold leading-5 text-rose-600">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  <span>{downloadError}</span>
+                </p>
+              )}
             </div>
           </div>
 

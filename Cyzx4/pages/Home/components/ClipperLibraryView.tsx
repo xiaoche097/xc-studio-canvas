@@ -6,7 +6,6 @@ import {
   Copy,
   SlidersHorizontal,
   X,
-  Cloud,
   FolderInput,
   Check,
   CornerUpRight,
@@ -79,6 +78,16 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     } catch {}
   }, [items]);
 
+  useEffect(() => {
+    if (!activeMenuId) return;
+    const handleOutsideClick = () => {
+      setActiveMenuId(null);
+      setActiveMoveCategoryId(null);
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [activeMenuId]);
+
   // 1. 跨标签页 0ms 实时接收（BroadcastChannel 频道）
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
@@ -98,7 +107,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               timestamp: raw.timestamp || Date.now(),
             };
             setItems((prev) => [newItem, ...prev.filter((i) => i.id !== newItem.id && i.url !== newItem.url)]);
-            setToastMsg(`✨ 已接收新灵感图`);
+            setToastMsg('已接收新灵感图');
             setTimeout(() => setToastMsg(null), 2500);
           }
         }
@@ -118,7 +127,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
           timestamp: Date.now(),
         };
         setItems((prev) => [newItem, ...prev.filter((i) => i.url !== newItem.url)]);
-        setToastMsg(`✨ 已接收新灵感图`);
+        setToastMsg('已接收新灵感图');
         setTimeout(() => setToastMsg(null), 2500);
       }
     };
@@ -238,7 +247,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   const handleCopyImage = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      setToastMsg('📋 已复制图片链接');
+      setToastMsg('已复制图片链接');
       setTimeout(() => setToastMsg(null), 2000);
     } catch {
       setToastMsg('复制链接失败');
@@ -266,13 +275,13 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-white font-sans text-slate-900">
       {/* 实时接收 Toast 提示 */}
       {toastMsg && (
-        <div className="absolute top-14 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900/90 px-4 py-1.5 text-xs font-bold text-white shadow-xl backdrop-blur-md animate-fade-in">
+        <div className="absolute top-14 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-950 px-4 py-2 text-xs font-medium text-white shadow-[0_8px_24px_rgba(0,0,0,0.14)] animate-fade-in">
           {toastMsg}
         </div>
       )}
 
       {/* 极简顶栏导航 (图 0 风格: 仅保留“全部”、“未分类”与用户创建分类；右上侧仅包含【+】与【🎛️】) */}
-      <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-6 backdrop-blur-sm">
+      <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
         {/* 左侧 Tabs */}
         <div className="flex items-center gap-6 overflow-x-auto no-scrollbar">
           {categories.map((cat) => {
@@ -282,9 +291,9 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setActiveCategory(cat)}
-                className={`relative py-3 text-xs font-medium transition-colors outline-none ${
+                className={`relative min-h-12 py-3 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-slate-950 ${
                   isActive
-                    ? 'text-slate-950 font-bold after:absolute after:bottom-0 after:inset-x-0 after:h-0.5 after:bg-slate-950'
+                    ? 'text-slate-950 after:absolute after:bottom-0 after:inset-x-0 after:h-px after:bg-slate-950'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -301,7 +310,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
             type="button"
             onClick={() => setShowCreateCategoryModal(true)}
             title="新建分类"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+            className="flex h-12 w-12 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
           >
             <Plus size={16} />
           </button>
@@ -314,10 +323,10 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               if (isSelectMode) setSelectedIds([]);
             }}
             title="选择模式"
-            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+            className={`flex h-12 w-12 items-center justify-center rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 ${
               isSelectMode
                 ? 'bg-slate-950 text-white'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
             }`}
           >
             <SlidersHorizontal size={15} />
@@ -326,7 +335,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
       </header>
 
       {/* 极简网格区 */}
-      <main className="flex-1 overflow-y-auto p-6 pb-24 no-scrollbar">
+      <main className="flex-1 overflow-y-auto p-5 pb-24 no-scrollbar sm:p-6">
         {filteredItems.length > 0 ? (
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {filteredItems.map((item) => {
@@ -341,25 +350,29 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                       setPreviewItem(item);
                     }
                   }}
-                  className="group relative flex flex-col overflow-hidden rounded-[1.2rem] bg-white transition-all duration-300 cursor-pointer"
+                  className={`group relative min-w-0 rounded-xl bg-white transition-all duration-300 cursor-pointer ${
+                    !isSelectMode && activeMenuId === item.id
+                      ? 'col-span-2 grid grid-cols-2 items-start gap-6'
+                      : 'flex flex-col'
+                  }`}
                 >
                   {/* 图片容器 */}
                   <div
-                    className={`relative aspect-[3/4] w-full overflow-hidden rounded-[1.2rem] bg-slate-100 shadow-xs transition group-hover:shadow-md ${
+                    className={`relative aspect-[3/4] w-full min-w-0 overflow-hidden rounded-[10px] bg-slate-100 transition ${
                       isSelected ? 'ring-2 ring-slate-950 ring-offset-2' : ''
                     }`}
                   >
                     <img
                       src={item.url}
                       alt={item.title}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-103"
+                      className="h-full w-full object-cover transition-opacity duration-200 group-hover:opacity-95"
                       loading="lazy"
                     />
 
                     {/* 选择模式下的右上角勾选框 (精确复刻图 1 右上角 ✓ 黑色圆形角标) */}
                     {isSelectMode ? (
                       <div
-                        className={`absolute right-2.5 top-2.5 z-20 flex h-6 w-6 items-center justify-center rounded-md text-white backdrop-blur-xs transition ${
+                        className={`absolute right-2.5 top-2.5 z-20 flex h-6 w-6 items-center justify-center rounded-md text-white transition ${
                           isSelected ? 'bg-slate-950 shadow-md' : 'bg-black/30 hover:bg-black/50'
                         }`}
                       >
@@ -373,115 +386,115 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                           e.stopPropagation();
                           setActiveMenuId(activeMenuId === item.id ? null : item.id);
                         }}
-                        className="absolute right-2.5 top-2.5 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-slate-700 backdrop-blur-md opacity-0 transition group-hover:opacity-100 hover:bg-white hover:text-slate-950 shadow-md"
+                        className="absolute right-2.5 top-2.5 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-slate-700 opacity-0 transition group-hover:opacity-100 hover:bg-white hover:text-slate-950 shadow-sm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
                         aria-label="更多操作"
                       >
                         <MoreHorizontal size={16} />
                       </button>
                     )}
-
-                    {/* 下拉菜单 (添加到聊天、移至分类、复制、删除) */}
-                    {!isSelectMode && activeMenuId === item.id && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute right-2.5 top-12 z-30 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white p-1.5 shadow-2xl backdrop-blur-xl animate-fade-in"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onAddToConversation) {
-                              onAddToConversation(item.url, item.title);
-                            }
-                            setActiveMenuId(null);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
-                        >
-                          <Plus size={14} className="text-slate-500" />
-                          添加到聊天
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopyImage(item.url)}
-                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
-                        >
-                          <Copy size={13} className="text-slate-500" />
-                          复制图片
-                        </button>
-
-                        {/* 移动分类 */}
-                        <button
-                          type="button"
-                          onClick={() => setActiveMoveCategoryId(activeMoveCategoryId === item.id ? null : item.id)}
-                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
-                        >
-                          <span className="flex items-center gap-2">
-                            <FolderInput size={13} className="text-slate-500" />
-                            移至分类
-                          </span>
-                        </button>
-
-                        {/* 移动分类子菜单 */}
-                        {activeMoveCategoryId === item.id && (
-                          <div className="my-1 border-t border-b border-slate-100 bg-slate-50/80 p-1">
-                            {categories.filter((c) => c !== 'all').map((c) => (
-                              <button
-                                key={c}
-                                type="button"
-                                onClick={() => handleMoveCategory(item.id, c)}
-                                className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-white"
-                              >
-                                <span>{getCategoryLabel(c)}</span>
-                                {item.category === c && <Check size={12} className="text-slate-900" />}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="my-1 h-px bg-slate-100" />
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
-                        >
-                          <Trash2 size={13} />
-                          删除
-                        </button>
-                      </div>
-                    )}
                   </div>
+
+                  {/* 菜单占用右侧独立网格空间，不遮挡当前图片或相邻图片 */}
+                  {!isSelectMode && activeMenuId === item.id && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="relative z-50 w-full min-w-0 overflow-hidden rounded-[10px] border border-slate-200 bg-white p-1.5 shadow-lg animate-fade-in"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onAddToConversation) {
+                            onAddToConversation(item.url, item.title);
+                          }
+                          setActiveMenuId(null);
+                        }}
+                        className="flex min-h-12 w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                      >
+                        <Plus size={14} className="text-slate-500" />
+                        添加到聊天
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyImage(item.url)}
+                        className="flex min-h-12 w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                      >
+                        <Copy size={13} className="text-slate-500" />
+                        复制图片
+                      </button>
+
+                      {/* 移动分类 */}
+                      <button
+                        type="button"
+                        onClick={() => setActiveMoveCategoryId(activeMoveCategoryId === item.id ? null : item.id)}
+                        className="flex min-h-12 w-full items-center justify-between rounded-md px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                      >
+                        <span className="flex items-center gap-2">
+                          <FolderInput size={13} className="text-slate-500" />
+                          移至分类
+                        </span>
+                      </button>
+
+                      {/* 移动分类子菜单 */}
+                      {activeMoveCategoryId === item.id && (
+                        <div className="my-1 border-t border-b border-slate-100 bg-slate-50/80 p-1">
+                          {categories.filter((c) => c !== 'all').map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => handleMoveCategory(item.id, c)}
+                              className="flex min-h-10 w-full items-center justify-between rounded-md px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                            >
+                              <span>{getCategoryLabel(c)}</span>
+                              {item.category === c && <Check size={12} className="text-slate-900" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="my-1 h-px bg-slate-100" />
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="flex min-h-12 w-full items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600"
+                      >
+                        <Trash2 size={13} />
+                        删除
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         ) : (
-          /* 极简空白页：没有图片时展现 Oops. 提示 (精确复刻图 2 背景) */
-          <div className="flex min-h-[22rem] flex-col items-center justify-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 mb-3 shadow-inner">
-              <Cloud size={24} />
+          <div className="flex min-h-[22rem] flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400 mb-4">
+              <Download size={20} />
             </div>
-            <h3 className="text-base font-bold text-slate-800">
-              Oops.
+            <h3 className="text-base font-semibold text-slate-900">
+              安装 XC AI Clipper
             </h3>
-            <p className="mt-1 text-xs font-medium text-slate-400 max-w-sm">
-              还没有采集任何灵感
+            <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500">
+              安装扩展后，采集的网页图片会自动出现在这里。
             </p>
             <button
               type="button"
               onClick={() => setIsModalOpen(true)}
-              className="mt-5 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-50"
+              className="mt-5 inline-flex min-h-12 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-500 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
             >
               <Download size={13} />
-              获取扩展安装包
+              下载 Chrome 扩展
             </button>
+            <p className="mt-3 max-w-sm text-[11px] leading-5 text-slate-400">下载后在 chrome://extensions 开启开发者模式，并加载解压后的文件夹。</p>
           </div>
         )}
       </main>
 
       {/* 底部选择模式浮动工具栏 (精确复刻图 1 底部: 已选 1 项，取消/删除/发送) */}
       {isSelectMode && (
-        <div className="absolute bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-6 rounded-2xl border border-slate-200/80 bg-white/95 px-6 py-3 shadow-2xl backdrop-blur-xl animate-fade-in">
+        <div className="absolute bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-6 rounded-xl border border-slate-200 bg-white px-6 py-3 shadow-[0_10px_28px_rgba(0,0,0,0.12)] animate-fade-in">
           <div className="text-xs font-bold text-slate-700">
             已选 {selectedIds.length} 项
           </div>
@@ -493,7 +506,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                 setIsSelectMode(false);
                 setSelectedIds([]);
               }}
-              className="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              className="min-h-12 rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 outline-none hover:bg-slate-50 transition focus-visible:ring-2 focus-visible:ring-slate-950"
             >
               取消
             </button>
@@ -503,7 +516,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               disabled={selectedIds.length === 0}
               onClick={handleDeleteSelectedBatch}
               title="批量删除"
-              className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition disabled:opacity-40"
+              className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 outline-none hover:bg-rose-50 hover:text-rose-600 transition focus-visible:ring-2 focus-visible:ring-rose-600 disabled:opacity-40"
             >
               <Trash2 size={14} />
             </button>
@@ -513,7 +526,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               disabled={selectedIds.length === 0}
               onClick={handleAddSelectedToConversationBatch}
               title="批量带入聊天"
-              className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition disabled:opacity-40"
+              className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 outline-none hover:bg-slate-100 transition focus-visible:ring-2 focus-visible:ring-slate-950 disabled:opacity-40"
             >
               <CornerUpRight size={14} />
             </button>
@@ -524,7 +537,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
       {/* 新建分类 Modal (精确复刻截图 2 弹窗) */}
       {showCreateCategoryModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs animate-fade-in">
-          <div className="relative w-full max-w-sm rounded-[1.6rem] bg-white p-6 shadow-2xl transition-all">
+          <div className="relative w-full max-w-sm rounded-xl bg-white p-6 shadow-[0_10px_28px_rgba(0,0,0,0.14)]">
             {/* 顶部标题与关闭 */}
             <div className="flex items-center justify-between pb-4">
               <h3 className="text-base font-bold text-slate-900">新建分类</h3>
@@ -582,20 +595,20 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative flex max-h-[90vh] max-w-[90vw] flex-col items-center overflow-hidden rounded-3xl bg-slate-900 border border-white/10 p-4 text-white shadow-2xl"
+            className="relative flex max-h-[90vh] max-w-[90vw] flex-col items-center overflow-hidden rounded-xl bg-slate-900 border border-white/10 p-4 text-white shadow-[0_12px_36px_rgba(0,0,0,0.22)]"
           >
             {/* 右上角关闭按钮 ✕ */}
             <button
               type="button"
               onClick={() => setPreviewItem(null)}
-              className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition hover:bg-white/20"
+              className="absolute right-4 top-4 z-10 flex h-12 w-12 items-center justify-center rounded-lg bg-white/10 text-white outline-none transition hover:bg-white/20 focus-visible:ring-2 focus-visible:ring-white"
               aria-label="关闭预览"
             >
               <X size={18} />
             </button>
 
             {/* 大图预览 */}
-            <div className="flex max-h-[75vh] w-full items-center justify-center overflow-hidden rounded-2xl bg-black/40">
+            <div className="flex max-h-[75vh] w-full items-center justify-center overflow-hidden rounded-lg bg-black/40">
               <img
                 src={previewItem.url}
                 alt={previewItem.title}
@@ -616,7 +629,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                   onClick={() => {
                     if (onAddToConversation) {
                       onAddToConversation(previewItem.url, previewItem.title);
-                      setToastMsg('✨ 已添加到对话框');
+                      setToastMsg('已添加到对话框');
                       setTimeout(() => setToastMsg(null), 2000);
                     }
                   }}
@@ -629,7 +642,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleCopyImage(previewItem.url)}
-                  className="flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-xs font-bold text-white backdrop-blur-md transition hover:bg-white/20 cursor-pointer"
+                  className="flex min-h-12 items-center gap-1.5 rounded-lg bg-white/10 px-3.5 py-2 text-xs font-semibold text-white outline-none transition hover:bg-white/20 cursor-pointer focus-visible:ring-2 focus-visible:ring-white"
                 >
                   <Copy size={14} />
                   复制

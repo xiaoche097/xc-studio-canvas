@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { executeVirseRequest } from './api/virse-core.js';
@@ -87,6 +88,39 @@ const localVirsePlugin = () => ({
   },
 });
 
+const CLIPPER_EXTENSION_FILENAME = 'xc-ai-clipper-extension.zip';
+const CLIPPER_EXTENSION_PATH = path.resolve(
+  __dirname,
+  'Cyzx4/public',
+  CLIPPER_EXTENSION_FILENAME,
+);
+
+const clipperExtensionAssetPlugin = () => ({
+  name: 'xc-ai-clipper-extension-asset',
+  configureServer(server: any) {
+    server.middlewares.use(`/${CLIPPER_EXTENSION_FILENAME}`, (_req: any, res: any, next: () => void) => {
+      if (!fs.existsSync(CLIPPER_EXTENSION_PATH)) {
+        next();
+        return;
+      }
+
+      const stat = fs.statSync(CLIPPER_EXTENSION_PATH);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Length', String(stat.size));
+      res.setHeader('Content-Disposition', `attachment; filename="${CLIPPER_EXTENSION_FILENAME}"`);
+      fs.createReadStream(CLIPPER_EXTENSION_PATH).pipe(res);
+    });
+  },
+  generateBundle() {
+    this.emitFile({
+      type: 'asset',
+      fileName: CLIPPER_EXTENSION_FILENAME,
+      source: fs.readFileSync(CLIPPER_EXTENSION_PATH),
+    });
+  },
+});
+
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     // Server-only: make the local Vite middleware behave like the Vercel
@@ -103,7 +137,7 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
-      plugins: [react(), localImageDownloadPlugin(), localVirsePlugin()],
+      plugins: [react(), clipperExtensionAssetPlugin(), localImageDownloadPlugin(), localVirsePlugin()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY)

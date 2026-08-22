@@ -1,5 +1,25 @@
 // XC AI Clipper Background Service Worker (Manifest V3)
 
+const WORKBENCH_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'xcwork-tool.online', 'www.xcwork-tool.online']);
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedWorkbenchUrl(value) {
+  try {
+    const url = new URL(value);
+    return isHttpUrl(value) && WORKBENCH_HOSTS.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     console.log('[XC AI Clipper] Extension installed successfully');
@@ -11,30 +31,42 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // 点击工具栏扩展图标时，在当前网页 DOM 中展开/收起浮动组件（完全像 Lovart 扩展一样免弹窗框）
-chrome.action.onClicked.addListener((tab) => {
-  if (tab.id) {
-    chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_WIDGET' }).catch(() => {
-      // 若 content script 尚未注入，可尝试动态注入
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['content.js']
-      }).then(() => {
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_WIDGET' });
-        }, 200);
-      }).catch(() => {});
-    });
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id || !isHttpUrl(tab.url)) {
+    console.warn('[XC AI Clipper] Cannot run on this page:', tab?.url, 'Restricted or unsupported URL');
+    return;
+  }
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_WIDGET' });
+    return;
+  } catch (error) {
+    console.debug('[XC AI Clipper] Content script was not ready:', error?.message || error);
+  }
+
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_WIDGET' });
+  } catch (error) {
+    console.warn('[XC AI Clipper] Cannot run on this page:', tab.url, error?.message || error);
   }
 });
 
 // 监听来自 Content Script 的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'CLIP_IMAGE') {
+    const sourceUrl = request.sourceUrl || sender.tab?.url || '';
+    if (!isHttpUrl(sourceUrl) || !isHttpUrl(request.url)) {
+      sendResponse({ success: false, error: 'Only HTTP(S) image URLs are supported.' });
+      return false;
+    }
+
     const item = {
       id: `clip-${Date.now()}`,
       title: request.title || '网页剪藏灵感图',
       url: request.url,
-      sourceUrl: request.sourceUrl || sender.tab?.url || '',
+      sourceUrl,
       platform: request.platform || 'other',
       category: 'inspiration',
       timestamp: Date.now(),
@@ -50,8 +82,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // 广播通知所有 Web 应用 Tab 页 (包含线上生产域名 www.xcwork-tool.online 及 本地地址)
         chrome.tabs.query({}, (tabs) => {
           tabs.forEach((t) => {
-            if (t.id && t.url && (t.url.includes('xcwork-tool.online') || t.url.includes('localhost') || t.url.includes('127.0.0.1') || t.url.includes('xc-ai'))) {
-              chrome.tabs.sendMessage(t.id, { action: 'CLIP_IMAGE', item }).catch(() => {});
+            if (t.id && isTrustedWorkbenchUrl(t.url)) {
+              chrome.tabs.sendMessage(t.id, { action: 'CLIP_IMAGE', item }).catch((error) => {
+                console.debug('[XC AI Clipper] Workbench tab was not ready:', error?.message || error);
+              });
             }
           });
         });
