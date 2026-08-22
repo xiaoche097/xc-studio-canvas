@@ -8,6 +8,17 @@ const WORKBENCH_HOSTS = new Set([
   'www.xcwork-tool.online',
 ]);
 const MAX_CLIPPED_IMAGE_BYTES = 20 * 1024 * 1024;
+let storageWriteQueue = Promise.resolve();
+
+function enqueueStorageWrite(operation) {
+  const queuedOperation = storageWriteQueue
+    .catch(() => undefined)
+    .then(() => new Promise((resolve) => operation(resolve)));
+  storageWriteQueue = queuedOperation.catch((error) => {
+    console.warn('[XC AI Clipper] Storage write failed.', error);
+  });
+  return queuedOperation;
+}
 
 function isHttpUrl(value) {
   try {
@@ -53,30 +64,34 @@ async function fetchImageAsDataUrl(imageUrl) {
 }
 
 function storeAndBroadcastItem(item, sendResponse) {
-  chrome.storage.local.get(['clipped_images'], (result) => {
-    const list = Array.isArray(result.clipped_images) ? result.clipped_images : [];
-    const updated = [
-      item,
-      ...list.filter((entry) => entry.id !== item.id && entry.originalUrl !== item.originalUrl),
-    ];
+  enqueueStorageWrite((done) => {
+    chrome.storage.local.get(['clipped_images'], (result) => {
+      const list = Array.isArray(result.clipped_images) ? result.clipped_images : [];
+      const updated = [
+        item,
+        ...list.filter((entry) => entry.id !== item.id && entry.originalUrl !== item.originalUrl),
+      ];
 
-    chrome.storage.local.set({ clipped_images: updated }, () => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-        return;
-      }
+      chrome.storage.local.set({ clipped_images: updated }, () => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+          done();
+          return;
+        }
 
-      chrome.tabs.query({}, (tabs) => {
-        tabs.forEach((tab) => {
-          if (tab.id && isTrustedWorkbenchUrl(tab.url)) {
-            chrome.tabs.sendMessage(tab.id, { action: 'CLIP_IMAGE', item }).catch((error) => {
-              console.debug('[XC AI Clipper] Workbench tab was not ready:', error?.message || error);
-            });
-          }
+        chrome.tabs.query({}, (tabs) => {
+          tabs.forEach((tab) => {
+            if (tab.id && isTrustedWorkbenchUrl(tab.url)) {
+              chrome.tabs.sendMessage(tab.id, { action: 'CLIP_IMAGE', item }).catch((error) => {
+                console.debug('[XC AI Clipper] Workbench tab was not ready:', error?.message || error);
+              });
+            }
+          });
         });
-      });
 
-      sendResponse({ success: true, item });
+        sendResponse({ success: true, item });
+        done();
+      });
     });
   });
 }
@@ -112,6 +127,35 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'DELETE_CLIPPED_IMAGES') {
+    const deletedItems = Array.isArray(request.items) ? request.items : [];
+    const deletedIds = new Set(deletedItems.map((item) => item?.id).filter(Boolean));
+    const deletedUrls = new Set(
+      deletedItems.flatMap((item) => [item?.originalUrl, item?.url]).filter(isHttpUrl)
+    );
+
+    enqueueStorageWrite((done) => {
+      chrome.storage.local.get(['clipped_images'], (result) => {
+        const list = Array.isArray(result.clipped_images) ? result.clipped_images : [];
+        const remaining = list.filter((entry) => {
+          const entryUrls = [entry?.originalUrl, entry?.url].filter(isHttpUrl);
+          return !deletedIds.has(entry?.id) && !entryUrls.some((url) => deletedUrls.has(url));
+        });
+
+        chrome.storage.local.set({ clipped_images: remaining }, () => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            done();
+            return;
+          }
+          sendResponse({ success: true, deleted: list.length - remaining.length });
+          done();
+        });
+      });
+    });
+    return true;
+  }
+
   if (request.action === 'CLIP_IMAGE') {
     const sourceUrl = request.sourceUrl || sender.tab?.url || '';
     if (!isHttpUrl(sourceUrl) || !isHttpUrl(request.url)) {
@@ -130,14 +174,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       const item = {
-        id: `clip-${Date.now()}`,
+        id: typeof request.id === 'string' && request.id ? request.id : `clip-${Date.now()}-${crypto.randomUUID()}`,
         title: request.title || '网页剪藏灵感图',
         url: stableUrl,
         originalUrl: request.url,
         sourceUrl,
         platform: request.platform || 'other',
         category: 'inspiration',
-        timestamp: Date.now(),
+        timestamp: Number.isFinite(request.timestamp) ? request.timestamp : Date.now(),
         persistence,
       };
       storeAndBroadcastItem(item, sendResponse);

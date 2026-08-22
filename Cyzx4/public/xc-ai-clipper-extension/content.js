@@ -37,7 +37,7 @@
     window.postMessage(
       {
         type: 'XC_CLIPPER_PONG',
-        version: '1.0.1',
+        version: '1.1.2',
         isPinterest: window.location.hostname.includes('pinterest.com'),
         url: window.location.href,
       },
@@ -427,10 +427,10 @@
       }
     });
 
-    document.getElementById('xc-btn-save-all').addEventListener('click', (e) => {
+    document.getElementById('xc-btn-save-all').addEventListener('click', async (e) => {
       e.stopPropagation();
       e.preventDefault();
-      openBatchModal();
+      await openBatchModal();
     });
   }
 
@@ -504,26 +504,186 @@
     }
   }
 
-  // 3. 一键所有图片 Save 选择弹窗 (只抓取当前悬浮图片所属的帖子/卡片内部的图，并支持取消关闭)
-  function openBatchModal() {
-    if (document.getElementById('xc-batch-select-modal')) return;
+  const CAROUSEL_SCAN_LIMIT = 20;
+  const CAROUSEL_CHANGE_TIMEOUT_MS = 1400;
+  let isBatchScanning = false;
+
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function getBatchScope(img) {
+    if (!img) return document.body;
+
+    // Instagram 的轮播图片外面还有多层虚拟化容器。优先锁定整篇帖子，
+    // 避免 closest() 提前命中 _aagw 等单张图片容器而只识别到相邻两张。
+    return img.closest('article, [role="article"]')
+      || img.closest('main, section')
+      || img.parentElement?.parentElement
+      || document.body;
+  }
+
+  function getElementLabel(element) {
+    if (!element) return '';
+    const labelledChild = element.querySelector?.('[aria-label], [title]');
+    return [
+      element.getAttribute?.('aria-label'),
+      element.getAttribute?.('title'),
+      element.getAttribute?.('data-testid'),
+      labelledChild?.getAttribute?.('aria-label'),
+      labelledChild?.getAttribute?.('title'),
+      element.textContent,
+    ].filter(Boolean).join(' ').trim();
+  }
+
+  function isVisibleElement(element) {
+    if (!element || element.closest?.('[data-xc-ai-clipper-ui]')) return false;
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0
+      && rect.height > 0
+      && style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) > 0;
+  }
+
+  function findInstagramCarouselButton(root, direction) {
+    const nextPattern = /(?:^|\b)(?:next|forward)(?:\b|$)|下一|下一个|다음|次へ|suivant|siguiente|weiter|avanti|pr[oó]ximo/i;
+    const previousPattern = /(?:^|\b)(?:previous|prev|back)(?:\b|$)|上一|上一个|이전|前へ|pr[eé]c[eé]dent|anterior|zur[uü]ck|indietro/i;
+    const expectedPattern = direction === 'next' ? nextPattern : previousPattern;
+    const controls = Array.from(root.querySelectorAll('button, [role="button"]'));
+
+    return controls.find((control) => (
+      isVisibleElement(control) && expectedPattern.test(getElementLabel(control))
+    )) || null;
+  }
+
+  function getVisibleInstagramImageUrls(root) {
+    return Array.from(root.querySelectorAll('img'))
+      .filter((img) => {
+        if (!getSafeImageUrl(img)) return false;
+        const rect = img.getBoundingClientRect();
+        return rect.width >= 140 && rect.height >= 140 && isVisibleElement(img);
+      })
+      .map((img) => getSafeImageUrl(img));
+  }
+
+  function getCarouselSignature(root) {
+    return getVisibleInstagramImageUrls(root).sort().join('|');
+  }
+
+  async function clickCarouselAndWait(root, button) {
+    const before = getCarouselSignature(root);
+    button.click();
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < CAROUSEL_CHANGE_TIMEOUT_MS) {
+      await wait(80);
+      const after = getCarouselSignature(root);
+      if (after && after !== before) {
+        await wait(80);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function addInstagramImages(root, imageMap) {
+    getVisibleInstagramImageUrls(root).forEach((url) => {
+      if (imageMap.has(url)) return;
+      const snapshot = document.createElement('img');
+      snapshot.src = url;
+      imageMap.set(url, snapshot);
+    });
+  }
+
+  async function collectInstagramCarouselImages(root) {
+    const imageMap = new Map();
+    addInstagramImages(root, imageMap);
+
+    let backwardClicks = 0;
+    let forwardClicks = 0;
+
+    // 从用户当前页回到第一张，同时收集前面的轮播图片。
+    for (let index = 0; index < CAROUSEL_SCAN_LIMIT; index += 1) {
+      const previousButton = findInstagramCarouselButton(root, 'previous');
+      if (!previousButton) break;
+      const changed = await clickCarouselAndWait(root, previousButton);
+      if (!changed) break;
+      backwardClicks += 1;
+      addInstagramImages(root, imageMap);
+    }
+
+    // 从第一张遍历到最后一张。Instagram 每次只渲染当前项及少量相邻项，
+    // 因此必须逐页触发，不能只读取点击时已经存在的 DOM。
+    for (let index = 0; index < CAROUSEL_SCAN_LIMIT; index += 1) {
+      const nextButton = findInstagramCarouselButton(root, 'next');
+      if (!nextButton) break;
+      const changed = await clickCarouselAndWait(root, nextButton);
+      if (!changed) break;
+      forwardClicks += 1;
+      addInstagramImages(root, imageMap);
+    }
+
+    // 扫描结束后恢复用户点击 Save all 时所在的轮播位置。
+    const restoreClicks = Math.max(0, forwardClicks - backwardClicks);
+    for (let index = 0; index < restoreClicks; index += 1) {
+      const previousButton = findInstagramCarouselButton(root, 'previous');
+      if (!previousButton) break;
+      const changed = await clickCarouselAndWait(root, previousButton);
+      if (!changed) break;
+    }
+
+    return Array.from(imageMap.values());
+  }
+
+  function setBatchScanningState(scanning) {
+    const button = document.getElementById('xc-btn-save-all');
+    if (!button) return;
+    button.disabled = scanning;
+    button.style.cursor = scanning ? 'wait' : 'pointer';
+    const label = button.querySelector('span');
+    if (label) label.textContent = scanning ? 'Scanning carousel…' : 'Save all images';
+  }
+
+  // 3. 一键所有图片 Save 选择弹窗。Instagram 会先遍历完整轮播，再按真实数量展示 All。
+  async function openBatchModal() {
+    if (document.getElementById('xc-batch-select-modal') || isBatchScanning) return;
+    isBatchScanning = true;
+    setBatchScanningState(true);
 
     let scopedContainer = null;
     if (currentTargetImg) {
-      // 寻找当前图片所属的帖子容器 (如 Instagram 帖子 article, 小红书卡片, 淘宝商品详情区, 亚马逊商品图片区等)
-      scopedContainer = currentTargetImg.closest('article, [role="article"], div._aagw, div._aamf, div.x1n2onr6, main, section') || currentTargetImg.parentElement?.parentElement;
+      scopedContainer = getBatchScope(currentTargetImg);
     }
 
     const searchRoot = scopedContainer || document.body;
 
-    let scannedImgs = Array.from(searchRoot.querySelectorAll('img'))
-      .filter((img) => {
+    let scannedImgs;
+    try {
+      scannedImgs = getPlatformName() === 'instagram'
+        ? await collectInstagramCarouselImages(searchRoot)
+        : Array.from(searchRoot.querySelectorAll('img'))
+          .filter((img) => {
+            if (!getSafeImageUrl(img)) return false;
+            // 过滤掉页面导航小图标或微型头像 (分辨率过滤)
+            const width = img.naturalWidth || img.clientWidth || 0;
+            const height = img.naturalHeight || img.clientHeight || 0;
+            return width >= 100 && height >= 100;
+          });
+    } catch (error) {
+      console.warn('[XC AI Clipper] Carousel scan failed; using currently loaded images.', error);
+      scannedImgs = Array.from(searchRoot.querySelectorAll('img')).filter((img) => {
         if (!getSafeImageUrl(img)) return false;
-        // 过滤掉页面导航小图标或微型头像 (分辨率过滤)
-        const width = img.naturalWidth || img.clientWidth || 0;
-        const height = img.naturalHeight || img.clientHeight || 0;
+        const width = img.clientWidth || img.naturalWidth || 0;
+        const height = img.clientHeight || img.naturalHeight || 0;
         return width >= 100 && height >= 100;
       });
+    } finally {
+      isBatchScanning = false;
+      setBatchScanningState(false);
+    }
 
     // 如果局部容器没有抓取到足够图，确保把 currentTargetImg 本身包含进来
     if (currentTargetImg && !scannedImgs.includes(currentTargetImg)) {
@@ -538,7 +698,7 @@
         uniqueMap.set(imageUrl, img);
       }
     });
-    scannedImgs = Array.from(uniqueMap.values()).slice(0, 16);
+    scannedImgs = Array.from(uniqueMap.values());
 
     const selectedSet = new Set(scannedImgs.map((_, i) => i));
 
@@ -776,10 +936,12 @@
       try {
         chrome.runtime.sendMessage({
           action: 'CLIP_IMAGE',
+          id: itemData.id,
           url: imgSrc,
           title: title || document.title,
           sourceUrl: window.location.href,
           platform: platform,
+          timestamp: itemData.timestamp,
         });
       } catch {}
     }
@@ -904,6 +1066,18 @@
   // Re-deliver extension-owned clips whenever the workbench opens. This restores
   // cached image bytes even when the original CDN URL has expired.
   if (isTrustedWorkbench()) {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'XC_CLIPPER_DELETE_IMAGES' || !Array.isArray(event.data.items)) return;
+
+      chrome.runtime.sendMessage({
+        action: 'DELETE_CLIPPED_IMAGES',
+        items: event.data.items,
+      }).catch((error) => {
+        console.warn('[XC AI Clipper] Failed to synchronize deleted images.', error);
+      });
+    });
+
     setTimeout(() => {
       chrome.runtime.sendMessage({ action: 'GET_CLIPPED_IMAGES' }, (response) => {
         if (chrome.runtime.lastError || !Array.isArray(response?.items)) return;

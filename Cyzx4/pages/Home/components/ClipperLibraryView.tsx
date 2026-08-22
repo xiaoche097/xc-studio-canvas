@@ -60,6 +60,7 @@ interface ClipperLibraryViewProps {
 }
 
 const EXTENSION_DOWNLOAD_URL = `${import.meta.env.BASE_URL}xc-ai-clipper-extension.zip`;
+const DELETED_CLIP_IDS_STORAGE_KEY = 'xc_ai_deleted_clip_ids';
 const LEGACY_DEMO_ITEM_IDS = new Set(['demo-item-1', 'demo-item-2']);
 const LEGACY_DEMO_IMAGE_MARKERS = [
   'photo-1515886657613-9f3515b0c78f',
@@ -73,6 +74,20 @@ const removeLegacyDemoItems = (items: ClippedItem[]): ClippedItem[] => (
   ))
 );
 
+const readDeletedClipIds = (): Set<string> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DELETED_CLIP_IDS_STORAGE_KEY) || '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const removeDeletedClippedItems = (items: ClippedItem[]): ClippedItem[] => {
+  const deletedIds = readDeletedClipIds();
+  return items.filter((item) => !deletedIds.has(item.id));
+};
+
 export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   onAddToConversation,
 }) => {
@@ -81,13 +96,14 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
       const stored = localStorage.getItem('xc_ai_clipped_items');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return removeLegacyDemoItems(parsed);
+        if (Array.isArray(parsed)) return removeDeletedClippedItems(removeLegacyDemoItems(parsed));
       }
     } catch {}
     return [];
   });
   const [clipperStorageReady, setClipperStorageReady] = useState(false);
   const receivedClipIdsRef = useRef(new Map<string, string>());
+  const deletedClipIdsRef = useRef(readDeletedClipIds());
 
   // 分类 Tabs：默认【只保留全部和未分类】，用户自行新建分类
   const [categories, setCategories] = useState<string[]>(() => {
@@ -125,7 +141,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
       .then((storedItems) => {
         if (cancelled) return;
         if (storedItems.length > 0) {
-          setItems(removeLegacyDemoItems(storedItems as ClippedItem[]));
+          setItems(removeDeletedClippedItems(removeLegacyDemoItems(storedItems as ClippedItem[])));
         }
       })
       .catch((error) => console.warn('[clipper] Failed to load IndexedDB library.', error))
@@ -166,6 +182,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     let bc: BroadcastChannel | null = null;
     const ingestClippedItem = (raw: Partial<ClippedItem>) => {
       if (!raw.url) return;
+      if (raw.id && deletedClipIdsRef.current.has(raw.id)) return;
       if (raw.id) {
         const previousUrl = receivedClipIdsRef.current.get(raw.id);
         if (previousUrl === raw.url) return;
@@ -219,6 +236,11 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
 
     // 3. 监听 localStorage 跨页变更
     const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === DELETED_CLIP_IDS_STORAGE_KEY) {
+        deletedClipIdsRef.current = readDeletedClipIds();
+        setItems((current) => current.filter((item) => !deletedClipIdsRef.current.has(item.id)));
+        return;
+      }
       if (e.key === 'xc_ai_clipped_items' && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue) as ClippedItem[];
@@ -287,7 +309,25 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     );
   };
 
+  const syncDeletedItems = (deletedItems: ClippedItem[]) => {
+    if (!deletedItems.length) return;
+
+    deletedItems.forEach((item) => deletedClipIdsRef.current.add(item.id));
+    try {
+      // Keep a bounded tombstone list so an extension replay cannot resurrect deleted images.
+      const ids = Array.from(deletedClipIdsRef.current).slice(-500);
+      deletedClipIdsRef.current = new Set(ids);
+      localStorage.setItem(DELETED_CLIP_IDS_STORAGE_KEY, JSON.stringify(ids));
+    } catch {}
+
+    window.postMessage({
+      type: 'XC_CLIPPER_DELETE_IMAGES',
+      items: deletedItems.map(({ id, originalUrl, url }) => ({ id, originalUrl, url })),
+    }, window.location.origin);
+  };
+
   const handleDeleteSelectedBatch = () => {
+    syncDeletedItems(items.filter((item) => selectedIds.includes(item.id)));
     setItems((prev) => prev.filter((i) => !selectedIds.includes(i.id)));
     setSelectedIds([]);
     setIsSelectMode(false);
@@ -308,6 +348,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
   };
 
   const handleDeleteItem = (id: string) => {
+    syncDeletedItems(items.filter((item) => item.id === id));
     setItems((prev) => prev.filter((i) => i.id !== id));
     setActiveMenuId(null);
   };
