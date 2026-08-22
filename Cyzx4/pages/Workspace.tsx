@@ -830,6 +830,7 @@ interface WorkspaceProps {
   initialPrompt?: string;
   initialAttachments?: File[];
   initialSkillData?: any;
+  onInitialLaunchConsumed?: () => void;
 }
 
 interface WorkspaceLaunchState {
@@ -858,6 +859,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   initialPrompt,
   initialAttachments,
   initialSkillData,
+  onInitialLaunchConsumed,
 }) => {
   const id = projectId || "default-workspace";
   const location: { state: WorkspaceLaunchState | null } = {
@@ -4977,6 +4979,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       location.state.initialSkillData,
       launchConversationId,
     );
+    onInitialLaunchConsumed?.();
   }, [id, loadedProjectId]);
 
   // Ctrl 键监听：用于切换自定义光标

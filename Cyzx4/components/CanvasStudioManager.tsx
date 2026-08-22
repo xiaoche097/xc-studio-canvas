@@ -11,6 +11,7 @@ interface CanvasStudioManagerProps {
   initialPrompt?: string;
   initialAttachments?: File[];
   initialSkillData?: CreativeSkillData;
+  onInitialLaunchConsumed?: () => void;
 }
 
 interface ErrorBoundaryProps {
@@ -67,6 +68,7 @@ export const CanvasStudioManager: React.FC<CanvasStudioManagerProps> = ({
   initialPrompt,
   initialAttachments,
   initialSkillData,
+  onInitialLaunchConsumed,
 }) => {
   return (
     <CanvasErrorBoundary>
@@ -78,6 +80,7 @@ export const CanvasStudioManager: React.FC<CanvasStudioManagerProps> = ({
           initialPrompt={initialPrompt}
           initialAttachments={initialAttachments}
           initialSkillData={initialSkillData}
+          onInitialLaunchConsumed={onInitialLaunchConsumed}
         />
       </div>
     </CanvasErrorBoundary>

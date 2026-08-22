@@ -237,13 +237,26 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
     onSelectSidebarItem('canvas');
   };
 
+  const clearWorkspaceLaunchPayload = () => {
+    setWorkspaceSeed((current) => current
+      ? { ...current, prompt: '', attachments: [], skillData: undefined }
+      : current);
+  };
+
+  const handleSidebarItemSelect = (item: SidebarItem) => {
+    // Entering Canvas from navigation restores the project only. A previous
+    // Home submission is a one-shot launch command and must never be replayed.
+    if (item === 'canvas') clearWorkspaceLaunchPayload();
+    onSelectSidebarItem(item);
+  };
+
   return (
     <div className="flex h-full min-h-screen bg-[#f8fafc] text-slate-800 dark:bg-[#0b0f17] dark:text-slate-100 overflow-hidden font-sans">
       {/* 1. LEFT SIDEBAR (在进入画布模式时隐藏全局侧边栏) */}
       {activeSidebarItem !== 'canvas' && (
         <GlobalSidebar
           activeSidebarItem={activeSidebarItem}
-          onSelectSidebarItem={onSelectSidebarItem}
+          onSelectSidebarItem={handleSidebarItemSelect}
           onBack={onBack}
           collapseRequest={sidebarCollapseRequest}
         />
@@ -270,6 +283,7 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
             initialPrompt={workspaceSeed?.prompt}
             initialAttachments={workspaceSeed?.attachments}
             initialSkillData={workspaceSeed?.skillData}
+            onInitialLaunchConsumed={clearWorkspaceLaunchPayload}
             onBackToHub={() => onSelectSidebarItem('home')}
           />
         </div>
