@@ -69,7 +69,8 @@ const resolveImageModel = (model: string): string => {
   // Default model should be NanoBanana2 (alias: nanobanana2)
   if (!model || model === "Auto") return "NanoBanana2";
   const lower = model.toLowerCase();
-  if (lower === "nanobanana2" || lower === "nanobanana 2") return "NanoBanana2";
+  const compact = lower.replace(/[\s_-]+/g, '');
+  if (compact === "nanobanana2") return "NanoBanana2";
   if (lower === "gemini-3-pro-image-preview") return "Nano Banana Pro";
   if (lower === "gemini-3.1-flash-image-preview") return "NanoBanana2";
   if (lower === "doubao-seedream-5-0-260128") return "Seedream5.0";

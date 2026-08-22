@@ -49,6 +49,37 @@ export async function smartEditSkill(params: SmartEditParams): Promise<string | 
       params.editType === 'style-transfer' ||
       params.editType === 'extend';
 
+    const virseEnabled =
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem('virse_enabled') === 'true';
+
+    if (virseEnabled) {
+      const requestedAspectRatio = params.parameters?.aspectRatio || '1:1';
+      return await generateImage({
+        prompt: `${params.parameters?.preservePrompt || 'Preserve identity, layout, lighting, materials, and all untouched areas.'} ${finalPrompt}`.trim(),
+        model: generationModel,
+        aspectRatio: requestedAspectRatio,
+        imageSize:
+          params.parameters?.imageSize ||
+          (params.editType === 'upscale'
+            ? params.parameters?.factor >= 4
+              ? '4K'
+              : '2K'
+            : '2K'),
+        referenceImage: params.sourceUrl,
+        referenceImages: [
+          params.sourceUrl,
+          ...(Array.isArray(params.parameters?.referenceImages)
+            ? params.parameters.referenceImages
+            : []),
+        ],
+        referenceStrength: 0.95,
+        referencePriority: 'first',
+        referenceMode: 'product',
+        maskImage: params.maskImage,
+      });
+    }
+
     if (shouldUseEditPath) {
       result = await editImage({
         sourceImage: params.sourceUrl,

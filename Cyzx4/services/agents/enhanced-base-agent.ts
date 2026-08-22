@@ -19,6 +19,14 @@ import { collectReferenceCandidates } from "./utils/reference-images";
 import { sanitizeObject, sanitizeStringBase64 } from "./utils/payload-sanitizer";
 import { createMaskDataUrl } from "./utils/mask-generator";
 import { loadTopicSnapshot } from "../topic-memory";
+import {
+  FASHION_REPLICA_ROLE_PROMPT,
+  SCENE_FISSION_ROLE_PROMPT,
+  buildDefaultSceneFissionSchemes,
+  buildSceneFissionContactSheetPrompt,
+  normalizeSceneFissionSchemes,
+  type SceneFissionWorkflowState,
+} from "./specialized-visual-roles";
 
 // 带指数退避的重试工具（用于 analyzeAndPlan 等内部调用）
 const retryAsync = async <T>(
@@ -156,6 +164,174 @@ const MAX_MESSAGE_TEXT_CHARS = 1200;
 const MAX_TOPIC_CONTEXT_CHARS = 1200;
 const MAX_REFERENCE_SUMMARY_CHARS = 400;
 const MAX_BRAND_INFO_CHARS = 400;
+const SUPPORTED_IMAGE_ASPECT_RATIOS = [
+  "1:1",
+  "3:4",
+  "4:3",
+  "9:16",
+  "16:9",
+  "21:9",
+  "3:2",
+  "2:3",
+  "5:4",
+  "4:5",
+];
+
+const getNearestSupportedImageAspectRatio = (
+  width: number,
+  height: number,
+): string => {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) {
+    return "1:1";
+  }
+  const ratio = width / height;
+  return SUPPORTED_IMAGE_ASPECT_RATIOS.reduce((nearest, candidate) => {
+    const [nearestWidth, nearestHeight] = nearest.split(":").map(Number);
+    const [candidateWidth, candidateHeight] = candidate.split(":").map(Number);
+    return Math.abs(candidateWidth / candidateHeight - ratio) <
+      Math.abs(nearestWidth / nearestHeight - ratio)
+      ? candidate
+      : nearest;
+  }, SUPPORTED_IMAGE_ASPECT_RATIOS[0]);
+};
+
+const getExplicitImageAspectRatio = (message: string): string | null => {
+  const match = String(message || "").match(
+    /(?:^|\D)(1\s*[:：]\s*1|3\s*[:：]\s*4|4\s*[:：]\s*3|9\s*[:：]\s*16|16\s*[:：]\s*9|21\s*[:：]\s*9|3\s*[:：]\s*2|2\s*[:：]\s*3|4\s*[:：]\s*5|5\s*[:：]\s*4)(?=\D|$)/,
+  );
+  return match?.[1]?.replace(/\s+/g, "").replace("：", ":") || null;
+};
+
+interface CurrentTurnVisualIntent {
+  explicitPersonCountChange: boolean;
+  referencePreservingEdit: boolean;
+  narrowClothingEdit: boolean;
+  guard: string;
+}
+
+const analyzeCurrentTurnVisualIntent = (
+  message: string,
+  hasReferenceImage: boolean,
+): CurrentTurnVisualIntent => {
+  const text = String(message || "").trim();
+  const rejectsAddedPeople =
+    /(不要|不能|别|禁止|不需要|无需|并未|没说).{0,16}(加人|新增.{0,5}人|添加.{0,5}人|多.{0,5}(人|男生|女生|模特)|双人|合照)/i.test(text);
+  const requestsPersonAddition =
+    /(加人|新增.{0,5}(人|男生|女生|模特)|添加.{0,5}(人|男生|女生|模特)|多一个.{0,5}(人|男生|女生|模特)|再加.{0,5}(人|男生|女生|模特)|旁边.{0,10}(加|放|站|多).{0,5}(人|男生|女生|模特)|双人合照)/i.test(text);
+  const requestsPersonRemoval =
+    /(删除|移除|去掉|不要|抹掉).{0,10}(人|男生|女生|模特|路人)/i.test(text);
+  const explicitPersonCountChange =
+    requestsPersonRemoval || (requestsPersonAddition && !rejectsAddedPeople);
+  const narrowClothingEdit =
+    /(衣服|服装|套装|上衣|裤子|裙子|穿搭|面料).{0,20}(换成|改成|改为|变成|替换|换色|改色)|(?:换成|改成|改为|变成).{0,12}(黑色|白色|红色|蓝色|绿色|黄色|紫色|粉色|灰色).{0,12}(衣服|服装|套装|上衣|裤子|裙子)?/i.test(text);
+  const referencePreservingEdit =
+    narrowClothingEdit ||
+    /(只改|仅修改|保持.{0,16}不变|换成|改成|改为|替换|修改|调整|换色|改色|换背景|去背景|移除|删除|去掉|重做|继续修改|继续改|replace|recolor|edit|change|remove)/i.test(text);
+
+  const rules = [
+    "CURRENT TURN IS AUTHORITATIVE. Follow only the current user instruction; history is context, never an unfinished instruction queue.",
+    `Current user instruction: ${text}`,
+  ];
+  if (
+    hasReferenceImage &&
+    referencePreservingEdit &&
+    !explicitPersonCountChange
+  ) {
+    rules.push(
+      "Keep exactly the same number of people and subjects as the primary reference image.",
+      "Do not add, duplicate, mirror, clone, split, collage, or place a second person beside the original subject.",
+    );
+  }
+  if (hasReferenceImage && narrowClothingEdit) {
+    rules.push(
+      "This is a narrow clothing edit: change only the requested garment property.",
+      "Preserve the original person's identity, face, body, pose, hands, camera angle, framing, background, lighting, and every unrelated detail.",
+    );
+  }
+
+  return {
+    explicitPersonCountChange,
+    referencePreservingEdit,
+    narrowClothingEdit,
+    guard: rules.join("\n"),
+  };
+};
+
+const isLikelyImageFile = (file?: File): file is File =>
+  !!file && (
+    file.type?.startsWith("image/") ||
+    /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(file.name || "")
+  );
+
+const detectFileAspectRatio = async (
+  file?: File,
+): Promise<{ width: number; height: number; aspectRatio: string } | null> => {
+  if (!isLikelyImageFile(file)) return null;
+
+  const fileAny = file as any;
+  const markerInfo = fileAny.markerInfo;
+  const knownWidth = Number(
+    fileAny.detectedImageWidth ||
+    fileAny._previewNaturalWidth ||
+    markerInfo?.imageWidth ||
+    markerInfo?.width ||
+    0,
+  );
+  const knownHeight = Number(
+    fileAny.detectedImageHeight ||
+    fileAny._previewNaturalHeight ||
+    markerInfo?.imageHeight ||
+    markerInfo?.height ||
+    0,
+  );
+  if (knownWidth > 0 && knownHeight > 0) {
+    return {
+      width: knownWidth,
+      height: knownHeight,
+      aspectRatio: getNearestSupportedImageAspectRatio(knownWidth, knownHeight),
+    };
+  }
+
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(file);
+      try {
+        return {
+          width: bitmap.width,
+          height: bitmap.height,
+          aspectRatio: getNearestSupportedImageAspectRatio(bitmap.width, bitmap.height),
+        };
+      } finally {
+        bitmap.close();
+      }
+    }
+  } catch (error) {
+    console.warn("[aspect-ratio] createImageBitmap failed; trying Image decode", error);
+  }
+
+  if (typeof Image === "undefined" || typeof URL === "undefined") return null;
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      });
+      image.onerror = () => reject(new Error("Unable to decode reference image dimensions"));
+      image.src = objectUrl;
+    });
+    return {
+      ...dimensions,
+      aspectRatio: getNearestSupportedImageAspectRatio(dimensions.width, dimensions.height),
+    };
+  } catch (error) {
+    console.warn("[aspect-ratio] Image decode failed", error);
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
 
 const truncateText = (value: unknown, maxChars: number): string => {
   const text = String(value || "").trim();
@@ -188,6 +364,7 @@ export abstract class EnhancedBaseAgent {
   private shouldForceImageToolCall(
     message: string,
     metadata?: Record<string, any>,
+    hasImageAttachment: boolean = false,
   ): boolean {
     // 两步交互 skill 的第一步不强制生图，让 AI 先分析并输出 suggestions
     const skillData = metadata?.skillData as {
@@ -218,6 +395,8 @@ export abstract class EnhancedBaseAgent {
       /(生成|出图|做图|画图|画一个|画一张|海报|poster|banner|封面|配图|图片|图像|视觉设计|头部|头图|设计一张|图解|插图|绘图|design a|generate image|create poster|draw)/i.test(
         message,
       );
+    const attachedImageEditIntent = hasImageAttachment &&
+      /(换成|改成|改为|替换|修改|调整|变成|增加|添加|加上|再加|多一个|旁边|左边|右边|身后|前面|放入|放一个|站一个|换色|改色|换背景|去背景|抠图|套装|服装|穿搭|试穿|改比例|调整比例|比例.{0,12}(?:错|不对|改|调整)|尺寸.{0,12}(?:错|不对|改|调整)|replace|recolor|edit|change|add)/i.test(message);
 
     // 排除纯咨询或文案类场景
     const consultOnly =
@@ -225,7 +404,7 @@ export abstract class EnhancedBaseAgent {
         message,
       );
 
-    const result = imageIntent && !consultOnly;
+    const result = (imageIntent || attachedImageEditIntent) && !consultOnly;
     if (result) {
       console.log(`[${this.agentInfo.id}] Detect Image Intent: Forced tool call activated.`);
     }
@@ -293,15 +472,22 @@ export abstract class EnhancedBaseAgent {
     metadata?: Record<string, any>,
   ) {
     // 智能提取比例关键词
-    let aspectRatio = (metadata?.preferredAspectRatio as string) || "3:4";
-    if (/(横版|横屏|宽屏|16:9|landscape)/i.test(message)) {
+    const explicitAspectMatch = message.match(
+      /(?:^|\D)(1\s*[:：]\s*1|3\s*[:：]\s*4|4\s*[:：]\s*3|9\s*[:：]\s*16|16\s*[:：]\s*9|21\s*[:：]\s*9|3\s*[:：]\s*2|2\s*[:：]\s*3|4\s*[:：]\s*5|5\s*[:：]\s*4)(?=\D|$)/,
+    );
+    const explicitAspectRatio = explicitAspectMatch?.[1]
+      ?.replace(/\s+/g, "")
+      .replace("：", ":");
+    let aspectRatio =
+      explicitAspectRatio ||
+      (metadata?.preferredAspectRatio as string) ||
+      "3:4";
+    if (!explicitAspectRatio && /(横版|横屏|宽屏|landscape)/i.test(message)) {
       aspectRatio = "16:9";
-    } else if (/(竖版|竖屏|手机屏|9:16|portrait)/i.test(message)) {
+    } else if (!explicitAspectRatio && /(竖版|竖屏|手机屏|portrait)/i.test(message)) {
       aspectRatio = "9:16";
-    } else if (/(方图|正方形|1:1|square)/i.test(message)) {
+    } else if (!explicitAspectRatio && /(方图|正方形|square)/i.test(message)) {
       aspectRatio = "1:1";
-    } else if (/(4:3)/i.test(message)) {
-      aspectRatio = "4:3";
     }
 
     // 智能注入布局描述，强化模型对参数的遵循度
@@ -310,6 +496,10 @@ export abstract class EnhancedBaseAgent {
     else if (aspectRatio === "9:16") layoutDescriptor = "vertical smartphone 2k wallpaper, 9:16 portrait orientation, vertical detailed composition, ";
     else if (aspectRatio === "4:3") layoutDescriptor = "high-resolution 2k professional 4:3 presentation layout, ";
     else if (aspectRatio === "3:4") layoutDescriptor = "high-definition 2k portrait photography, 3:4 orientation, ";
+    else if (aspectRatio === "2:3") layoutDescriptor = "high-definition full-body fashion photography, 2:3 portrait orientation, ";
+    else if (aspectRatio === "3:2") layoutDescriptor = "high-resolution editorial photography, 3:2 landscape orientation, ";
+    else if (aspectRatio === "4:5") layoutDescriptor = "social-commerce fashion photography, 4:5 portrait orientation, ";
+    else if (aspectRatio === "5:4") layoutDescriptor = "high-resolution commercial photography, 5:4 landscape orientation, ";
     else if (aspectRatio === "1:1") layoutDescriptor = "hi-res 2k square format, 1:1 ratio, ";
 
     // 智能补强：根据消息内容增加基础材质/品类锚点，防止 AI 产生“分类漂移”
@@ -322,10 +512,22 @@ export abstract class EnhancedBaseAgent {
       categoryEnhancer = "precision industrial components, metallic finish, ";
     }
 
+    const continuationContext = metadata?.continuationContext as
+      | {
+          isRevision?: boolean;
+          previousUserInstruction?: string;
+          previousAssistantSummary?: string;
+          inheritedPreviousResult?: boolean;
+        }
+      | undefined;
+    const revisionPrompt = continuationContext?.isRevision
+      ? `REVISION TASK. The first reference image is the previous generated result and must remain the visual source of truth. Original user task: ${continuationContext.previousUserInstruction || "Preserve the previous design"}. Current correction: ${message}. Change only what the current correction explicitly requests. Preserve every existing person, subject, product, garment, identity, pose, scene, composition, lighting, material, typography, and untouched detail. If the correction asks to add a person or object, keep the existing main subject intact and add the new entity at the requested relative position; never replace the existing subject with the added entity. If the correction only changes aspect ratio, only reframe or outpaint the previous result to ${aspectRatio}; do not redesign, replace, recolor, or invent a different product. `
+      : "";
+
     const forcedCall: any = {
       skillName: "generateImage",
       params: {
-        prompt: `${layoutDescriptor}${categoryEnhancer}${message}, high-impact visual design, clean composition, studio lighting, professional 2K digital art, 8K resolution details`,
+        prompt: `${revisionPrompt}${layoutDescriptor}${categoryEnhancer}${message}, high-impact visual design, clean composition, studio lighting, professional 2K digital art, 8K resolution details`,
         aspectRatio,
         quality: "hd",
         resolution: "2048x2048",
@@ -344,6 +546,12 @@ export abstract class EnhancedBaseAgent {
       forcedCall.params.init_image = `ATTACHMENT_${lastIdx}`;
       forcedCall.params.referencePriority = "first"; // 强制以当前指定的图为主
       forcedCall.params.referenceMode = categoryEnhancer.includes("fabric") ? "portrait" : "product";
+      if (continuationContext?.isRevision) {
+        forcedCall.params.referenceImage = "ATTACHMENT_0";
+        forcedCall.params.reference_image_url = "ATTACHMENT_0";
+        forcedCall.params.init_image = "ATTACHMENT_0";
+        forcedCall.params.referenceStrength = 0.95;
+      }
     }
 
     return forcedCall;
@@ -495,6 +703,55 @@ export abstract class EnhancedBaseAgent {
       // 验证输入
       this.validateInput(task);
 
+      // Resolve the output ratio from the actual primary reference before
+      // planning. The UI preference (usually 1:1) is only a fallback for
+      // text-to-image requests; it must never override an attached image.
+      const aspectRatioSource = String(
+        task.input.metadata?.preferredAspectRatioSource || "",
+      );
+      const explicitAspectRatio = getExplicitImageAspectRatio(task.input.message);
+      const hasExplicitAspectRatio = ["user", "skill", "scene-fission"].includes(
+        aspectRatioSource,
+      ) || !!explicitAspectRatio;
+      if (explicitAspectRatio) {
+        task = {
+          ...task,
+          input: {
+            ...task.input,
+            metadata: {
+              ...(task.input.metadata || {}),
+              preferredAspectRatio: explicitAspectRatio,
+              preferredAspectRatioSource: "user",
+            },
+          },
+        };
+      } else if (
+        task.input.metadata?.creationMode !== "video" &&
+        !hasExplicitAspectRatio
+      ) {
+        const primaryReference = task.input.attachments?.find(isLikelyImageFile);
+        const detectedReference = await detectFileAspectRatio(primaryReference);
+        if (primaryReference && detectedReference) {
+          (primaryReference as any).detectedImageWidth = detectedReference.width;
+          (primaryReference as any).detectedImageHeight = detectedReference.height;
+          (primaryReference as any).detectedAspectRatio = detectedReference.aspectRatio;
+          task = {
+            ...task,
+            input: {
+              ...task.input,
+              metadata: {
+                ...(task.input.metadata || {}),
+                preferredAspectRatio: detectedReference.aspectRatio,
+                preferredAspectRatioSource: "reference-image",
+              },
+            },
+          };
+          console.log(
+            `[${this.agentInfo.id}] Reference ratio locked before planning: ${detectedReference.width}x${detectedReference.height} -> ${detectedReference.aspectRatio}`,
+          );
+        }
+      }
+
       // 检查缓存
       if (finalConfig.enableCache) {
         const cached = this.getCachedResult(task);
@@ -578,9 +835,13 @@ export abstract class EnhancedBaseAgent {
     const skillData = task.input.metadata?.skillData as
       | { id?: string; config?: Record<string, any> }
       | undefined;
+    const sceneFissionWorkflow = task.input.metadata?.sceneFissionWorkflow as
+      | SceneFissionWorkflowState
+      | undefined;
     const forceImageToolCall = this.shouldForceImageToolCall(
       message,
       task.input.metadata,
+      !!task.input.attachments?.some((file) => file.type?.startsWith('image/')),
     );
 
     // Step 1: 接受任务
@@ -637,6 +898,103 @@ export abstract class EnhancedBaseAgent {
       };
     }
 
+    // 场景裂变是严格的两阶段流程：第一阶段只展示 A/B/C，不允许调用生图工具。
+    if (sceneFissionWorkflow?.phase === "plan") {
+      const hasReference = !!task.input.attachments?.some((file) =>
+        file.type?.startsWith("image/"),
+      );
+      if (!hasReference) {
+        store.actions.setCurrentTask(null);
+        return {
+          ...task,
+          status: "completed",
+          output: {
+            message: "请先上传至少一张模特场景参考图。我会严格锁定人物、服装、原场景和光线，再提供 A/B/C 三套场景裂变方案。输出比例默认 2:3，也可以直接告诉我其他比例。",
+            analysis: "场景裂变需要参考图作为人物、服装、场景与光线的唯一视觉基准。",
+            proposals: [],
+            assets: [],
+            workflowState: {
+              ...sceneFissionWorkflow,
+              phase: "plan",
+              schemes: [],
+            },
+          },
+          updatedAt: Date.now(),
+        };
+      }
+
+      let schemes = buildDefaultSceneFissionSchemes();
+      try {
+        const visualPlan = await this.analyzeAndPlan(
+          message,
+          context,
+          task.input.attachments,
+          task.input.uploadedAttachments,
+          {
+            ...(task.input.metadata || {}),
+            specializedRole: "scene-fission",
+            forceGenerateImage: false,
+            forceToolCall: false,
+            forceSkills: false,
+          },
+        );
+        schemes = normalizeSceneFissionSchemes(visualPlan?.proposals);
+      } catch (error) {
+        console.warn(
+          `[${this.agentInfo.id}] Scene-fission visual planning failed; using deterministic schemes.`,
+          error,
+        );
+      }
+      const aspectRatio = sceneFissionWorkflow.aspectRatio || "2:3";
+      store.actions.setCurrentTask(null);
+      return {
+        ...task,
+        status: "completed",
+        output: {
+          message: `我已按同一模特、同一服装、同一原场景和同一光线，整理出三套场景裂变分镜。请选择方案 A、B 或 C，并确认输出比例；当前默认 ${aspectRatio}。`,
+          analysis: "三套方案都严格锁定参考图，只改变动作、机位、景别、视线与构图；每套均包含 9 个连续拍摄镜头。",
+          proposals: schemes.map((scheme) => ({
+            id: scheme.id,
+            title: scheme.title,
+            description: `${scheme.summary}\n\n九镜头：${scheme.shots.map((shot) => `${shot.index}. ${shot.shotName}`).join("、")}`,
+            skillCalls: [],
+            selectionPrompt: `我选择场景裂变方案 ${scheme.id}，比例 ${aspectRatio}，请生成九宫格分镜。`,
+            actionLabel: `选择方案 ${scheme.id}`,
+          })) as any,
+          assets: [],
+          workflowState: {
+            type: "scene-fission",
+            phase: "awaiting-selection",
+            aspectRatio,
+            schemes,
+          },
+          adjustments: [
+            "选择 A / B / C",
+            `当前比例 ${aspectRatio}，可改为 4:5、3:4、9:16 等`,
+          ],
+        },
+        updatedAt: Date.now(),
+      };
+    }
+
+    if (
+      task.input.metadata?.specializedRole === "fashion-replica" &&
+      !task.input.attachments?.some((file) => file.type?.startsWith("image/"))
+    ) {
+      store.actions.setCurrentTask(null);
+      return {
+        ...task,
+        status: "completed",
+        output: {
+          message: "请先上传需要复刻的参考图；如果目标服装、模特身份或场景来自不同图片，也可以一起上传，我会按产品图、模特图、姿势图、场景图和色调图自动分工。",
+          analysis: "严格复刻角色需要至少一张参考图作为 Target Image State，不能在没有视觉依据时自由生成。",
+          proposals: [],
+          assets: [],
+        },
+        updatedAt: Date.now(),
+      };
+    }
+
     // 1.5 定义字段名容错修复函数
     const fixSkillCalls = (obj: any) => {
       if (!obj || typeof obj !== "object") return;
@@ -672,7 +1030,47 @@ export abstract class EnhancedBaseAgent {
       !isThinkingMode &&
       !bypassFastPath;
 
-    if (shouldUseFastPath) {
+    if (sceneFissionWorkflow?.phase === "generate") {
+      const schemes = sceneFissionWorkflow.schemes?.length
+        ? sceneFissionWorkflow.schemes
+        : buildDefaultSceneFissionSchemes();
+      const selectedScheme =
+        schemes.find(
+          (scheme) => scheme.id === sceneFissionWorkflow.selectedSchemeId,
+        ) || schemes[0];
+      const aspectRatio = sceneFissionWorkflow.aspectRatio || "2:3";
+      const referenceImages = (task.input.attachments || []).map(
+        (_, index) => `ATTACHMENT_${index}`,
+      );
+      plan = {
+        analysis: `已选择${selectedScheme.title}，将按 ${aspectRatio} 生成严格连续的九宫格场景分镜。`,
+        preGenerationMessage: `正在按${selectedScheme.title}生成 3×3 场景裂变分镜，比例为 ${aspectRatio}。`,
+        postGenerationSummary: `已按${selectedScheme.title}完成九宫格场景裂变；人物、服装、原场景与光线均作为强约束保持一致。`,
+        message: `已按${selectedScheme.title}开始生成九宫格分镜。`,
+        skillCalls: [
+          {
+            skillName: "generateImage",
+            params: {
+              prompt: buildSceneFissionContactSheetPrompt(
+                selectedScheme,
+                aspectRatio,
+              ),
+              model: "nanobanana2",
+              aspectRatio,
+              referenceImages,
+              referenceImage: referenceImages[0] || "ATTACHMENT_0",
+              referencePriority: "first",
+              referenceStrength: 0.95,
+              referenceMode: "portrait",
+              quality: "hd",
+              imageSize: "2K",
+            },
+          },
+        ],
+        proposals: [],
+        suggestions: ["继续微调其中一个镜头", "保持方案改用其他比例"],
+      };
+    } else if (shouldUseFastPath) {
       console.log(
         `[${this.agentInfo.id}] Fast workflow enabled: skipping planning stage.`,
       );
@@ -916,7 +1314,8 @@ export abstract class EnhancedBaseAgent {
                 params: {
                   prompt: fallbackPrompt,
                   model: "nanobanana2",
-                  aspectRatio: "1:1",
+                  aspectRatio:
+                    task.input.metadata?.preferredAspectRatio || "1:1",
                 },
               },
             ];
@@ -987,7 +1386,11 @@ export abstract class EnhancedBaseAgent {
               params: {
                 prompt: planPrompt,
                  model: plan.model || "nanobanana2",
-                aspectRatio: plan.aspectRatio || plan.aspect_ratio || "1:1",
+                aspectRatio:
+                  task.input.metadata?.preferredAspectRatio ||
+                  plan.aspectRatio ||
+                  plan.aspect_ratio ||
+                  "1:1",
               },
             },
           ];
@@ -1150,6 +1553,15 @@ export abstract class EnhancedBaseAgent {
     // 7. 提取生成的资产
     const assets = this.extractAssets(skillResults);
     const assetUrls = assets.map((a) => a.url);
+    const imageGenerationResults = skillResults.filter(
+      (result: any) => result?.skillName === "generateImage" || result?.skillName === "imageGenSkill",
+    );
+    const failedImageGeneration = assets.length === 0
+      && imageGenerationResults.length > 0
+      && imageGenerationResults.every((result: any) => result?.success !== true);
+    const firstGenerationError = imageGenerationResults.find(
+      (result: any) => result?.success !== true && result?.error,
+    )?.error;
 
     // Step 4: 完成
     if (assets.length > 0) {
@@ -1165,7 +1577,9 @@ export abstract class EnhancedBaseAgent {
     // 8. 组装最终输出
     // 如果资产生成成功，message 应该是完成反馈；否则使用分析信息
     let finalMessage =
-      assets.length > 0
+      failedImageGeneration
+        ? `图片生成失败：${firstGenerationError || "当前图片服务暂时不可用，请稍后重试。"}`
+        : assets.length > 0
         ? plan.message ||
         `我已根据方案为您生成了 ${assets.length} 张图片并添加至画布。`
         : plan.message || plan.analysis || "任务已完成";
@@ -1190,9 +1604,15 @@ export abstract class EnhancedBaseAgent {
 
     return {
       ...task,
-      status: "completed",
+      status: failedImageGeneration ? "failed" : "completed",
       output: {
         message: finalMessage,
+        ...(failedImageGeneration ? {
+          error: {
+            message: firstGenerationError || "所有图片生成通道均执行失败。",
+            code: "IMAGE_GENERATION_FAILED",
+          },
+        } : {}),
         analysis: plan.analysis,
         preGenerationMessage: plan.preGenerationMessage,
         postGenerationSummary,
@@ -1201,6 +1621,14 @@ export abstract class EnhancedBaseAgent {
         assets,
         imageUrls: assetUrls, // 同步到 imageUrls 供 AgentMessage 列表渲染
         skillCalls: skillResults,
+        ...(sceneFissionWorkflow?.phase === "generate"
+          ? {
+              workflowState: {
+                ...sceneFissionWorkflow,
+                phase: "completed",
+              },
+            }
+          : {}),
         adjustments:
           assets.length > 0
             ? this.getAdjustments(message, effectiveProposals)
@@ -1224,6 +1652,7 @@ export abstract class EnhancedBaseAgent {
       const forceImageToolCall = this.shouldForceImageToolCall(
         message,
         metadata,
+        !!attachments?.some((file) => file.type?.startsWith('image/')),
       );
 
       // 按需构建提示词段落，减少不必要的 token 消耗
@@ -1289,6 +1718,18 @@ export abstract class EnhancedBaseAgent {
 
       const multimodalRefUrls =
         metadata?.multimodalContext?.referenceImageUrls || [];
+      const isolateVisualTaskContext =
+        metadata?.isolateVisualTaskContext === true;
+      const currentTurnVisualIntent = analyzeCurrentTurnVisualIntent(
+        message,
+        (attachments?.some(isLikelyImageFile) || multimodalRefUrls.length > 0),
+      );
+      const currentTurnIntentSection = `
+【当前轮次意图合同 — 最高优先级】
+${currentTurnVisualIntent.guard}
+- 不得把历史消息中的新增、删除、换人、换物、构图要求自动带入本轮。
+- 只有当前用户指令明确提出的人物数量变化才允许增删人物。
+`;
       const multimodalReferenceSummary =
         typeof metadata?.multimodalContext?.referenceSummary === 'string'
           ? truncateText(metadata.multimodalContext.referenceSummary.trim(), MAX_REFERENCE_SUMMARY_CHARS)
@@ -1306,7 +1747,7 @@ ${multimodalRefUrls
 - 多张参考图必须优先写入 referenceImages。`
           : "";
 
-      let rawPinnedText = typeof metadata?.topicPinnedContext === "string" && metadata.topicPinnedContext.trim().length > 0
+      let rawPinnedText = !isolateVisualTaskContext && typeof metadata?.topicPinnedContext === "string" && metadata.topicPinnedContext.trim().length > 0
           ? metadata.topicPinnedContext
           : "";
       
@@ -1331,8 +1772,12 @@ ${multimodalRefUrls
 ${truncateText(finalPinnedText, MAX_TOPIC_CONTEXT_CHARS)}
 ` : "";
 
-      const designSession = context.designSession;
-      const compactConversationHistory = (context.conversationHistory || [])
+      const designSession = isolateVisualTaskContext
+        ? undefined
+        : context.designSession;
+      const compactConversationHistory = (isolateVisualTaskContext
+        ? []
+        : (context.conversationHistory || []))
         .slice(-MAX_ANALYZE_HISTORY_MESSAGES)
         .map((msg) => {
           const roleName = msg.role === "user" ? "用户" : "智能助手";
@@ -1382,8 +1827,47 @@ ${index + 1}. ${capability.title || capability.id}
         .flatMap((capability) => [capability.primaryTool, ...(capability.fallbackTools || [])])
         .filter((toolName, index, all) => typeof toolName === 'string' && all.indexOf(toolName) === index);
       const availableSkillNames = Array.from(new Set([...this.preferredSkills, ...capabilityToolNames]));
+      const preferredAspectRatio = String(
+        metadata?.preferredAspectRatio || "",
+      ).trim();
+      const aspectRatioSection = preferredAspectRatio
+        ? `
+【输出比例规则 — 强制】
+- 本次输出比例固定为 ${preferredAspectRatio}。
+- 比例来源: ${metadata?.preferredAspectRatioSource === "reference-image" ? "系统读取主参考图真实宽高后自动匹配" : "用户或当前技能设置"}。
+- generateImage 的 aspectRatio 必须填写 "${preferredAspectRatio}"，不得自行改成 1:1，也不得裁切成其他比例。
+`
+        : "";
+      const continuationContext = metadata?.continuationContext as
+        | {
+            isRevision?: boolean;
+            previousUserInstruction?: string;
+            previousAssistantSummary?: string;
+            inheritedPreviousResult?: boolean;
+          }
+        | undefined;
+      const revisionSection = continuationContext?.isRevision
+        ? `
+【上一版续作协议 — 最高优先级】
+- 本轮是修改上一版结果，不是创建新任务；不得被话题记忆中的其他商品、风格或旧任务覆盖。
+- 上一条用户任务: ${continuationContext.previousUserInstruction || "沿用上一版完整设计"}
+- 上一版结果摘要: ${continuationContext.previousAssistantSummary || "沿用上一版生成结果"}
+- ${continuationContext.inheritedPreviousResult ? "ATTACHMENT_0 是上一版实际生成结果，必须作为唯一视觉基准。" : "必须严格沿用上一版设计上下文。"}
+- 只修改本轮用户明确指出的内容；未点名的人物、产品、服装、颜色、材质、姿态、场景、构图、光影、文字和品牌元素全部保持不变。
+- 若本轮只纠正比例或尺寸，只允许重排画布、扩图或裁切到目标比例；禁止重新设计、替换主体、换产品或改色。
+`
+        : "";
+
+      const specializedRoleSection =
+        metadata?.specializedRole === "fashion-replica"
+          ? FASHION_REPLICA_ROLE_PROMPT
+          : metadata?.specializedRole === "scene-fission"
+            ? SCENE_FISSION_ROLE_PROMPT
+          : "";
 
       const fullPrompt = `${this.systemPrompt}
+
+${specializedRoleSection}
 
 【语言要求】你必须用中文回复所有内容（analysis、message、title、description 等字段全部用中文）。只有 prompt 字段用英文（因为图片生成模型需要英文 prompt）。
 
@@ -1406,7 +1890,13 @@ ${(attachments || [])
               const ratio = (info.width / info.height).toFixed(2);
               return `- 附件 ${index + 1}: [画布选区]${markerName ? ` (描述/标识: "${markerName}")` : ""} (尺寸: ${info.width}x${info.height}, 比例: ${ratio})。这是用户的产品图片，必须作为参考图使用。设置 referenceImage 为 'ATTACHMENT_${index}'。${uploadedUrl}`;
             }
-            return `- 附件 ${index + 1}: ${file.name}${markerName ? ` (描述/标识: "${markerName}")` : ""} (${file.type})。引用方式: 'ATTACHMENT_${index}'${uploadedUrl}`;
+            const detectedRatio = (file as any).detectedAspectRatio;
+            const detectedWidth = (file as any).detectedImageWidth;
+            const detectedHeight = (file as any).detectedImageHeight;
+            const dimensionText = detectedRatio
+              ? `，真实尺寸 ${detectedWidth}x${detectedHeight}，比例 ${detectedRatio}`
+              : "";
+            return `- 附件 ${index + 1}: ${file.name}${markerName ? ` (描述/标识: "${markerName}")` : ""} (${file.type}${dimensionText})。引用方式: 'ATTACHMENT_${index}'${uploadedUrl}`;
           })
           .join("\n")}
 
@@ -1416,7 +1906,7 @@ ${compactConversationHistory || '无'}
 可用技能: ${availableSkillNames.join(", ")}
 ${smartEditSection}
 用户请求: ${message}
-${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${creativeCapabilitySection}${multimodalSection}${topicPinnedContext}${designSessionSection}
+${currentTurnIntentSection}${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${aspectRatioSection}${revisionSection}${creativeCapabilitySection}${multimodalSection}${topicPinnedContext}${designSessionSection}
 请分析用户需求，严格遵守“先判定性质、再分析、最后执行”的逻辑：
 1. analysis: 【严禁跳步】必须首先确认主体范畴（真人/物件），再进行细节描述。如果是人像，锁定其生物特征；如果是物品，锁定物理材质。
 2. message: 【核心】用感性设计师口吻复述。例如：“我看见您提供了一张真人图片，是一位[描述特征]的模特，我将为您保留其韵味并设计方案...”
@@ -1426,7 +1916,7 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${cre
 {
   "analysis": "...",
   "preGenerationMessage": "调用工具前的设计师沟通文案",
-  "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "...", "referenceImages": ["ATTACHMENT_0", "ATTACHMENT_1"], "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "nanobanana2"}}],
+  "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "...", "referenceImages": ["ATTACHMENT_0", "ATTACHMENT_1"], "referenceImage": "ATTACHMENT_0", "aspectRatio": "${preferredAspectRatio || "1:1"}", "model": "nanobanana2"}}],
   "message": "...",
   "postGenerationSummary": "...",
   "suggestions": ["..."]
@@ -1441,7 +1931,7 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${cre
       
       // [XC-STUDIO] Inject image attachments as inlineData parts for multimodal analysis
       if (attachments && attachments.length > 0) {
-        attachments.slice(0, 10).forEach(file => { // Limit to 10 images to prevent payload too large
+        for (const file of attachments.slice(0, 10)) { // Limit to 10 images to prevent payload too large
           const fileAny = file as any;
           if (fileAny.url && (fileAny.url.startsWith('data:image/') || fileAny.url.includes(';base64,'))) {
             try {
@@ -1458,8 +1948,34 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${cre
             } catch (e) {
               console.warn('[analyzeAndPlan] Failed to process attachment for multimodal', e);
             }
+          } else if (
+            metadata?.specializedRole === "scene-fission" &&
+            file.type?.startsWith("image/") &&
+            file.size <= 3 * 1024 * 1024 &&
+            parts.length < 4
+          ) {
+            try {
+              const bytes = new Uint8Array(await file.arrayBuffer());
+              let binary = "";
+              for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+                binary += String.fromCharCode(
+                  ...bytes.subarray(offset, offset + 0x8000),
+                );
+              }
+              parts.push({
+                inlineData: {
+                  data: btoa(binary),
+                  mimeType: file.type || "image/png",
+                },
+              });
+            } catch (e) {
+              console.warn(
+                "[analyzeAndPlan] Failed to inline scene-fission reference",
+                e,
+              );
+            }
           }
-        });
+        }
       }
 
       const selectedMode = useAgentStore.getState().modelMode || 'fast';
@@ -1770,11 +2286,107 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${cre
     if (
       typeof preferredAspectRatio === "string" &&
       preferredAspectRatio &&
-      ((creationMode === "image" && call.skillName === "generateImage") ||
+      (((creationMode === "image" || creationMode == null) && call.skillName === "generateImage") ||
         (creationMode === "video" && call.skillName === "generateVideo"))
     ) {
       call.params = call.params || {};
       call.params.aspectRatio = preferredAspectRatio;
+    }
+
+    if (call.skillName === "generateImage") {
+      call.params = call.params || {};
+      const currentAttachments = (task.input.attachments || []).filter(
+        isLikelyImageFile,
+      );
+      const hasReferenceImage =
+        currentAttachments.length > 0 ||
+        (task.input.metadata?.multimodalContext?.referenceImageUrls?.length || 0) > 0;
+      const currentTurnIntent = analyzeCurrentTurnVisualIntent(
+        task.input.message,
+        hasReferenceImage,
+      );
+      const plannedPrompt = String(call.params.prompt || "").trim();
+      const executionDetail = currentTurnIntent.referencePreservingEdit
+        ? task.input.message
+        : plannedPrompt || task.input.message;
+      call.params.prompt = `${currentTurnIntent.guard}\n\nEXECUTION DETAIL:\n${executionDetail}`;
+
+      if (
+        task.input.metadata?.isolateVisualTaskContext === true &&
+        currentAttachments.length > 0
+      ) {
+        const attachmentRefs = currentAttachments.map(
+          (_, index) => `ATTACHMENT_${index}`,
+        );
+        call.params.referenceImages = attachmentRefs;
+        call.params.referenceImage = attachmentRefs[0];
+        call.params.reference_image_url = attachmentRefs[0];
+        call.params.init_image = attachmentRefs[0];
+        call.params.referencePriority =
+          attachmentRefs.length > 1 ? "all" : "first";
+        call.params.referenceStrength = 0.95;
+        if (currentTurnIntent.narrowClothingEdit) {
+          call.params.referenceMode = "portrait";
+        }
+      }
+    }
+
+    const continuationContext = task.input.metadata?.continuationContext as
+      | {
+          isRevision?: boolean;
+          previousUserInstruction?: string;
+          inheritedPreviousResult?: boolean;
+        }
+      | undefined;
+    if (continuationContext?.isRevision && call.skillName === "generateImage") {
+      call.params = call.params || {};
+      const currentPrompt = String(call.params.prompt || task.input.message || "").trim();
+      const revisionGuard = [
+        "REVISION OF THE PREVIOUS GENERATED IMAGE. Do not create a new concept.",
+        `Original task: ${continuationContext.previousUserInstruction || "Preserve the complete previous design."}`,
+        `Current correction: ${task.input.message}`,
+        "Change only the explicitly corrected property. Preserve the exact same subject, product, garment, identity, pose, scene, composition, lighting, colors, materials, typography, branding, and every untouched detail.",
+        "If the correction adds a person or object, preserve the existing main subject exactly and add the new entity at the requested relative position. Never replace the original subject with the new entity.",
+        typeof preferredAspectRatio === "string" && preferredAspectRatio
+          ? `The output canvas must be exactly ${preferredAspectRatio}. If aspect ratio is the only correction, only reframe, outpaint, or crop the previous image; never redesign or replace its subject.`
+          : "",
+      ].filter(Boolean).join("\n");
+      call.params.prompt = `${revisionGuard}\n\nExecution detail:\n${currentPrompt}`;
+
+      if (
+        continuationContext.inheritedPreviousResult &&
+        task.input.attachments?.length
+      ) {
+        call.params.referenceImages = ["ATTACHMENT_0"];
+        call.params.referenceImage = "ATTACHMENT_0";
+        call.params.reference_image_url = "ATTACHMENT_0";
+        call.params.init_image = "ATTACHMENT_0";
+        call.params.referencePriority = "first";
+        call.params.referenceStrength = 0.95;
+      }
+    }
+
+    if (
+      task.input.metadata?.specializedRole === "fashion-replica" &&
+      call.skillName === "generateImage"
+    ) {
+      const attachmentRefs = (task.input.attachments || []).map(
+        (_, index) => `ATTACHMENT_${index}`,
+      );
+      const currentPrompt = String(
+        call.params.prompt || task.input.message || "",
+      ).trim();
+      call.params.prompt = `${FASHION_REPLICA_ROLE_PROMPT}\n\nEXECUTION PROMPT:\n${currentPrompt}`;
+      call.params.model = "nanobanana2";
+      call.params.referenceImages = attachmentRefs;
+      if (attachmentRefs[0]) {
+        call.params.referenceImage = attachmentRefs[0];
+        call.params.reference_image_url = attachmentRefs[0];
+        call.params.init_image = attachmentRefs[0];
+      }
+      call.params.referencePriority = "first";
+      call.params.referenceStrength = 0.95;
+      call.params.referenceMode = "portrait";
     }
 
     if (
@@ -1966,11 +2578,10 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${cre
             const imgW = info.imageWidth || info.width;
             const imgH = info.imageHeight || info.height;
             const ratio = imgW / imgH;
-            let aspect = "1:1";
-            if (ratio > 1.5) aspect = "16:9";
-            else if (ratio < 0.67) aspect = "9:16";
-            else if (ratio > 1.2) aspect = "4:3";
-            else if (ratio < 0.83) aspect = "3:4";
+            const detectedAspect = getNearestSupportedImageAspectRatio(imgW, imgH);
+            const aspect = typeof preferredAspectRatio === "string" && preferredAspectRatio
+              ? preferredAspectRatio
+              : detectedAspect;
             call.params.aspectRatio = aspect;
             console.log(`[${this.agentInfo.id}] Original image size: ${imgW}x${imgH}, ratio=${ratio.toFixed(3)}, aspectRatio=${aspect}`);
 

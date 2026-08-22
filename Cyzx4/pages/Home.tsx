@@ -226,18 +226,33 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
     };
   }, [attachmentPreviews]);
 
-  // New tokens are inserted at the current text caret position. Keeping the old
-  // numeric position prevents a newly uploaded image from jumping in front of
-  // text that the user typed first (null means "after the previous last token").
+  // Preserve text the user already typed, but when the composer is empty place
+  // the caret after newly added image/skill chips instead of before them.
   useLayoutEffect(() => {
     const previousCount = previousComposerTokenCountRef.current;
     if (composerTokenCount > previousCount) {
-      setComposerTextPosition((current) => (
-        current === null ? previousCount : Math.min(current, previousCount)
-      ));
+      const hasComposerText = normalizeComposerText(prompt).length > 0;
+      setComposerTextPosition((current) => {
+        if (!hasComposerText) return null;
+        return current === null ? previousCount : Math.min(current, previousCount);
+      });
+      if (!hasComposerText) {
+        requestAnimationFrame(() => {
+          const editor = richTextEditorRef.current;
+          if (!editor) return;
+          editor.focus();
+          const selection = window.getSelection();
+          if (!selection) return;
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+      }
     }
     previousComposerTokenCountRef.current = composerTokenCount;
-  }, [composerTokenCount]);
+  }, [composerTokenCount, prompt]);
 
   useEffect(() => {
     const editor = richTextEditorRef.current;

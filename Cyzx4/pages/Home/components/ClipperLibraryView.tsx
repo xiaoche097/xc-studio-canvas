@@ -66,12 +66,25 @@ const LEGACY_DEMO_IMAGE_MARKERS = [
   'photo-1515886657613-9f3515b0c78f',
   'photo-1539109136881-3be0616acf4b',
 ];
+const LEGACY_DEMO_TITLES = new Set([
+  'Instagram 潮服搭配参考',
+  '小红书极简氛围质感图',
+]);
+
+const isLegacyDemoItem = (item: Partial<ClippedItem>): boolean => {
+  if (item.id && LEGACY_DEMO_ITEM_IDS.has(item.id)) return true;
+  if (item.title && LEGACY_DEMO_TITLES.has(item.title)) return true;
+
+  const imageLocations = [item.url, item.originalUrl].filter(
+    (value): value is string => typeof value === 'string',
+  );
+  return LEGACY_DEMO_IMAGE_MARKERS.some((marker) => (
+    imageLocations.some((location) => location.includes(marker))
+  ));
+};
 
 const removeLegacyDemoItems = (items: ClippedItem[]): ClippedItem[] => (
-  items.filter((item) => (
-    !LEGACY_DEMO_ITEM_IDS.has(item.id)
-    && !LEGACY_DEMO_IMAGE_MARKERS.some((marker) => item.url.includes(marker))
-  ))
+  items.filter((item) => !isLegacyDemoItem(item))
 );
 
 const readDeletedClipIds = (): Set<string> => {
@@ -119,6 +132,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
 
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [activeMenuPosition, setActiveMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [activeMoveCategoryId, setActiveMoveCategoryId] = useState<string | null>(null);
 
   // 批量选择模式 (对应图 0 右侧 🎛️ 图标控制)
@@ -171,16 +185,46 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
     if (!activeMenuId) return;
     const handleOutsideClick = () => {
       setActiveMenuId(null);
+      setActiveMenuPosition(null);
       setActiveMoveCategoryId(null);
     };
+    const handleScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-clipper-menu]')) return;
+      handleOutsideClick();
+    };
     window.addEventListener('click', handleOutsideClick);
-    return () => window.removeEventListener('click', handleOutsideClick);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleOutsideClick);
+    return () => {
+      window.removeEventListener('click', handleOutsideClick);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleOutsideClick);
+    };
   }, [activeMenuId]);
 
   // 1. 跨标签页 0ms 实时接收（BroadcastChannel 频道）
   useEffect(() => {
     let bc: BroadcastChannel | null = null;
     const ingestClippedItem = (raw: Partial<ClippedItem>) => {
+      if (isLegacyDemoItem(raw)) {
+        if (raw.id) {
+          deletedClipIdsRef.current.add(raw.id);
+          try {
+            const ids = Array.from(deletedClipIdsRef.current).slice(-500);
+            deletedClipIdsRef.current = new Set(ids);
+            localStorage.setItem(DELETED_CLIP_IDS_STORAGE_KEY, JSON.stringify(ids));
+          } catch {}
+        }
+
+        // Old extension builds may replay demo records with a data URL while the
+        // recognizable Unsplash address only exists in originalUrl. Reject and purge both forms.
+        window.postMessage({
+          type: 'XC_CLIPPER_DELETE_IMAGES',
+          items: [{ id: raw.id, originalUrl: raw.originalUrl, url: raw.url }],
+        }, window.location.origin);
+        return;
+      }
       if (!raw.url) return;
       if (raw.id && deletedClipIdsRef.current.has(raw.id)) return;
       if (raw.id) {
@@ -462,6 +506,7 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
               return (
                 <div
                   key={item.id}
+                  data-clipper-card
                   onClick={() => {
                     if (isSelectMode) {
                       toggleSelectCard(item.id);
@@ -469,10 +514,8 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                       setPreviewItem(item);
                     }
                   }}
-                  className={`group relative min-w-0 rounded-xl bg-white transition-all duration-300 cursor-pointer ${
-                    !isSelectMode && activeMenuId === item.id
-                      ? 'col-span-2 grid grid-cols-2 items-start gap-6'
-                      : 'flex flex-col'
+                  className={`group relative flex min-w-0 flex-col rounded-xl bg-white transition-opacity duration-200 cursor-pointer ${
+                    !isSelectMode && activeMenuId === item.id ? 'z-40' : ''
                   }`}
                 >
                   {/* 图片容器 */}
@@ -508,7 +551,27 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setActiveMenuId(activeMenuId === item.id ? null : item.id);
+                          if (activeMenuId === item.id) {
+                            setActiveMenuId(null);
+                            setActiveMenuPosition(null);
+                            return;
+                          }
+
+                          const cardRect = e.currentTarget.closest('[data-clipper-card]')?.getBoundingClientRect()
+                            || e.currentTarget.getBoundingClientRect();
+                          const menuWidth = 190;
+                          const viewportPadding = 12;
+                          const gap = 10;
+                          const hasRoomOnRight = cardRect.right + gap + menuWidth <= window.innerWidth - viewportPadding;
+                          const left = hasRoomOnRight
+                            ? cardRect.right + gap
+                            : Math.max(viewportPadding, cardRect.left - menuWidth - gap);
+                          const top = Math.min(
+                            Math.max(viewportPadding, cardRect.top),
+                            Math.max(viewportPadding, window.innerHeight - 300),
+                          );
+                          setActiveMenuPosition({ top, left });
+                          setActiveMenuId(item.id);
                         }}
                         className="absolute right-2.5 top-2.5 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-slate-700 opacity-0 transition group-hover:opacity-100 hover:bg-white hover:text-slate-950 shadow-sm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
                         aria-label="更多操作"
@@ -518,11 +581,13 @@ export const ClipperLibraryView: React.FC<ClipperLibraryViewProps> = ({
                     )}
                   </div>
 
-                  {/* 菜单占用右侧独立网格空间，不遮挡当前图片或相邻图片 */}
-                  {!isSelectMode && activeMenuId === item.id && (
+                  {/* 浮层菜单覆盖在相邻内容上，不参与网格排版。 */}
+                  {!isSelectMode && activeMenuId === item.id && activeMenuPosition && (
                     <div
+                      data-clipper-menu
                       onClick={(e) => e.stopPropagation()}
-                      className="relative z-50 w-full min-w-0 overflow-hidden rounded-[10px] border border-slate-200 bg-white p-1.5 shadow-lg animate-fade-in"
+                      style={{ top: activeMenuPosition.top, left: activeMenuPosition.left }}
+                      className="fixed z-[200] w-[190px] max-h-[min(70vh,25rem)] overflow-y-auto rounded-[10px] border border-slate-200/90 bg-white p-1.5 shadow-[0_6px_18px_rgba(15,23,42,0.08)] animate-fade-in"
                     >
                       <button
                         type="button"

@@ -68,6 +68,7 @@ export interface AgentTask {
     imageUrls?: string[];
     skillCalls?: SkillCall[];
     adjustments?: string[];
+    workflowState?: Record<string, any>;
     error?: { message: string; code?: string; details?: unknown };
   };
   createdAt: number;

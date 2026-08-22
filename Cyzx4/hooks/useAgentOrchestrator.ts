@@ -6,7 +6,7 @@ import { assetsToCanvasElementsAtCenter } from '../utils/canvas-helpers';
 import { useAgentStore } from '../stores/agent.store';
 import { uploadImage } from '../utils/uploader';
 import { useImageHostStore } from '../stores/imageHost.store';
-import { localPreRoute } from '../services/agents/local-router';
+import { isEditRequest, localPreRoute } from '../services/agents/local-router';
 import { addTopicMemoryItem, extractConstraintHints, mergeUniqueStrings, upsertTopicSnapshot } from '../services/topic-memory';
 import { summarizeReferenceSet } from '../services/topic-memory';
 import { getMemoryKey } from '../services/topicMemory/key';
@@ -257,10 +257,14 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       // Read conversation history from store (single source of truth)
       const hostProvider = useImageHostStore.getState().selectedProvider;
       const requestedConversationId = String(normalizedMetadata.conversationId || '').trim();
+      const isolateVisualTaskContext =
+        normalizedMetadata.isolateVisualTaskContext === true;
       const updatedContext = {
         ...projectContext,
         conversationId: requestedConversationId || projectContext.conversationId,
-        conversationHistory: useAgentStore.getState().messages.slice(-MAX_ORCHESTRATOR_HISTORY_MESSAGES)
+        conversationHistory: isolateVisualTaskContext
+          ? []
+          : useAgentStore.getState().messages.slice(-MAX_ORCHESTRATOR_HISTORY_MESSAGES)
       };
 
       const activeConversationId = String(updatedContext.conversationId || '').trim();
@@ -276,7 +280,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const inferredTaskMode = inferTaskModeFromRequest(message, normalizedMetadata);
       projectActions.setTaskMode(inferredTaskMode);
 
-      if (topicId) {
+      if (topicId && !isolateVisualTaskContext) {
         try {
           const retrieved = await buildVisualRagContext({
             topicId,
@@ -403,9 +407,26 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       // Single agent routing — try local keyword match first to skip API call
       console.log('[useAgentOrchestrator] Routing to agent...');
-      const localAgent = localPreRoute(messageForExecution);
+      const hasImageReference = !!attachments?.some((file) =>
+        file.type?.startsWith('image/'),
+      ) || normalizedMetadata?.multimodalContext?.referenceImageUrls?.length > 0;
+      const isFashionEdit =
+        isEditRequest(messageForExecution) &&
+        /(衣服|服装|上衣|裤子|裙子|裙装|套装|穿搭|模特|面料|领口|袖子|衣摆|outfit|garment|clothing|dress)/i.test(
+          messageForExecution,
+        );
+      const deterministicEditAgent: AgentType | null =
+        isEditRequest(messageForExecution) && hasImageReference
+          ? isFashionEdit
+            ? 'campaign'
+            : 'poster'
+          : null;
+      const localAgent =
+        deterministicEditAgent || localPreRoute(messageForExecution);
       const skillPreferredAgent = normalizedMetadata?.skillData?.config?.preferredAgent as AgentType | undefined;
       const validSkillAgents: AgentType[] = ['coco', 'vireo', 'cameron', 'poster', 'package', 'motion', 'campaign', 'prompt-optimizer'];
+      const continuationPreferredAgent = normalizedMetadata?.continuationContext
+        ?.previousAgent as AgentType | undefined;
       let decision;
       if (pinnedAgent) {
         decision = {
@@ -424,6 +445,19 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
           handoffMessage: `按用户选择的创作 Skill 执行: ${messageForExecution}`,
           confidence: 1,
         };
+      } else if (
+        normalizedMetadata?.continuationContext?.isRevision === true &&
+        continuationPreferredAgent &&
+        validSkillAgents.includes(continuationPreferredAgent)
+      ) {
+        decision = {
+          action: 'route' as const,
+          targetAgent: continuationPreferredAgent,
+          taskType: 'visual-continuation',
+          complexity: 'simple' as const,
+          handoffMessage: `继续由上一轮 Agent 修改最新成品: ${messageForExecution}`,
+          confidence: 1,
+        };
       } else if (localAgent) {
         console.log('[useAgentOrchestrator] Local pre-route hit:', localAgent);
         decision = {
@@ -436,12 +470,33 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         };
       } else {
         console.log('[useAgentOrchestrator] 发起路由请求...');
-        decision = await withTimeout(
-          routeToAgent(messageForExecution, updatedContext),
-          20000,
-          '路由请求超时，请稍后重试'
-        );
-        console.log('[useAgentOrchestrator] 路由请求返回:', decision?.targetAgent);
+        try {
+          decision = await withTimeout(
+            routeToAgent(messageForExecution, updatedContext),
+            8000,
+            '路由请求超时，请稍后重试'
+          );
+          console.log('[useAgentOrchestrator] 路由请求返回:', decision?.targetAgent);
+        } catch (routeError) {
+          // 路由只负责选择 Agent，不应因为路由服务波动阻断真正的生成任务。
+          console.warn(
+            '[useAgentOrchestrator] Remote routing unavailable, using local fallback:',
+            routeError,
+          );
+          decision = {
+            action: 'route' as const,
+            targetAgent:
+              normalizedMetadata?.creationMode === 'video'
+                ? 'motion'
+                : hasImageReference && isFashionEdit
+                  ? 'campaign'
+                  : 'poster',
+            taskType: 'routing-timeout-fallback',
+            complexity: 'simple' as const,
+            handoffMessage: `远程路由不可用，按本地规则执行: ${messageForExecution}`,
+            confidence: 0.65,
+          };
+        }
       }
 
       if (!decision) {
@@ -677,9 +732,12 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       console.error('生成流中断:', error);
       console.error('[useAgentOrchestrator] Error:', error);
       const rawMessage = error instanceof Error ? error.message : String(error || '');
+      const routingFailure = /路由|route/i.test(rawMessage);
       const timedOut = /超时|timeout/i.test(rawMessage);
       const imageFailure = /图片|image|upload|base64|attachment|mime|格式/i.test(rawMessage);
-      const failMessage = timedOut
+      const failMessage = routingFailure
+        ? '智能体路由暂时不可用，已切换本地路由仍未完成，请重试。'
+        : timedOut
         ? (typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true'
           ? 'Virse 生成等待超时，任务可能仍在所选 Virse 画布处理中，请稍后查看或重试。'
           : '生成等待超时，请稍后重试。')

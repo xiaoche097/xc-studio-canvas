@@ -277,6 +277,10 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
                                 </p>
                                 <button
                                     onClick={() => {
+                                        if (prop.selectionPrompt && onAction) {
+                                            onAction(prop.selectionPrompt);
+                                            return;
+                                        }
                                         const prompt =
                                             prop.prompt ||
                                             prop.skillCalls?.[0]?.params?.prompt ||
@@ -289,7 +293,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
                                     className="w-full py-1.5 bg-gray-900 hover:bg-black text-white rounded-md text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] shadow-sm"
                                 >
                                     <Wand2 size={11} strokeWidth={2.5} />
-                                    立即生成
+                                    {prop.actionLabel || '立即生成'}
                                 </button>
                             </motion.div>
                         ))}

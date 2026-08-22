@@ -20,15 +20,85 @@
     return isHttpPage() && !isTrustedWorkbench();
   }
 
-  function getSafeImageUrl(img) {
-    if (!img) return '';
-    const raw = img.currentSrc || img.src || img.getAttribute('src') || '';
+  function normalizeHttpImageUrl(raw) {
+    if (!raw || typeof raw !== 'string') return '';
     try {
-      const url = new URL(raw, document.baseURI);
+      const url = new URL(raw.trim(), document.baseURI);
       return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
     } catch {
       return '';
     }
+  }
+
+  function getLargestSrcsetUrl(srcset) {
+    if (!srcset) return '';
+    const candidates = srcset.split(',').map((entry) => {
+      const parts = entry.trim().split(/\s+/);
+      const descriptor = parts[1] || '';
+      const score = Number.parseFloat(descriptor) || 0;
+      return { url: normalizeHttpImageUrl(parts[0]), score };
+    }).filter((entry) => entry.url);
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0]?.url || '';
+  }
+
+  function getAmazonDynamicImageUrl(img) {
+    const raw = img?.getAttribute?.('data-a-dynamic-image');
+    if (!raw) return '';
+    try {
+      const entries = Object.entries(JSON.parse(raw)).map(([url, dimensions]) => ({
+        url: normalizeHttpImageUrl(url),
+        area: Array.isArray(dimensions) ? Number(dimensions[0] || 0) * Number(dimensions[1] || 0) : 0,
+      })).filter((entry) => entry.url);
+      entries.sort((a, b) => b.area - a.area);
+      return entries[0]?.url || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function getSafeImageUrl(img) {
+    if (!img) return '';
+    const candidates = [
+      getAmazonDynamicImageUrl(img),
+      getLargestSrcsetUrl(img.getAttribute?.('srcset') || img.getAttribute?.('data-srcset')),
+      img.getAttribute?.('data-old-hires'),
+      img.getAttribute?.('data-zoom-image'),
+      img.getAttribute?.('data-origin'),
+      img.getAttribute?.('data-original'),
+      img.getAttribute?.('data-ks-lazyload'),
+      img.getAttribute?.('data-lazy-src'),
+      img.getAttribute?.('data-src'),
+      img.currentSrc,
+      img.src,
+      img.getAttribute?.('src'),
+    ];
+    for (const candidate of candidates) {
+      const url = normalizeHttpImageUrl(candidate);
+      if (url) return url;
+    }
+    return '';
+  }
+
+  function getImageUrlKey(rawUrl) {
+    const imageUrl = normalizeHttpImageUrl(rawUrl);
+    if (!imageUrl) return '';
+    try {
+      const url = new URL(imageUrl);
+      url.hash = '';
+      if (/pinimg\.com$|xhscdn\.com$|alicdn\.com$|tbcdn\.cn$|media-amazon\.com$/i.test(url.hostname)) {
+        url.search = '';
+      }
+      return `${url.hostname.toLowerCase()}${url.pathname}`;
+    } catch {
+      return imageUrl;
+    }
+  }
+
+  function createImageSnapshot(url) {
+    const snapshot = document.createElement('img');
+    snapshot.src = url;
+    return snapshot;
   }
 
   // 心跳与初始化广播
@@ -37,7 +107,7 @@
     window.postMessage(
       {
         type: 'XC_CLIPPER_PONG',
-        version: '1.1.2',
+        version: '1.1.3',
         isPinterest: window.location.hostname.includes('pinterest.com'),
         url: window.location.href,
       },
@@ -515,8 +585,36 @@
   function getBatchScope(img) {
     if (!img) return document.body;
 
-    // Instagram 的轮播图片外面还有多层虚拟化容器。优先锁定整篇帖子，
-    // 避免 closest() 提前命中 _aagw 等单张图片容器而只识别到相邻两张。
+    const platform = getPlatformName();
+    if (platform === 'instagram' || platform === 'rednote' || platform === 'pinterest') {
+      let current = img.parentElement;
+      let controlScope = null;
+      for (let depth = 0; current && current !== document.body && depth < 12; depth += 1) {
+        const expectedCount = getExpectedCarouselCount(current);
+        const hasCarouselControl = Boolean(
+          getPlatformCarouselButton(current, 'next')
+          || getPlatformCarouselButton(current, 'previous'),
+        );
+        if (hasCarouselControl && !controlScope) controlScope = current;
+        if (expectedCount > 1 && hasCarouselControl) return current;
+        current = current.parentElement;
+      }
+      if (controlScope) return controlScope;
+    }
+
+    const platformSelectors = {
+      rednote: '[class*="swiper-container"], [class*="slider-container"], [class*="carousel-container"], [class*="note-content"], [class*="note-container"], [role="dialog"]',
+      pinterest: '[data-test-id="closeup-body"], [data-test-id="pin"], [class*="carousel"], [role="dialog"]',
+      amazon: '#imageBlock, #altImages, #dp-container, #ppd, [data-feature-name="imageBlock"]',
+      taobao: '#detail, #J_DetailMeta, #J_UlThumb, [class*="ItemDetail"], [class*="PicGallery"]',
+      tmall: '#detail, #J_DetailMeta, #J_UlThumb, [class*="ItemDetail"], [class*="PicGallery"]',
+    };
+    const platformScope = platformSelectors[platform]
+      ? img.closest(platformSelectors[platform])
+      : null;
+    if (platformScope) return platformScope;
+
+    // Prefer the complete post/product container over the immediate image wrapper.
     return img.closest('article, [role="article"]')
       || img.closest('main, section')
       || img.parentElement?.parentElement
@@ -566,6 +664,115 @@
         return rect.width >= 140 && rect.height >= 140 && isVisibleElement(img);
       })
       .map((img) => getSafeImageUrl(img));
+  }
+
+  function getExpectedCarouselCount(root) {
+    const labels = Array.from(root.querySelectorAll('[aria-label], [title], span, div'))
+      .slice(0, 1200)
+      .map((element) => `${element.getAttribute?.('aria-label') || ''} ${element.getAttribute?.('title') || ''} ${element.children.length === 0 ? element.textContent || '' : ''}`)
+      .filter(Boolean);
+    let expected = 0;
+    labels.forEach((label) => {
+      const match = label.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/);
+      if (match) expected = Math.max(expected, Number(match[2]));
+    });
+    const dotCount = root.querySelectorAll(
+      '[class*="pagination"] > *, [class*="indicator"] > *, [class*="dots"] > *, [role="tablist"] [role="tab"]',
+    ).length;
+    if (dotCount >= 2 && dotCount <= CAROUSEL_SCAN_LIMIT) {
+      expected = Math.max(expected, dotCount);
+    }
+    return Math.min(CAROUSEL_SCAN_LIMIT, expected);
+  }
+
+  function getPlatformCarouselButton(root, direction) {
+    const explicit = findInstagramCarouselButton(root, direction);
+    if (explicit) return explicit;
+
+    const selectorMap = {
+      rednote: direction === 'next'
+        ? '[class*="next"], [class*="right"][class*="arrow"], .swiper-button-next'
+        : '[class*="prev"], [class*="left"][class*="arrow"], .swiper-button-prev',
+      pinterest: direction === 'next'
+        ? '[data-test-id*="next"], [aria-label*="Next" i]'
+        : '[data-test-id*="previous"], [aria-label*="Previous" i]',
+    };
+    const platformSelector = selectorMap[getPlatformName()];
+    if (platformSelector) {
+      const candidate = Array.from(root.querySelectorAll(platformSelector))
+        .find((element) => isVisibleElement(element));
+      if (candidate) return candidate;
+    }
+
+    // Geometry fallback is only enabled when a carousel count exists, so it
+    // cannot accidentally click unrelated product or social actions.
+    if (getExpectedCarouselCount(root) < 2) return null;
+    const rootRect = root.getBoundingClientRect();
+    const controls = Array.from(root.querySelectorAll('button, [role="button"]'))
+      .filter((element) => {
+        if (!isVisibleElement(element) || element.closest('[data-xc-ai-clipper-ui]')) return false;
+        const rect = element.getBoundingClientRect();
+        const isCompact = rect.width <= 80 && rect.height <= 80;
+        const inVerticalCenter = rect.top < rootRect.top + rootRect.height * 0.75
+          && rect.bottom > rootRect.top + rootRect.height * 0.25;
+        return isCompact && inVerticalCenter;
+      });
+    controls.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    return direction === 'next' ? controls[controls.length - 1] || null : controls[0] || null;
+  }
+
+  function collectStaticPlatformImages(root) {
+    const platform = getPlatformName();
+    const imageMap = new Map();
+    const addUrl = (url, img) => {
+      const safeUrl = normalizeHttpImageUrl(url);
+      const key = getImageUrlKey(safeUrl);
+      if (!safeUrl || !key || imageMap.has(key)) return;
+      imageMap.set(key, img || createImageSnapshot(safeUrl));
+    };
+
+    Array.from(root.querySelectorAll('img')).forEach((img) => {
+      const url = getSafeImageUrl(img);
+      if (!url) return;
+      const width = img.naturalWidth || img.clientWidth || 0;
+      const height = img.naturalHeight || img.clientHeight || 0;
+      const displayWidth = img.clientWidth || 0;
+      const displayHeight = img.clientHeight || 0;
+      const isGalleryThumbnail = Boolean(img.closest(
+        '#altImages, #J_UlThumb, [class*="thumb" i], [class*="gallery" i], [class*="swiper" i], [class*="slider" i], [class*="carousel" i]',
+      ));
+      const isSocialGalleryCandidate = platform !== 'rednote' && platform !== 'pinterest'
+        ? true
+        : isGalleryThumbnail
+          || img === currentTargetImg
+          || (
+            displayWidth >= Math.max(180, (currentTargetImg?.clientWidth || 0) * 0.4)
+            && displayHeight >= Math.max(180, (currentTargetImg?.clientHeight || 0) * 0.4)
+          );
+      if (((width >= 100 && height >= 100) || isGalleryThumbnail || img === currentTargetImg) && isSocialGalleryCandidate) {
+        addUrl(url, img);
+      }
+    });
+
+    if (platform === 'amazon') {
+      Array.from(root.querySelectorAll('[data-a-dynamic-image]')).forEach((element) => {
+        const raw = element.getAttribute('data-a-dynamic-image');
+        try {
+          Object.keys(JSON.parse(raw || '{}')).forEach((url) => addUrl(url));
+        } catch {}
+      });
+    }
+
+    if (platform === 'taobao' || platform === 'tmall') {
+      Array.from(root.querySelectorAll('[data-src], [data-ks-lazyload], [data-origin], [data-zoom-image]')).forEach((element) => {
+        ['data-zoom-image', 'data-origin', 'data-ks-lazyload', 'data-src'].forEach((attribute) => {
+          addUrl(element.getAttribute(attribute));
+        });
+      });
+    }
+
+    if (currentTargetImg) addUrl(getSafeImageUrl(currentTargetImg), currentTargetImg);
+    return imageMap;
   }
 
   function getCarouselSignature(root) {
@@ -638,6 +845,49 @@
     return Array.from(imageMap.values());
   }
 
+  async function collectPlatformCarouselImages(root) {
+    const imageMap = collectStaticPlatformImages(root);
+    const expectedCount = getExpectedCarouselCount(root);
+    let backwardClicks = 0;
+    let forwardClicks = 0;
+
+    const mergeCurrentImages = () => {
+      collectStaticPlatformImages(root).forEach((img, key) => {
+        if (!imageMap.has(key)) imageMap.set(key, img);
+      });
+    };
+
+    for (let index = 0; index < CAROUSEL_SCAN_LIMIT; index += 1) {
+      const previousButton = getPlatformCarouselButton(root, 'previous');
+      if (!previousButton) break;
+      const changed = await clickCarouselAndWait(root, previousButton);
+      if (!changed) break;
+      backwardClicks += 1;
+      mergeCurrentImages();
+    }
+
+    for (let index = 0; index < CAROUSEL_SCAN_LIMIT; index += 1) {
+      if (expectedCount > 0 && imageMap.size >= expectedCount) break;
+      const nextButton = getPlatformCarouselButton(root, 'next');
+      if (!nextButton) break;
+      const changed = await clickCarouselAndWait(root, nextButton);
+      if (!changed) break;
+      forwardClicks += 1;
+      mergeCurrentImages();
+    }
+
+    // Restore the slide that was visible when the user clicked Save all.
+    const restoreClicks = Math.max(0, forwardClicks - backwardClicks);
+    for (let index = 0; index < restoreClicks; index += 1) {
+      const previousButton = getPlatformCarouselButton(root, 'previous');
+      if (!previousButton) break;
+      const changed = await clickCarouselAndWait(root, previousButton);
+      if (!changed) break;
+    }
+
+    return Array.from(imageMap.values());
+  }
+
   function setBatchScanningState(scanning) {
     const button = document.getElementById('xc-btn-save-all');
     if (!button) return;
@@ -662,24 +912,17 @@
 
     let scannedImgs;
     try {
-      scannedImgs = getPlatformName() === 'instagram'
-        ? await collectInstagramCarouselImages(searchRoot)
-        : Array.from(searchRoot.querySelectorAll('img'))
-          .filter((img) => {
-            if (!getSafeImageUrl(img)) return false;
-            // 过滤掉页面导航小图标或微型头像 (分辨率过滤)
-            const width = img.naturalWidth || img.clientWidth || 0;
-            const height = img.naturalHeight || img.clientHeight || 0;
-            return width >= 100 && height >= 100;
-          });
+      const platform = getPlatformName();
+      if (platform === 'instagram') {
+        scannedImgs = await collectInstagramCarouselImages(searchRoot);
+      } else if (platform === 'rednote' || platform === 'pinterest') {
+        scannedImgs = await collectPlatformCarouselImages(searchRoot);
+      } else {
+        scannedImgs = Array.from(collectStaticPlatformImages(searchRoot).values());
+      }
     } catch (error) {
       console.warn('[XC AI Clipper] Carousel scan failed; using currently loaded images.', error);
-      scannedImgs = Array.from(searchRoot.querySelectorAll('img')).filter((img) => {
-        if (!getSafeImageUrl(img)) return false;
-        const width = img.clientWidth || img.naturalWidth || 0;
-        const height = img.clientHeight || img.naturalHeight || 0;
-        return width >= 100 && height >= 100;
-      });
+      scannedImgs = Array.from(collectStaticPlatformImages(searchRoot).values());
     } finally {
       isBatchScanning = false;
       setBatchScanningState(false);
@@ -694,8 +937,9 @@
     const uniqueMap = new Map();
     scannedImgs.forEach((img) => {
       const imageUrl = getSafeImageUrl(img);
-      if (imageUrl && !uniqueMap.has(imageUrl)) {
-        uniqueMap.set(imageUrl, img);
+      const imageKey = getImageUrlKey(imageUrl);
+      if (imageUrl && imageKey && !uniqueMap.has(imageKey)) {
+        uniqueMap.set(imageKey, img);
       }
     });
     scannedImgs = Array.from(uniqueMap.values());

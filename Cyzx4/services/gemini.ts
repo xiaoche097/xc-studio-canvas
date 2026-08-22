@@ -1633,6 +1633,16 @@ const generateImageDallE3 = async (
     return null;
 };
 
+const canFallbackAfterVirseFailure = (error: unknown): boolean => {
+    if (error instanceof DOMException && error.name === 'AbortError') return false;
+    const status = extractStatusCode(error);
+    if (status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599)) {
+        return true;
+    }
+    const message = error instanceof Error ? error.message : String(error || '');
+    return /timeout|timed out|超时|network|failed to fetch|fetch failed|bad gateway|service unavailable|no healthy upstream|connection|ECONN|\b50[0234]\b|\b429\b/i.test(message);
+};
+
 export const generateImage = async (config: ImageGenerationConfig): Promise<string | null> => {
     const references = config.referenceImages || (config.referenceImage ? [config.referenceImage] : []);
     const hasReferences = references.length > 0;
@@ -1641,45 +1651,50 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     // 这里放在 Seedream 和通用 fallback 之前，覆盖 Workspace/Agent 共用的主生成入口。
     const virseEnabled = typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true';
     if (virseEnabled) {
-        const virseApiKey = window.localStorage.getItem('virse_api_key')?.trim() || '';
-        if (!virseApiKey) {
-            throw new Error('Virse 已启用但 API Key 为空，请先完成 Virse 配置。');
-        }
+        try {
+            const virseApiKey = window.localStorage.getItem('virse_api_key')?.trim() || '';
+            if (!virseApiKey) {
+                throw new Error('Virse 已启用但 API Key 为空，请先完成 Virse 配置。');
+            }
 
-        const virseImages: Array<{ base64: string; mimeType: string }> = [];
-        for (const imageInput of [...references, ...(config.maskImage ? [config.maskImage] : [])]) {
-            const normalized = await normalizeReferenceToDataUrl(imageInput);
-            const match = normalized?.match(/^data:(.+);base64,(.+)$/);
-            if (match) virseImages.push({ mimeType: match[1], base64: match[2] });
-        }
+            const virseImages: Array<{ base64: string; mimeType: string }> = [];
+            for (const imageInput of [...references, ...(config.maskImage ? [config.maskImage] : [])]) {
+                const normalized = await normalizeReferenceToDataUrl(imageInput);
+                const match = normalized?.match(/^data:(.+);base64,(.+)$/);
+                if (match) virseImages.push({ mimeType: match[1], base64: match[2] });
+            }
 
-        const strength = clamp01(Number.isFinite(config.referenceStrength as number) ? Number(config.referenceStrength) : 0.75);
-        const finalPrompt = hasReferences || config.consistencyContext?.forbiddenChanges?.length || config.consistencyContext?.referenceSummary
-            ? buildConstrainedPrompt(config.prompt, {
-                strength,
-                mode: config.referenceMode || 'product',
-                referenceCount: references.length,
-                priority: config.referencePriority || (references.length > 1 ? 'all' : 'first'),
-                forbiddenChanges: config.consistencyContext?.forbiddenChanges,
-                approvedSummary: config.consistencyContext?.referenceSummary,
-            })
-            : config.prompt;
-        const maskRule = config.maskImage
-            ? '\n\n[Mask Rule]\n- The final reference is a binary mask. White is editable and black is locked.'
-            : '';
-        const configuredVirseModel = window.localStorage.getItem('virse_model')?.trim() || 'nano-banana-2';
-        const { generateImageToImage } = await import('./geminiService');
-        console.info('[image-gen] Routing through Virse first', {
-            model: configuredVirseModel,
-            refs: virseImages.length,
-            aspectRatio: config.aspectRatio,
-        });
-        const results = await generateImageToImage(virseImages, `${finalPrompt}${maskRule}`, {
-            modelId: configuredVirseModel,
-            aspectRatio: config.aspectRatio as any,
-            resolution: (config.imageSize || '2K') as any,
-        });
-        return results[0] || null;
+            const strength = clamp01(Number.isFinite(config.referenceStrength as number) ? Number(config.referenceStrength) : 0.75);
+            const finalPrompt = hasReferences || config.consistencyContext?.forbiddenChanges?.length || config.consistencyContext?.referenceSummary
+                ? buildConstrainedPrompt(config.prompt, {
+                    strength,
+                    mode: config.referenceMode || 'product',
+                    referenceCount: references.length,
+                    priority: config.referencePriority || (references.length > 1 ? 'all' : 'first'),
+                    forbiddenChanges: config.consistencyContext?.forbiddenChanges,
+                    approvedSummary: config.consistencyContext?.referenceSummary,
+                })
+                : config.prompt;
+            const maskRule = config.maskImage
+                ? '\n\n[Mask Rule]\n- The final reference is a binary mask. White is editable and black is locked.'
+                : '';
+            const configuredVirseModel = window.localStorage.getItem('virse_model')?.trim() || 'nano-banana-2';
+            const { generateImageToImage } = await import('./geminiService');
+            console.info('[image-gen] Routing through Virse first', {
+                model: configuredVirseModel,
+                refs: virseImages.length,
+                aspectRatio: config.aspectRatio,
+            });
+            const results = await generateImageToImage(virseImages, `${finalPrompt}${maskRule}`, {
+                modelId: configuredVirseModel,
+                aspectRatio: config.aspectRatio as any,
+                resolution: (config.imageSize || '2K') as any,
+            });
+            return results[0] || null;
+        } catch (error) {
+            if (!canFallbackAfterVirseFailure(error)) throw error;
+            console.warn('[image-gen] Virse first route failed transiently; falling back to the configured image provider.', error);
+        }
     }
 
     // Seedream 使用 dall-e-3 格式，走单独的路径
@@ -1701,7 +1716,7 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
 
     if (requestedModel && requestedModel !== 'Auto') {
         const lowerRequested = requestedModel.toLowerCase();
-        const normalized = lowerRequested.replace(/\s+/g, '');
+        const normalized = lowerRequested.replace(/[\s_-]+/g, '');
         if (normalized === 'nanobanana' + 'pro') {
             targetModelId = IMAGE_PRO_MODEL;
         } else if (normalized === 'nanobanana2') {

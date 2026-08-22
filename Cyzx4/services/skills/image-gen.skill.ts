@@ -1,4 +1,5 @@
 import { generateImageWithProvider } from '../providers';
+import { generateImage } from '../gemini';
 import { ImageGenSkillParams } from '../../types/skill.types';
 
 export async function imageGenSkill(params: ImageGenSkillParams): Promise<string | null> {
@@ -26,18 +27,29 @@ export async function imageGenSkill(params: ImageGenSkillParams): Promise<string
     enhancedPrompt += `\nDo not change: ${params.consistencyContext.forbiddenChanges.join(', ')}`;
   }
 
-  return generateImageWithProvider(
-    {
-      prompt: enhancedPrompt,
-      aspectRatio: params.aspectRatio,
-      imageSize: params.imageSize || '2K',
-      referenceImage: normalizedReferenceImage,
-      referenceImages: params.referenceImages,
-      referenceStrength: params.referenceStrength,
-      referencePriority: params.referencePriority,
-      referenceMode: params.referenceMode,
-      maskImage: params.maskImage,
-    },
-    params.model
-  );
+  const request = {
+    prompt: enhancedPrompt,
+    aspectRatio: params.aspectRatio,
+    imageSize: params.imageSize || '2K',
+    referenceImage: normalizedReferenceImage,
+    referenceImages: params.referenceImages,
+    referenceStrength: params.referenceStrength,
+    referencePriority: params.referencePriority,
+    referenceMode: params.referenceMode,
+    maskImage: params.maskImage,
+  };
+
+  // 画布侧栏、Agent 与 Skills 共用同一入口：用户启用 Virse 后，
+  // 无论当前 UI 选择了哪个旧模型别名，都必须先进入 Virse 路由。
+  const virseEnabled =
+    typeof window !== 'undefined' &&
+    window.localStorage.getItem('virse_enabled') === 'true';
+  if (virseEnabled) {
+    return generateImage({
+      ...request,
+      model: params.model as any,
+    });
+  }
+
+  return generateImageWithProvider(request, params.model);
 }

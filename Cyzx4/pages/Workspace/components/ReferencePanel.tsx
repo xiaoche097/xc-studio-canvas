@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Image as ImageIcon,
   Images,
+  MessageSquarePlus,
   Package,
   Palette,
   Paperclip,
@@ -39,6 +40,33 @@ interface VisualAsset {
   title: string;
   source: 'canvas' | 'generated' | 'upload';
 }
+
+interface ReferenceDragPayload {
+  id: string;
+  url: string;
+  title: string;
+}
+
+type ReferenceDragWindow = Window & {
+  __XC_REFERENCE_DRAG_PAYLOAD__?: ReferenceDragPayload;
+};
+
+const getCompactAssetTitle = (asset: VisualAsset, index: number) => {
+  const rawTitle = String(asset.title || '').trim();
+  const normalized = rawTitle.replace(/\s+/g, ' ');
+  const looksEncoded = /^\d{8,}[-_]/.test(normalized)
+    || /(?:^|[-_])self(?:[-_]|$)/i.test(normalized)
+    || /[a-f0-9]{8}-[a-f0-9-]{20,}/i.test(normalized)
+    || normalized.length > 18;
+
+  if (normalized && !looksEncoded) return normalized;
+  const prefix = asset.source === 'generated'
+    ? '生成图'
+    : asset.source === 'canvas'
+      ? '画布图'
+      : '参考图';
+  return `${prefix} ${index + 1}`;
+};
 
 const materialTabs: Array<{ kind: MaterialKind; label: string }> = [
   { kind: 'brand', label: '品牌套件' },
@@ -141,7 +169,10 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
       if (seen.has(asset.url)) return false;
       seen.add(asset.url);
       return true;
-    });
+    }).map((asset, index) => ({
+      ...asset,
+      title: getCompactAssetTitle(asset, index),
+    }));
   }, [canvasAssets, generatedAssets, legacyMessageUploads, messageUploads, uploads]);
 
   const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,6 +192,34 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
   };
 
   const visibleMaterials = materials.filter((material) => material.kind === materialKind);
+
+  const handleAssetDragStart = (
+    event: React.DragEvent<HTMLElement>,
+    asset: VisualAsset,
+  ) => {
+    const payload: ReferenceDragPayload = {
+      id: asset.id,
+      url: asset.url,
+      title: asset.title,
+    };
+    (window as ReferenceDragWindow).__XC_REFERENCE_DRAG_PAYLOAD__ = payload;
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-xc-reference-image', asset.id);
+    if (/^https?:/i.test(asset.url) && asset.url.length < 2048) {
+      event.dataTransfer.setData('text/uri-list', asset.url);
+    }
+
+    const dragPreview = document.createElement('div');
+    dragPreview.textContent = `拖动 ${asset.title}`;
+    dragPreview.style.cssText = 'position:fixed;left:-9999px;top:-9999px;padding:8px 12px;border-radius:10px;background:#0f172a;color:#fff;font:600 12px system-ui;box-shadow:0 6px 18px rgba(15,23,42,.22);';
+    document.body.appendChild(dragPreview);
+    event.dataTransfer.setDragImage(dragPreview, 20, 18);
+    requestAnimationFrame(() => dragPreview.remove());
+  };
+
+  const handleAssetDragEnd = () => {
+    delete (window as ReferenceDragWindow).__XC_REFERENCE_DRAG_PAYLOAD__;
+  };
 
   return (
     <aside className="relative z-50 hidden h-full min-h-0 w-80 shrink-0 flex-col border-r border-slate-200 bg-white pt-14 xl:flex" aria-label="项目工具栏">
@@ -272,10 +331,29 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
           <div className="grid grid-cols-2 gap-3 px-3 pb-4">
             <button type="button" onClick={() => fileInputRef.current?.click()} className="flex aspect-square flex-col items-center justify-center rounded-xl bg-slate-100 text-slate-500 outline-none transition hover:bg-slate-200 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-6 w-6" /><span className="sr-only">添加参考素材</span></button>
             {allAssets.map((asset) => (
-              <button key={asset.id} type="button" onClick={() => void onAttachToAgent(asset.url, asset.title)} className="group overflow-hidden rounded-xl bg-white text-left outline-none transition hover:shadow-md focus-visible:ring-2 focus-visible:ring-slate-950">
-                <img src={asset.url} alt={asset.title} loading="lazy" className="aspect-[3/4] w-full object-cover" />
+              <article
+                key={asset.id}
+                draggable
+                onDragStart={(event) => handleAssetDragStart(event, asset)}
+                onDragEnd={handleAssetDragEnd}
+                className="group relative cursor-grab overflow-hidden rounded-xl bg-white text-left outline-none transition hover:shadow-md focus-within:ring-2 focus-within:ring-slate-950 active:cursor-grabbing"
+                title="拖到画布，或添加到对话"
+              >
+                <div className="relative overflow-hidden rounded-xl bg-slate-100">
+                  <img src={asset.url} alt={asset.title} loading="lazy" draggable={false} className="aspect-[3/4] w-full object-cover" />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/55 via-transparent to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100" />
+                  <button
+                    type="button"
+                    onClick={() => void onAttachToAgent(asset.url, asset.title)}
+                    className="absolute inset-x-2 bottom-2 flex min-h-9 translate-y-1 items-center justify-center gap-1.5 rounded-lg bg-white/95 px-2 text-xs font-semibold text-slate-950 opacity-0 shadow-sm backdrop-blur outline-none transition duration-150 hover:bg-white focus:translate-y-0 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-white group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100"
+                    aria-label={`将${asset.title}添加到对话`}
+                  >
+                    <MessageSquarePlus className="h-3.5 w-3.5" />
+                    添加到对话
+                  </button>
+                </div>
                 <p className="line-clamp-2 px-1 py-2 text-xs leading-4 text-slate-500">{asset.title}</p>
-              </button>
+              </article>
             ))}
           </div>
           {allAssets.length === 0 && <div className="mx-3 mt-2 grid min-h-44 place-items-center rounded-xl border border-dashed border-slate-300 px-5 text-center"><div><ImageIcon className="mx-auto h-6 w-6 text-slate-300" /><p className="mt-2 text-xs leading-5 text-slate-400">这里会同步当前项目上传和生成的图片。</p></div></div>}

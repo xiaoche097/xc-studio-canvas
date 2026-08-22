@@ -30,6 +30,7 @@ export interface CreativeSkillData {
   config: {
     forceSkillExecution: boolean;
     preferredAgent?: AgentType;
+    twoStep?: boolean;
   };
 }
 
@@ -168,8 +169,8 @@ const CAPABILITY_PRESETS: Record<AppMode, CapabilityPreset> = {
     'campaign',
   ),
   [AppMode.MODEL_SCENE_FISSION]: imagePreset(
-    '把单张模特图裂变为不同机位、景别和动作的系列大图',
-    ['按用户数量拆成独立 generateImage 调用', '不得生成九宫格拼贴', '身份、服装和整体场景连续'],
+    '先规划三套场景裂变方案，再把选中的九个镜头生成一张九宫格分镜',
+    ['第一步只返回 A/B/C 三套九镜头方案，不得生图', '用户选择后生成 3×3 九宫格 Contact Sheet', '默认比例 2:3，并询问用户是否调整', '身份、服装、原场景、光线和摄影风格严格连续', '九宫格内禁止任何文字、编号和水印'],
     ['ATTACHMENT_0：模特、服装与场景锚点'],
     'campaign',
   ),
@@ -229,12 +230,16 @@ export const buildCreativeSkillData = (features: FeatureSelection[]): CreativeSk
   if (features.length === 0) return undefined;
   const capabilities = features.map(getCreativeAgentCapability);
   const executable = capabilities.filter((capability) => capability.outputType !== 'analysis');
+  const hasSceneFission = features.some(
+    (feature) => feature.mode === AppMode.MODEL_SCENE_FISSION,
+  );
   return {
     id: 'creative-agent-skills',
     name: capabilities.map((capability) => capability.title).join(' + '),
     capabilities,
     config: {
-      forceSkillExecution: executable.length > 0,
+      forceSkillExecution: executable.length > 0 && !hasSceneFission,
+      twoStep: hasSceneFission,
       preferredAgent: capabilities[0]?.preferredAgent,
     },
   };

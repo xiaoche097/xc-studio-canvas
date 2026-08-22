@@ -9,6 +9,7 @@ import React, {
 import ReactDOM from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ROUTES } from "../utils/routes";
+import { downloadImageFile } from "../utils/imageDownload";
 import {
   ChevronDown,
   Minus,
@@ -239,6 +240,13 @@ import {
 } from "../services/topic-memory";
 import { getMemoryKey } from "../services/topicMemory/key";
 import type { DesignTaskMode } from "../types/common";
+import {
+  isFashionReplicaTrigger,
+  isSceneFissionTrigger,
+  parseSceneFissionSelection,
+  parseVisualAspectRatio,
+  type SceneFissionWorkflowState,
+} from "../services/agents/specialized-visual-roles";
 import type {
   Requirements,
   ModelGenOptions,
@@ -1856,6 +1864,71 @@ const Workspace: React.FC<WorkspaceProps> = ({
     return nearest;
   };
 
+  const detectImageFileAspectRatio = async (
+    file?: File,
+  ): Promise<{ width: number; height: number; aspectRatio: string } | null> => {
+    if (!file) return null;
+
+    // Some clipped/re-hosted images arrive as application/octet-stream even
+    // though their filename and bytes are a valid image. Do not let an empty
+    // or generic MIME type silently fall back to the UI's 1:1 preference.
+    const looksLikeImage =
+      file.type.startsWith("image/") ||
+      /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(file.name || "");
+    if (!looksLikeImage) return null;
+
+    const markerInfo = (file as any).markerInfo;
+    const markerWidth = Number(
+      (file as any).detectedImageWidth ||
+      (file as any)._previewNaturalWidth ||
+      markerInfo?.imageWidth ||
+      markerInfo?.width ||
+      0,
+    );
+    const markerHeight = Number(
+      (file as any).detectedImageHeight ||
+      (file as any)._previewNaturalHeight ||
+      markerInfo?.imageHeight ||
+      markerInfo?.height ||
+      0,
+    );
+    if (markerWidth > 0 && markerHeight > 0) {
+      return {
+        width: markerWidth,
+        height: markerHeight,
+        aspectRatio: getNearestAspectRatio(markerWidth, markerHeight),
+      };
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const dimensions = await new Promise<{ width: number; height: number }>(
+        (resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve({
+            width: image.naturalWidth || image.width,
+            height: image.naturalHeight || image.height,
+          });
+          image.onerror = () => reject(new Error("无法读取参考图片尺寸"));
+          image.src = objectUrl;
+        },
+      );
+      if (dimensions.width <= 0 || dimensions.height <= 0) return null;
+      return {
+        ...dimensions,
+        aspectRatio: getNearestAspectRatio(
+          dimensions.width,
+          dimensions.height,
+        ),
+      };
+    } catch (error) {
+      console.warn("[Workspace] Failed to detect attachment aspect ratio:", error);
+      return null;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
   const loadElementSourceSize = async (
     element: CanvasElement,
   ): Promise<{ width: number; height: number }> => {
@@ -2718,7 +2791,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         .map((b) => b.text)
         .join(" ")
         .trim();
-    const attachments =
+    let attachments =
       overrideAttachments ??
       (currentBlocks
         .filter((b) => b.type === "file" && b.file)
@@ -3192,7 +3265,154 @@ const Workspace: React.FC<WorkspaceProps> = ({
       return;
     }
 
+    const priorMessages = useAgentStore.getState().messages;
+    const latestSceneWorkflowState = [...priorMessages]
+      .reverse()
+      .map((message) => message.agentData?.workflowState)
+      .find(
+        (state): state is SceneFissionWorkflowState =>
+          state?.type === "scene-fission",
+      );
+    const latestSceneWorkflow =
+      latestSceneWorkflowState?.phase === "plan" ||
+      latestSceneWorkflowState?.phase === "awaiting-selection"
+        ? latestSceneWorkflowState
+        : undefined;
+    const selectedSceneScheme =
+      latestSceneWorkflow?.phase === "awaiting-selection"
+        ? parseSceneFissionSelection(text)
+        : null;
+    const isSceneFissionSelection = !!(
+      latestSceneWorkflow && selectedSceneScheme
+    );
+    const hasSelectedSceneFissionSkill = !!skillData?.capabilities?.some(
+      (capability: any) => capability?.mode === "MODEL_SCENE_FISSION",
+    );
+    const isSceneFissionPlanning =
+      !isSceneFissionSelection &&
+      (isSceneFissionTrigger(text) ||
+        hasSelectedSceneFissionSkill ||
+        (latestSceneWorkflow?.phase === "plan" && attachments.length > 0));
+    const isFashionReplica =
+      !isSceneFissionSelection &&
+      !isSceneFissionPlanning &&
+      isFashionReplicaTrigger(text);
+    const sceneFissionWorkflow: SceneFissionWorkflowState | undefined =
+      isSceneFissionSelection && latestSceneWorkflow && selectedSceneScheme
+        ? {
+            ...latestSceneWorkflow,
+            phase: "generate",
+            selectedSchemeId: selectedSceneScheme,
+            aspectRatio:
+              parseVisualAspectRatio(text) ||
+              latestSceneWorkflow.aspectRatio ||
+              "2:3",
+          }
+        : isSceneFissionPlanning
+          ? {
+              type: "scene-fission",
+              phase: "plan",
+              aspectRatio: parseVisualAspectRatio(text) || "2:3",
+              schemes: [],
+            }
+          : undefined;
+
+    // 方案选择发生在下一轮对话，自动继承触发“场景裂变”时的原始参考图。
+    if (isSceneFissionSelection && attachments.length === 0) {
+      const sourceMessage = [...priorMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === "user" &&
+            Array.isArray(message.attachments) &&
+            message.attachments.length > 0,
+        );
+      if (sourceMessage?.attachments?.length) {
+        const inheritedFiles = await Promise.all(
+          sourceMessage.attachments.map(async (url, index) => {
+            const blob = await fetchImageBlob(url);
+            const originalName = String(
+              sourceMessage.attachmentMetadata?.[index]?.name ||
+                `场景参考${index + 1}.png`,
+            );
+            return new File([blob], originalName, {
+              type: blob.type || "image/png",
+            });
+          }),
+        );
+        attachments = inheritedFiles;
+      }
+    }
+    const latestGeneratedMessage = [...priorMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role !== "user" &&
+          Array.isArray(message.agentData?.imageUrls) &&
+          message.agentData.imageUrls.some(
+            (url: unknown) => typeof url === "string" && Boolean(url),
+          ),
+      );
+    const revisionIntent =
+      attachments.length === 0 &&
+      !!latestGeneratedMessage &&
+      /搞错|错了|不对|不是这个|重做|重新做|刚才|上一张|前一张|前面的|继续修改|继续改|只改|保持.{0,12}不变|旁边.{0,16}(?:多|加|增加|添加|放|站)|(?:多一个|再加|加上|添加|增加|放入|放一个|站一个).{0,20}(?:人|男生|女生|男性|女性|模特|人物|物体|产品)?|(?:左边|右边|身后|前面).{0,16}(?:多|加|增加|添加|放|站)|比例.{0,12}(?:错|不对|改|调整)|(?:改成|改为|调整为).{0,8}\d+\s*[:：]\s*\d+/i.test(
+        text,
+      );
+    const latestGeneratedImageUrl = latestGeneratedMessage?.agentData?.imageUrls
+      ?.find((url: unknown): url is string => typeof url === "string" && Boolean(url));
+    const previousUserInstruction = revisionIntent
+      ? [...priorMessages]
+          .reverse()
+          .find((message) => message.role === "user" && Boolean(message.text?.trim()))
+          ?.text?.trim()
+      : undefined;
+    let inheritedRevisionReference = false;
+
+    if (revisionIntent && latestGeneratedImageUrl) {
+      try {
+        const revisionBlob = await fetchImageBlob(latestGeneratedImageUrl);
+        const extension = revisionBlob.type.includes("jpeg")
+          ? "jpg"
+          : revisionBlob.type.includes("webp")
+            ? "webp"
+            : "png";
+        const revisionFile = new File(
+          [revisionBlob],
+          `上一版.${extension}`,
+          { type: revisionBlob.type || "image/png" },
+        );
+        (revisionFile as any).isInheritedRevisionReference = true;
+        attachments = [revisionFile];
+        inheritedRevisionReference = true;
+      } catch (error) {
+        console.warn(
+          "[Workspace] Failed to inherit the previous generated image:",
+          error,
+        );
+      }
+    }
+
     if (!text && attachments.length === 0) return;
+
+    // When the user does not specify a ratio, the primary reference image is
+    // the source of truth. This prevents the UI's default 1:1 preference from
+    // silently cropping portrait product and fashion references.
+    const primaryImageAttachment = attachments.find((file) =>
+      file.type.startsWith("image/") ||
+      /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(file.name || ""),
+    );
+    const detectedReferenceImage = await detectImageFileAspectRatio(
+      primaryImageAttachment,
+    );
+    if (primaryImageAttachment && detectedReferenceImage) {
+      (primaryImageAttachment as any).detectedImageWidth =
+        detectedReferenceImage.width;
+      (primaryImageAttachment as any).detectedImageHeight =
+        detectedReferenceImage.height;
+      (primaryImageAttachment as any).detectedAspectRatio =
+        detectedReferenceImage.aspectRatio;
+    }
 
     // 首次发送时初始化会话 ID，确保消息能关联到正确的会话
     const effectiveConversationId = resolveConversationId();
@@ -3205,6 +3425,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
       markerId: (f as any).markerId,
       markerName: (f as any).markerName,
       markerInfo: (f as any).markerInfo,
+      imageWidth: (f as any).detectedImageWidth,
+      imageHeight: (f as any).detectedImageHeight,
+      aspectRatio: (f as any).detectedAspectRatio,
     }));
 
     // 2. 构造并将用户消息添加至 Store
@@ -3317,34 +3540,96 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
       const parseAspectRatioFromText = (value: string): string | null => {
         const t = String(value || '');
-        const m = t.match(/\b(1:1|3:4|4:3|9:16|16:9|21:9|3:2|2:3|4:5|5:4)\b/);
-        return m ? m[1] : null;
+        const m = t.match(/(?:^|\D)(1\s*[:：]\s*1|3\s*[:：]\s*4|4\s*[:：]\s*3|9\s*[:：]\s*16|16\s*[:：]\s*9|21\s*[:：]\s*9|3\s*[:：]\s*2|2\s*[:：]\s*3|4\s*[:：]\s*5|5\s*[:：]\s*4)(?=\D|$)/);
+        return m ? m[1].replace(/\s+/g, '').replace('：', ':') : null;
       };
 
       const skillDefaults = (skillData?.config?.defaults || {}) as any;
+      const userAspectRatioOverride = parseAspectRatioFromText(text);
+      const skillAspectRatioOverride =
+        typeof skillDefaults.aspectRatio === 'string'
+          ? skillDefaults.aspectRatio
+          : null;
       const aspectRatioOverride =
-        parseAspectRatioFromText(text) ||
-        (typeof skillDefaults.aspectRatio === 'string' ? skillDefaults.aspectRatio : null);
+        userAspectRatioOverride || skillAspectRatioOverride;
       const selectedCapabilityOutput = skillData?.capabilities?.[0]?.outputType;
       const effectiveCreationMode = selectedCapabilityOutput === 'video' ? 'video' : creationMode;
       const selectedPrimaryTool = skillData?.capabilities?.[0]?.primaryTool;
       const selectedSkillHasRequiredSource = selectedPrimaryTool !== 'smartEdit' || attachments.length > 0;
       const forceSelectedSkillExecution =
         skillData?.config?.forceSkillExecution === true && selectedSkillHasRequiredSource;
+      const specializedRoutingSkillData =
+        sceneFissionWorkflow || isFashionReplica
+          ? {
+              ...(skillData || {}),
+              id: skillData?.id || "specialized-visual-role",
+              config: {
+                ...(skillData?.config || {}),
+                preferredAgent: "campaign",
+                forceSkillExecution: false,
+                twoStep: sceneFissionWorkflow?.phase === "plan",
+              },
+            }
+          : skillData;
+      const shouldExecuteSpecializedImage =
+        sceneFissionWorkflow?.phase === "generate" || isFashionReplica;
 
       const requestMetadata = {
         topicId: effectiveTopicId,
         conversationId: effectiveConversationId,
         entrySource: overrideConversationId ? 'home-agent' : 'canvas-agent',
+        // A reference explicitly attached in this turn starts a new visual
+        // instruction boundary. Previous prompts may inform follow-up edits,
+        // but must not leak old requested additions into this image.
+        isolateVisualTaskContext:
+          attachments.length > 0 &&
+          !inheritedRevisionReference &&
+          !sceneFissionWorkflow,
         enableWebSearch: isWeb,
         creationMode: effectiveCreationMode,
         preferredAspectRatio:
+          sceneFissionWorkflow?.aspectRatio ||
           aspectRatioOverride ||
+          (effectiveCreationMode === "image"
+            ? detectedReferenceImage?.aspectRatio
+            : null) ||
           (effectiveCreationMode === "video" ? videoGenRatio : imageGenRatio),
-        skillData,
+        preferredAspectRatioSource: sceneFissionWorkflow
+          ? "scene-fission"
+          : userAspectRatioOverride
+            ? "user"
+          : skillAspectRatioOverride
+            ? "skill"
+            : detectedReferenceImage?.aspectRatio
+              ? "reference-image"
+              : "preference",
+        continuationContext: revisionIntent
+          ? {
+              isRevision: true,
+              previousUserInstruction: previousUserInstruction || "",
+              previousAssistantSummary:
+                latestGeneratedMessage?.agentData?.postGenerationSummary ||
+                latestGeneratedMessage?.text ||
+                "",
+              previousAgent: latestGeneratedMessage?.agentData?.model,
+              inheritedPreviousResult: inheritedRevisionReference,
+            }
+          : undefined,
+        skillData: specializedRoutingSkillData,
+        specializedRole: isFashionReplica
+          ? "fashion-replica"
+          : sceneFissionWorkflow
+            ? "scene-fission"
+            : undefined,
+        sceneFissionWorkflow,
+        forceGenerateImage: shouldExecuteSpecializedImage,
         forceToolCall: hasMarkers, // 标记点场景强制出图
-        forceSkills: hasMarkers || forceSelectedSkillExecution,
-        forceSelectedSkill: forceSelectedSkillExecution,
+        forceSkills:
+          hasMarkers || forceSelectedSkillExecution || shouldExecuteSpecializedImage,
+        forceSelectedSkill:
+          !sceneFissionWorkflow && !isFashionReplica
+            ? forceSelectedSkillExecution
+            : false,
         multimodalContext: {
           referenceImageUrls: Array.from(
             new Set([
@@ -3439,6 +3724,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
             analysis: result.output?.analysis,
             preGenerationMessage: result.output?.preGenerationMessage,
             postGenerationSummary: result.output?.postGenerationSummary,
+            workflowState: result.output?.workflowState,
             suggestions: result.output?.adjustments || [],
             isGenerating: false, // 明确关闭生成状态
           },
@@ -4038,23 +4324,22 @@ const Workspace: React.FC<WorkspaceProps> = ({
     sel.removeAllRanges();
     sel.addRange(range);
   };
-  useEffect(() => {
+  const persistWorkspaceProject = useCallback(async () => {
     if (!id || isLoadingRecord.current) return;
-    const save = async () => {
-      if (isLoadingRecord.current) return;
-      const firstImage = elementsRef.current.find(
-        (el) => el.type === "image" || el.type === "gen-image",
-      );
-      const thumbnail = firstImage?.url || "";
-      const pagesToSave = workspacePages.map((page) =>
-        page.id === activePageId
-          ? {
-              ...page,
-              elements: elementsRef.current,
-              markers: markersRef.current,
-            }
-          : page,
-      );
+    const firstImage = elementsRef.current.find(
+      (el) => el.type === "image" || el.type === "gen-image",
+    );
+    const thumbnail = firstImage?.url || "";
+    const pagesToSave = workspacePages.map((page) =>
+      page.id === activePageId
+        ? {
+            ...page,
+            elements: elementsRef.current,
+            markers: markersRef.current,
+          }
+        : page,
+    );
+    try {
       await saveProject({
         id,
         title: projectTitle,
@@ -4067,18 +4352,28 @@ const Workspace: React.FC<WorkspaceProps> = ({
         pages: pagesToSave,
         activePageId,
       });
-    };
-    const timeout = setTimeout(save, 1000);
-    return () => clearTimeout(timeout);
+    } catch (error) {
+      console.error("[Workspace] Failed to save project:", error);
+    }
   }, [
-    activePageId,
     activeConversationId,
+    activePageId,
     conversations,
-    elements,
     id,
-    markers,
     projectTitle,
     workspacePages,
+  ]);
+
+  useEffect(() => {
+    if (!id || isLoadingRecord.current) return;
+    const timeout = setTimeout(() => {
+      void persistWorkspaceProject();
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [
+    elements,
+    markers,
+    persistWorkspaceProject,
   ]);
 
   const updateSelectedElement = (updates: Partial<CanvasElement>) => {
@@ -4261,18 +4556,20 @@ const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!selectedElementId) return;
     const el = elements.find((e) => e.id === selectedElementId);
     if (!el || !el.url) return;
     const sourceUrl = getElementSourceUrl(el) || el.url;
-    const link = document.createElement("a");
-    link.href = sourceUrl;
-    link.download = `xc-image-${Date.now()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
     setContextMenu(null);
+    try {
+      // Always download a local Blob. Cross-origin storage URLs otherwise ignore
+      // the `download` attribute and navigate the current page to the image.
+      await downloadImageFile(sourceUrl, `xc-image-${Date.now()}.png`);
+    } catch (error) {
+      console.error("Canvas image download failed", error);
+      window.alert("图片下载失败，请检查网络后重试");
+    }
   };
 
   const urlToBase64 = async (url: string): Promise<string> => {
@@ -6005,6 +6302,72 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const handleCanvasDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const referencePayloadId = e.dataTransfer.getData(
+      "application/x-xc-reference-image",
+    );
+
+    if (referencePayloadId) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      try {
+        const dragWindow = window as Window & {
+          __XC_REFERENCE_DRAG_PAYLOAD__?: {
+            id: string;
+            url: string;
+            title: string;
+          };
+        };
+        const cachedPayload = dragWindow.__XC_REFERENCE_DRAG_PAYLOAD__;
+        const asset = cachedPayload?.id === referencePayloadId
+          ? cachedPayload
+          : JSON.parse(referencePayloadId) as {
+          url?: string;
+          title?: string;
+        };
+        delete dragWindow.__XC_REFERENCE_DRAG_PAYLOAD__;
+        if (!asset.url || !/^(https?:|data:|blob:)/i.test(asset.url)) return;
+
+        const canvasDropX =
+          (e.clientX - rect.left - pan.x) / (zoom / 100);
+        const canvasDropY =
+          (e.clientY - rect.top - pan.y) / (zoom / 100);
+        const image = new Image();
+        image.onload = () => {
+          const viewport = getCanvasViewportSize(showAssistant);
+          const fitted = calcInitialDisplaySize(
+            image.naturalWidth || image.width,
+            image.naturalHeight || image.height,
+            viewport.width,
+            viewport.height,
+          );
+          const newElement: CanvasElement = {
+            id: `reference-drop-${Date.now()}`,
+            type: "image",
+            url: asset.url,
+            originalUrl: asset.url,
+            x: canvasDropX - fitted.displayW / 2,
+            y: canvasDropY - fitted.displayH / 2,
+            width: fitted.displayW,
+            height: fitted.displayH,
+            zIndex: elementsRef.current.length + 1,
+            genAspectRatio: `${Math.max(1, image.naturalWidth || image.width)}:${Math.max(1, image.naturalHeight || image.height)}`,
+            genPrompt: asset.title || "参考图片",
+          };
+          appendElementsAndSaveHistory([newElement]);
+          setSelectedElementId(newElement.id);
+          setSelectedElementIds([newElement.id]);
+        };
+        image.onerror = () => {
+          setFeatureNotice("参考图片读取失败，请检查图片链接后重试");
+        };
+        image.src = asset.url;
+      } catch (error) {
+        console.warn("[Workspace] Invalid reference drag payload:", error);
+      }
+      return;
+    }
+
     const files = Array.from(e.dataTransfer.files)
       .filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"))
       .slice(0, 10);

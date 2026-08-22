@@ -130,6 +130,7 @@ export const saveProject = async (project: Project): Promise<void> => {
     });
   } catch (error) {
     console.error('Failed to save project', error);
+    throw error;
   }
 };
 
