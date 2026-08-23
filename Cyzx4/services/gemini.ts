@@ -3,20 +3,20 @@ import { GoogleGenAI, Chat, GenerateContentResponse, Part, Content, Type } from 
 import { ProviderError } from '../utils/provider-error';
 import { fetchWithResilience } from './http/api-client';
 import { safeLocalStorageSetItem } from '../utils/safe-storage';
-import { getApiKey, getProviderConfig } from './provider-config';
+import { getApiKey, getMediaProviderConfig, getProviderConfig } from './provider-config';
 import { normalizeReferenceToDataUrl } from './image-reference-resolver';
-import { getOrderedTextModels, resolveRuntimeModelId } from '../utils/apiHelpers';
+import { getAiClient, getOrderedTextModels, resolveRuntimeModelId } from '../utils/apiHelpers';
 
 const isNetworkFetchError = (error: unknown): boolean => {
     const msg = ((error as any)?.message || '').toLowerCase();
     return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors') || msg.includes('load failed');
 };
 
-export { getApiKey, getProviderConfig };
+export { getApiKey, getMediaProviderConfig, getProviderConfig };
 
-const requireApiKey = (stage: string): string => {
-    const provider = getProviderConfig();
-    const key = getApiKey();
+const requireApiKey = (stage: string, purpose: 'text' | 'media' = 'text'): string => {
+    const provider = purpose === 'media' ? getMediaProviderConfig() : getProviderConfig();
+    const key = getApiKey(false, purpose);
     if (typeof key === 'string' && key.trim()) {
         return key;
     }
@@ -100,6 +100,31 @@ const fetchOpenAIJsonWithFallback = async <T>(
     body: unknown,
     contextTag: string
 ): Promise<T> => {
+    const selectedTextProvider = getProviderConfig();
+    const isDeepSeekEndpoint = selectedTextProvider.id === 'deepseek'
+        && normalizeUrl(baseUrl) === normalizeUrl(selectedTextProvider.baseUrl || '');
+    if (isDeepSeekEndpoint) {
+        const response = await fetch('/api/deepseek/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ baseUrl, apiKey, request: body }),
+        });
+        if (!response.ok) {
+            const raw = await response.text().catch(() => '');
+            let message = raw;
+            try {
+                const parsed = JSON.parse(raw);
+                message = parsed?.error?.message || parsed?.error || raw;
+            } catch {
+                // keep the upstream response text
+            }
+            const error: any = new Error(message || `${contextTag} API error: ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
+        return response.json() as Promise<T>;
+    }
+
     const cachedMode = getCachedAuthMode(baseUrl);
     const plans: OpenAIAuthMode[] = cachedMode ? [cachedMode, cachedMode === 'bearer' ? 'query' : 'bearer'] : ['bearer', 'query'];
     let lastError: any = null;
@@ -216,6 +241,25 @@ export const generateJsonResponse = async (
     const provider = getProviderConfig();
     const baseUrl = normalizeUrl(provider.baseUrl || '');
     const isGoogleDirect = provider.id === 'gemini' || !baseUrl || baseUrl.includes('googleapis.com');
+    const hasInlineImages = parts.some((part: any) => Boolean(
+        (part?.inlineData || part?.inline_data)?.data,
+    ));
+
+    if (provider.id === 'deepseek' && hasInlineImages) {
+        const response = await getAiClient().models.generateContent({
+            model: provider.model || model,
+            contents: { parts },
+            config: {
+                temperature,
+                responseMimeType: 'application/json',
+            },
+        });
+        return {
+            text: response.text || '{}',
+            candidates: response.candidates as any,
+            raw: response as any,
+        };
+    }
 
     if (isGoogleDirect) {
         const response = await getClient().models.generateContent({
@@ -390,8 +434,8 @@ export const fetchAvailableModels = async (provider: string, keys: string[], bas
 };
 
 // Helper to get API Base URL dynamically
-const getApiUrl = () => {
-    const config = getProviderConfig();
+const getApiUrl = (purpose: 'text' | 'media' = 'text') => {
+    const config = purpose === 'media' ? getMediaProviderConfig() : getProviderConfig();
     return config.baseUrl;
 };
 
@@ -401,6 +445,9 @@ export const getBestModelId = (type: 'text' | 'image' | 'video' | 'thinking' = '
     const config = getProviderConfig();
     const isProxy = config.id !== 'gemini' || (config.baseUrl && !config.baseUrl.includes('googleapis.com'));
     const getHomepageTextModel = (): string => {
+        if (config.id === 'deepseek') {
+            return config.model || 'deepseek-v4-flash';
+        }
         const selected = getOrderedTextModels()[0] || FLASH_MODEL;
         return resolveRuntimeModelId(selected, {
             isYunwu: isProxy,
@@ -438,9 +485,9 @@ export const getBestModelId = (type: 'text' | 'image' | 'video' | 'thinking' = '
     return getHomepageTextModel();
 };
 
-export const getClient = () => {
-    const config: any = { apiKey: requireApiKey('getClient') };
-    let baseUrl = getApiUrl();
+export const getClient = (purpose: 'text' | 'media' = 'text') => {
+    const config: any = { apiKey: requireApiKey('getClient', purpose) };
+    let baseUrl = getApiUrl(purpose);
     if (baseUrl) {
         // SDK 内部会自动拼装 v1/v1beta，这里需要移除版本后缀以避免重复
         baseUrl = baseUrl.replace(/\/+$/, '').replace(/\/v\d+(beta)?$/i, '');
@@ -456,7 +503,7 @@ export const getClient = () => {
 
 // Get base URL for video REST API (bypasses SDK's predictLongRunning endpoint)
 const getVideoBaseUrl = () => {
-    const baseUrl = getApiUrl();
+    const baseUrl = getApiUrl('media');
     return (baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
 };
 
@@ -1093,7 +1140,7 @@ export const analyzeImageRegion = async (imageBase64: string): Promise<string> =
         const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
         if (!matches) throw new Error("Invalid base64 image");
 
-        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient('media').models.generateContent({
             model: FLASH_MODEL,
             contents: {
                 parts: [
@@ -1127,7 +1174,7 @@ export const refineImagePrompt = async (imageBase64: string, frameworkPrompt: st
         if (!matches) throw new Error("Invalid base64 image");
 
         console.log(`[refiningPrompt] Analyzing image with Flash model using framework...`);
-        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient('media').models.generateContent({
             model: FLASH_MODEL,
             contents: {
                 parts: [
@@ -1159,7 +1206,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string[
         const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
         if (!matches) throw new Error("Invalid base64 image");
 
-        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient('media').models.generateContent({
             model: FLASH_MODEL,
             contents: {
                 parts: [
@@ -1198,7 +1245,7 @@ export const analyzeProductSwapScene = async (imageBase64: string): Promise<stri
         const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
         if (!matches) throw new Error("Invalid base64 image");
 
-        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient('media').models.generateContent({
             model: "gemini-3.1-flash-lite-preview",
             contents: {
                 parts: [
@@ -1536,11 +1583,11 @@ export const editImage = async (config: ImageEditConfig): Promise<string | null>
         hasMask: !!maskDataUrl,
         refCount: refs.length,
         promptChars: editPrompt.length,
-        providerBaseUrl: getApiUrl(),
+        providerBaseUrl: getApiUrl('media'),
     });
 
     const response = await retryWithBackoff<GenerateContentResponse>(() =>
-        getClient().models.generateContent({
+        getClient('media').models.generateContent({
             model,
             contents: { parts },
             config: {
@@ -1567,8 +1614,8 @@ const generateImageDallE3 = async (
     prompt: string,
     aspectRatio: string
 ): Promise<string | null> => {
-    const baseUrl = normalizeUrl(getApiUrl() || 'https://yunwu.ai');
-    const apiKey = requireApiKey('generateImageDallE3');
+    const baseUrl = normalizeUrl(getApiUrl('media') || 'https://yunwu.ai');
+    const apiKey = requireApiKey('generateImageDallE3', 'media');
 
     // 将宽高比转换为 Nano Banana Pro / DALL-E 3 支持的精确尺寸 (基于用户截图)
     let size = '1024x1024';
@@ -1605,7 +1652,7 @@ const generateImageDallE3 = async (
     } catch (error: any) {
         const status = extractStatusCode(error);
         throw new ProviderError({
-            provider: getProviderConfig().id || 'unknown',
+            provider: getMediaProviderConfig().id || 'unknown',
             code: status === 401 || status === 403 ? 'AUTH_FAILED' : 'IMAGE_GENERATION_FAILED',
             status,
             retryable: status === 429 || status === 500 || status === 503,
@@ -1734,7 +1781,7 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
         modelsToTry.push(IMAGE_PRO_MODEL);
     }
 
-    const configProvider = getProviderConfig();
+    const configProvider = getMediaProviderConfig();
     const isProxy = configProvider.id !== 'gemini' || (configProvider.baseUrl && !configProvider.baseUrl.includes('googleapis.com'));
 
     let validAspectRatio = config.aspectRatio;
@@ -1848,17 +1895,17 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
 
     for (const modelToUse of modelsToTry) {
         try {
-            console.log(`[generateImage] Trying model: ${modelToUse} at ${getApiUrl()} (Proxy=${isProxy})`);
+            console.log(`[generateImage] Trying model: ${modelToUse} at ${getApiUrl('media')} (Proxy=${isProxy})`);
             
             const runGen = async () => {
                 if (isProxy) {
                     // For proxies, SDK often breaks paths with /v1/beta/ causing ERR_CONNECTION_CLOSED
                     // Manual REST call forces correct /v1beta/ path compatibility
-                    const apiKey = requireApiKey('generateImageREST');
-                    const baseUrl = getApiUrl() || 'https://generativelanguage.googleapis.com';
+                    const apiKey = requireApiKey('generateImageREST', 'media');
+                    const baseUrl = getApiUrl('media') || 'https://generativelanguage.googleapis.com';
                     return generateImageREST(baseUrl, apiKey, modelToUse, parts, imageConfig);
                 } else {
-                    const response = await getClient().models.generateContent({
+                    const response = await getClient('media').models.generateContent({
                         model: modelToUse,
                         contents: { parts },
                         config: {
@@ -1949,7 +1996,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
 
         const modelId = normalizeVideoModelId(targetModelId || VEO_FAST_MODEL);
         const baseUrl = getVideoBaseUrl();
-        const apiKey = requireApiKey('generateVideo');
+        const apiKey = requireApiKey('generateVideo', 'media');
         console.log(`[generateVideo] model=${modelId}, baseUrl=${baseUrl}, prompt=${config.prompt.slice(0, 50)}...`);
         const isSora2 = isSora2VideoModel(modelId);
 
@@ -2159,7 +2206,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
         const msg = (error.message || '').toLowerCase();
         if (msg.includes('requested entity was not found')) {
             throw new ProviderError({
-                provider: getProviderConfig().id || 'unknown',
+                provider: getMediaProviderConfig().id || 'unknown',
                 code: 'MODEL_NOT_FOUND',
                 status,
                 retryable: false,
@@ -2169,7 +2216,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
             });
         } else if (msg.includes('503') || msg.includes('overloaded') || msg.includes('unavailable')) {
             throw new ProviderError({
-                provider: getProviderConfig().id || 'unknown',
+                provider: getMediaProviderConfig().id || 'unknown',
                 code: 'PROVIDER_OVERLOADED',
                 status: status || 503,
                 retryable: true,
@@ -2179,7 +2226,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
             });
         } else if (msg.includes('403') || msg.includes('permission') || msg.includes('401')) {
             throw new ProviderError({
-                provider: getProviderConfig().id || 'unknown',
+                provider: getMediaProviderConfig().id || 'unknown',
                 code: 'AUTH_FAILED',
                 status: status || 401,
                 retryable: false,
@@ -2194,7 +2241,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
         }
 
         throw new ProviderError({
-            provider: getProviderConfig().id || 'unknown',
+            provider: getMediaProviderConfig().id || 'unknown',
             code: 'VIDEO_GENERATION_FAILED',
             status,
             retryable: status === 429 || status === 500 || status === 503,

@@ -49,6 +49,11 @@ import {
   XIAOCHE_MODELS,
   XIAOCHE_VIDEO_MODELS,
 } from '../Cyzx4/utils/xiaocheModels';
+import {
+  DEFAULT_DEEPSEEK_BASE_URL,
+  DEFAULT_DEEPSEEK_MODEL,
+} from '../Cyzx4/services/provider-config';
+import { testDeepSeekConnection } from '../Cyzx4/services/agents/runtime/deepseek-adapter';
 
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
@@ -77,6 +82,11 @@ const NO1_IMAGE_NODES = [
   { name: '美国阿什本OVH线路', url: 'https://us-2.rcouyi.com' },
 ];
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
+const DEEPSEEK_MODELS = [
+  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: '低延迟 Agent 与日常任务' },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: '复杂规划、推理与工具调用' },
+  { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek V4 Flash Vision Exp', description: '原生视觉实验模型' },
+];
 
 const AVAILABLE_MODELS = [
   { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash', description: '快速响应模型', badge: '推荐', type: 'text' },
@@ -172,12 +182,21 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [agentRole, setAgentRole] = useState('你是一个拥有10年经验的亚马逊/独立站电商视觉总监。你的目标是根据用户提供的产品信息或图片，策划出高转化率的视觉方案。');
   const [agentCapabilities, setAgentCapabilities] = useState('1. 深入分析产品卖点与目标市场\n2. 策划高转化率的电商图片（主图、副图、A+）\n3. 保持专业、精炼的语言风格');
   const [deepThinkingEnabled, setDeepThinkingEnabled] = useState(false);
-  const [textApiProvider, setTextApiProvider] = useState<'auto' | 'plato' | 'yunwu' | 'runninghub' | 'native'>('auto');
+  const [textApiProvider, setTextApiProvider] = useState<'auto' | 'deepseek' | 'plato' | 'yunwu' | 'runninghub' | 'native'>('auto');
 
   // Model Settings State
   const [nativeApiKey, setNativeApiKey] = useState('');
   const [isNativeKeyVisible, setIsNativeKeyVisible] = useState(false);
   const [nativeEnabled, setNativeEnabled] = useState(true);
+
+  const [deepSeekApiKey, setDeepSeekApiKey] = useState('');
+  const [deepSeekBaseUrl, setDeepSeekBaseUrl] = useState(DEFAULT_DEEPSEEK_BASE_URL);
+  const [deepSeekModel, setDeepSeekModel] = useState(DEFAULT_DEEPSEEK_MODEL);
+  const [deepSeekReasoning, setDeepSeekReasoning] = useState<'off' | 'low' | 'high' | 'max'>('high');
+  const [isDeepSeekKeyVisible, setIsDeepSeekKeyVisible] = useState(false);
+  const [deepSeekEnabled, setDeepSeekEnabled] = useState(false);
+  const [deepSeekTestStatus, setDeepSeekTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [deepSeekTestMessage, setDeepSeekTestMessage] = useState('');
   
   const [yunwuApiKey, setYunwuApiKey] = useState('');
   const [yunwuBaseUrl, setYunwuBaseUrl] = useState(DEFAULT_BASE_URL);
@@ -311,7 +330,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedName) setAgentName(savedName);
     if (savedRole) setAgentRole(savedRole);
     if (savedCapabilities) setAgentCapabilities(savedCapabilities);
-    if (savedTextApiProvider === 'plato' || savedTextApiProvider === 'yunwu' || savedTextApiProvider === 'runninghub' || savedTextApiProvider === 'native') {
+    if (savedTextApiProvider === 'deepseek' || savedTextApiProvider === 'plato' || savedTextApiProvider === 'yunwu' || savedTextApiProvider === 'runninghub' || savedTextApiProvider === 'native') {
       setTextApiProvider(savedTextApiProvider);
     } else {
       setTextApiProvider('auto');
@@ -324,6 +343,19 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     if (savedNativeKey) setNativeApiKey(savedNativeKey);
     lastAutoNativeKeyRef.current = savedNativeKey || '';
     setNativeEnabled(savedNativeEnabled !== 'false');
+
+    setDeepSeekApiKey(localStorage.getItem('deepseek_api_key') || '');
+    setDeepSeekBaseUrl(localStorage.getItem('deepseek_base_url') || DEFAULT_DEEPSEEK_BASE_URL);
+    setDeepSeekModel(localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL);
+    const savedDeepSeekReasoning = localStorage.getItem('deepseek_reasoning_effort');
+    setDeepSeekReasoning(
+      savedDeepSeekReasoning === 'off'
+      || savedDeepSeekReasoning === 'low'
+      || savedDeepSeekReasoning === 'max'
+        ? savedDeepSeekReasoning
+        : 'high',
+    );
+    setDeepSeekEnabled(localStorage.getItem('deepseek_enabled') === 'true');
 
     const savedYunwuKey = localStorage.getItem('yunwu_api_key');
     const savedYunwuUrl = localStorage.getItem('yunwu_base_url');
@@ -466,6 +498,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     localStorage.setItem('user_api_key', trimmedNative);
     localStorage.setItem('user_gemini_api_key', trimmedNative);
     localStorage.setItem('native_enabled', String(nativeEnabled));
+
+    localStorage.setItem('deepseek_api_key', deepSeekApiKey.trim());
+    localStorage.setItem('deepseek_base_url', deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL);
+    localStorage.setItem('deepseek_model', deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL);
+    localStorage.setItem('deepseek_reasoning_effort', deepSeekReasoning);
+    localStorage.setItem('deepseek_enabled', String(deepSeekEnabled));
+    localStorage.setItem('deepseek_harness_enabled', 'true');
     
     localStorage.setItem('yunwu_api_key', yunwuApiKey.trim());
     localStorage.setItem('yunwu_base_url', yunwuBaseUrl.trim() || DEFAULT_BASE_URL);
@@ -521,6 +560,30 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   };
 
   // --- Test Connection Handlers ---
+  const handleTestDeepSeek = async () => {
+    const key = deepSeekApiKey.split(/[,\n]/).map(item => item.trim()).find(Boolean);
+    if (!key) {
+      setDeepSeekTestStatus('error');
+      setDeepSeekTestMessage('请输入 DeepSeek API Key');
+      return;
+    }
+
+    setDeepSeekTestStatus('testing');
+    setDeepSeekTestMessage('正在连接 DeepSeek 原生 API...');
+    try {
+      const response = await testDeepSeekConnection({
+        baseUrl: deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL,
+        apiKey: key,
+        model: deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL,
+      });
+      setDeepSeekTestStatus('success');
+      setDeepSeekTestMessage(response ? `连接成功：${response}` : '连接成功');
+    } catch (error: unknown) {
+      setDeepSeekTestStatus('error');
+      setDeepSeekTestMessage(`连接失败：${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  };
+
   const handleTestPlato = async () => {
     const key = platoApiKey.split(/[,\n]/).map(k => k.trim()).filter(k => k !== "")[0];
     if (!key) {
@@ -1129,6 +1192,101 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
             <div className="flex-1 overflow-y-auto p-8 lg:p-10 custom-scrollbar">
               {activeTab === 'model' ? (
                 <div className="space-y-8 max-w-4xl">
+                  {/* DeepSeek native API powers text/Agent execution only; media routing stays independent. */}
+                  <div className={`p-5 sm:p-7 lg:p-8 rounded-3xl border transition-all ${deepSeekEnabled ? 'bg-white dark:bg-white/5 border-blue-300 dark:border-blue-500/40 shadow-sm' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
+                    <div className="flex items-start justify-between gap-4 mb-6">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`p-3 rounded-2xl shrink-0 ${deepSeekEnabled ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-gray-200 text-gray-500'}`}>
+                          <Bot className="w-6 h-6" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className={`text-lg font-black ${deepSeekEnabled ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>DeepSeek 原生 API</h4>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={deepSeekEnabled}
+                        aria-label={deepSeekEnabled ? '关闭 DeepSeek 原生 API' : '开启 DeepSeek 原生 API'}
+                        onClick={() => {
+                          const enabled = !deepSeekEnabled;
+                          setDeepSeekEnabled(enabled);
+                          setTextApiProvider(enabled ? 'deepseek' : textApiProvider === 'deepseek' ? 'auto' : textApiProvider);
+                        }}
+                        className={`relative w-12 h-7 min-w-12 rounded-full transition-colors focus:outline-none focus:ring-4 focus:ring-blue-500/15 ${deepSeekEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-white/15'}`}
+                      >
+                        <span className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-all ${deepSeekEnabled ? 'left-6' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {deepSeekEnabled && (
+                      <div className="space-y-5 animate-in fade-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Cpu className="w-4 h-4" /> 模型选择</label>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {DEEPSEEK_MODELS.map(model => (
+                              <button
+                                key={model.id}
+                                type="button"
+                                onClick={() => setDeepSeekModel(model.id)}
+                                aria-pressed={deepSeekModel === model.id}
+                                className={`min-h-16 rounded-xl border px-3 py-3 text-left transition-colors ${deepSeekModel === model.id ? 'border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-200 dark:border-white/10 dark:bg-white/5 dark:text-gray-300'}`}
+                              >
+                                <span className="block text-sm font-black">{model.name}</span>
+                                <span className="mt-1 block text-[10px] leading-4 opacity-70">{model.description}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Key className="w-4 h-4" /> DeepSeek API Key</label>
+                          <div className="relative">
+                            <input
+                              type={isDeepSeekKeyVisible ? 'text' : 'password'}
+                              value={deepSeekApiKey}
+                              onChange={(event) => setDeepSeekApiKey(event.target.value)}
+                              className="min-h-12 w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-5 pr-12 text-base focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
+                              placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                              autoComplete="off"
+                            />
+                            <button
+                              type="button"
+                              aria-label={isDeepSeekKeyVisible ? '隐藏 DeepSeek API Key' : '显示 DeepSeek API Key'}
+                              onClick={() => setIsDeepSeekKeyVisible(!isDeepSeekKeyVisible)}
+                              className="absolute right-1 top-0 min-w-11 min-h-12 flex items-center justify-center text-gray-400 hover:text-blue-600"
+                            >
+                              {isDeepSeekKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-h-5 flex-1">
+                            {deepSeekTestStatus !== 'idle' && (
+                              <span
+                                role="status"
+                                className={`text-xs font-bold break-all ${deepSeekTestStatus === 'success' ? 'text-green-600' : deepSeekTestStatus === 'testing' ? 'text-blue-600' : 'text-red-500'}`}
+                              >
+                                {deepSeekTestMessage}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleTestDeepSeek}
+                            disabled={deepSeekTestStatus === 'testing'}
+                            className="min-h-11 shrink-0 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60 flex items-center justify-center gap-2"
+                          >
+                            {deepSeekTestStatus === 'testing' && <RefreshCw className="w-4 h-4 animate-spin" />}
+                            {deepSeekTestStatus === 'testing' ? '测试中...' : '测试连接'}
+                          </button>
+                        </div>
+
+                      </div>
+                    )}
+                  </div>
+
                   {/* Xiaoche relay — independent config keys prevent cross-provider overrides. */}
                   <div className={`p-5 sm:p-7 lg:p-8 rounded-3xl border transition-all ${xiaocheEnabled ? 'bg-white dark:bg-white/5 border-cyan-200 dark:border-cyan-500/30' : 'bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 opacity-80'}`}>
                     <div className="flex items-start justify-between gap-4 mb-6">
@@ -2164,6 +2322,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           className="mt-4 w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-blue-500/25 dark:bg-white/5 dark:text-white"
                         >
                           <option value="auto">自动选择（按已启用服务优先级）</option>
+                          <option value="deepseek">DeepSeek 原生 API</option>
                           <option value="plato">柏拉图 API</option>
                           <option value="yunwu">云雾 API</option>
                           <option value="runninghub">RunningHub API</option>
@@ -2171,7 +2330,13 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                         </select>
                         {virseEnabled && (
                           <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600 dark:bg-violet-500/10 dark:text-violet-300">
-                            当前能力路由：图像 → Virse（千问 → 千问 API）；文本 / Agent → {textApiProvider === 'auto' ? '自动选择' : textApiProvider}
+                            当前能力路由：图像 → Virse（千问 → 千问 API）；文本 / Agent → {
+                              textApiProvider === 'auto'
+                                ? '自动选择'
+                                : textApiProvider === 'deepseek'
+                                  ? 'DeepSeek 原生 API'
+                                  : textApiProvider
+                            }
                           </div>
                         )}
                       </div>

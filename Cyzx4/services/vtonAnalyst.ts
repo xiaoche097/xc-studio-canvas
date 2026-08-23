@@ -1,5 +1,5 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { generateContentWithAnalysisFallback, getApiConfig, DEFAULT_TEXT_MODEL } from "../utils/apiHelpers";
+import { HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { generateContentWithAnalysisFallback, getAiClient, DEFAULT_TEXT_MODEL } from "../utils/apiHelpers";
 
 /**
  * VTON Material Analyst (Pass 1 of Dual-Agent architecture)
@@ -11,15 +11,7 @@ export const analyzeVtonMaterials = async (
     type: 'global' | 'target'; 
   }
 ): Promise<string> => {
-  const config = getApiConfig();
-  const ai = new GoogleGenAI({
-    apiKey: config.apiKey,
-    httpOptions: config.isYunwu ? { 
-      baseUrl: config.baseUrl,
-      headers: { Authorization: `Bearer ${config.apiKey}` }
-    } : undefined,
-    apiVersion: config.apiVersion as any
-  });
+  const ai = getAiClient();
 
   const prompt = options.type === 'global' 
     ? "Analyze these reference images. Provide a detailed VTON REPORT (max 200 words) describing: 1. Model's facial shape, skin tone, hair. 2. Garment's precise COLOR, PRINTS, PATTERNS, LOGOS, and graphic designs. 3. STRUCTURAL FEATURES: Explicitly identify the NECKLINE (MUST specify if it has visible stitching lines/车缝线 or is seamless/无痕), SLEEVE TYPE, and HEM LENGTH (MUST specify if it is a 'cropped waist', and whether it is a full crop/high crop or partial crop/low crop). 4. Fabric texture and fit style. 5. Identify the dominant color temperature. CRITICAL: Avoid NSFW terms like 'navel', 'underwear', 'panties'. Use safe terms like 'midriff', 'cropped waist', 'swimwear bottom'."
@@ -42,7 +34,7 @@ export const analyzeVtonMaterials = async (
           { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ]
       }
-    }, { config });
+    });
     return response.text || "Analysis unavailable.";
   } catch (e) {
     console.warn("[Analyst Agent] Analysis failed:", e);
@@ -69,15 +61,7 @@ export const analyzeGarmentFeatures = async (
   images: { base64: string; mimeType: string }[],
   userGuidance: string
 ): Promise<GarmentAnalysisResult | null> => {
-  const config = getApiConfig();
-  const ai = new GoogleGenAI({
-    apiKey: config.apiKey,
-    httpOptions: config.isYunwu ? { 
-      baseUrl: config.baseUrl,
-      headers: { Authorization: `Bearer ${config.apiKey}` }
-    } : undefined,
-    apiVersion: config.apiVersion as any
-  });
+  const ai = getAiClient();
 
   const prompt = `
 **ROLE**: Top-tier Fashion Technical Designer & AI Prompt Engineer.
@@ -120,7 +104,7 @@ export const analyzeGarmentFeatures = async (
           { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ]
       }
-    }, { config });
+    });
 
     let text = response.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -138,15 +122,7 @@ export const analyzeGarmentFeatures = async (
 export const analyzeImagePerspective = async (
   image: { base64: string; mimeType: string }
 ): Promise<'A' | 'B' | 'C' | 'D' | 'E' | 'RETOUCH' | null> => {
-  const config = getApiConfig();
-  const ai = new GoogleGenAI({
-    apiKey: config.apiKey,
-    httpOptions: config.isYunwu ? { 
-      baseUrl: config.baseUrl,
-      headers: { Authorization: `Bearer ${config.apiKey}` }
-    } : undefined,
-    apiVersion: config.apiVersion as any
-  });
+  const ai = getAiClient();
 
   const prompt = `
 **ROLE**: Top-tier Fashion Photography Perspective Analyst.
@@ -190,7 +166,7 @@ export const analyzeImagePerspective = async (
           { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ]
       }
-    }, { config });
+    });
 
     let text = response.text || "{}";
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();

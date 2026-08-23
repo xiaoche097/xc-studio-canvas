@@ -199,8 +199,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const handleSave = () => {
         setIsSaving(true);
         setTimeout(() => {
+            const deepSeekModel = selectedScriptModels.find(model => model.toLowerCase().includes('deepseek'));
+            const providersToSave = providers.map(provider => provider.id === 'deepseek'
+                ? { ...provider, defaultModel: deepSeekModel || provider.defaultModel || 'deepseek-v4-flash' }
+                : provider);
             saveProviderSettings({
-                providers,
+                providers: providersToSave,
                 activeProviderId,
                 replicateKey,
                 klingKey,
@@ -847,7 +851,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         {/* Edit Provider Modal Overlay */}
                         <AnimatePresence>
                             {editingProvider && (
-                                <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+                                <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-6">
                                     <motion.div
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
@@ -859,7 +863,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                         initial={{ scale: 0.9, opacity: 0, y: 20 }}
                                         animate={{ scale: 1, opacity: 1, y: 0 }}
                                         exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                                        className="bg-[#1a1a1a] text-white rounded-[2rem] w-full max-w-lg p-10 relative z-[111] shadow-2xl overflow-hidden border border-white/5"
+                                        className="bg-[#1a1a1a] text-white rounded-3xl sm:rounded-[2rem] w-full max-w-lg p-6 sm:p-10 relative z-[111] shadow-2xl overflow-hidden border border-white/5"
                                     >
                                         <div className="flex items-center justify-between mb-8 border-b border-white/5 pb-6">
                                             <div>
@@ -896,10 +900,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                                     value={editingProvider.baseUrl}
                                                     onChange={e => setEditingProvider({ ...editingProvider, baseUrl: e.target.value })}
                                                     placeholder="https://api.openai.com"
-                                                    disabled={!editingProvider.isCustom}
-                                                    className={`w-full px-5 py-3 bg-white/5 border border-white/5 rounded-xl outline-none focus:border-blue-500/50 transition-all font-mono text-xs ${!editingProvider.isCustom ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    disabled={!editingProvider.isCustom && editingProvider.id !== 'deepseek'}
+                                                    className={`w-full min-h-11 px-5 py-3 bg-white/5 border border-white/5 rounded-xl outline-none focus:border-blue-500/50 transition-all font-mono text-xs ${!editingProvider.isCustom && editingProvider.id !== 'deepseek' ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                 />
                                             </div>
+
+                                            {editingProvider.id === 'deepseek' && (
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest pl-1">默认 Agent 模型</label>
+                                                    <input
+                                                        value={editingProvider.defaultModel || 'deepseek-v4-flash'}
+                                                        onChange={e => setEditingProvider({ ...editingProvider, defaultModel: e.target.value })}
+                                                        placeholder="deepseek-v4-flash"
+                                                        className="w-full min-h-11 px-5 py-3 bg-white/5 border border-white/5 rounded-xl outline-none focus:border-blue-500/50 transition-all font-mono text-xs"
+                                                    />
+                                                    <p className="text-[10px] leading-relaxed text-white/25 pl-1">DeepSeek 负责 Harness 规划与工具调用；图片、视频模型仍使用原有映射。</p>
+                                                </div>
+                                            )}
 
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between pr-2">

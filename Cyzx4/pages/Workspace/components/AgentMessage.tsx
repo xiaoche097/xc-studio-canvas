@@ -7,6 +7,8 @@ import {
 import { ChatMessage } from '../../../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ClothingStudioCards } from './workflow/ClothingStudioCards';
+import { DeepSeekHarnessTrace } from './DeepSeekHarnessTrace';
+import { normalizeHarnessResponse } from '../../../services/agents/runtime/harness-response';
 import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
 
 interface AgentMessageProps {
@@ -34,9 +36,15 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
 }) => {
     const [isAnalysisExpanded, setIsAnalysisExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
+    const isDeepSeekHarness = (message.agentData as any)?.workflowState?.type === 'deepseek-harness';
+    const visibleMessageText = useMemo(() => (
+        isDeepSeekHarness
+            ? normalizeHarnessResponse(message.text, '已隐藏内部执行内容。').text
+            : message.text
+    ), [isDeepSeekHarness, message.text]);
 
     const handleCopy = () => {
-        navigator.clipboard.writeText(message.text);
+        navigator.clipboard.writeText(visibleMessageText);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -51,7 +59,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
     const { cleanText, proposals } = useMemo(() => {
         // 优先使用结构化 proposals（来自 AgentTask.output.proposals）
         if (message.agentData?.proposals && message.agentData.proposals.length > 0) {
-            return { cleanText: message.text, proposals: message.agentData.proposals as any[] };
+            return { cleanText: visibleMessageText, proposals: message.agentData.proposals as any[] };
         }
 
         // 如果消息已经包含了生成的资产 url 或 assets，说明任务已自动执行，不再展示方案按钮
@@ -61,7 +69,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
         const foundProposals: any[] = [];
         let match;
         
-        while ((match = proposalRegex.exec(message.text)) !== null) {
+        while ((match = proposalRegex.exec(visibleMessageText)) !== null) {
             try {
                 // 如果已执行，我们跳过解析 proposals，只负责清理文本
                 if (!hasExecuted) {
@@ -73,9 +81,9 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
             }
         }
 
-        const textWithoutProposals = normalizeEscapedNewlines(message.text.replace(proposalRegex, '').trim());
+        const textWithoutProposals = normalizeEscapedNewlines(visibleMessageText.replace(proposalRegex, '').trim());
         return { cleanText: textWithoutProposals, proposals: foundProposals };
-    }, [message.text, message.agentData]);
+    }, [visibleMessageText, message.agentData]);
 
     const agentData = message.agentData as any;
     const imageCards = useMemo(() => {
@@ -97,7 +105,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
     }, [agentData]);
 
     const oneClickView = useMemo(() => {
-        if (message.skillData?.id !== 'xcai-oneclick' && message.text.indexOf('SKYSPER One-Click') === -1) return { intro: '', sections: [] as Array<{ title: string; body: string }> };
+        if (message.skillData?.id !== 'xcai-oneclick' && visibleMessageText.indexOf('SKYSPER One-Click') === -1) return { intro: '', sections: [] as Array<{ title: string; body: string }> };
         const sections: Array<{ title: string; body: string }> = [];
         const lines = cleanText.split('\n');
         const intro: string[] = [];
@@ -125,7 +133,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
 
         pushCurrent();
         return { intro: intro.join('\n').trim(), sections };
-    }, [cleanText, message.skillData?.id, message.text]);
+    }, [cleanText, message.skillData?.id, visibleMessageText]);
 
     const isWorkflowUi = message.kind === 'workflow_ui' && !!message.workflowUi;
 
@@ -150,6 +158,8 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
                         ))}
                     </div>
                 )}
+
+                <DeepSeekHarnessTrace workflowState={agentData?.workflowState} />
 
                 {/* 1. 引导文字 */}
                 {cleanText && oneClickView.sections.length === 0 && (
@@ -212,7 +222,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
                 )}
 
                 {/* 2. 可折叠分析区 */}
-                {agentData?.analysis && (
+                {agentData?.analysis && agentData?.workflowState?.type !== 'deepseek-harness' && (
                     <div className="px-1">
                         <button 
                             onClick={() => setIsAnalysisExpanded(!isAnalysisExpanded)}

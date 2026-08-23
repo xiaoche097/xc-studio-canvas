@@ -5,6 +5,14 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { DEFAULT_XIAOCHE_BASE_URL } from "./xiaocheModels";
+import {
+    DEFAULT_DEEPSEEK_BASE_URL,
+    DEFAULT_DEEPSEEK_MODEL,
+} from "../services/provider-config";
+import {
+    createDeepSeekCreativeClient,
+    type CreativeVisionInput,
+} from "./deepseekCreativeClient";
 
 // ==================== 常量定义 ====================
 export const API_TIMEOUT_MS = 90000; // 90秒超时
@@ -91,6 +99,8 @@ export const getOrderedTextModels = (_requestedModel?: string): string[] => {
 export interface ApiConfig {
     apiKey: string;
     baseUrl?: string;
+    model?: string;
+    isDeepSeek?: boolean;
     isYunwu: boolean;
     isPlato: boolean;
     isJijing?: boolean;
@@ -106,7 +116,7 @@ export interface GenerateContentParams {
     config?: any;
 }
 
-type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRunningHub' | 'isXiaoche'>;
+type RuntimeModelConfig = Pick<ApiConfig, 'isYunwu' | 'isPlato' | 'isRunningHub' | 'isXiaoche' | 'isDeepSeek' | 'model'>;
 
 const orderedNo1ImageUrls = (preferredUrl?: string | null): string[] => {
     const normalizedPreferred = !preferredUrl || preferredUrl === LEGACY_JIJING_BASE_URL
@@ -127,6 +137,7 @@ export const resolveRuntimeModelId = (
     modelId: string,
     config?: RuntimeModelConfig
 ): string => {
+    if (config?.isDeepSeek) return config.model || DEFAULT_DEEPSEEK_MODEL;
     const runtimeConfig = config || {
         isXiaoche:
             Boolean(localStorage.getItem("xiaoche_api_key")) &&
@@ -270,7 +281,9 @@ export async function generateContentWithAnalysisFallback<TClient extends {
 ): Promise<any> {
     const runtimeConfig = options.config || getApiConfig();
     const requestedModel = request.model || DEFAULT_TEXT_MODEL;
-    const candidateModels = getOrderedTextModels(requestedModel);
+    const candidateModels = runtimeConfig.isDeepSeek
+        ? [runtimeConfig.model || DEFAULT_DEEPSEEK_MODEL]
+        : getOrderedTextModels(requestedModel);
 
     let lastError: any = null;
 
@@ -357,6 +370,38 @@ export const getApiConfig = (
         || preferredTextProvider === 'auto'
         || preferredTextProvider === provider
     );
+
+    // DeepSeek is a text/Agent provider only. Creative pages use it for
+    // analysis and planning, while image/video generation remains on the
+    // independently configured media provider.
+    if (!includeImageOnlyProviders && textProviderAllows('deepseek')) {
+        const deepSeekEnabled = localStorage.getItem('deepseek_enabled') !== 'false';
+        const rawKeys = localStorage.getItem('deepseek_api_key') || '';
+        const keys = rawKeys
+            .split(/[,\n]/)
+            .map((key) => key.trim())
+            .filter((key) => key && !key.startsWith('#'));
+        if (deepSeekEnabled && keys.length > 0) {
+            const currentIndex = forceIndex === undefined
+                ? 0
+                : Math.abs(forceIndex) % keys.length;
+            return {
+                apiKey: keys[currentIndex],
+                baseUrl: (localStorage.getItem('deepseek_base_url') || DEFAULT_DEEPSEEK_BASE_URL)
+                    .trim()
+                    .replace(/\/+$/, ''),
+                model: localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL,
+                isDeepSeek: true,
+                isYunwu: false,
+                isPlato: false,
+                isJijing: false,
+                isRunningHub: false,
+                isXiaoche: false,
+                keyCount: keys.length,
+                currentIndex,
+            };
+        }
+    }
     // Xiaoche relay: explicit opt-in and independent storage keys keep all existing providers unchanged.
     const xiaocheKey = localStorage.getItem("xiaoche_api_key");
     const xiaocheBaseUrl = localStorage.getItem("xiaoche_base_url");
@@ -730,8 +775,84 @@ const createRunningHubChatClient = (config: ApiConfig) => {
     } as unknown as GoogleGenAI;
 };
 
+const describeImagesForDeepSeek = async ({
+    images,
+    taskText,
+}: CreativeVisionInput): Promise<string> => {
+    const { ai, config } = getImageAiClient();
+    const parts: any[] = [];
+    images.forEach((image, index) => {
+        parts.push({ text: `IMAGE ${index + 1}（保持此编号，不要合并或重排）` });
+        parts.push({
+            inlineData: {
+                mimeType: image.mimeType,
+                data: image.base64,
+            },
+        });
+    });
+    parts.push({
+        text: [
+            '你是 XcAI 的视觉读取代理，只负责把图片中可观察到的事实转换为文字，供 DeepSeek 完成后续创作分析。',
+            '按 IMAGE 1、IMAGE 2……分别描述，不得猜测看不到的品牌参数、价格、材质成分或人物身份。',
+            '重点记录：主体身份与数量、外观结构、颜色材质、文字与 Logo、构图、镜头、姿态、场景、光线、空间关系，以及必须保持不变的细节。',
+            '如果图片承担不同角色（产品图、模特图、场景图、风格图），只根据图片前后的标签与可见证据说明其作用。',
+            `本次创作任务摘要：${taskText.slice(0, 5000)}`,
+            '输出紧凑的中文分图描述，不执行创作任务，不生成最终方案。',
+        ].join('\n'),
+    });
+
+    const preferredModels = getOrderedTextModels()
+        .filter((model) => model.toLowerCase().includes('gemini'));
+    const candidateModels = Array.from(new Set([
+        ...preferredModels,
+        GEMINI_FLASH_LITE_PREVIEW_MODEL,
+        YUNWU_GEMINI_FLASH_LITE_MODEL,
+    ]));
+    let lastError: unknown;
+    for (const candidate of candidateModels) {
+        const model = resolveRuntimeModelId(candidate, config);
+        try {
+            const response = await executeWithTimeout(
+                ai.models.generateContent({ model, contents: { parts } }),
+                {
+                    timeoutMs: ANALYSIS_FALLBACK_TIMEOUT_MS,
+                    timeoutMessage: `Vision proxy timed out using ${model}.`,
+                },
+            );
+            const text = String(response?.text || '').trim();
+            if (text) return text;
+            lastError = new Error(`Vision proxy returned empty output using ${model}.`);
+        } catch (error) {
+            lastError = error;
+            if (!shouldFallbackAnalysisModel(error)) break;
+        }
+    }
+    throw lastError instanceof Error
+        ? lastError
+        : new Error('No visual analysis provider could read the creative reference images.');
+};
+
 export const getAiClient = (): GoogleGenAI => {
     const config = getApiConfig();
+
+    if (config.isDeepSeek) {
+        const configuredMaxTokens = Number.parseInt(
+            localStorage.getItem('deepseek_max_tokens') || '16384',
+            10,
+        );
+        return createDeepSeekCreativeClient({
+            apiKey: config.apiKey,
+            baseUrl: config.baseUrl || DEFAULT_DEEPSEEK_BASE_URL,
+            model: config.model || DEFAULT_DEEPSEEK_MODEL,
+            reasoningEffort: (() => {
+                const saved = localStorage.getItem('deepseek_reasoning_effort');
+                return saved === 'off' || saved === 'low' || saved === 'max' ? saved : 'high';
+            })(),
+            maxTokens: Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
+                ? configuredMaxTokens
+                : 16_384,
+        }, describeImagesForDeepSeek) as unknown as GoogleGenAI;
+    }
 
     if (config.isRunningHub) {
         return createRunningHubChatClient(config);

@@ -34,6 +34,7 @@ const DEFAULT_MODEL_WHITELIST = [
     'gemini-2.5-pro', 'gemini-2.5-pro-thinking',
     'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-6-thinking',
     'claude-haiku-4-5-20251001-thinking', 'claude-haiku-4-5-20251001',
+    'deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp',
     'deepseek-v3.2', 'deepseek-v3.2-thinking', /* cspell:disable-line */
     'gpt-5.3-codex', 'gpt-5.3-codex-high', 'grok-4.2',
     // 视频模型
@@ -194,8 +195,12 @@ const SettingsPage: React.FC = () => {
     const handleSave = () => {
         setIsSaving(true);
         setTimeout(() => {
+            const deepSeekModel = selectedScriptModels.find(model => model.toLowerCase().includes('deepseek'));
+            const providersToSave = providers.map(provider => provider.id === 'deepseek'
+                ? { ...provider, defaultModel: deepSeekModel || provider.defaultModel || 'deepseek-v4-flash' }
+                : provider);
             saveProviderSettings({
-                providers,
+                providers: providersToSave,
                 activeProviderId,
                 replicateKey,
                 klingKey,
@@ -626,6 +631,17 @@ const SettingsPage: React.FC = () => {
                                         placeholder="https://..." 
                                     />
                                 </div>
+                                {editingProvider.id === 'deepseek' && (
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">默认 Agent 模型</label>
+                                        <SettingsInput
+                                            value={editingProvider.defaultModel || 'deepseek-v4-flash'}
+                                            onChange={e => setEditingProvider({ ...editingProvider, defaultModel: e.target.value })}
+                                            placeholder="deepseek-v4-flash"
+                                        />
+                                        <p className="text-[11px] text-gray-400 ml-1">支持 deepseek-v4-flash、deepseek-v4-pro 和视觉实验模型，也可填写兼容模型 ID。</p>
+                                    </div>
+                                )}
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">API 密钥 (支持多行轮询)</label>
                                     <textarea

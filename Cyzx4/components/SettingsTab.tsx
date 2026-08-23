@@ -23,12 +23,15 @@ import {
   Cpu
 } from 'lucide-react';
 import { resolveRuntimeModelId } from '../utils/apiHelpers';
+import { testDeepSeekConnection } from '../services/agents/runtime/deepseek-adapter';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
 const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
+const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 const AVAILABLE_MODELS = [
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', description: '前沿级 Flash 多模态模型', badge: '最新首选', type: 'text' },
@@ -143,6 +146,17 @@ const SettingsTab: React.FC = () => {
   const [platoTestStatus, setPlatoTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [platoTestMessage, setPlatoTestMessage] = useState('');
 
+  // ========== DeepSeek 原生 Harness 配置 ==========
+  const [deepSeekApiKey, setDeepSeekApiKey] = useState('');
+  const [deepSeekBaseUrl, setDeepSeekBaseUrl] = useState(DEFAULT_DEEPSEEK_BASE_URL);
+  const [deepSeekModel, setDeepSeekModel] = useState(DEFAULT_DEEPSEEK_MODEL);
+  const [deepSeekReasoning, setDeepSeekReasoning] = useState<'off' | 'low' | 'high' | 'max'>('high');
+  const [deepSeekEnabled, setDeepSeekEnabled] = useState(false);
+  const [isDeepSeekKeyVisible, setIsDeepSeekKeyVisible] = useState(false);
+  const [deepSeekStatus, setDeepSeekStatus] = useState<'idle' | 'success' | 'empty'>('idle');
+  const [deepSeekTestStatus, setDeepSeekTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [deepSeekTestMessage, setDeepSeekTestMessage] = useState('');
+
   // 聊天状态
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -185,6 +199,14 @@ const SettingsTab: React.FC = () => {
     if (savedPlatoKey) setPlatoApiKey(savedPlatoKey);
     setPlatoEnabled(savedPlatoEnabled === 'true'); // Default to false
     setPlatoStatus(savedPlatoKey ? 'success' : 'empty');
+
+    const savedDeepSeekKey = localStorage.getItem('deepseek_api_key') || '';
+    setDeepSeekApiKey(savedDeepSeekKey);
+    setDeepSeekBaseUrl(localStorage.getItem('deepseek_base_url') || DEFAULT_DEEPSEEK_BASE_URL);
+    setDeepSeekModel(localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL);
+    setDeepSeekReasoning((localStorage.getItem('deepseek_reasoning_effort') as any) || 'high');
+    setDeepSeekEnabled(localStorage.getItem('deepseek_enabled') === 'true');
+    setDeepSeekStatus(savedDeepSeekKey ? 'success' : 'empty');
   }, []);
 
   // Toggle Handlers
@@ -204,6 +226,50 @@ const SettingsTab: React.FC = () => {
     const newState = !platoEnabled;
     setPlatoEnabled(newState);
     localStorage.setItem('plato_enabled', String(newState));
+  };
+
+  const toggleDeepSeek = () => {
+    const next = !deepSeekEnabled;
+    setDeepSeekEnabled(next);
+    localStorage.setItem('deepseek_enabled', String(next));
+  };
+
+  const handleSaveDeepSeekConfig = () => {
+    if (!deepSeekApiKey.trim()) {
+      setDeepSeekStatus('empty');
+      return;
+    }
+    localStorage.setItem('deepseek_api_key', deepSeekApiKey.trim());
+    localStorage.setItem('deepseek_base_url', deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL);
+    localStorage.setItem('deepseek_model', deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL);
+    localStorage.setItem('deepseek_reasoning_effort', deepSeekReasoning);
+    localStorage.setItem('deepseek_enabled', String(deepSeekEnabled));
+    localStorage.setItem('deepseek_harness_enabled', 'true');
+    localStorage.setItem('text_api_provider', 'deepseek');
+    setDeepSeekStatus('success');
+  };
+
+  const handleTestDeepSeekConnection = async () => {
+    const firstKey = deepSeekApiKey.split(/[,\n]/).map(key => key.trim()).find(Boolean);
+    if (!firstKey) {
+      setDeepSeekTestStatus('error');
+      setDeepSeekTestMessage('请先输入 API Key');
+      return;
+    }
+    setDeepSeekTestStatus('testing');
+    setDeepSeekTestMessage('正在测试...');
+    try {
+      const reply = await testDeepSeekConnection({
+        baseUrl: deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL,
+        apiKey: firstKey,
+        model: deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL,
+      });
+      setDeepSeekTestStatus('success');
+      setDeepSeekTestMessage(`✅ 连接成功${reply ? `：${reply}` : ''}`);
+    } catch (error) {
+      setDeepSeekTestStatus('error');
+      setDeepSeekTestMessage(`❌ ${error instanceof Error ? error.message : '连接失败'}`);
+    }
   };
 
   // 保存原生 API Key
@@ -495,6 +561,92 @@ const SettingsTab: React.FC = () => {
               </div>
               {((platoStatus === 'success' && platoEnabled) || (yunwuStatus === 'success' && yunwuEnabled) || (nativeStatus === 'success' && nativeEnabled)) && (
                 <CheckCircle2 className={`w-5 h-5 ${platoStatus === 'success' && platoEnabled ? 'text-rose-500' : yunwuStatus === 'success' && yunwuEnabled ? 'text-purple-500' : 'text-blue-500'}`} />
+              )}
+            </div>
+
+            {/* ========== DeepSeek 原生 Harness ========== */}
+            <div className={`bg-pastel-card p-4 sm:p-6 rounded-2xl border shadow-sm transition-all ${!deepSeekEnabled ? 'opacity-70 border-gray-200 bg-gray-50' : 'border-cyan-200'}`}>
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`p-2 rounded-lg shrink-0 ${deepSeekEnabled ? 'bg-cyan-100' : 'bg-gray-200'}`}>
+                    <Sparkles className={`w-5 h-5 ${deepSeekEnabled ? 'text-cyan-700' : 'text-gray-500'}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className={`text-base sm:text-lg font-bold truncate ${deepSeekEnabled ? 'text-pastel-text' : 'text-gray-500'}`}>DeepSeek 原生 API</h3>
+                    <p className="text-xs text-pastel-muted">Harness 多步推理与工具调用</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleDeepSeek}
+                  aria-label="启用 DeepSeek 原生 API"
+                  className={`relative w-11 h-6 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${deepSeekEnabled ? 'bg-cyan-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${deepSeekEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              {deepSeekEnabled && (
+                <>
+                  <p className="text-pastel-muted mb-5 text-sm leading-relaxed border-l-4 border-cyan-300 pl-4 py-2 bg-cyan-50/60 rounded-r-lg">
+                    DeepSeek 负责规划、原生流式 Tool Calls 和多步执行；现有图片、视频、局部编辑模型保持原调用方式。
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2 sm:col-span-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text"><Globe className="w-4 h-4 text-cyan-600" />API Base URL</label>
+                      <input
+                        value={deepSeekBaseUrl}
+                        onChange={event => setDeepSeekBaseUrl(event.target.value)}
+                        placeholder={DEFAULT_DEEPSEEK_BASE_URL}
+                        className="w-full min-h-11 bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none font-mono text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-pastel-text">Agent 模型</label>
+                      <input
+                        value={deepSeekModel}
+                        onChange={event => setDeepSeekModel(event.target.value)}
+                        placeholder={DEFAULT_DEEPSEEK_MODEL}
+                        className="w-full min-h-11 bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none font-mono text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-pastel-text">推理强度</label>
+                      <select
+                        value={deepSeekReasoning}
+                        onChange={event => setDeepSeekReasoning(event.target.value as any)}
+                        className="w-full min-h-11 bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none text-sm"
+                      >
+                        <option value="off">关闭</option><option value="low">Low</option><option value="high">High</option><option value="max">Max</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-pastel-text"><Key className="w-4 h-4 text-cyan-600" />API Key</label>
+                      <div className="relative">
+                        <input
+                          type={isDeepSeekKeyVisible ? 'text' : 'password'}
+                          value={deepSeekApiKey}
+                          onChange={event => setDeepSeekApiKey(event.target.value)}
+                          placeholder="sk-..."
+                          className="w-full min-h-11 bg-pastel-input border border-pastel-border rounded-xl py-3 pl-4 pr-12 text-pastel-text focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none font-mono text-sm"
+                        />
+                        <button type="button" onClick={() => setIsDeepSeekKeyVisible(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-pastel-muted" aria-label="显示或隐藏 DeepSeek API Key">
+                          {isDeepSeekKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {deepSeekStatus === 'success' && <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-full">配置已保存</span>}
+                      {deepSeekTestStatus !== 'idle' && <span className={`text-xs font-semibold px-3 py-2 rounded-full border ${deepSeekTestStatus === 'error' ? 'text-red-700 bg-red-50 border-red-200' : 'text-cyan-700 bg-cyan-50 border-cyan-200'}`}>{deepSeekTestMessage}</span>}
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button type="button" onClick={handleTestDeepSeekConnection} disabled={deepSeekTestStatus === 'testing'} className="min-h-11 px-5 py-2.5 bg-pastel-input border border-pastel-border rounded-xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"><RefreshCw className={`w-4 h-4 ${deepSeekTestStatus === 'testing' ? 'animate-spin' : ''}`} />测试连接</button>
+                      <button type="button" onClick={handleSaveDeepSeekConfig} className="min-h-11 px-6 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center justify-center gap-2"><Save className="w-4 h-4" />保存并设为 Agent</button>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
 

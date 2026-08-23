@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronDown, Plus, X, ArrowUp, Paperclip, Lightbulb, Zap, Globe, Box, Sparkles,
     Image as ImageIcon, Check, Video, FileText, Banana, ChevronLeft, ChevronRight,
-    Activity, Layers, Cloud, ShieldCheck, Monitor, MapPin, MessageSquare
+    Activity, Layers, Cloud, ShieldCheck, Monitor, MapPin, MessageSquare, Square
 } from 'lucide-react';
 import { useAgentStore } from '../../../stores/agent.store';
 import { useCanvasStore } from '../../../stores/canvas.store';
@@ -133,6 +133,7 @@ interface InputAreaProps {
     creationMode: 'agent' | 'chat' | 'image' | 'video';
     setCreationMode: (mode: 'agent' | 'chat' | 'image' | 'video') => void;
     handleSend: (overridePrompt?: string, overrideAttachments?: File[], overrideWeb?: boolean, skillData?: any) => Promise<void>;
+    onCancelAgent?: () => void;
     handleModeSwitch: (mode: 'thinking' | 'fast') => void;
     fileInputRef: React.RefObject<HTMLInputElement | null>;
     selectedChipId: string | null;
@@ -173,7 +174,7 @@ interface InputAreaProps {
 }
 
 export const InputArea: React.FC<InputAreaProps> = ({
-    creationMode, setCreationMode, handleSend, handleModeSwitch, fileInputRef,
+    creationMode, setCreationMode, handleSend, onCancelAgent, handleModeSwitch, fileInputRef,
     selectedChipId, setSelectedChipId, hoveredChipId, setHoveredChipId,
     showModeSelector, setShowModeSelector,
     showModelPreference, setShowModelPreference,
@@ -209,6 +210,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const imageGenUploads = useAgentStore(s => s.imageGenUploads);
     const isPickingFromCanvas = useAgentStore(s => s.isPickingFromCanvas);
     const pendingAttachments = useAgentStore(s => s.pendingAttachments);
+    const currentTask = useAgentStore(s => s.currentTask);
 
     const {
         setInputBlocks, removeInputBlock, appendInputFile,
@@ -1366,10 +1368,15 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
                         {/* Send button always available (agent/chat/image/video) */}
                         <button
-                            onClick={() => handleSend(undefined, undefined, undefined, sendSkill)}
-                            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-950 text-white shadow-sm outline-none transition-colors hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                            onClick={() => currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing')
+                                ? onCancelAgent?.()
+                                : handleSend(undefined, undefined, undefined, sendSkill)}
+                            aria-label={currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') ? '中止 Agent 任务' : '发送'}
+                            className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-white shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 ${currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') ? 'bg-red-500 hover:bg-red-600 focus-visible:ring-red-500' : 'bg-slate-950 hover:bg-slate-800 focus-visible:ring-slate-950'}`}
                         >
-                            <ArrowUp size={16} strokeWidth={2.5} />
+                            {currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing')
+                                ? <Square size={14} fill="currentColor" />
+                                : <ArrowUp size={16} strokeWidth={2.5} />}
                         </button>
                     </div>
                 </div>

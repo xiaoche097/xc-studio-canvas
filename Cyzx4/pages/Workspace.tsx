@@ -119,54 +119,6 @@ import {
 } from "../services/gemini";
 import { validateApprovedAnchorConsistency } from "../services/validators";
 
-// Chat mode persona: prompt optimizer (user-provided).
-// Kept as a plain string so it can be passed into createChatSession() as systemInstruction.
-const PROMPT_OPTIMIZER_SYSTEM_INSTRUCTION = `# Role: 用户提示词精准描述专家
-
-## Profile
-- Author: prompt-optimizer
-- Version: 2.0.0
-- Language: 中文
-- Description: 专门将泛泛而谈、缺乏针对性的用户提示词转换为精准、具体、有针对性的描述
-
-## Background
-- 用户提示词经常过于宽泛、缺乏具体细节
-- 泛泛而谈的提示词难以获得精准的回答
-- 具体、精准的描述能够引导AI提供更有针对性的帮助
-
-## 任务理解
-你的任务是将泛泛而谈的用户提示词转换为精准、具体、有针对性的描述。你不是在执行提示词中的任务，而是在改进提示词的精准度和针对性。
-
-## Skills
-1. 精准化能力
-   - 细节挖掘: 识别需要具体化的抽象概念和泛泛表述
-   - 参数明确: 为模糊的要求添加具体的参数和标准
-   - 范围界定: 明确任务的具体范围和边界
-   - 目标聚焦: 将宽泛的目标细化为具体的可执行任务
-
-2. 描述增强能力
-   - 量化标准: 为抽象要求提供可量化的标准
-   - 示例补充: 添加具体的示例来说明期望
-   - 约束条件: 明确具体的限制条件和要求
-   - 执行指导: 提供具体的操作步骤和方法
-
-## Rules
-1. 保持核心意图: 在具体化的过程中不偏离用户的原始目标
-2. 增加针对性: 让提示词更加有针对性和可操作性
-3. 避免过度具体: 在具体化的同时保持适当的灵活性
-4. 突出重点: 确保关键要求得到精准的表达
-
-## Workflow
-1. 分析原始提示词中的抽象概念和泛泛表述
-2. 识别需要具体化的关键要素和参数
-3. 为每个抽象概念添加具体的定义和要求
-4. 重新组织表达，确保描述精准、有针对性
-
-## Output Requirements
-- 直接输出精准化后的用户提示词文本，确保描述具体、有针对性
-- 输出的是优化后的提示词本身，不是执行提示词对应的任务
-- 不要添加解释、示例或使用说明
-- 不要与用户进行交互或询问更多信息`;
 import {
   ChatMessage,
   Template,
@@ -179,6 +131,7 @@ import {
   VideoModel,
 } from "../types";
 import { getProject, saveProject, formatDate } from "../services/storage";
+import type { MaterialRecord } from "../services/materialLibrary";
 import { Content } from "@google/genai";
 import { useAgentOrchestrator } from "../hooks/useAgentOrchestrator";
 import { useProjectContext } from "../hooks/useProjectContext";
@@ -1586,6 +1539,54 @@ const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
+  const addMaterialToAgent = async (material: MaterialRecord) => {
+    const imageFiles = [
+      ...material.logos,
+      ...material.references,
+      ...material.files,
+    ].filter((file) => file.type.startsWith("image/")).slice(0, 12);
+
+    for (const file of imageFiles) {
+      await attachReferenceToAgent(file.dataUrl, file.name);
+    }
+
+    const materialContext = [
+      `请在本轮使用我的${material.kind === "brand" ? "品牌套件" : material.kind === "character" ? "角色素材" : material.kind === "product" ? "产品素材" : "自定义素材"}「${material.name || "未命名"}」。`,
+      material.guide ? `素材说明：${material.guide}` : "",
+      material.colors.length > 0 ? `品牌颜色：${material.colors.join("、")}` : "",
+      material.fontFiles.length > 0 ? `字体文件：${material.fontFiles.map((file) => file.name).join("、")}` : "",
+      material.audio.length > 0 ? `音频素材：${material.audio.map((file) => file.name).join("、")}` : "",
+      material.videos.length > 0 ? `视频素材：${material.videos.map((file) => file.name).join("、")}` : "",
+      material.files.some((file) => !file.type.startsWith("image/"))
+        ? `其他素材：${material.files.filter((file) => !file.type.startsWith("image/")).map((file) => file.name).join("、")}`
+        : "",
+      "已加入的图片必须作为本轮真实参考素材使用，不得忽略或替换成无关内容。",
+    ].filter(Boolean).join("\n");
+
+    const currentBlocks = useAgentStore.getState().inputBlocks;
+    let lastTextIndex = -1;
+    for (let index = currentBlocks.length - 1; index >= 0; index -= 1) {
+      if (currentBlocks[index]?.type === "text") {
+        lastTextIndex = index;
+        break;
+      }
+    }
+    const nextBlocks = currentBlocks.map((block, index) => index === lastTextIndex
+      ? {
+          ...block,
+          text: [block.text?.trim(), materialContext].filter(Boolean).join("\n\n"),
+        }
+      : block);
+    setInputBlocks(normalizeInputBlocks(nextBlocks));
+    if (!showAssistantRef.current) setShowAssistant(true);
+    setFeatureNotice(`已将「${material.name || "未命名"}」加入对话`);
+    if (featureNoticeTimerRef.current) clearTimeout(featureNoticeTimerRef.current);
+    featureNoticeTimerRef.current = setTimeout(() => {
+      setFeatureNotice(null);
+      featureNoticeTimerRef.current = null;
+    }, 2200);
+  };
+
   const startClothingWorkflow = () => {
     ensureClothingSession();
     clothingActions.reset();
@@ -2749,6 +2750,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
     isUploadingAttachments,
     processMessage,
     executeProposal,
+    cancelAgent,
   } = useAgentOrchestrator({
     projectContext,
     canvasState: { elements, pan, zoom, showAssistant },
@@ -2843,14 +2845,13 @@ const Workspace: React.FC<WorkspaceProps> = ({
           ? "gemini-3-pro-preview"
           : "gemini-3-flash-preview";
 
-      const ensurePromptOptimizerChat = () => {
-        if (!promptOptimizerChatRef.current || promptOptimizerModelRef.current !== modelName) {
-          promptOptimizerChatRef.current = createChatSession(
-            modelName,
-            promptOptimizerHistoryRef.current as any,
-            PROMPT_OPTIMIZER_SYSTEM_INSTRUCTION,
-          );
-          promptOptimizerModelRef.current = modelName;
+      const ensureChatSession = () => {
+        if (!chatSessionRef.current) {
+          const history = messages.map((message) => ({
+            role: message.role,
+            parts: [{ text: message.text }],
+          })) as Content[];
+          chatSessionRef.current = createChatSession(modelName, history);
         }
       };
 
@@ -2913,7 +2914,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       };
 
       try {
-        ensurePromptOptimizerChat();
+        ensureChatSession();
 
         // Convert video attachments to a few image frames for analysis.
         const sendFiles: File[] = [];
@@ -2941,7 +2942,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         });
 
         const stream = sendMessageStream(
-          promptOptimizerChatRef.current as any,
+          chatSessionRef.current as any,
           composedText,
           sendFiles,
           Boolean(isWeb),
@@ -2953,9 +2954,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
           updateMessage(messageId, { text: fullReply });
         }
 
-        // Track chat history for model switches.
-        promptOptimizerHistoryRef.current.push({ role: "user", parts: [{ text: composedText }] } as any);
-        promptOptimizerHistoryRef.current.push({ role: "model", parts: [{ text: fullReply }] } as any);
       } catch (error: any) {
         addMessage({
           id: `chat-err-${Date.now()}`,
@@ -3353,11 +3351,16 @@ const Workspace: React.FC<WorkspaceProps> = ({
             (url: unknown) => typeof url === "string" && Boolean(url),
           ),
       );
+    const refersToPreviousVisual =
+      /(?:他|她|它|这张|这个|这幅|这版|上一张|上一个|上一版|前一张|前面的|刚才|之前|原图|原来的|继续)/i.test(text);
+    const requestsVisualChange =
+      /(?:重新编辑|编辑一下|继续修改|继续改|只改|重做|重新做|换成|换为|改成|改为|变成|转成|调整|保持|保留|去掉|删除|移除|添加|增加|正面|背面|侧面|角度|朝向|姿势|构图|比例|颜色|服装|衣服|背景)/i.test(text);
     const revisionIntent =
       attachments.length === 0 &&
       !!latestGeneratedMessage &&
-      /搞错|错了|不对|不是这个|重做|重新做|刚才|上一张|前一张|前面的|继续修改|继续改|只改|保持.{0,12}不变|旁边.{0,16}(?:多|加|增加|添加|放|站)|(?:多一个|再加|加上|添加|增加|放入|放一个|站一个).{0,20}(?:人|男生|女生|男性|女性|模特|人物|物体|产品)?|(?:左边|右边|身后|前面).{0,16}(?:多|加|增加|添加|放|站)|比例.{0,12}(?:错|不对|改|调整)|(?:改成|改为|调整为).{0,8}\d+\s*[:：]\s*\d+/i.test(
-        text,
+      (
+        /搞错|错了|不对|不是这个|重做|重新做|刚才|上一张|前一张|前面的|继续修改|继续改|只改|保持.{0,12}不变|旁边.{0,16}(?:多|加|增加|添加|放|站)|(?:多一个|再加|加上|添加|增加|放入|放一个|站一个).{0,20}(?:人|男生|女生|男性|女性|模特|人物|物体|产品)?|(?:左边|右边|身后|前面).{0,16}(?:多|加|增加|添加|放|站)|比例.{0,12}(?:错|不对|改|调整)|(?:改成|改为|调整为).{0,8}\d+\s*[:：]\s*\d+/i.test(text)
+        || (refersToPreviousVisual && requestsVisualChange)
       );
     const latestGeneratedImageUrl = latestGeneratedMessage?.agentData?.imageUrls
       ?.find((url: unknown): url is string => typeof url === "string" && Boolean(url));
@@ -3613,6 +3616,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
                 "",
               previousAgent: latestGeneratedMessage?.agentData?.model,
               inheritedPreviousResult: inheritedRevisionReference,
+              previousAssetUrl: latestGeneratedImageUrl || "",
             }
           : undefined,
         skillData: specializedRoutingSkillData,
@@ -3688,6 +3692,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
       );
 
       if (result && result.output) {
+        const harnessState = result.output.workflowState?.type === 'deepseek-harness'
+          ? result.output.workflowState
+          : null;
         const derivedImageUrls =
           result.output.imageUrls && result.output.imageUrls.length > 0
             ? result.output.imageUrls
@@ -3716,8 +3723,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
           timestamp: Date.now(),
           error: result.status === "failed" || (hasFailedSkills && derivedImageUrls.length === 0),
           agentData: {
-            model: result.agentId,
-            title: "智能助理",
+            model: harnessState?.model || result.agentId,
+            title: harnessState ? "XcAI" : "智能助理",
             imageUrls: Array.from(new Set(derivedImageUrls)),
             proposals: result.output?.proposals,
             skillCalls: result.output?.skillCalls,
@@ -3998,9 +4005,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refImageInputRef = useRef<HTMLInputElement>(null);
   const chatSessionRef = useRef<any>(null);
-  const promptOptimizerChatRef = useRef<any>(null);
-  const promptOptimizerHistoryRef = useRef<any[]>([]);
-  const promptOptimizerModelRef = useRef<string>("");
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
   const weightTriggerRef = useRef<HTMLButtonElement>(null);
   const textSettingsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -5076,15 +5080,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
     }));
     chatSessionRef.current = createChatSession(modelName, historyContent);
 
-    // Keep prompt-optimizer chat in sync with model mode
-    if (promptOptimizerChatRef.current) {
-      promptOptimizerChatRef.current = createChatSession(
-        modelName,
-        promptOptimizerHistoryRef.current as any,
-        PROMPT_OPTIMIZER_SYSTEM_INSTRUCTION,
-      );
-      promptOptimizerModelRef.current = modelName;
-    }
   }, [modelMode]);
 
   useEffect(() => {
@@ -10575,6 +10570,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
             activeConversationId={activeConversationId}
             setActiveConversationId={setActiveConversationId}
             handleSend={handleSend}
+            onCancelAgent={cancelAgent}
             handleSmartGenerate={handleSmartGenerate}
             setPreviewUrl={setPreviewUrl}
             creationMode={creationMode}
@@ -10669,6 +10665,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
         messages={messages}
         onAddImage={insertResultToCanvas}
         onAttachToAgent={attachReferenceToAgent}
+        onAddMaterialToAgent={addMaterialToAgent}
         assistantOpen={showAssistant}
         pages={workspacePages.map(({ id: pageId, title }) => ({
           id: pageId,

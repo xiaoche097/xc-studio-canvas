@@ -24,6 +24,7 @@ interface AssistantSidebarProps {
     activeConversationId: string;
     setActiveConversationId: (id: string) => void;
     handleSend: (overridePrompt?: string, overrideAttachments?: File[], overrideWeb?: boolean, skillData?: any) => Promise<void>;
+    onCancelAgent?: () => void;
     handleSmartGenerate: (prompt: string, proposalId?: string) => void;
     setPreviewUrl: (url: string) => void;
     creationMode: 'agent' | 'chat' | 'image' | 'video';
@@ -75,7 +76,7 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
     workspaceId,
     showAssistant, setShowAssistant, conversations, setConversations,
     activeConversationId, setActiveConversationId,
-    handleSend, handleSmartGenerate, setPreviewUrl,
+    handleSend, onCancelAgent, handleSmartGenerate, setPreviewUrl,
     creationMode, setCreationMode, setPrompt,
     handleModeSwitch, fileInputRef,
     selectedChipId, setSelectedChipId, hoveredChipId, setHoveredChipId,
@@ -134,6 +135,12 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
 
     const STORYBOARD_SKILL = { id: 'cameron', name: '分镜故事板', iconName: 'Film' };
     const CLOTHING_SKILL = { id: 'clothing-studio', name: '服装棚拍组图', iconName: 'Shirt' };
+    const PROMPT_DIRECTOR_SKILL = {
+        id: 'prompt-director',
+        name: '提示词导演',
+        iconName: 'Sparkles',
+        config: { preferredAgent: 'prompt-optimizer', promptOptimizerMode: 'auto' },
+    };
 
     const buildQuickSkillPrompt = (base: string) => {
         const extra = readCurrentInputText();
@@ -374,6 +381,17 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
 
                         <div className="flex flex-wrap gap-2.5">
                             <button
+                                onClick={() => {
+                                    setCreationMode('agent');
+                                    setIsAgentMode(true);
+                                    setActiveQuickSkillSynced(PROMPT_DIRECTOR_SKILL);
+                                }}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-orange-200 rounded-full text-sm font-medium text-orange-700 hover:border-orange-400 hover:bg-orange-50/60 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <Sparkles size={15} strokeWidth={1.8} />
+                                <span>XcAI 提示词导演</span>
+                            </button>
+                            <button
                                 onClick={() => handleSend(buildQuickSkillPrompt('请帮我设计一套亚马逊产品Listing图'), undefined, webEnabled, { id: 'amazon-listing', name: '亚马逊产品套图', iconName: 'Store', config: { twoStep: true, defaults: { aspectRatio: '3:4', count: 3, imageSize: '2K', model: 'nanobanana2' } } })}
                                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
                             >
@@ -493,7 +511,16 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                         <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shadow-sm transform scale-90 text-white font-bold text-[9px] tracking-wide">
                            XC
                         </div>
-                        <span className="text-[11px] font-bold text-gray-400">AI 正在深度分析中...</span>
+                        <div className="min-w-0 flex-1">
+                            <span className="block truncate text-[11px] font-bold text-gray-500">
+                                {currentTask.progressMessage || 'AI 正在深度分析中...'}
+                            </span>
+                            {currentTask.progressStep && (
+                                <span className="mt-0.5 block text-[9px] font-medium text-gray-400">
+                                    步骤 {currentTask.progressStep}{currentTask.totalSteps ? ` / ${currentTask.totalSteps}` : ''}
+                                </span>
+                            )}
+                        </div>
                         <div className="flex items-center gap-1 opacity-10 ml-auto">
                             <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce"></span>
                             <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
@@ -512,7 +539,16 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                         <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shadow-sm transform scale-90 text-white font-bold text-[9px] tracking-wide">
                            XC
                         </div>
-                        <span className="text-[11px] font-bold text-gray-400">正在生成设计中...</span>
+                        <div className="min-w-0 flex-1">
+                            <span className="block truncate text-[11px] font-bold text-gray-500">
+                                {currentTask.progressMessage || '正在生成设计中...'}
+                            </span>
+                            {currentTask.progressStep && (
+                                <span className="mt-0.5 block text-[9px] font-medium text-gray-400">
+                                    步骤 {currentTask.progressStep}{currentTask.totalSteps ? ` / ${currentTask.totalSteps}` : ''}
+                                </span>
+                            )}
+                        </div>
                         <div className="flex items-center gap-1 opacity-10 ml-auto">
                             <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce"></span>
                             <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
@@ -528,6 +564,7 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                     creationMode={creationMode}
                     setCreationMode={setCreationMode}
                     handleSend={handleSendWithQuickSkill}
+                    onCancelAgent={onCancelAgent}
                     handleModeSwitch={handleModeSwitch}
                     fileInputRef={fileInputRef}
                     selectedChipId={selectedChipId}

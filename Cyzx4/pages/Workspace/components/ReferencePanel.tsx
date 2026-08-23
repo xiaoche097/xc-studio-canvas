@@ -14,7 +14,13 @@ import {
   X,
 } from 'lucide-react';
 import PinterestGallery from '../../../components/PinterestGallery';
-import { listMaterials, type MaterialKind, type MaterialRecord } from '../../../services/materialLibrary';
+import {
+  createMaterialDraft,
+  listMaterials,
+  type MaterialKind,
+  type MaterialRecord,
+} from '../../../services/materialLibrary';
+import { MaterialEditor } from '../../Home/components/MaterialLibrary';
 import type { CanvasElement, ChatMessage } from '../../../types';
 import { extractLegacyMessageReferences } from '../../../utils/message-references';
 import { getReadableAttachmentLabel } from '../../../utils/attachment-label';
@@ -26,6 +32,7 @@ interface ReferencePanelProps {
   messages: ChatMessage[];
   onAddImage: (url: string, label?: string) => void;
   onAttachToAgent: (url: string, label?: string) => void | Promise<void>;
+  onAddMaterialToAgent: (material: MaterialRecord) => void | Promise<void>;
   assistantOpen?: boolean;
   pages: Array<{ id: string; title: string }>;
   activePageId: string;
@@ -101,6 +108,7 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
   messages,
   onAddImage,
   onAttachToAgent,
+  onAddMaterialToAgent,
   assistantOpen = true,
   pages,
   activePageId,
@@ -112,6 +120,7 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
   const [uploads, setUploads] = useState<VisualAsset[]>([]);
   const [materials, setMaterials] = useState<MaterialRecord[]>([]);
   const [materialKind, setMaterialKind] = useState<MaterialKind>('brand');
+  const [editingMaterial, setEditingMaterial] = useState<MaterialRecord | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -192,6 +201,9 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
   };
 
   const visibleMaterials = materials.filter((material) => material.kind === materialKind);
+  const upsertMaterial = (record: MaterialRecord) => {
+    setMaterials((current) => [record, ...current.filter((item) => item.id !== record.id)]);
+  };
 
   const handleAssetDragStart = (
     event: React.DragEvent<HTMLElement>,
@@ -299,6 +311,26 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
           </div>
         </section>
       ) : activeTab === 'assets' ? (
+        editingMaterial ? (
+          <section className="relative min-h-0 flex-1 overflow-hidden">
+            <MaterialEditor
+              key={editingMaterial.id}
+              compact
+              initial={editingMaterial}
+              onBack={() => setEditingMaterial(null)}
+              onSaved={upsertMaterial}
+              onDeleted={(id) => {
+                setMaterials((current) => current.filter((item) => item.id !== id));
+                setEditingMaterial(null);
+              }}
+              onAddToConversation={(record) => {
+                upsertMaterial(record);
+                void onAddMaterialToAgent(record);
+                setEditingMaterial(null);
+              }}
+            />
+          </section>
+        ) : (
         <section className="min-h-0 flex-1 overflow-y-auto">
           <header className="border-b border-slate-200 px-4 pt-4">
             <h2 className="text-base font-black text-slate-950">我的素材</h2>
@@ -308,13 +340,13 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
           </header>
 
           <div className="space-y-3 p-3">
-            <button type="button" onClick={() => { window.location.hash = '#/'; }} className="flex min-h-16 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white text-xs font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-950"><span className="grid h-4 w-4 place-items-center rounded-full bg-lime-300 text-[0.65rem] text-slate-900">+</span>{materialKind === 'brand' ? '创建品牌套件' : `创建${materialTabs.find((item) => item.kind === materialKind)?.label || '素材'}`}</button>
+            <button type="button" onClick={() => setEditingMaterial(createMaterialDraft(materialKind))} className="flex min-h-16 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white text-xs font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-950"><span className="grid h-4 w-4 place-items-center rounded-full bg-lime-300 text-[0.65rem] text-slate-900">+</span>{materialKind === 'brand' ? '创建品牌套件' : `创建${materialTabs.find((item) => item.kind === materialKind)?.label || '素材'}`}</button>
 
             {visibleMaterials.map((material) => {
               const Icon = materialIcon[material.kind];
               const preview = [...material.logos, ...material.references, ...material.files].find((file) => file.type.startsWith('image/'));
               return (
-                <button key={material.id} type="button" disabled={!preview} onClick={() => preview && onAddImage(preview.dataUrl, material.name)} className="group flex min-h-28 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left outline-none transition hover:border-slate-400 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-default">
+                <button key={material.id} type="button" onClick={() => setEditingMaterial(material)} className="group flex min-h-28 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left outline-none transition hover:border-slate-400 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-slate-950">
                   <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-100">{preview ? <img src={preview.dataUrl} alt="" className="h-full w-full object-cover" /> : <Icon className="h-5 w-5 text-slate-400" />}</span>
                   <span className="min-w-0 flex-1 self-start pt-1"><span className="block truncate text-sm font-semibold text-slate-950">{material.name || '未命名'}</span><span className="mt-1 block text-xs text-slate-400">{material.guide || '素材套件'}</span></span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
@@ -324,7 +356,7 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
 
             {visibleMaterials.length === 0 && <p className="px-4 py-8 text-center text-xs leading-5 text-slate-400">还没有这类素材，创建后会显示在这里。</p>}
           </div>
-        </section>
+        </section>)
       ) : (
         <section className="min-h-0 flex-1 overflow-y-auto">
           <header className="flex min-h-14 items-center justify-between px-4"><h2 className="text-base font-black text-slate-950">参考</h2><button type="button" aria-label="筛选参考素材" className="grid h-11 w-11 place-items-center rounded-xl text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><SlidersHorizontal className="h-4 w-4" /></button></header>

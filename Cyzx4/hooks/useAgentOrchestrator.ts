@@ -19,6 +19,7 @@ import { optimizeUserText } from '../services/agents/prompt-optimizer/service';
 import { useProjectStore } from '../stores/project.store';
 import { rememberApprovedAsset } from '../services/topic-memory';
 import { buildVisualRagContext, type VisualRagDiagnostics } from '../services/visual-rag';
+import { getProviderConfig } from '../services/provider-config';
 
 const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any>) => {
   const lower = String(message || '').toLowerCase();
@@ -33,6 +34,10 @@ const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any
 const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 6;
 
 const getAgentExecutionTimeoutMs = (): number => {
+  if (typeof window !== 'undefined' && window.localStorage.getItem('text_api_provider') === 'deepseek') {
+    // Harness may perform several model/tool/model steps in one turn.
+    return 600000;
+  }
   if (typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true') {
     return 420000;
   }
@@ -72,6 +77,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const isProcessingRef = useRef(false);
+  const activeRunController = useRef<AbortController | null>(null);
   const messageQueue = useRef<Array<{
     message: string;
     attachments?: File[];
@@ -79,13 +85,21 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
     userMessageId?: string;
   }>>([]);
 
-  const withTimeout = useCallback(async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  const withTimeout = useCallback(async <T,>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string,
+    onTimeout?: () => void,
+  ): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         promise,
         new Promise<T>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+          timer = setTimeout(() => {
+            onTimeout?.();
+            reject(new Error(timeoutMessage));
+          }, timeoutMs);
         }),
       ]);
     } finally {
@@ -178,6 +192,9 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
     isProcessingRef.current = true;
     setIsProcessing(true);
+    const runController = new AbortController();
+    activeRunController.current = runController;
+    normalizedMetadata.runtimeSignal = runController.signal;
 
     let executingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -334,6 +351,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         const strippedInput = stripOptimizePipelineCommand(message) || message;
         const optimized = await optimizeUserText(strippedInput, updatedContext, {
           requestId: userMessageId,
+          referenceImageCount: attachments?.filter((file) => file.type?.startsWith('image/')).length || 0,
+          isRevision: /继续修改|重新编辑|上一版|上一张|保持其他不变|只改/i.test(strippedInput),
         });
         if (optimized.ok && optimized.optimizedText) {
           messageForExecution = optimized.optimizedText;
@@ -467,6 +486,18 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
           complexity: 'simple' as const,
           handoffMessage: `用户请求: ${messageForExecution}`,
           confidence: 0.75
+        };
+      } else if (getProviderConfig().id === 'deepseek') {
+        // DeepSeek performs the real multi-step planning inside the Harness.
+        // Keep routing local so the same request is not spent on a separate
+        // legacy planner call before the Harness turn starts.
+        decision = {
+          action: 'route' as const,
+          targetAgent: normalizedMetadata?.creationMode === 'video' ? 'motion' : 'coco',
+          taskType: 'deepseek-harness-local-route',
+          complexity: 'complex' as const,
+          handoffMessage: `交给 XcAI 自主执行: ${messageForExecution}`,
+          confidence: 0.85,
         };
       } else {
         console.log('[useAgentOrchestrator] 发起路由请求...');
@@ -675,7 +706,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const result = await withTimeout(
         executeAgentTask(task),
         getAgentExecutionTimeoutMs(),
-        '任务执行超时，请稍后重试'
+        '任务执行超时，请稍后重试',
+        () => runController.abort(new DOMException('任务执行超时', 'TimeoutError')),
       );
       console.log('[useAgentOrchestrator] 收到 Agent 执行回复');
       if (executingTimer) {
@@ -733,14 +765,18 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       console.error('[useAgentOrchestrator] Error:', error);
       const rawMessage = error instanceof Error ? error.message : String(error || '');
       const routingFailure = /路由|route/i.test(rawMessage);
-      const timedOut = /超时|timeout/i.test(rawMessage);
+      const timedOut = /超时|timeout/i.test(rawMessage)
+        || (runController.signal.reason as any)?.name === 'TimeoutError';
       const imageFailure = /图片|image|upload|base64|attachment|mime|格式/i.test(rawMessage);
+      const aborted = !timedOut && (runController.signal.aborted || (error as any)?.name === 'AbortError');
       const failMessage = routingFailure
         ? '智能体路由暂时不可用，已切换本地路由仍未完成，请重试。'
         : timedOut
         ? (typeof window !== 'undefined' && window.localStorage.getItem('virse_enabled') === 'true'
           ? 'Virse 生成等待超时，任务可能仍在所选 Virse 画布处理中，请稍后查看或重试。'
           : '生成等待超时，请稍后重试。')
+        : aborted
+        ? '任务已中止，已完成的工具结果会保留。'
         : imageFailure
         ? '图片处理失败，请检查网络或重新上传'
         : '抱歉，生成过程中遇到网络或解析错误，请重试。';
@@ -763,6 +799,9 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         clearTimeout(executingTimer);
       }
       setIsUploadingAttachments(false);
+      if (activeRunController.current === runController) {
+        activeRunController.current = null;
+      }
       isProcessingRef.current = false;
       setIsProcessing(false);
 
@@ -774,6 +813,11 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       }
     }
   }, [projectContext, addAssetsToCanvas]);
+
+  const cancelAgent = useCallback(() => {
+    messageQueue.current = [];
+    activeRunController.current?.abort(new DOMException('用户已中止任务', 'AbortError'));
+  }, []);
 
   const executeProposal = useCallback(async (proposalId: string): Promise<void> => {
     const curTask = useAgentStore.getState().currentTask;
@@ -897,6 +941,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
     processMessage,
     executeProposal,
     addAssetsToCanvas,
+    cancelAgent,
     resetAgent,
   };
 }

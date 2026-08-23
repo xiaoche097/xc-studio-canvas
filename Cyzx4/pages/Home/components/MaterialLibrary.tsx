@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  AudioLines,
   Check,
   FileText,
   Image as ImageIcon,
@@ -13,8 +14,10 @@ import {
   Type,
   Upload,
   UserRound,
+  Video,
 } from 'lucide-react';
 import {
+  createMaterialDraft,
   deleteMaterial,
   listMaterials,
   saveMaterial,
@@ -27,7 +30,7 @@ interface MaterialLibraryProps {
   onAddToConversation?: (material: MaterialRecord) => void;
 }
 
-type UploadTarget = 'files' | 'logos' | 'references';
+type UploadTarget = 'files' | 'logos' | 'references' | 'audio' | 'videos' | 'fontFiles';
 
 const kindMeta: Record<MaterialKind, {
   tab: string;
@@ -66,23 +69,6 @@ const kindMeta: Record<MaterialKind, {
   },
 };
 
-const createDraft = (kind: MaterialKind): MaterialRecord => {
-  const now = Date.now();
-  return {
-    id: `material-${now}-${Math.random().toString(36).slice(2, 8)}`,
-    kind,
-    name: '未命名',
-    guide: '',
-    files: [],
-    logos: [],
-    references: [],
-    colors: [],
-    fonts: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-};
-
 const readFile = (file: File): Promise<MaterialFile> => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve({
@@ -90,6 +76,7 @@ const readFile = (file: File): Promise<MaterialFile> => new Promise((resolve, re
     name: file.name,
     type: file.type || 'application/octet-stream',
     dataUrl: String(reader.result || ''),
+    size: file.size,
   });
   reader.onerror = () => reject(reader.error);
   reader.readAsDataURL(file);
@@ -170,31 +157,57 @@ const MaterialCard: React.FC<{ material: MaterialRecord; onOpen: () => void }> =
   </button>
 );
 
-const MaterialEditor: React.FC<{
+const TARGET_ACCEPT: Record<UploadTarget, string> = {
+  files: 'image/*,video/*,audio/*,application/pdf,.ttf,.otf,.woff,.woff2',
+  logos: 'image/png,image/jpeg,image/webp,image/svg+xml,application/pdf',
+  references: 'image/png,image/jpeg,image/webp,image/gif,application/pdf',
+  audio: 'audio/*',
+  videos: 'video/*',
+  fontFiles: '.ttf,.otf,.woff,.woff2',
+};
+
+const acceptsTarget = (file: File, target: UploadTarget): boolean => {
+  if (target === 'audio') return file.type.startsWith('audio/');
+  if (target === 'videos') return file.type.startsWith('video/');
+  if (target === 'fontFiles') return /\.(?:ttf|otf|woff2?)$/i.test(file.name);
+  if (target === 'logos' || target === 'references') {
+    return file.type.startsWith('image/') || file.type === 'application/pdf';
+  }
+  return file.type.startsWith('image/')
+    || file.type.startsWith('video/')
+    || file.type.startsWith('audio/')
+    || file.type === 'application/pdf'
+    || /\.(?:ttf|otf|woff2?)$/i.test(file.name);
+};
+
+export const MaterialEditor: React.FC<{
   initial: MaterialRecord;
   onBack: () => void;
   onSaved: (record: MaterialRecord) => void;
   onDeleted: (id: string) => void;
   onAddToConversation?: (record: MaterialRecord) => void;
-}> = ({ initial, onBack, onSaved, onDeleted, onAddToConversation }) => {
+  compact?: boolean;
+}> = ({ initial, onBack, onSaved, onDeleted, onAddToConversation, compact = false }) => {
   const [draft, setDraft] = useState(initial);
   const [uploadTarget, setUploadTarget] = useState<UploadTarget>('files');
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
   const patch = (next: Partial<MaterialRecord>) => setDraft((current) => ({ ...current, ...next, updatedAt: Date.now() }));
 
   const processFiles = async (incoming: FileList | File[], target: UploadTarget = uploadTarget) => {
-    const files = Array.from(incoming).filter((file) => ['image/png', 'image/jpeg', 'application/pdf'].includes(file.type));
-    const tooLarge = files.find((file) => file.size > 20 * 1024 * 1024);
+    const files = Array.from(incoming).filter((file) => acceptsTarget(file, target));
+    const maxBytes = target === 'audio' || target === 'videos' ? 80 * 1024 * 1024 : 20 * 1024 * 1024;
+    const tooLarge = files.find((file) => file.size > maxBytes);
     if (tooLarge) {
-      setError(`${tooLarge.name} 超过 20MB`);
+      setError(`${tooLarge.name} 超过 ${Math.round(maxBytes / 1024 / 1024)}MB`);
       return;
     }
     if (!files.length) {
-      setError('仅支持 PNG、JPG 或 PDF');
+      setError('文件格式与当前素材类型不匹配');
       return;
     }
     setError('');
@@ -209,17 +222,31 @@ const MaterialEditor: React.FC<{
 
   const handleSave = async (): Promise<MaterialRecord> => {
     const record = { ...draft, name: draft.name.trim() || '未命名', updatedAt: Date.now() };
-    await saveMaterial(record);
-    setDraft(record);
-    setSaved(true);
-    onSaved(record);
-    window.setTimeout(() => setSaved(false), 1600);
-    return record;
+    setSaving(true);
+    setError('');
+    try {
+      await saveMaterial(record);
+      setDraft(record);
+      setSaved(true);
+      onSaved(record);
+      window.setTimeout(() => setSaved(false), 1600);
+      return record;
+    } catch (saveError) {
+      console.error('[MaterialLibrary] save failed', saveError);
+      setError('素材保存失败，请检查浏览器存储空间后重试。');
+      throw saveError;
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAdd = async () => {
-    const record = await handleSave();
-    onAddToConversation?.(record);
+    try {
+      const record = await handleSave();
+      onAddToConversation?.(record);
+    } catch {
+      // handleSave already exposes a user-facing error.
+    }
   };
 
   const removeFile = (target: UploadTarget, id: string) => patch({ [target]: draft[target].filter((file) => file.id !== id) });
@@ -227,7 +254,7 @@ const MaterialEditor: React.FC<{
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
-      <input ref={fileInputRef} type="file" multiple accept="image/png,image/jpeg,application/pdf" className="hidden" onChange={(event) => { if (event.target.files) void processFiles(event.target.files); event.target.value = ''; }} />
+      <input ref={fileInputRef} type="file" multiple accept={TARGET_ACCEPT[uploadTarget]} className="hidden" onChange={(event) => { if (event.target.files) void processFiles(event.target.files); event.target.value = ''; }} />
       <input ref={colorInputRef} type="color" className="sr-only" onChange={(event) => { if (!draft.colors.includes(event.target.value)) patch({ colors: [...draft.colors, event.target.value] }); }} />
 
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-3 sm:px-5">
@@ -236,10 +263,10 @@ const MaterialEditor: React.FC<{
         <button type="button" aria-label="更多操作" className="grid h-12 w-12 place-items-center rounded-lg text-slate-500 outline-none transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950"><MoreHorizontal className="h-4 w-4" /></button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28 pt-5 sm:px-6 lg:px-8">
+      <div className={`min-h-0 flex-1 overflow-y-auto pb-28 pt-5 ${compact ? 'px-4' : 'px-4 sm:px-6 lg:px-8'}`}>
         <button type="button" onClick={() => openUpload('files')} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setUploadTarget('files'); void processFiles(event.dataTransfer.files, 'files'); }} className="flex min-h-28 w-full items-center gap-4 rounded-lg border border-dashed border-[#E5E5E5] bg-slate-50 px-6 text-left text-slate-500 outline-none transition hover:border-slate-500 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-950">
           <Upload className="h-5 w-5 shrink-0" />
-          <span><span className="block text-sm font-semibold">拖拽或上传文件，或导入 URL</span><span className="mt-1 block text-xs text-slate-400">PNG、JPG、PDF · 最大 20MB</span></span>
+          <span><span className="block text-sm font-semibold">拖拽或上传主素材</span><span className="mt-1 block text-xs text-slate-400">图片、视频、音频、PDF 或字体</span></span>
         </button>
         {error && <p className="mt-2 text-sm font-semibold text-red-600">{error}</p>}
         {draft.files.length > 0 && (
@@ -259,22 +286,34 @@ const MaterialEditor: React.FC<{
             <EditorRow label="Color" icon={Palette} onAdd={() => colorInputRef.current?.click()}>
               {draft.colors.length > 0 && <div className="flex flex-wrap gap-2">{draft.colors.map((color) => <button key={color} type="button" onClick={() => patch({ colors: draft.colors.filter((item) => item !== color) })} aria-label={`删除颜色 ${color}`} className="h-10 w-10 rounded-full border-4 border-white shadow ring-1 ring-slate-200" style={{ backgroundColor: color }} />)}</div>}
             </EditorRow>
-            <EditorRow label="Font" icon={Type} onAdd={() => patch({ fonts: [...draft.fonts, `字体 ${draft.fonts.length + 1}`] })}>
-              {draft.fonts.length > 0 && <div className="flex flex-wrap gap-2">{draft.fonts.map((font) => <button key={font} type="button" onClick={() => patch({ fonts: draft.fonts.filter((item) => item !== font) })} className="min-h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold">Aa · {font}</button>)}</div>}
+            <EditorRow label="字体" icon={Type} onAdd={() => openUpload('fontFiles')}>
+              <FileStrip files={draft.fontFiles} onRemove={(id) => removeFile('fontFiles', id)} />
             </EditorRow>
           </>
         )}
 
-        <EditorRow label={draft.kind === 'product' ? '产品图片' : draft.kind === 'character' ? '角色参考' : 'Reference'} icon={ImageIcon} onAdd={() => openUpload('references')}>
+        <EditorRow label={draft.kind === 'product' ? '产品图片' : draft.kind === 'character' ? '角色图片' : draft.kind === 'brand' ? '照片' : '素材图片'} icon={ImageIcon} onAdd={() => openUpload('references')}>
           <FileStrip files={draft.references} onRemove={(id) => removeFile('references', id)} />
         </EditorRow>
+
+        {(draft.kind === 'character' || draft.kind === 'product' || draft.kind === 'custom') && (
+          <EditorRow label="音频" icon={AudioLines} onAdd={() => openUpload('audio')}>
+            <FileStrip files={draft.audio} onRemove={(id) => removeFile('audio', id)} />
+          </EditorRow>
+        )}
+
+        {(draft.kind === 'character' || draft.kind === 'product' || draft.kind === 'custom') && (
+          <EditorRow label="视频" icon={Video} onAdd={() => openUpload('videos')}>
+            <FileStrip files={draft.videos} onRemove={(id) => removeFile('videos', id)} />
+          </EditorRow>
+        )}
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 flex min-h-16 items-center justify-between gap-3 border-t border-[#E5E5E5] bg-white px-4 sm:px-6 lg:left-auto lg:w-[calc(100%-0px)]">
+      <div className={`absolute inset-x-0 bottom-0 flex min-h-16 items-center justify-between gap-2 border-t border-[#E5E5E5] bg-white px-3 ${compact ? '' : 'sm:px-6 lg:left-auto lg:w-[calc(100%-0px)]'}`}>
         <button type="button" onClick={async () => { await deleteMaterial(draft.id); onDeleted(draft.id); }} className="grid h-12 w-12 place-items-center rounded-lg text-slate-400 outline-none transition hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-600" aria-label="删除素材"><Trash2 className="h-4 w-4" /></button>
         <div className="flex gap-2">
-          <button type="button" onClick={() => void handleSave()} className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-950">{saved ? <span className="flex items-center gap-2"><Check className="h-4 w-4" />已保存</span> : '保存'}</button>
-          <button type="button" onClick={() => void handleAdd()} className="min-h-12 rounded-lg bg-slate-950 px-5 text-sm font-bold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2">添加到对话</button>
+          <button type="button" disabled={saving} onClick={() => void handleSave()} className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-wait disabled:opacity-50">{saved ? <span className="flex items-center gap-1"><Check className="h-4 w-4" />已保存</span> : saving ? '保存中…' : '保存'}</button>
+          <button type="button" disabled={saving} onClick={() => void handleAdd()} className="min-h-11 rounded-lg bg-slate-950 px-4 text-xs font-bold text-white outline-none transition hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50">添加到对话</button>
         </div>
       </div>
     </div>
@@ -293,7 +332,14 @@ const EditorRow: React.FC<{ label: string; icon: React.ComponentType<{ className
 
 const FileChip: React.FC<{ file: MaterialFile; onRemove: () => void }> = ({ file, onRemove }) => (
   <div className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-    {file.type.startsWith('image/') ? <img src={file.dataUrl} alt={file.name} className="h-full w-full object-cover" /> : <span className="grid h-full place-items-center"><FileText className="h-7 w-7 text-slate-400" /></span>}
+    {file.type.startsWith('image/')
+      ? <img src={file.dataUrl} alt={file.name} className="h-full w-full object-cover" />
+      : file.type.startsWith('video/')
+        ? <span className="grid h-full place-items-center"><Video className="h-7 w-7 text-slate-500" /></span>
+        : file.type.startsWith('audio/')
+          ? <span className="grid h-full place-items-center"><AudioLines className="h-7 w-7 text-slate-500" /></span>
+          : <span className="grid h-full place-items-center"><FileText className="h-7 w-7 text-slate-400" /></span>}
+    <span className="absolute inset-x-1 bottom-1 truncate rounded bg-white/90 px-1 py-0.5 text-[9px] text-slate-600">{file.name}</span>
     <button type="button" onClick={onRemove} aria-label={`删除 ${file.name}`} className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded-lg bg-slate-950/80 text-white opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button>
   </div>
 );
@@ -347,10 +393,10 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({ onAddToConversation }
         {loading ? (
           <div className="grid h-full place-items-center text-sm font-semibold text-slate-400">正在读取素材库…</div>
         ) : visible.length === 0 ? (
-          <MaterialEmptyState kind={activeKind} onCreate={() => setEditing(createDraft(activeKind))} />
+          <MaterialEmptyState kind={activeKind} onCreate={() => setEditing(createMaterialDraft(activeKind))} />
         ) : (
           <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:p-8 2xl:grid-cols-3">
-            <button type="button" onClick={() => setEditing(createDraft(activeKind))} className="flex min-h-36 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white text-sm font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" />{kindMeta[activeKind].action}</button>
+            <button type="button" onClick={() => setEditing(createMaterialDraft(activeKind))} className="flex min-h-36 items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white text-sm font-medium text-slate-500 outline-none transition hover:border-slate-500 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-950"><Plus className="h-4 w-4" />{kindMeta[activeKind].action}</button>
             {visible.map((material) => <MaterialCard key={material.id} material={material} onOpen={() => setEditing(material)} />)}
           </div>
         )}

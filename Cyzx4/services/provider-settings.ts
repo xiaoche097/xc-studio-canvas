@@ -34,6 +34,8 @@ export interface ApiProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
+  defaultModel?: string;
+  textOnly?: boolean;
   isCustom?: boolean;
 }
 
@@ -67,6 +69,14 @@ const VIDEO_MODEL_ALIASES: Record<string, string> = {
 
 export const getDefaultProviders = (): ApiProviderConfig[] => {
   return [
+    {
+      id: 'deepseek',
+      name: 'DeepSeek 原生 API',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: '',
+      defaultModel: 'deepseek-v4-flash',
+      textOnly: true,
+    },
     { id: 'yunwu', name: '云雾 (OpenAI)', baseUrl: 'https://yunwu.ai', apiKey: '' },
     { id: 'plato', name: '柏拉图 (OpenAI)', baseUrl: 'https://api.bltcy.ai', apiKey: '' },
     { id: 'gemini', name: 'Gemini (原生)', baseUrl: 'https://generativelanguage.googleapis.com', apiKey: '' },
@@ -143,11 +153,7 @@ export const loadProviderSettings = (): LoadedProviderSettings => {
       // keep defaults
     }
   } else {
-    providers = [
-      { id: 'yunwu', name: '云雾 (OpenAI)', baseUrl: 'https://yunwu.ai', apiKey: yunwuKey },
-      { id: 'plato', name: '柏拉图 (OpenAI)', baseUrl: 'https://api.bltcy.ai', apiKey: '' },
-      { id: 'gemini', name: 'Gemini (原生)', baseUrl: 'https://generativelanguage.googleapis.com', apiKey: geminiKey },
-    ];
+    providers = mergeProviders([], { geminiKey, yunwuKey });
   }
 
   const storedActiveProviderId = localStorage.getItem('api_provider');
@@ -182,8 +188,37 @@ export const loadProviderSettings = (): LoadedProviderSettings => {
 };
 
 export const saveProviderSettings = (settings: LoadedProviderSettings): void => {
+  const previousApiProvider = localStorage.getItem('api_provider');
   safeLocalStorageSetItem('api_providers', JSON.stringify(settings.providers));
   safeLocalStorageSetItem('api_provider', settings.activeProviderId);
+  const activeProvider = settings.providers.find(provider => provider.id === settings.activeProviderId);
+  if (activeProvider?.id === 'deepseek') {
+    const selectedDeepSeekModel = settings.selectedScriptModels.find(model =>
+      model.toLowerCase().includes('deepseek')
+    );
+    safeLocalStorageSetItem('deepseek_api_key', activeProvider.apiKey.trim());
+    safeLocalStorageSetItem('deepseek_base_url', activeProvider.baseUrl.trim() || 'https://api.deepseek.com');
+    safeLocalStorageSetItem(
+      'deepseek_model',
+      selectedDeepSeekModel || activeProvider.defaultModel?.trim() || 'deepseek-v4-flash',
+    );
+    safeLocalStorageSetItem('deepseek_enabled', 'true');
+    safeLocalStorageSetItem('text_api_provider', 'deepseek');
+  } else if (['yunwu', 'plato', 'gemini'].includes(activeProvider?.id || '')) {
+    safeLocalStorageSetItem('media_api_provider', activeProvider!.id);
+    safeLocalStorageSetItem(
+      'text_api_provider',
+      activeProvider?.id === 'gemini' ? 'native' : activeProvider!.id,
+    );
+  }
+  if (
+    activeProvider?.id === 'deepseek'
+    && previousApiProvider
+    && previousApiProvider !== 'deepseek'
+    && !localStorage.getItem('media_api_provider')
+  ) {
+    safeLocalStorageSetItem('media_api_provider', previousApiProvider);
+  }
   safeLocalStorageSetItem('replicate_api_key', settings.replicateKey.trim());
   safeLocalStorageSetItem('kling_api_key', settings.klingKey.trim());
 
@@ -219,7 +254,7 @@ export const classifyModel = (modelId: string): Pick<ModelInfo, 'brand' | 'categ
   else if (lowerId.includes('midjourney')) brand = 'Midjourney';
 
   let category: ModelCategory = 'script';
-  if (lowerId.includes('vision') || lowerId.includes('dall-e') || lowerId.includes('flux') || lowerId.includes('imagen') || lowerId.includes('image') || lowerId.includes('stable-diffusion') || lowerId.includes('midjourney') || lowerId.includes('sdxl') || lowerId.includes('ideogram') || lowerId.includes('kolors') || lowerId.includes('playground') || lowerId.includes('aura') || lowerId.includes('recraft')) category = 'image';
+  if (!lowerId.includes('deepseek') && (lowerId.includes('vision') || lowerId.includes('dall-e') || lowerId.includes('flux') || lowerId.includes('imagen') || lowerId.includes('image') || lowerId.includes('stable-diffusion') || lowerId.includes('midjourney') || lowerId.includes('sdxl') || lowerId.includes('ideogram') || lowerId.includes('kolors') || lowerId.includes('playground') || lowerId.includes('aura') || lowerId.includes('recraft'))) category = 'image';
   else if (lowerId.includes('video') || lowerId.includes('kling') || lowerId.includes('hailuo') || lowerId.includes('veo') || lowerId.includes('luma') || lowerId.includes('sora') || lowerId.includes('pika') || lowerId.includes('gen-2') || lowerId.includes('gen-3') || lowerId.includes('animate') || lowerId.includes('movie')) category = 'video';
 
   return { brand, category };
@@ -241,5 +276,8 @@ export const refreshProviderModels = async (
   const keys = provider.apiKey.split('\n').map(k => k.trim()).filter(Boolean);
   if (keys.length === 0) return [];
   const models = await fetchAvailableModels(providerId, keys, provider.baseUrl);
-  return formatModels(models || [], provider.name);
+  const resolvedModels = providerId === 'deepseek' && models.length === 0
+    ? ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']
+    : models;
+  return formatModels(resolvedModels, provider.name);
 };

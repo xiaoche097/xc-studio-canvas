@@ -7,6 +7,16 @@
 
   const WORKBENCH_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'xcwork-tool.online', 'www.xcwork-tool.online']);
   const CLIPPER_LIBRARY_URL = 'https://www.xcwork-tool.online/?view=creative&tab=clipper';
+  const SITE_SETTINGS_STORAGE_KEY = 'site_settings';
+  const SITE_SETTING_KEYS = Object.freeze({
+    instagram: 'site-ig',
+    rednote: 'site-red',
+    amazon: 'site-amz',
+    taobao: 'site-tb',
+    tmall: 'site-tb',
+    pinterest: 'site-pin',
+  });
+  let siteSettings = {};
 
   function isHttpPage() {
     return window.location.protocol === 'http:' || window.location.protocol === 'https:';
@@ -107,7 +117,7 @@
     window.postMessage(
       {
         type: 'XC_CLIPPER_PONG',
-        version: '1.1.3',
+        version: '1.1.4',
         isPinterest: window.location.hostname.includes('pinterest.com'),
         url: window.location.href,
       },
@@ -120,8 +130,76 @@
 
   // 普通 HTTP(S) 页面支持保存，可信工作台只保留工作台同步，不显示图片保存按钮。
   function canClipPageImages() {
-    return isSaveSurfaceEnabled();
+    const settingKey = SITE_SETTING_KEYS[getPlatformName()];
+    return isSaveSurfaceEnabled() && (!settingKey || siteSettings[settingKey] !== false);
   }
+
+  function renderSiteSwitch(button, enabled) {
+    const knob = button.querySelector('[data-xc-switch-knob]');
+    button.setAttribute('aria-checked', String(enabled));
+    button.style.background = enabled ? '#ffffff' : '#4a4a4e';
+    if (!knob) return;
+    knob.style.background = enabled ? '#1c1c1e' : '#ffffff';
+    knob.style.left = enabled ? 'auto' : '2px';
+    knob.style.right = enabled ? '2px' : 'auto';
+  }
+
+  function renderAllSiteSwitches() {
+    if (!overlayContainer) return;
+    overlayContainer.querySelectorAll('[data-xc-site-setting]').forEach((button) => {
+      const settingKey = button.dataset.xcSiteSetting;
+      renderSiteSwitch(button, siteSettings[settingKey] !== false);
+    });
+  }
+
+  function hideClipActionsWhenDisabled() {
+    if (canClipPageImages()) return;
+    if (hoverButtonsWrapper) {
+      hoverButtonsWrapper.remove();
+      hoverButtonsWrapper = null;
+    }
+    currentTargetImg = null;
+    document.getElementById('xc-batch-select-modal')?.remove();
+  }
+
+  function bindSiteSwitches() {
+    if (!overlayContainer) return;
+    const buttons = overlayContainer.querySelectorAll('[data-xc-site-setting]');
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const settingKey = button.dataset.xcSiteSetting;
+        if (!settingKey) return;
+
+        const enabled = siteSettings[settingKey] === false;
+        siteSettings = { ...siteSettings, [settingKey]: enabled };
+        renderAllSiteSwitches();
+        hideClipActionsWhenDisabled();
+
+        chrome.storage.local.get([SITE_SETTINGS_STORAGE_KEY], (result) => {
+          const storedSettings = result[SITE_SETTINGS_STORAGE_KEY] || {};
+          chrome.storage.local.set({
+            [SITE_SETTINGS_STORAGE_KEY]: { ...storedSettings, [settingKey]: enabled },
+          });
+        });
+      });
+    });
+
+    chrome.storage.local.get([SITE_SETTINGS_STORAGE_KEY], (result) => {
+      siteSettings = { ...(result[SITE_SETTINGS_STORAGE_KEY] || {}) };
+      renderAllSiteSwitches();
+      hideClipActionsWhenDisabled();
+    });
+  }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes[SITE_SETTINGS_STORAGE_KEY]) return;
+    siteSettings = { ...(changes[SITE_SETTINGS_STORAGE_KEY].newValue || {}) };
+    renderAllSiteSwitches();
+    hideClipActionsWhenDisabled();
+  });
 
   // 1. 全网网页右上角常驻/点击展开与关闭的极简无框胶囊组件
   let overlayContainer = null;
@@ -230,9 +308,9 @@
                 </div>
                 <span style="font-size: 13px; font-weight: 500; color: #ffffff;">Instagram</span>
               </div>
-              <div style="width: 36px; height: 20px; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
-                <div style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: transform 0.2s;"></div>
-              </div>
+              <button type="button" role="switch" aria-checked="true" aria-label="启用 Instagram 图片采集" data-xc-site-setting="site-ig" style="width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
+                <span data-xc-switch-knob style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: left 0.2s, right 0.2s, background 0.2s;"></span>
+              </button>
             </div>
 
             <!-- Rednote -->
@@ -241,9 +319,9 @@
                 <div style="width: 20px; height: 20px; border-radius: 6px; background: #ff2442; color: #fff; font-size: 9px; font-weight: 900; display: flex; align-items: center; justify-content: center;">xhs</div>
                 <span style="font-size: 13px; font-weight: 500; color: #ffffff;">Rednote</span>
               </div>
-              <div style="width: 36px; height: 20px; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
-                <div style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: transform 0.2s;"></div>
-              </div>
+              <button type="button" role="switch" aria-checked="true" aria-label="启用 Rednote 图片采集" data-xc-site-setting="site-red" style="width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
+                <span data-xc-switch-knob style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: left 0.2s, right 0.2s, background 0.2s;"></span>
+              </button>
             </div>
 
             <!-- Amazon -->
@@ -252,9 +330,9 @@
                 <div style="width: 20px; height: 20px; border-radius: 6px; background: #232f3e; color: #ff9900; font-size: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center;">a</div>
                 <span style="font-size: 13px; font-weight: 500; color: #ffffff;">Amazon</span>
               </div>
-              <div style="width: 36px; height: 20px; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
-                <div style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: transform 0.2s;"></div>
-              </div>
+              <button type="button" role="switch" aria-checked="true" aria-label="启用 Amazon 图片采集" data-xc-site-setting="site-amz" style="width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
+                <span data-xc-switch-knob style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: left 0.2s, right 0.2s, background 0.2s;"></span>
+              </button>
             </div>
 
             <!-- Taobao -->
@@ -263,9 +341,9 @@
                 <div style="width: 20px; height: 20px; border-radius: 6px; background: #ff5000; color: #fff; font-size: 9px; font-weight: 900; display: flex; align-items: center; justify-content: center;">tb</div>
                 <span style="font-size: 13px; font-weight: 500; color: #ffffff;">Taobao</span>
               </div>
-              <div style="width: 36px; height: 20px; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
-                <div style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: transform 0.2s;"></div>
-              </div>
+              <button type="button" role="switch" aria-checked="true" aria-label="启用 Taobao 图片采集" data-xc-site-setting="site-tb" style="width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
+                <span data-xc-switch-knob style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: left 0.2s, right 0.2s, background 0.2s;"></span>
+              </button>
             </div>
 
             <!-- Pinterest -->
@@ -274,9 +352,9 @@
                 <div style="width: 20px; height: 20px; border-radius: 6px; background: #e60023; color: #fff; font-size: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center;">P</div>
                 <span style="font-size: 13px; font-weight: 500; color: #ffffff;">Pinterest</span>
               </div>
-              <div style="width: 36px; height: 20px; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
-                <div style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: transform 0.2s;"></div>
-              </div>
+              <button type="button" role="switch" aria-checked="true" aria-label="启用 Pinterest 图片采集" data-xc-site-setting="site-pin" style="width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #ffffff; position: relative; cursor: pointer; transition: background 0.2s;">
+                <span data-xc-switch-knob style="width: 16px; height: 16px; border-radius: 50%; background: #1c1c1e; position: absolute; top: 2px; right: 2px; transition: left 0.2s, right 0.2s, background 0.2s;"></span>
+              </button>
             </div>
           </div>
         </div>
@@ -284,6 +362,7 @@
     `;
 
     document.body.appendChild(overlayContainer);
+    bindSiteSwitches();
 
     // 事件绑定
     const btnView = document.getElementById('xc-btn-view');
@@ -899,6 +978,7 @@
 
   // 3. 一键所有图片 Save 选择弹窗。Instagram 会先遍历完整轮播，再按真实数量展示 All。
   async function openBatchModal() {
+    if (!canClipPageImages()) return;
     if (document.getElementById('xc-batch-select-modal') || isBatchScanning) return;
     isBatchScanning = true;
     setBatchScanningState(true);

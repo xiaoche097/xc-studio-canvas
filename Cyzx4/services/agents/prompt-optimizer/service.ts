@@ -2,6 +2,7 @@ import { AgentTask } from '../../../types/agent.types';
 import type { ProjectContext } from '../../../types/common';
 import { executeAgentTask } from '../index';
 import { safeExtractTextFromOptimizerOutput } from './output';
+import type { PromptOptimizerMode } from './roles';
 
 export type OptimizeResult =
   | { ok: true; optimizedText: string }
@@ -10,7 +11,13 @@ export type OptimizeResult =
 export async function optimizeUserText(
   rawText: string,
   context: ProjectContext,
-  opts?: { timeoutMs?: number; requestId?: string },
+  opts?: {
+    timeoutMs?: number;
+    requestId?: string;
+    mode?: PromptOptimizerMode;
+    referenceImageCount?: number;
+    isRevision?: boolean;
+  },
 ): Promise<OptimizeResult> {
   try {
     const task: AgentTask = {
@@ -24,6 +31,9 @@ export async function optimizeUserText(
           internalCall: true,
           requestId: opts?.requestId,
           timeoutMs: opts?.timeoutMs ?? 2500,
+          promptOptimizerMode: opts?.mode || 'auto',
+          referenceImageCount: opts?.referenceImageCount || 0,
+          continuationContext: opts?.isRevision ? { isRevision: true } : undefined,
         },
       },
       createdAt: Date.now(),

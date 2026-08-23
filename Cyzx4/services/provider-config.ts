@@ -5,14 +5,21 @@ export type ProviderConfig = {
   name?: string;
   baseUrl?: string;
   apiKey?: string;
+  model?: string;
 };
 
-type HomepageTextProvider = 'auto' | 'runninghub' | 'plato' | 'yunwu' | 'native';
+type HomepageTextProvider = 'auto' | 'deepseek' | 'runninghub' | 'plato' | 'yunwu' | 'native';
 
 const DEFAULT_RUNNINGHUB_BASE_URL = 'https://www.runninghub.cn';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_YUNWU_BASE_URL = 'https://yunwu.ai';
 const GOOGLE_BASE_URL = 'https://generativelanguage.googleapis.com';
+export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
+
+const normalizeDeepSeekBaseUrl = (value: string): string => (
+  (value || DEFAULT_DEEPSEEK_BASE_URL).trim().replace(/\/+$/, '')
+);
 
 const normalizeProxyBaseUrl = (value: string, fallback: string): string => (
   (value || fallback)
@@ -23,6 +30,16 @@ const normalizeProxyBaseUrl = (value: string, fallback: string): string => (
 );
 
 const readHomepageProvider = (provider: Exclude<HomepageTextProvider, 'auto'>): ProviderConfig => {
+  if (provider === 'deepseek') {
+    return {
+      id: 'deepseek',
+      name: 'DeepSeek 原生 API',
+      baseUrl: normalizeDeepSeekBaseUrl(localStorage.getItem('deepseek_base_url') || ''),
+      apiKey: localStorage.getItem('deepseek_api_key') || '',
+      model: localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL,
+    };
+  }
+
   if (provider === 'runninghub') {
     return {
       id: 'runninghub',
@@ -96,7 +113,8 @@ const hasApiKey = (config: ProviderConfig): boolean => Boolean(
 export const getProviderConfig = (): ProviderConfig => {
   const savedPreference = localStorage.getItem('text_api_provider');
   const preferred: HomepageTextProvider = (
-    savedPreference === 'runninghub'
+    savedPreference === 'deepseek'
+    || savedPreference === 'runninghub'
     || savedPreference === 'plato'
     || savedPreference === 'yunwu'
     || savedPreference === 'native'
@@ -114,6 +132,7 @@ export const getProviderConfig = (): ProviderConfig => {
 
   // Match the priority used by the Home text/Agent configuration.
   const automaticOrder: Array<Exclude<HomepageTextProvider, 'auto'>> = [
+    'deepseek',
     'runninghub',
     'plato',
     'yunwu',
@@ -134,8 +153,58 @@ export const getProviderConfig = (): ProviderConfig => {
   };
 };
 
-export const getApiKey = (all: boolean = false): string | string[] => {
-  const config = getProviderConfig();
+const readStoredProvider = (providerId: string): ProviderConfig | null => {
+  try {
+    const providers = JSON.parse(localStorage.getItem('api_providers') || '[]');
+    if (!Array.isArray(providers)) return null;
+    const provider = providers.find(item => item?.id === providerId && item.id !== 'deepseek');
+    if (!provider) return null;
+    return {
+      id: provider.id,
+      name: provider.name,
+      baseUrl: normalizeProxyBaseUrl(provider.baseUrl || '', provider.id === 'gemini' ? GOOGLE_BASE_URL : ''),
+      apiKey: provider.apiKey || '',
+      model: provider.defaultModel,
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Media credentials are intentionally independent from the Agent/text provider.
+ * Selecting DeepSeek must never redirect Gemini/Nano Banana/Veo requests to the
+ * DeepSeek endpoint.
+ */
+export const getMediaProviderConfig = (): ProviderConfig => {
+  const savedMediaProvider = localStorage.getItem('media_api_provider');
+  const savedApiProvider = localStorage.getItem('api_provider');
+  const preferredId = savedMediaProvider
+    || (savedApiProvider && savedApiProvider !== 'deepseek' ? savedApiProvider : '');
+  if (preferredId) {
+    const stored = readStoredProvider(preferredId);
+    if (stored && hasApiKey(stored)) return stored;
+  }
+
+  const legacyOrder: Array<Exclude<HomepageTextProvider, 'auto' | 'deepseek'>> = [
+    'runninghub',
+    'plato',
+    'yunwu',
+    'native',
+  ];
+  for (const provider of legacyOrder) {
+    const config = readHomepageProvider(provider);
+    if (isHomepageProviderEnabled(provider) && hasApiKey(config)) return config;
+  }
+
+  return { id: 'unconfigured-media', name: '图片 / 视频服务', apiKey: '' };
+};
+
+export const getApiKey = (
+  all: boolean = false,
+  purpose: 'text' | 'media' = 'text',
+): string | string[] => {
+  const config = purpose === 'media' ? getMediaProviderConfig() : getProviderConfig();
   const rawKeys = config.apiKey || '';
 
   if (rawKeys) {

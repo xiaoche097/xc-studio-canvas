@@ -19,6 +19,15 @@ import { collectReferenceCandidates } from "./utils/reference-images";
 import { sanitizeObject, sanitizeStringBase64 } from "./utils/payload-sanitizer";
 import { createMaskDataUrl } from "./utils/mask-generator";
 import { loadTopicSnapshot } from "../topic-memory";
+import { getProviderConfig } from "../provider-config";
+import { getHarnessToolDefinitions } from "./runtime/tool-catalog";
+import { runHarnessLoop, type HarnessToolExecution } from "./runtime/harness-loop";
+import type { DeepSeekContent, DeepSeekMessage } from "./runtime/deepseek-adapter";
+import {
+  normalizeHarnessResponse,
+  sanitizeHarnessHistoryText,
+} from "./runtime/harness-response";
+import { buildHarnessSystemPrompt } from "./runtime/harness-system-prompt";
 import {
   FASHION_REPLICA_ROLE_PROMPT,
   SCENE_FISSION_ROLE_PROMPT,
@@ -753,7 +762,8 @@ export abstract class EnhancedBaseAgent {
       }
 
       // 检查缓存
-      if (finalConfig.enableCache) {
+      const harnessRuntimeEnabled = this.shouldUseDeepSeekHarness(task);
+      if (finalConfig.enableCache && !harnessRuntimeEnabled) {
         const cached = this.getCachedResult(task);
         if (cached) {
           console.log(`[${this.agentInfo.id}] Using cached result`);
@@ -777,7 +787,7 @@ export abstract class EnhancedBaseAgent {
       );
 
       // 缓存结果
-      if (finalConfig.enableCache && result.status === "completed") {
+      if (finalConfig.enableCache && !harnessRuntimeEnabled && result.status === "completed") {
         this.cacheResult(task, result);
       }
 
@@ -806,24 +816,313 @@ export abstract class EnhancedBaseAgent {
     task: AgentTask,
     timeout: number,
   ): Promise<AgentTask> {
-    return Promise.race([
-      this.executeInternal(task),
-      new Promise<AgentTask>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              errorHandler.createError(
-                ErrorType.AGENT,
-                "任务执行超时",
-                undefined,
-                { taskId: task.id, timeout },
-                true,
+    const timeoutController = new AbortController();
+    const upstreamSignal = task.input.metadata?.runtimeSignal instanceof AbortSignal
+      ? task.input.metadata.runtimeSignal
+      : undefined;
+    const runtimeSignal = upstreamSignal
+      ? AbortSignal.any([upstreamSignal, timeoutController.signal])
+      : timeoutController.signal;
+    const runtimeTask: AgentTask = {
+      ...task,
+      input: {
+        ...task.input,
+        metadata: {
+          ...(task.input.metadata || {}),
+          runtimeSignal,
+        },
+      },
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.executeInternal(runtimeTask),
+        new Promise<AgentTask>((_, reject) => {
+          timer = setTimeout(() => {
+            const timeoutError = errorHandler.createError(
+              ErrorType.AGENT,
+              "任务执行超时",
+              undefined,
+              { taskId: task.id, timeout },
+              true,
+            );
+            timeoutController.abort(timeoutError);
+            reject(timeoutError);
+          }, timeout);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private shouldUseDeepSeekHarness(task: AgentTask): boolean {
+    if (getProviderConfig().id !== "deepseek") return false;
+    if (task.input.metadata?.disableDeepSeekHarness === true) return false;
+    return localStorage.getItem("deepseek_harness_enabled") !== "false";
+  }
+
+  private buildHarnessHistory(context: ProjectContext): DeepSeekMessage[] {
+    return (context.conversationHistory || [])
+      .filter((item) => item?.role === "user" || item?.role === "assistant" || item?.role === "model")
+      .slice(-8)
+      .map((item) => {
+        const isUser = item.role === "user";
+        const generatedUrls = isUser
+          ? []
+          : ((item as any)?.agentData?.imageUrls || [])
+              .filter((url: unknown): url is string => typeof url === "string" && /^https?:\/\//i.test(url))
+              .slice(0, 2);
+        const assetNote = generatedUrls.length > 0
+          ? `\n[该轮生成资产：${generatedUrls.join(", ")}]`
+          : "";
+        return {
+          role: isUser ? "user" as const : "assistant" as const,
+          content: isUser
+            ? truncateText(item.text || item.content, 2400)
+            : truncateText(
+                `${sanitizeHarnessHistoryText(item.text || item.content)}${assetNote}`,
+                2400,
               ),
-            ),
-          timeout,
-        ),
-      ),
-    ]);
+        };
+      })
+      .filter((item) => Boolean(item.content));
+  }
+
+  private async buildHarnessUserContent(task: AgentTask): Promise<DeepSeekContent> {
+    const attachments = task.input.attachments || [];
+    const attachmentManifest = attachments.length > 0
+      ? attachments.map((file, index) => (
+          `ATTACHMENT_${index}: ${file.name || `attachment-${index}`} (${file.type || "unknown"})`
+        )).join("\n")
+      : "无附件";
+    const selectedCapabilities = this.getSelectedCreativeCapabilities(task.input.metadata);
+    const continuationContext = task.input.metadata?.continuationContext as
+      | {
+          isRevision?: boolean;
+          inheritedPreviousResult?: boolean;
+          previousAssetUrl?: string;
+        }
+      | undefined;
+    const contextText = [
+      `当前项目：${task.input.context.projectTitle || task.input.context.projectId}`,
+      `用户本轮请求：${task.input.message}`,
+      `附件索引（调用工具时必须使用这些 ATTACHMENT_n 引用）：\n${attachmentManifest}`,
+      selectedCapabilities.length > 0
+        ? `用户选择的能力契约：${compactJson(selectedCapabilities, 2400)}`
+        : "用户未锁定单一能力，可自主选择合适工具。",
+      continuationContext?.isRevision
+        ? continuationContext.inheritedPreviousResult
+          ? "这是对上一轮实际生成图的续编。ATTACHMENT_0 就是上一轮结果；必须把它作为主参考图，只修改本轮明确要求的内容，禁止重新创造无关人物、服装、场景或构图。"
+          : continuationContext.previousAssetUrl
+            ? `这是对上一轮实际生成图的续编。上一轮资产 URL：${continuationContext.previousAssetUrl}。必须把它作为主参考图，只修改本轮明确要求的内容，禁止另起新概念。`
+            : "这是对上一轮结果的继续修改。必须延续上一轮主体与设计约束，禁止另起新概念。"
+        : "",
+      task.input.context.brandInfo
+        ? `品牌信息：${compactJson(task.input.context.brandInfo, 1000)}`
+        : "",
+      task.input.context.designSession
+        ? `设计连续性约束：${compactJson(task.input.context.designSession, 1800)}`
+        : "",
+    ].filter(Boolean).join("\n\n");
+
+    const model = getProviderConfig().model || "";
+    const visionFiles = model.toLowerCase().includes("vision")
+      ? attachments.filter(isLikelyImageFile).slice(0, 6)
+      : [];
+    if (visionFiles.length === 0) return contextText;
+
+    const content: Exclude<DeepSeekContent, string> = [{ type: "text", text: contextText }];
+    for (const file of visionFiles) {
+      const originalIndex = attachments.indexOf(file);
+      const dataUrl = await this.resolveReferenceItem(task, `ATTACHMENT_${originalIndex}`);
+      if (dataUrl) content.push({ type: "image_url", image_url: { url: dataUrl } });
+    }
+    return content;
+  }
+
+  private summarizeHarnessToolResult(skillResult: any): unknown {
+    if (!skillResult?.success) {
+      return { success: false, error: truncateText(skillResult?.error, 1600) };
+    }
+    const result = skillResult.result;
+    if (typeof result === "string") {
+      if (result.startsWith("data:")) {
+        return { success: true, output: "媒体资产已生成并保留在画布结果中。" };
+      }
+      if (/^https?:\/\//i.test(result)) {
+        return { success: true, output: "媒体资产已生成。", url: result };
+      }
+      return { success: true, output: truncateText(result, 6000) };
+    }
+    return { success: true, output: sanitizeObject(result, 6000) };
+  }
+
+  private async executeDeepSeekHarness(task: AgentTask): Promise<AgentTask> {
+    const store = useAgentStore.getState();
+    const selectedCapabilities = this.getSelectedCreativeCapabilities(task.input.metadata);
+    const toolsDisabled = task.input.metadata?.disableTools === true || this.agentInfo.id === 'prompt-optimizer';
+    const coreTools = toolsDisabled ? [] : [
+      "generateImage",
+      "generateVideo",
+      "smartEdit",
+      "generateCopy",
+      "extractText",
+      "analyzeRegion",
+      "touchEdit",
+    ];
+    const selectedTools = selectedCapabilities
+      .map((capability) => capability.primaryTool)
+      .filter((name): name is string => typeof name === "string");
+    let tools = toolsDisabled
+      ? []
+      : getHarnessToolDefinitions(selectedTools.length > 0 ? selectedTools : coreTools);
+    if (!toolsDisabled && tools.length === 0) tools = getHarnessToolDefinitions(coreTools);
+
+    const systemPrompt = [
+      buildHarnessSystemPrompt({
+        agent: this.agentInfo,
+        legacyPrompt: this.systemPrompt,
+        selectedCapabilityNames: selectedCapabilities.map((capability) => (
+          capability?.name
+          || capability?.purpose
+          || capability?.id
+          || capability?.primaryTool
+        )),
+        toolAccess: toolsDisabled ? 'none' : 'enabled',
+      }),
+      toolsDisabled ? '' : "工具参数中的 ATTACHMENT_n 是本轮附件引用。",
+    ].join("\n\n");
+    const skillResults: any[] = [];
+    const signal = task.input.metadata?.runtimeSignal instanceof AbortSignal
+      ? task.input.metadata.runtimeSignal
+      : undefined;
+
+    let loop: Awaited<ReturnType<typeof runHarnessLoop>>;
+    try {
+      loop = await runHarnessLoop({
+        systemPrompt,
+        userContent: await this.buildHarnessUserContent(task),
+        history: this.agentInfo.id === 'prompt-optimizer'
+            ? []
+            : this.buildHarnessHistory(task.input.context),
+        tools,
+        maxSteps: Number(task.input.metadata?.deepseekMaxSteps || 8),
+        signal,
+        onEvent: (event) => {
+          if (event.type === "step/start") {
+            store.actions.setCurrentTask({
+              ...task,
+              status: "analyzing",
+              progressMessage: `XcAI 正在执行第 ${event.step} 步...`,
+              progressStep: event.step,
+              totalSteps: Number(task.input.metadata?.deepseekMaxSteps || 8),
+            });
+          } else if (event.type === "tool/call") {
+            store.actions.setCurrentTask({
+              ...task,
+              status: "executing",
+              progressMessage: `正在调用 ${event.name}...`,
+              progressStep: event.step,
+              totalSteps: Number(task.input.metadata?.deepseekMaxSteps || 8),
+            });
+          }
+        },
+        executeTools: async (prepared) => {
+          const calls = prepared.map(({ call, args }) => ({
+            skillName: call.function.name,
+            params: args,
+          }));
+          const results = await this.executeSkills(calls, task);
+          skillResults.push(...results);
+          return prepared.map(({ call, args }, index): HarnessToolExecution => {
+            const result = results[index];
+            return {
+              call,
+              args,
+              success: result?.success === true,
+              result: this.summarizeHarnessToolResult(result),
+              ...(result?.success === true ? {} : { error: result?.error || "工具执行失败" }),
+            };
+          });
+        },
+      });
+    } finally {
+      store.actions.setCurrentTask(null);
+    }
+
+    const assets = this.extractAssets(skillResults);
+    const normalizedResponse = normalizeHarnessResponse(
+      loop.text,
+      assets.length > 0
+        ? `任务已完成，共生成 ${assets.length} 个资产。`
+        : "任务已完成。",
+    );
+    const allToolsFailed = skillResults.length > 0 && skillResults.every((item) => item?.success !== true);
+    const exhaustedWithoutResult = loop.stopReason === "max-steps" && assets.length === 0;
+    const compactEvents = loop.events.map((event) => {
+      if (event.type === "assistant/reasoning") {
+        // Keep the lifecycle marker for the Hermes-style trace, but never
+        // persist or render raw chain-of-thought/system-prompt fragments.
+        return { ...event, text: "已完成本步骤的分析与决策。" };
+      }
+      if (event.type === "assistant/message") {
+        return {
+          ...event,
+          text: truncateText(normalizeHarnessResponse(event.text, "").text, 1600),
+        };
+      }
+      if (event.type === "tool/result") {
+        return {
+          ...event,
+          content: event.success
+            ? "工具执行成功。"
+            : truncateText(event.content, 240),
+        };
+      }
+      if (event.type === "tool/call") {
+        // Arguments can contain full generation prompts and attachment
+        // manifests. The UI only needs identity/status, not the payload.
+        const { arguments: _arguments, ...safeEvent } = event;
+        return safeEvent;
+      }
+      return event;
+    });
+    return {
+      ...task,
+      status: allToolsFailed || exhaustedWithoutResult ? "failed" : "completed",
+      output: {
+        message: loop.stopReason === "max-steps" && assets.length > 0
+          ? `已保留本轮生成的 ${assets.length} 个资产；Agent 达到最大执行步数后已安全停止。`
+          : normalizedResponse.text,
+        proposals: [],
+        assets,
+        imageUrls: assets.map((asset) => asset.url),
+        skillCalls: skillResults,
+        workflowState: {
+          type: "deepseek-harness",
+          version: 1,
+          provider: "deepseek",
+          model: getProviderConfig().model,
+          steps: loop.steps,
+          stopReason: loop.stopReason,
+          events: compactEvents,
+        },
+        ...(allToolsFailed || exhaustedWithoutResult ? {
+          error: {
+            code: allToolsFailed ? "HARNESS_TOOL_EXECUTION_FAILED" : "HARNESS_MAX_STEPS",
+            message: allToolsFailed
+              ? skillResults.find((item) => item?.error)?.error || "所有工具调用均执行失败。"
+              : "Agent 达到最大执行步数，本轮没有生成可保留的资产。请缩小任务范围后重试。",
+          },
+        } : {}),
+        adjustments: Array.from(new Set([
+          ...normalizedResponse.suggestions,
+          ...(assets.length > 0 ? this.getAdjustments(task.input.message, []) : []),
+        ])),
+      },
+      updatedAt: Date.now(),
+    };
   }
 
   /**
@@ -896,6 +1195,10 @@ export abstract class EnhancedBaseAgent {
         },
         updatedAt: Date.now(),
       };
+    }
+
+    if (!sceneFissionWorkflow && this.shouldUseDeepSeekHarness(task)) {
+      return this.executeDeepSeekHarness(task);
     }
 
     // 场景裂变是严格的两阶段流程：第一阶段只展示 A/B/C，不允许调用生图工具。
@@ -2294,6 +2597,40 @@ ${currentTurnIntentSection}${productSection}${quantitySection}${multiImageSectio
     }
 
     if (call.skillName === "generateImage") {
+      call.params.model ||= "nanobanana2";
+      call.params.aspectRatio ||= typeof preferredAspectRatio === "string"
+        ? preferredAspectRatio
+        : "1:1";
+    } else if (call.skillName === "generateVideo") {
+      const configuredVideoModels = (() => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem("setting_video_models") || "[]");
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })();
+      call.params.model ||= configuredVideoModels[0] || "veo-3.1-fast-generate-preview";
+      call.params.aspectRatio ||= typeof preferredAspectRatio === "string"
+        ? preferredAspectRatio
+        : "16:9";
+    }
+
+    const attachmentParamKeys = call.skillName === "generateVideo"
+      ? ["startFrame", "endFrame"]
+      : (["extractText", "analyzeRegion", "touchEdit"].includes(call.skillName)
+          ? ["imageData"]
+          : []);
+    for (const key of attachmentParamKeys) {
+      const value = call.params[key];
+      if (typeof value === "string" && value.startsWith("ATTACHMENT_")) {
+        const resolved = await this.resolveReferenceItem(task, value);
+        if (!resolved) throw new Error(`无法解析附件引用 ${value}`);
+        call.params[key] = resolved;
+      }
+    }
+
+    if (call.skillName === "generateImage") {
       call.params = call.params || {};
       const currentAttachments = (task.input.attachments || []).filter(
         isLikelyImageFile,
@@ -2336,6 +2673,7 @@ ${currentTurnIntentSection}${productSection}${quantitySection}${multiImageSectio
           isRevision?: boolean;
           previousUserInstruction?: string;
           inheritedPreviousResult?: boolean;
+          previousAssetUrl?: string;
         }
       | undefined;
     if (continuationContext?.isRevision && call.skillName === "generateImage") {
@@ -2353,14 +2691,14 @@ ${currentTurnIntentSection}${productSection}${quantitySection}${multiImageSectio
       ].filter(Boolean).join("\n");
       call.params.prompt = `${revisionGuard}\n\nExecution detail:\n${currentPrompt}`;
 
-      if (
-        continuationContext.inheritedPreviousResult &&
-        task.input.attachments?.length
-      ) {
-        call.params.referenceImages = ["ATTACHMENT_0"];
-        call.params.referenceImage = "ATTACHMENT_0";
-        call.params.reference_image_url = "ATTACHMENT_0";
-        call.params.init_image = "ATTACHMENT_0";
+      const previousReference = continuationContext.inheritedPreviousResult && task.input.attachments?.length
+        ? "ATTACHMENT_0"
+        : continuationContext.previousAssetUrl;
+      if (previousReference) {
+        call.params.referenceImages = [previousReference];
+        call.params.referenceImage = previousReference;
+        call.params.reference_image_url = previousReference;
+        call.params.init_image = previousReference;
         call.params.referencePriority = "first";
         call.params.referenceStrength = 0.95;
       }

@@ -13,7 +13,7 @@ export interface ImageGenSkillParams {
   referenceImages?: string[];
   referenceStrength?: number;
   referencePriority?: 'first' | 'all';
-  referenceMode?: 'style' | 'product';
+  referenceMode?: 'style' | 'product' | 'portrait' | 'product-swap';
   brandContext?: {
     colors?: string[];
     style?: string;
