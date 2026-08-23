@@ -117,7 +117,7 @@
     window.postMessage(
       {
         type: 'XC_CLIPPER_PONG',
-        version: '1.1.4',
+        version: '1.1.5',
         isPinterest: window.location.hostname.includes('pinterest.com'),
         url: window.location.href,
       },
@@ -131,7 +131,7 @@
   // 普通 HTTP(S) 页面支持保存，可信工作台只保留工作台同步，不显示图片保存按钮。
   function canClipPageImages() {
     const settingKey = SITE_SETTING_KEYS[getPlatformName()];
-    return isSaveSurfaceEnabled() && (!settingKey || siteSettings[settingKey] !== false);
+    return isSaveSurfaceEnabled() && Boolean(settingKey) && siteSettings[settingKey] !== false;
   }
 
   function renderSiteSwitch(button, enabled) {
@@ -259,7 +259,7 @@
           </div>
 
           <div style="display: flex; align-items: center; gap: 4px;">
-            <button id="xc-btn-settings" title="Works on all websites" style="
+            <button id="xc-btn-settings" title="Works on supported websites" style="
               width: 26px;
               height: 26px;
               border-radius: 50%;
@@ -287,7 +287,7 @@
           </div>
         </div>
 
-        <!-- 点击设置按钮展示 Works on all websites 面板 -->
+        <!-- 点击设置按钮展示支持的网站面板 -->
         <div id="xc-dropdown-panel" style="
           display: none;
           margin-top: 6px;
@@ -297,7 +297,7 @@
           border: 1px solid rgba(255, 255, 255, 0.12);
           box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
         ">
-          <div style="font-size: 11px; font-weight: 500; color: #8e8e93; margin-bottom: 12px;">Works on all websites</div>
+          <div style="font-size: 11px; font-weight: 500; color: #8e8e93; margin-bottom: 12px;">Works on supported websites</div>
 
           <div style="display: flex; flex-direction: column; gap: 13px;">
             <!-- Instagram -->
