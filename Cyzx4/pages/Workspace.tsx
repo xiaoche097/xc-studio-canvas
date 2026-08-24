@@ -4522,14 +4522,11 @@ const Workspace: React.FC<WorkspaceProps> = ({
   const handleManualPaste = async () => {
     try {
       const items = await navigator.clipboard.read();
+      let pastedImage = false;
       for (const item of items) {
-        if (
-          item.types.includes("image/png") ||
-          item.types.includes("image/jpeg")
-        ) {
-          const blob = await item.getType(
-            item.types.find((t) => t.startsWith("image/"))!,
-          );
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
           const reader = new FileReader();
           reader.onload = (event) => {
             const result = event.target?.result as string;
@@ -4553,10 +4550,16 @@ const Workspace: React.FC<WorkspaceProps> = ({
             img.src = result;
           };
           reader.readAsDataURL(blob);
+          pastedImage = true;
+          break;
         }
+      }
+      if (!pastedImage) {
+        window.alert("剪贴板中没有可粘贴的图片");
       }
     } catch (err) {
       console.error("Clipboard access failed", err);
+      window.alert("无法读取剪贴板，请在浏览器网站权限中允许剪贴板访问");
     }
   };
 
@@ -5378,55 +5381,70 @@ const Workspace: React.FC<WorkspaceProps> = ({
         document.activeElement?.getAttribute("contenteditable")
       )
         return;
-      if (e.clipboardData?.files.length) {
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+
+      // Depending on the page the image was copied from, Chromium may expose
+      // it through DataTransfer.items but leave DataTransfer.files empty.
+      // Supporting both paths keeps paste behavior consistent between
+      // localhost and deployed origins.
+      const fileFromFiles = Array.from(clipboardData.files).find((candidate) =>
+        candidate.type.startsWith("image/"),
+      );
+      const fileFromItems = Array.from(clipboardData.items)
+        .find(
+          (item) =>
+            item.kind === "file" && item.type.startsWith("image/"),
+        )
+        ?.getAsFile();
+      const file = fileFromFiles || fileFromItems;
+
+      if (file) {
         e.preventDefault();
-        const file = e.clipboardData.files[0];
-        if (file.type.startsWith("image/")) {
-          void (async () => {
-            try {
-              const viewport = getCanvasViewportSize(showAssistantRef.current);
-              const {
-                originalUrl,
-                displayUrl,
-                originalWidth,
-                originalHeight,
-                displayWidth,
-                displayHeight,
-              } = await makeImageProxyDataUrl(
-                file,
-                DEFAULT_PROXY_MAX_DIM,
-                viewport,
-              );
+        void (async () => {
+          try {
+            const viewport = getCanvasViewportSize(showAssistantRef.current);
+            const {
+              originalUrl,
+              displayUrl,
+              originalWidth,
+              originalHeight,
+              displayWidth,
+              displayHeight,
+            } = await makeImageProxyDataUrl(
+              file,
+              DEFAULT_PROXY_MAX_DIM,
+              viewport,
+            );
 
-              const containerW = viewport.width;
-              const containerH = viewport.height;
-              const centerX =
-                (containerW / 2 - panRef.current.x) / (zoomRef.current / 100);
-              const centerY =
-                (containerH / 2 - panRef.current.y) / (zoomRef.current / 100);
+            const containerW = viewport.width;
+            const containerH = viewport.height;
+            const centerX =
+              (containerW / 2 - panRef.current.x) / (zoomRef.current / 100);
+            const centerY =
+              (containerH / 2 - panRef.current.y) / (zoomRef.current / 100);
 
-              const newElement: CanvasElement = {
-                id: Date.now().toString(),
-                type: "image",
-                url: displayUrl,
-                originalUrl,
-                proxyUrl: displayUrl !== originalUrl ? displayUrl : undefined,
-                x: centerX - displayWidth / 2,
-                y: centerY - displayHeight / 2,
-                width: displayWidth,
-                height: displayHeight,
-                zIndex: elementsRef.current.length + 1,
-                genAspectRatio: `${originalWidth}:${originalHeight}`,
-              };
-              const newElements = [...elementsRef.current, newElement];
-              setElementsSynced(newElements);
-              saveToHistory(newElements, markersRef.current);
-            } catch (err) {
-              console.error("Paste image proxy failed:", err);
-              // Fallback if needed
-            }
-          })();
-        }
+            const newElement: CanvasElement = {
+              id: Date.now().toString(),
+              type: "image",
+              url: displayUrl,
+              originalUrl,
+              proxyUrl: displayUrl !== originalUrl ? displayUrl : undefined,
+              x: centerX - displayWidth / 2,
+              y: centerY - displayHeight / 2,
+              width: displayWidth,
+              height: displayHeight,
+              zIndex: elementsRef.current.length + 1,
+              genAspectRatio: `${originalWidth}:${originalHeight}`,
+            };
+            const newElements = [...elementsRef.current, newElement];
+            setElementsSynced(newElements);
+            saveToHistory(newElements, markersRef.current);
+          } catch (err) {
+            console.error("Paste image proxy failed:", err);
+            window.alert("图片粘贴失败，请尝试下载图片后再上传");
+          }
+        })();
       }
     };
     window.addEventListener("click", handleGlobalClick);
