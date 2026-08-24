@@ -62,6 +62,10 @@ export const YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL = 'gemini-3.5-flash';
 export const YUNWU_ANALYSIS_FALLBACK_MODEL = YUNWU_GEMINI_FLASH_ANALYSIS_FALLBACK_MODEL;
 export const ANALYSIS_PRIMARY_TIMEOUT_MS = 45000;
 export const ANALYSIS_FALLBACK_TIMEOUT_MS = 60000;
+// DeepSeek creative analysis may include a separate image-description pass and
+// reasoning. The generic 45s Gemini timeout is too short for that workflow.
+export const DEEPSEEK_ANALYSIS_TIMEOUT_MS = 120000;
+export const DEEPSEEK_ANALYSIS_FALLBACK_TIMEOUT_MS = 150000;
 
 export const getTextModelPowerMode = (): TextModelPowerMode => {
     if (typeof window === 'undefined') return 'low-power';
@@ -292,8 +296,12 @@ export async function generateContentWithAnalysisFallback<TClient extends {
         const primaryModel = resolveRuntimeModelId(candidateModel, runtimeConfig);
         const primaryRequest = { ...request, model: primaryModel };
         const timeoutMs = i === 0
-            ? (options.timeoutMs || ANALYSIS_PRIMARY_TIMEOUT_MS)
-            : (options.fallbackTimeoutMs || ANALYSIS_FALLBACK_TIMEOUT_MS);
+            ? (options.timeoutMs || (runtimeConfig.isDeepSeek
+                ? DEEPSEEK_ANALYSIS_TIMEOUT_MS
+                : ANALYSIS_PRIMARY_TIMEOUT_MS))
+            : (options.fallbackTimeoutMs || (runtimeConfig.isDeepSeek
+                ? DEEPSEEK_ANALYSIS_FALLBACK_TIMEOUT_MS
+                : ANALYSIS_FALLBACK_TIMEOUT_MS));
 
         try {
             const response = await executeWithTimeout(
@@ -837,7 +845,7 @@ export const getAiClient = (): GoogleGenAI => {
 
     if (config.isDeepSeek) {
         const configuredMaxTokens = Number.parseInt(
-            localStorage.getItem('deepseek_max_tokens') || '16384',
+            localStorage.getItem('deepseek_max_tokens') || '8192',
             10,
         );
         return createDeepSeekCreativeClient({
@@ -850,7 +858,7 @@ export const getAiClient = (): GoogleGenAI => {
             })(),
             maxTokens: Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
                 ? configuredMaxTokens
-                : 16_384,
+                : 8_192,
         }, describeImagesForDeepSeek) as unknown as GoogleGenAI;
     }
 
