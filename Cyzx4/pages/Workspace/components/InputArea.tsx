@@ -11,6 +11,8 @@ import { useCanvasStore } from '../../../stores/canvas.store';
 import { ImageModel, VideoModel, Marker } from '../../../types';
 import { IMAGE_MODEL_OPTIONS } from '../modelOptions';
 import { getReadableAttachmentLabel } from '../../../utils/attachment-label';
+import { safeLocalStorageSetItem } from '../../../utils/safe-storage';
+import type { HarnessAgentMode } from '../../../services/agents/runtime/harness-session';
 
 const VIDEO_RATIOS = [
     { label: '16:9', value: '16:9', icon: 'rectangle-horizontal' },
@@ -195,6 +197,13 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
     const [editingMarkerLabel, setEditingMarkerLabel] = useState('');
     const [isAllInputSelected, setIsAllInputSelected] = useState(false);
+    const [harnessAgentMode, setHarnessAgentMode] = useState<HarnessAgentMode>(() => {
+        if (typeof window === 'undefined') return 'default';
+        const storedMode = window.localStorage.getItem('xcai_agent_mode');
+        if (storedMode === 'plan') return 'plan';
+        safeLocalStorageSetItem('xcai_agent_mode', 'default');
+        return 'default';
+    });
     const inputBlocks = useAgentStore(s => s.inputBlocks);
     const activeBlockId = useAgentStore(s => s.activeBlockId);
     const videoGenRatio = useAgentStore(s => s.videoGenRatio);
@@ -231,6 +240,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const hasInlineComposerTokens = inputBlocks.some((block) => block.type === 'file')
         || pendingAttachments.length > 0
         || Boolean(activeQuickSkill && creationMode === 'agent');
+
+    const toggleHarnessAgentMode = () => {
+        setHarnessAgentMode((current) => {
+            const next: HarnessAgentMode = current === 'default' ? 'plan' : 'default';
+            safeLocalStorageSetItem('xcai_agent_mode', next);
+            return next;
+        });
+    };
 
     const getObjectUrl = (file?: File | null) => {
         if (!file) return '';
@@ -376,9 +393,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
     };
 
     return (
-        <div className="z-20 flex-shrink-0 px-3 py-2">
+        <div className="z-20 flex-shrink-0 px-3 py-1.5">
             <div
-                className={`group relative flex min-h-[7.5rem] flex-col overflow-visible rounded-[1.5rem] border bg-white shadow-[0_2px_6px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow,background-color] duration-200 focus-within:border-slate-400 focus-within:shadow-[0_3px_10px_rgba(15,23,42,0.09)] ${isDragOver ? 'border-blue-500 bg-blue-50/40 shadow-[0_0_0_3px_rgba(59,130,246,0.14)]' : 'border-[#D4D4D4]'}`}
+                className={`group relative flex min-h-[7rem] flex-col overflow-visible rounded-[1.25rem] border bg-white shadow-[0_2px_6px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow,background-color] duration-200 focus-within:border-slate-400 focus-within:shadow-[0_3px_10px_rgba(15,23,42,0.09)] ${isDragOver ? 'border-blue-500 bg-blue-50/40 shadow-[0_0_0_3px_rgba(59,130,246,0.14)]' : 'border-[#D4D4D4]'}`}
                 onMouseEnter={() => setIsVideoPanelHovered(true)}
                 onMouseLeave={() => setIsVideoPanelHovered(false)}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
@@ -598,7 +615,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         el?.focus();
                     }}>
                     <div
-                        className="input-flow-container flex min-h-[3.75rem] max-h-48 flex-wrap content-start items-center gap-x-0.5 gap-y-1.5 overflow-y-auto pr-1"
+                        className="input-flow-container flex min-h-[3.5rem] max-h-40 flex-wrap content-start items-center gap-x-0.5 gap-y-1.5 overflow-y-auto pr-1"
                         style={{ wordBreak: 'break-word', lineHeight: '1.75rem' }}
                     >
                         {activeQuickSkill && creationMode === 'agent' && (
@@ -1002,7 +1019,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 </div>
 
                 {/* Bottom Toolbar */}
-                <div className="relative mt-1 flex min-w-0 items-center justify-between px-2 pb-2">
+                <div className="relative flex min-w-0 items-center justify-between px-2 pb-1.5">
                     <div className="flex min-w-0 items-center gap-0.5">
                         {(creationMode === 'agent' || creationMode === 'chat') && (
                             <button
@@ -1228,13 +1245,33 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
                         {(creationMode === 'agent' || creationMode === 'chat') && (
                             <>
-                                <div className="flex h-10 items-center gap-0.5 rounded-full bg-slate-100 p-1">
-                                    <button aria-label="深度思考" onClick={() => handleModeSwitch('thinking')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'thinking' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Lightbulb size={14} /></button>
-                                    <button aria-label="快速生成" onClick={() => handleModeSwitch('fast')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'fast' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Zap size={14} /></button>
-                                </div>
-                                <button aria-label="联网搜索" onClick={() => setWebEnabled(!webEnabled)} className={`flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-slate-100 ${webEnabled ? 'bg-blue-50 text-blue-500' : 'text-slate-500'}`}><Globe size={16} /></button>
+                                {creationMode === 'agent' ? (
+                                    <button
+                                        type="button"
+                                        onClick={toggleHarnessAgentMode}
+                                        aria-label={harnessAgentMode === 'plan' ? '切换到执行模式' : '切换到规划模式'}
+                                        aria-pressed={harnessAgentMode === 'plan'}
+                                        title={harnessAgentMode === 'plan' ? '规划模式：只分析并输出计划' : '执行模式：自主调用工具完成任务'}
+                                        className="group flex h-11 shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                    >
+                                        <span className={`flex h-8 items-center gap-1 rounded-full px-2.5 text-[0.7rem] font-semibold transition-colors ${
+                                            harnessAgentMode === 'plan'
+                                                ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                                                : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                                        }`}>
+                                            <Sparkles size={12} />
+                                            <span>{harnessAgentMode === 'plan' ? '规划' : '执行'}</span>
+                                        </span>
+                                    </button>
+                                ) : (
+                                    <div className="flex h-10 items-center gap-0.5 rounded-full bg-slate-100 p-1">
+                                        <button aria-label="深度思考" onClick={() => handleModeSwitch('thinking')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'thinking' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Lightbulb size={14} /></button>
+                                        <button aria-label="快速生成" onClick={() => handleModeSwitch('fast')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'fast' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Zap size={14} /></button>
+                                    </div>
+                                )}
+                                <button aria-label="联网搜索" onClick={() => setWebEnabled(!webEnabled)} className="group grid h-11 w-11 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"><span className={`grid h-8 w-8 place-items-center rounded-full transition-colors ${webEnabled ? 'bg-blue-50 text-blue-500' : 'text-slate-500 group-hover:bg-slate-100'}`}><Globe size={14} /></span></button>
                                 <div className="relative">
-                                    <button aria-label="模型偏好" onClick={() => setShowModelPreference(!showModelPreference)} className="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100"><Box size={16} /></button>
+                                    <button aria-label="模型偏好" onClick={() => setShowModelPreference(!showModelPreference)} className="group grid h-11 w-11 place-items-center rounded-full text-slate-500 outline-none focus-visible:ring-2 focus-visible:ring-slate-950"><span className="grid h-8 w-8 place-items-center rounded-full transition-colors group-hover:bg-slate-100"><Box size={14} /></span></button>
                                     {showModelPreference && (
                                         <div className="absolute bottom-full -right-5 mb-4 w-[min(350px,calc(100vw-16px))] max-h-[min(70vh,620px)] overflow-y-auto bg-white rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] border border-gray-100 z-50 p-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
                                             {/* Header */}
@@ -1372,11 +1409,13 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                 ? onCancelAgent?.()
                                 : handleSend(undefined, undefined, undefined, sendSkill)}
                             aria-label={currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') ? '中止 Agent 任务' : '发送'}
-                            className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-white shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 ${currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') ? 'bg-red-500 hover:bg-red-600 focus-visible:ring-red-500' : 'bg-slate-950 hover:bg-slate-800 focus-visible:ring-slate-950'}`}
+                            className={`group grid h-11 w-11 shrink-0 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') ? 'focus-visible:ring-red-500' : 'focus-visible:ring-slate-950'}`}
                         >
-                            {currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing')
-                                ? <Square size={14} fill="currentColor" />
-                                : <ArrowUp size={16} strokeWidth={2.5} />}
+                            <span className={`grid h-8 w-8 place-items-center rounded-full text-white transition-colors ${currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') ? 'bg-red-500 group-hover:bg-red-600' : 'bg-slate-950 group-hover:bg-slate-800'}`}>
+                                {currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing')
+                                    ? <Square size={12} fill="currentColor" />
+                                    : <ArrowUp size={13} strokeWidth={2.5} />}
+                            </span>
                         </button>
                     </div>
                 </div>

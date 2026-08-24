@@ -146,6 +146,7 @@ export const deleteProject = async (id: string): Promise<void> => {
     });
   } catch (error) {
     console.error('Failed to delete project', error);
+    throw error;
   }
 };
 

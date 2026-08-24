@@ -22,6 +22,11 @@ import { loadTopicSnapshot } from "../topic-memory";
 import { getProviderConfig } from "../provider-config";
 import { getHarnessToolDefinitions } from "./runtime/tool-catalog";
 import { runHarnessLoop, type HarnessToolExecution } from "./runtime/harness-loop";
+import {
+  BrowserHarnessSession,
+  resolveHarnessMode,
+  type HarnessAgentMode,
+} from "./runtime/harness-session";
 import type { DeepSeekContent, DeepSeekMessage } from "./runtime/deepseek-adapter";
 import {
   normalizeHarnessResponse,
@@ -960,9 +965,49 @@ export abstract class EnhancedBaseAgent {
 
   private async executeDeepSeekHarness(task: AgentTask): Promise<AgentTask> {
     const store = useAgentStore.getState();
+    const sessionId = String(task.input.context.conversationId || task.id).trim();
+    const requestedMode = resolveHarnessMode(
+      task.input.metadata?.agentMode
+        ?? (typeof window !== 'undefined' ? window.localStorage.getItem('xcai_agent_mode') : undefined),
+    );
+    const harnessSession = new BrowserHarnessSession(sessionId, requestedMode);
+    const planCommand = task.input.message.trim().match(/^\/plan(?:\s+(off))?(?:\s+([\s\S]+))?$/i);
+    if (planCommand?.[1]?.toLowerCase() === 'off') {
+      harnessSession.setMode('default');
+      if (typeof window !== 'undefined') window.localStorage.setItem('xcai_agent_mode', 'default');
+      return {
+        ...task,
+        status: 'completed',
+        output: {
+          message: '规划模式已关闭。下一条消息将恢复自主执行与工具调用。',
+          proposals: [],
+          assets: [],
+          workflowState: {
+            type: 'deepseek-harness',
+            version: 2,
+            provider: 'deepseek',
+            model: getProviderConfig().model,
+            mode: 'default',
+            steps: 0,
+            stopReason: 'completed',
+            events: [],
+            sessionEvents: harnessSession.events.length,
+          },
+        },
+        updatedAt: Date.now(),
+      };
+    }
+    if (planCommand) {
+      harnessSession.setMode('plan');
+      if (typeof window !== 'undefined') window.localStorage.setItem('xcai_agent_mode', 'plan');
+    }
+    const harnessMode: HarnessAgentMode = this.agentInfo.id === 'prompt-optimizer'
+      ? 'default'
+      : harnessSession.mode;
     const selectedCapabilities = this.getSelectedCreativeCapabilities(task.input.metadata);
     const toolsDisabled = task.input.metadata?.disableTools === true || this.agentInfo.id === 'prompt-optimizer';
     const coreTools = toolsDisabled ? [] : [
+      "updatePlan",
       "generateImage",
       "generateVideo",
       "smartEdit",
@@ -976,7 +1021,13 @@ export abstract class EnhancedBaseAgent {
       .filter((name): name is string => typeof name === "string");
     let tools = toolsDisabled
       ? []
-      : getHarnessToolDefinitions(selectedTools.length > 0 ? selectedTools : coreTools);
+      : getHarnessToolDefinitions(
+          harnessMode === 'plan'
+            ? ['updatePlan']
+            : selectedTools.length > 0
+              ? ['updatePlan', ...selectedTools]
+              : coreTools,
+        );
     if (!toolsDisabled && tools.length === 0) tools = getHarnessToolDefinitions(coreTools);
 
     const systemPrompt = [
@@ -992,6 +1043,21 @@ export abstract class EnhancedBaseAgent {
         toolAccess: toolsDisabled ? 'none' : 'enabled',
       }),
       toolsDisabled ? '' : "工具参数中的 ATTACHMENT_n 是本轮附件引用。",
+      harnessMode === 'plan'
+        ? [
+            '你现在处于规划模式。',
+            '- 只调查、分析、澄清并形成可执行计划，不调用任何会产生图片、视频或编辑结果的工具。',
+            '- 对多步骤任务使用 updatePlan 维护计划状态。',
+            '- 最终回答必须给出完整计划，并明确等待用户确认；不要声称已经执行。',
+            '- 用户可发送 /plan off 返回默认执行模式。',
+          ].join('\n')
+        : [
+            '你处于默认执行模式。对明确任务应持续工作到交付结果；多步骤任务使用 updatePlan 维护进度。',
+            '不要只描述可以怎样做：需要媒体结果时必须调用对应工具。',
+          ].join('\n'),
+      harnessSession.summary
+        ? `较早会话的压缩摘要：\n${harnessSession.summary}`
+        : '',
     ].join("\n\n");
     const skillResults: any[] = [];
     const signal = task.input.metadata?.runtimeSignal instanceof AbortSignal
@@ -1001,6 +1067,8 @@ export abstract class EnhancedBaseAgent {
     let loop: Awaited<ReturnType<typeof runHarnessLoop>>;
     try {
       loop = await runHarnessLoop({
+        sessionId,
+        mode: harnessMode,
         systemPrompt,
         userContent: await this.buildHarnessUserContent(task),
         history: this.agentInfo.id === 'prompt-optimizer'
@@ -1008,6 +1076,7 @@ export abstract class EnhancedBaseAgent {
             : this.buildHarnessHistory(task.input.context),
         tools,
         maxSteps: Number(task.input.metadata?.deepseekMaxSteps || 8),
+        maxRequestRetries: Number(task.input.metadata?.deepseekMaxRequestRetries ?? 2),
         signal,
         onEvent: (event) => {
           if (event.type === "step/start") {
@@ -1029,14 +1098,29 @@ export abstract class EnhancedBaseAgent {
           }
         },
         executeTools: async (prepared) => {
-          const calls = prepared.map(({ call, args }) => ({
+          const mediaPrepared = prepared.filter(({ call }) => call.function.name !== 'updatePlan');
+          const calls = mediaPrepared.map(({ call, args }) => ({
             skillName: call.function.name,
             params: args,
           }));
-          const results = await this.executeSkills(calls, task);
+          const results = calls.length > 0 ? await this.executeSkills(calls, task) : [];
           skillResults.push(...results);
-          return prepared.map(({ call, args }, index): HarnessToolExecution => {
-            const result = results[index];
+          let mediaIndex = 0;
+          return prepared.map(({ call, args }): HarnessToolExecution => {
+            if (call.function.name === 'updatePlan') {
+              try {
+                const plan = harnessSession.updatePlan(args);
+                return { call, args, success: true, result: { success: true, plan } };
+              } catch (error) {
+                return {
+                  call,
+                  args,
+                  success: false,
+                  error: error instanceof Error ? error.message : String(error),
+                };
+              }
+            }
+            const result = results[mediaIndex++];
             return {
               call,
               args,
@@ -1101,12 +1185,15 @@ export abstract class EnhancedBaseAgent {
         skillCalls: skillResults,
         workflowState: {
           type: "deepseek-harness",
-          version: 1,
+          version: 2,
           provider: "deepseek",
           model: getProviderConfig().model,
+          mode: loop.mode,
           steps: loop.steps,
           stopReason: loop.stopReason,
           events: compactEvents,
+          sessionEvents: loop.sessionEvents,
+          plan: harnessSession.plan,
         },
         ...(allToolsFailed || exhaustedWithoutResult ? {
           error: {

@@ -24,6 +24,30 @@ const string = (description: string, values?: string[]) => ({
 });
 
 const TOOL_CATALOG: Record<string, HarnessToolDefinition> = {
+  updatePlan: {
+    type: 'function',
+    function: {
+      name: 'updatePlan',
+      description: 'Create or update the durable task plan for this session. Use it for multi-step work and whenever plan status changes.',
+      parameters: objectSchema({
+        title: string('Short plan title.'),
+        items: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 30,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              text: string('Concrete task step.'),
+              status: string('Current step status.', ['pending', 'in_progress', 'completed']),
+            },
+            required: ['text', 'status'],
+          },
+        },
+      }, ['title', 'items']),
+    },
+  },
   generateImage: {
     type: 'function',
     function: {

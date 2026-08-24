@@ -17,6 +17,8 @@ const harnessStateSchema = z.object({
   version: z.number().optional(),
   provider: z.literal('deepseek'),
   model: z.string().optional(),
+  mode: z.enum(['default', 'plan']).optional(),
+  sessionEvents: z.number().int().nonnegative().optional(),
   steps: z.number().int().nonnegative(),
   stopReason: z.enum(['completed', 'max-steps']).optional(),
   events: z.array(harnessEventSchema),
@@ -27,6 +29,7 @@ interface DeepSeekHarnessTraceProps {
 }
 
 const TOOL_LABELS: Record<string, string> = {
+  updatePlan: '更新任务计划',
   generateImage: '生成图片',
   generateVideo: '生成视频',
   smartEdit: '智能编辑',
@@ -73,7 +76,10 @@ export const DeepSeekHarnessTrace: React.FC<DeepSeekHarnessTraceProps> = ({ work
           </div>
           <div className="min-w-0">
             <p className="truncate text-[12px] font-bold text-gray-900">XcAI</p>
-            <p className="truncate font-mono text-[9px] text-gray-400">{state.model || 'deepseek'}</p>
+            <p className="truncate font-mono text-[9px] text-gray-400">
+              {state.model || 'deepseek'} · {state.mode === 'plan' ? '规划模式' : '执行模式'}
+              {typeof state.sessionEvents === 'number' ? ` · ${state.sessionEvents} events` : ''}
+            </p>
           </div>
         </div>
         <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${completed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-700'}`}>

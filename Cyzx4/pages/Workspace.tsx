@@ -130,7 +130,7 @@ import {
   ImageModel,
   VideoModel,
 } from "../types";
-import { getProject, saveProject, formatDate } from "../services/storage";
+import { getProject, saveProject } from "../services/storage";
 import type { MaterialRecord } from "../services/materialLibrary";
 import { Content } from "@google/genai";
 import { useAgentOrchestrator } from "../hooks/useAgentOrchestrator";
@@ -4347,7 +4347,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       await saveProject({
         id,
         title: projectTitle,
-        updatedAt: formatDate(Date.now()),
+        updatedAt: new Date().toISOString(),
         elements: elementsRef.current,
         markers: markersRef.current,
         thumbnail,
@@ -4379,6 +4379,20 @@ const Workspace: React.FC<WorkspaceProps> = ({
     markers,
     persistWorkspaceProject,
   ]);
+
+  useEffect(() => {
+    const flushWorkspace = () => {
+      if (document.visibilityState === 'hidden') void persistWorkspaceProject();
+    };
+    const flushOnPageHide = () => { void persistWorkspaceProject(); };
+    document.addEventListener('visibilitychange', flushWorkspace);
+    window.addEventListener('pagehide', flushOnPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', flushWorkspace);
+      window.removeEventListener('pagehide', flushOnPageHide);
+      void persistWorkspaceProject();
+    };
+  }, [persistWorkspaceProject]);
 
   const updateSelectedElement = (updates: Partial<CanvasElement>) => {
     if (!selectedElementId) return;
@@ -5172,7 +5186,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
             await saveProject({
               id,
               title: "未命名",
-              updatedAt: formatDate(Date.now()),
+              updatedAt: new Date().toISOString(),
               elements: [],
               markers: [],
               thumbnail: "",

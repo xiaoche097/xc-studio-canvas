@@ -15,18 +15,21 @@ import {
   Palette,
   Image as ImageIcon,
   ChevronDown,
-  PlusCircle,
   Check,
   Eye,
   Film,
   ChevronRight,
+  ChevronLeft,
   X,
+  Trash2,
+  FolderOpen,
+  AlertTriangle,
 } from "lucide-react";
 import PinterestGallery from "../components/PinterestGallery";
 import MaterialLibrary from "./Home/components/MaterialLibrary";
 import ClipperLibraryView from "./Home/components/ClipperLibraryView";
-import { createNewWorkspacePath, workspacePath } from "../utils/routes";
-import { getProjects } from "../services/storage";
+import { workspacePath } from "../utils/routes";
+import { deleteProject, getProjects } from "../services/storage";
 import { Project, AppMode } from "../types";
 import type { ImageModel } from "../types";
 import { safeLocalStorageSetItem } from "../utils/safe-storage";
@@ -49,6 +52,10 @@ import {
   type CreativeFeature,
   type FeatureCategory,
 } from "../featureRegistry";
+import type { HarnessAgentMode } from "../services/agents/runtime/harness-session";
+import { deleteBrowserHarnessSession } from "../services/agents/runtime/harness-session";
+import { deleteTopicMemory } from "../services/topic-memory";
+import { getMemoryKey } from "../services/topicMemory/key";
 
 type TopTabType = "skill" | "pinterest" | "brand" | "clipper";
 
@@ -90,6 +97,7 @@ const SKILL_CATEGORY_TABS = [
 ];
 
 const MAX_HOME_IMAGE_ATTACHMENTS = 10;
+const MAX_RETAINED_PROJECTS = 4;
 
 const isImageFile = (file: File) => (
   file.type.startsWith('image/') || /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(file.name)
@@ -98,6 +106,17 @@ const isImageFile = (file: File) => (
 const normalizeComposerText = (value: string) => {
   const normalized = value.replace(/\u200B/g, '').replace(/\u00A0/g, ' ');
   return normalized.trim().length > 0 ? normalized : '';
+};
+
+const formatProjectUpdatedAt = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '最近编辑';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  return new Intl.DateTimeFormat('zh-CN', sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { month: 'short', day: 'numeric' }
+  ).format(date);
 };
 
 const SkillCard: React.FC<{
@@ -210,8 +229,23 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
   const [autoModelSelect, setAutoModelSelect] = useState(true);
   const [preferredImageModel, setPreferredImageModel] =
     useState<ImageModel>(DEFAULT_AUTO_IMAGE_MODEL);
+  const [agentMode, setAgentMode] = useState<HarnessAgentMode>(() => {
+    if (typeof window === 'undefined') return 'default';
+    const storedMode = window.localStorage.getItem('xcai_agent_mode');
+    if (storedMode === 'plan') return 'plan';
+    safeLocalStorageSetItem('xcai_agent_mode', 'default');
+    return 'default';
+  });
 
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
+  const [projectPendingDelete, setProjectPendingDelete] = useState<Project | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [projectDeleteError, setProjectDeleteError] = useState('');
+  const [projectAnnouncement, setProjectAnnouncement] = useState('');
+  const projectRailRef = useRef<HTMLDivElement>(null);
+  const deleteCancelButtonRef = useRef<HTMLButtonElement>(null);
+  const deleteDialogPreviousFocusRef = useRef<HTMLElement | null>(null);
+  const isDeletingProjectRef = useRef(false);
 
   const attachmentPreviews = useMemo(
     () => attachments.map((file) => ({ file, url: URL.createObjectURL(file) })),
@@ -264,10 +298,89 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
   useEffect(() => {
     const load = async () => {
       const all = await getProjects();
-      setRecentProjects(all.slice(0, 5));
+      setRecentProjects(all.slice(0, MAX_RETAINED_PROJECTS));
     };
     load();
   }, []);
+
+  useEffect(() => {
+    isDeletingProjectRef.current = isDeletingProject;
+  }, [isDeletingProject]);
+
+  useEffect(() => {
+    if (!projectPendingDelete) return;
+    deleteDialogPreviousFocusRef.current = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => deleteCancelButtonRef.current?.focus());
+
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isDeletingProjectRef.current) {
+        event.preventDefault();
+        setProjectPendingDelete(null);
+        setProjectDeleteError('');
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = document.getElementById('delete-project-dialog');
+      const focusable = dialog?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleDialogKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleDialogKeyDown);
+      deleteDialogPreviousFocusRef.current?.focus();
+    };
+  }, [projectPendingDelete]);
+
+  const openRetainedProject = (projectId: string) => {
+    if (onOpenProject) onOpenProject(projectId);
+    else navigate(workspacePath(projectId));
+  };
+
+  const scrollProjectRail = (direction: -1 | 1) => {
+    const rail = projectRailRef.current;
+    if (!rail) return;
+    rail.scrollBy({ left: direction * Math.max(176, rail.clientWidth * 0.72), behavior: 'smooth' });
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!projectPendingDelete || isDeletingProject) return;
+    setIsDeletingProject(true);
+    setProjectDeleteError('');
+    try {
+      const deletedProject = projectPendingDelete;
+      await deleteProject(deletedProject.id);
+      const conversationIds = Array.from(new Set([
+        deletedProject.activeConversationId,
+        ...(deletedProject.conversations || []).map((conversation) => conversation.id),
+      ].filter((value): value is string => Boolean(value))));
+      await Promise.allSettled(conversationIds.map(async (conversationId) => {
+        deleteBrowserHarnessSession(conversationId);
+        const memoryKey = getMemoryKey(deletedProject.id, conversationId);
+        if (memoryKey) await deleteTopicMemory(memoryKey);
+      }));
+      const remaining = await getProjects();
+      setRecentProjects(remaining.slice(0, MAX_RETAINED_PROJECTS));
+      setProjectAnnouncement(`项目“${projectPendingDelete.title || '未命名'}”已删除`);
+      setProjectPendingDelete(null);
+      requestAnimationFrame(() => projectRailRef.current?.focus());
+    } catch (error) {
+      setProjectDeleteError(error instanceof Error ? error.message : '删除失败，请稍后重试。');
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -334,6 +447,14 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
     setShowModelPreference(false);
   };
 
+  const toggleAgentMode = () => {
+    setAgentMode((current) => {
+      const next: HarnessAgentMode = current === 'default' ? 'plan' : 'default';
+      safeLocalStorageSetItem('xcai_agent_mode', next);
+      return next;
+    });
+  };
+
   const handleSendDesign = async () => {
     if (isPreparingWorkspace) return;
     const skillData = buildCreativeSkillData(selectedSkills);
@@ -342,6 +463,11 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
     const finalPrompt = prompt.trim() || (skillData ? '请根据附件完成所选创作任务。' : '');
 
     if (finalPrompt || attachments.length > 0 || attachedClipperItems.length > 0) {
+      if (recentProjects.length >= MAX_RETAINED_PROJECTS) {
+        setWorkspaceLaunchError(`最多保留 ${MAX_RETAINED_PROJECTS} 个项目，请先在下方删除一个旧项目。`);
+        projectRailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
       setIsPreparingWorkspace(true);
       setWorkspaceLaunchError('');
       try {
@@ -810,9 +936,9 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
         {/* 左侧区域：极简 AI 问答输入框 (精确复刻图 1 左侧) */}
         {/* ============================================================ */}
         <aside
-          className="relative min-h-[22rem] w-full shrink-0 border-b border-slate-200/80 bg-[#FCFCFB] p-5 sm:p-7 lg:min-h-0 lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
+          className="relative min-h-[34rem] max-h-[65vh] w-full shrink-0 overflow-y-auto border-b border-slate-200/80 bg-[#FCFCFB] p-5 sm:p-7 lg:min-h-0 lg:max-h-none lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
         >
-          <div className="mx-auto flex h-full w-full max-w-[30rem] flex-col justify-center">
+          <div className="mx-auto flex min-h-full w-full max-w-[30rem] flex-col justify-center py-4 lg:py-8">
             <div className="mb-7 text-center">
               <h2 className="text-xl font-medium tracking-[-0.025em] text-slate-950">
                 你想设计什么？
@@ -843,7 +969,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                 setIsCaretBeforeComposerTokens(false);
                 richTextEditorRef.current?.focus();
               }}
-              className={`relative flex min-h-[7.5rem] cursor-text flex-col justify-between rounded-[1.5rem] border bg-white px-4 pb-2 pt-3 shadow-[0_2px_6px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow,background-color] focus-within:border-slate-400 focus-within:shadow-[0_3px_10px_rgba(15,23,42,0.09)] ${
+              className={`relative flex min-h-[7rem] cursor-text flex-col justify-between rounded-[1.25rem] border bg-white px-4 pb-1.5 pt-2.5 shadow-[0_2px_6px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow,background-color] focus-within:border-slate-400 focus-within:shadow-[0_3px_10px_rgba(15,23,42,0.09)] ${
                 isDraggingImages
                   ? 'border-blue-500 bg-blue-50/60 shadow-[0_0_0_3px_rgba(59,130,246,0.14)]'
                   : 'border-[#D4D4D4]'
@@ -854,7 +980,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                   松开即可添加图片
                 </div>
               )}
-              <div className="relative flex min-h-[3.75rem] flex-wrap content-start items-center gap-x-0 gap-y-1.5">
+              <div className="relative flex min-h-[3.5rem] flex-wrap content-start items-center gap-x-0 gap-y-1.5">
                 {renderComposerTextPosition(0)}
                 {selectedSkills.map((skill, skillIndex) => (
                     <React.Fragment key={skill.mode}>
@@ -1044,7 +1170,23 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                   }}
                 />
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={toggleAgentMode}
+                    aria-label={agentMode === 'plan' ? '切换到执行模式' : '切换到规划模式'}
+                    title={agentMode === 'plan' ? '规划模式：只分析并输出计划' : '执行模式：自主调用工具完成任务'}
+                    className="group flex h-11 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                  >
+                    <span className={`flex h-8 items-center gap-1 rounded-full px-2.5 text-[0.7rem] font-semibold transition-colors ${
+                      agentMode === 'plan'
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                        : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                    }`}>
+                      <Sparkles size={12} />
+                      <span>{agentMode === 'plan' ? '规划' : '执行'}</span>
+                    </span>
+                  </button>
                   <div ref={modelPreferenceRef} className="relative">
                     <button
                       type="button"
@@ -1052,13 +1194,15 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                       aria-label="模型偏好"
                       aria-haspopup="dialog"
                       aria-expanded={showModelPreference}
-                      className={`grid h-11 w-11 cursor-pointer place-items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
+                      className="group grid h-11 w-11 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                    >
+                      <span className={`grid h-8 w-8 place-items-center rounded-full transition-colors ${
                         showModelPreference
                           ? "bg-slate-100 text-slate-950"
-                          : "text-slate-400 hover:bg-slate-100 hover:text-slate-950"
-                      }`}
-                    >
-                    <Box size={15} />
+                          : "text-slate-400 group-hover:bg-slate-100 group-hover:text-slate-950"
+                      }`}>
+                        <Box size={14} />
+                      </span>
                     </button>
 
                     {showModelPreference && (
@@ -1128,11 +1272,13 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                     onClick={handleSendDesign}
                     disabled={!canSendDesign || isPreparingWorkspace}
                     aria-label="开始创作"
-                    className={`grid h-11 w-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-slate-950 ${
-                      canSendDesign && !isPreparingWorkspace ? "cursor-pointer bg-slate-950 text-white hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300"
-                    }`}
+                    className="group grid h-11 w-11 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
                   >
-                    {isPreparingWorkspace ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <ArrowUp size={14} />}
+                    <span className={`grid h-8 w-8 place-items-center rounded-full transition-colors ${
+                      canSendDesign && !isPreparingWorkspace ? "cursor-pointer bg-slate-950 text-white group-hover:bg-slate-800" : "cursor-not-allowed bg-slate-100 text-slate-300"
+                    }`}>
+                      {isPreparingWorkspace ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <ArrowUp size={13} />}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -1170,6 +1316,115 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                 <span>使用我的 Pinterest 参考图</span>
               </button>
             </div>
+
+            <section className="mt-6 border-t border-slate-200/80 pt-4" aria-labelledby="retained-projects-title">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 id="retained-projects-title" className="text-sm font-semibold text-slate-950">保留项目</h3>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[0.68rem] font-semibold text-slate-600">
+                      {recentProjects.length}/{MAX_RETAINED_PROJECTS}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-600">自动保存，点击即可继续创作</p>
+                </div>
+                {recentProjects.length > 1 && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => scrollProjectRail(-1)}
+                      aria-label="查看上一个保留项目"
+                      className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollProjectRail(1)}
+                      aria-label="查看下一个保留项目"
+                      className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {recentProjects.length > 0 ? (
+                <div
+                  ref={projectRailRef}
+                  tabIndex={-1}
+                  className="flex max-w-full gap-3 overflow-x-hidden px-0.5 py-2 scroll-smooth outline-none"
+                  aria-label="保留项目列表，请使用左右箭头切换"
+                >
+                  {recentProjects.map((project) => (
+                    <div
+                      key={project.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openRetainedProject(project.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openRetainedProject(project.id);
+                        }
+                      }}
+                      aria-label={`继续创作项目：${project.title || '未命名'}`}
+                      className="group relative min-w-[10.75rem] max-w-[10.75rem] cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-colors duration-200 hover:border-slate-400 hover:bg-slate-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                    >
+                      <div className="relative h-24 overflow-hidden bg-[#F6F7F9]">
+                        {project.thumbnail ? (
+                          <img
+                            src={project.thumbnail}
+                            alt={`${project.title || '未命名'}项目预览`}
+                            draggable={false}
+                            className="h-full w-full object-cover transition-opacity duration-200 group-hover:opacity-95"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 text-slate-400">
+                            <FolderOpen size={21} strokeWidth={1.6} />
+                            <span className="text-[0.7rem] font-medium text-slate-500">暂无预览</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          data-project-delete
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setProjectDeleteError('');
+                            setProjectPendingDelete(project);
+                          }}
+                          aria-label={`删除项目：${project.title || '未命名'}`}
+                          title="删除项目"
+                          className="absolute right-0.5 top-0.5 grid h-11 w-11 cursor-pointer place-items-center rounded-lg border border-transparent bg-transparent text-slate-400 opacity-100 transition-colors hover:bg-white/80 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                      <div className="border-t border-slate-200/80 px-3 py-2.5">
+                        <p className="truncate text-sm font-semibold text-slate-900" title={project.title || '未命名'}>
+                          {project.title || '未命名'}
+                        </p>
+                        <p className="mt-0.5 text-[0.7rem] text-slate-500">
+                          {formatProjectUpdatedAt(project.updatedAt)} 已保存
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex min-h-28 items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-white/70 px-4 py-4 text-left">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500">
+                    <FolderOpen size={19} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">还没有保留项目</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">开始创作后，画布和对话会自动保存在这里。</p>
+                  </div>
+                </div>
+              )}
+              <p className="sr-only" aria-live="polite">{projectAnnouncement}</p>
+            </section>
           </div>
         </aside>
 
@@ -1254,44 +1509,6 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                 })}
                 </div>
 
-              {/* 最近项目 */}
-              <div className="pt-4 border-t border-slate-200">
-                <h3 className="mb-4 text-sm font-semibold text-slate-900">最近项目</h3>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                  <div
-                    onClick={() => onStartWorkspace
-                      ? onStartWorkspace({
-                          projectId: `workspace-${Date.now()}`,
-                          conversationId: createConversationId('home'),
-                          prompt: '',
-                          attachments: [],
-                        })
-                      : navigate(createNewWorkspacePath())}
-                    className="aspect-[4/3] rounded-xl bg-slate-50 border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition"
-                  >
-                    <PlusCircle size={22} />
-                    <span className="text-xs font-bold mt-2">新建画布项目</span>
-                  </div>
-                  {recentProjects.map((p) => (
-                    <div
-                      key={p.id}
-                      onClick={() => onOpenProject ? onOpenProject(p.id) : navigate(workspacePath(p.id))}
-                      className="aspect-[4/3] rounded-xl bg-slate-50 border border-slate-200 overflow-hidden cursor-pointer hover:border-slate-400 transition relative group"
-                    >
-                      {p.thumbnail ? (
-                        <img src={p.thumbnail} alt={p.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-300">
-                          <Box size={24} />
-                        </div>
-                      )}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2.5 text-white opacity-0 group-hover:opacity-100 transition">
-                        <div className="text-xs font-bold truncate">{p.title}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
               </div>
             </div>
           )}
@@ -1308,6 +1525,73 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
           )}
         </div>
       </div>
+
+      {projectPendingDelete && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 px-4 py-8 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isDeletingProject) {
+              setProjectPendingDelete(null);
+              setProjectDeleteError('');
+            }
+          }}
+        >
+          <section
+            id="delete-project-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-title"
+            aria-describedby="delete-project-description"
+            className="w-full max-w-md rounded-3xl border border-white/80 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.28)] sm:p-7"
+          >
+            <div className="flex items-start gap-4">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-rose-50 text-rose-600">
+                <AlertTriangle size={22} />
+              </span>
+              <div className="min-w-0">
+                <h2 id="delete-project-title" className="text-lg font-semibold text-slate-950">确定删除这个项目？</h2>
+                <p id="delete-project-description" className="mt-2 text-sm leading-6 text-slate-600">
+                  “{projectPendingDelete.title || '未命名'}”的画布、页面和对话记录将被永久删除，此操作无法撤销。
+                </p>
+              </div>
+            </div>
+
+            {projectDeleteError && (
+              <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+                {projectDeleteError}
+              </p>
+            )}
+
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                ref={deleteCancelButtonRef}
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => {
+                  setProjectPendingDelete(null);
+                  setProjectDeleteError('');
+                }}
+                className="min-h-11 cursor-pointer rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={confirmDeleteProject}
+                className="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70"
+              >
+                {isDeletingProject ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />
+                ) : (
+                  <Trash2 size={16} />
+                )}
+                {isDeletingProject ? '正在删除' : '确认删除'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };
