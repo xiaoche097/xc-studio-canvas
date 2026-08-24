@@ -288,14 +288,12 @@ const detectFileAspectRatio = async (
     fileAny.detectedImageWidth ||
     fileAny._previewNaturalWidth ||
     markerInfo?.imageWidth ||
-    markerInfo?.width ||
     0,
   );
   const knownHeight = Number(
     fileAny.detectedImageHeight ||
     fileAny._previewNaturalHeight ||
     markerInfo?.imageHeight ||
-    markerInfo?.height ||
     0,
   );
   if (knownWidth > 0 && knownHeight > 0) {
@@ -912,6 +910,9 @@ export abstract class EnhancedBaseAgent {
     const contextText = [
       `当前项目：${task.input.context.projectTitle || task.input.context.projectId}`,
       `用户本轮请求：${task.input.message}`,
+      task.input.metadata?.preferredAspectRatio
+        ? `输出画布比例（执行工具时必须严格使用）：${task.input.metadata.preferredAspectRatio}；来源：${task.input.metadata.preferredAspectRatioSource || "任务设置"}`
+        : "",
       `附件索引（调用工具时必须使用这些 ATTACHMENT_n 引用）：\n${attachmentManifest}`,
       selectedCapabilities.length > 0
         ? `用户选择的能力契约：${compactJson(selectedCapabilities, 2400)}`
@@ -2676,8 +2677,24 @@ ${currentTurnIntentSection}${productSection}${quantitySection}${multiImageSectio
     if (
       typeof preferredAspectRatio === "string" &&
       preferredAspectRatio &&
-      (((creationMode === "image" || creationMode == null) && call.skillName === "generateImage") ||
-        (creationMode === "video" && call.skillName === "generateVideo"))
+      creationMode !== "video" &&
+      ["generateImage", "smartEdit", "touchEdit"].includes(call.skillName)
+    ) {
+      call.params = call.params || {};
+      if (call.skillName === "smartEdit") {
+        call.params.parameters = call.params.parameters || {};
+        call.params.parameters.aspectRatio = preferredAspectRatio;
+      } else {
+        call.params.aspectRatio = preferredAspectRatio;
+      }
+      console.info(
+        `[${this.agentInfo.id}] Output ratio enforced at execution: ${preferredAspectRatio} (${task.input.metadata?.preferredAspectRatioSource || "task"}) -> ${call.skillName}`,
+      );
+    } else if (
+      typeof preferredAspectRatio === "string" &&
+      preferredAspectRatio &&
+      creationMode === "video" &&
+      call.skillName === "generateVideo"
     ) {
       call.params = call.params || {};
       call.params.aspectRatio = preferredAspectRatio;
@@ -3000,8 +3017,8 @@ ${currentTurnIntentSection}${productSection}${quantitySection}${multiImageSectio
             
             // 1. 设置宽高比 —— 必须使用原图的真实尺寸 (imageWidth / imageHeight)
             // 注意：info.width/height 是圈选区域的大小，不是原图大小！
-            const imgW = info.imageWidth || info.width;
-            const imgH = info.imageHeight || info.height;
+            const imgW = (file as any).detectedImageWidth || info.imageWidth || info.width;
+            const imgH = (file as any).detectedImageHeight || info.imageHeight || info.height;
             const ratio = imgW / imgH;
             const detectedAspect = getNearestSupportedImageAspectRatio(imgW, imgH);
             const aspect = typeof preferredAspectRatio === "string" && preferredAspectRatio

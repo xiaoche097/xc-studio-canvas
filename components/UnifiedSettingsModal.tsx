@@ -737,7 +737,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
           workspaces = candidateWorkspaces;
           models = candidateModels;
           activeBaseUrl = candidate;
-          if (candidateWorkspaces.length > 0 || candidateModels.length > 0) break;
+          // Image routing needs a real workspace/canvas pair. A node that only
+          // returns models is not usable and must not preserve stale IDs.
+          if (candidateWorkspaces.length > 0) break;
         } catch (error) {
           lastError = error;
         }
@@ -758,9 +760,19 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       setVirseWorkspaces(workspaces);
       setVirseModels(models);
 
-      const currentWorkspace = workspaces.find((workspace) => workspace.canvas_id === virseCanvasId) || workspaces[0];
-      const nextSpaceId = currentWorkspace?.space_id || virseSpaceId;
-      const nextCanvasId = currentWorkspace?.canvas_id || virseCanvasId;
+      if (workspaces.length === 0) {
+        setVirseSpaceId('');
+        setVirseCanvasId('');
+        localStorage.removeItem('virse_space_id');
+        localStorage.removeItem('virse_canvas_id');
+        throw new Error('Virse 未返回可用工作区/画布，请确认 API Key、账号权限和 API 节点。');
+      }
+
+      const currentWorkspace = workspaces.find((workspace) => (
+        workspace.space_id === virseSpaceId && workspace.canvas_id === virseCanvasId
+      )) || workspaces.find((workspace) => workspace.canvas_id === virseCanvasId) || workspaces[0];
+      const nextSpaceId = currentWorkspace.space_id;
+      const nextCanvasId = currentWorkspace.canvas_id;
       if (currentWorkspace) {
         setVirseSpaceId(nextSpaceId);
         setVirseCanvasId(nextCanvasId);
@@ -1687,13 +1699,25 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Globe className="w-4 h-4" /> API 节点</label>
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => setVirseBaseUrl(DEFAULT_VIRSE_BASE_URL)}
+                              onClick={() => {
+                                setVirseBaseUrl(DEFAULT_VIRSE_BASE_URL);
+                                setVirseSpaceId('');
+                                setVirseCanvasId('');
+                                setVirseWorkspaces([]);
+                                setVirseTestStatus('idle');
+                              }}
                               className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === DEFAULT_VIRSE_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                             >
                               API 节点（默认/新版）
                             </button>
                             <button
-                              onClick={() => setVirseBaseUrl(VIRSE_DEV_BASE_URL)}
+                              onClick={() => {
+                                setVirseBaseUrl(VIRSE_DEV_BASE_URL);
+                                setVirseSpaceId('');
+                                setVirseCanvasId('');
+                                setVirseWorkspaces([]);
+                                setVirseTestStatus('idle');
+                              }}
                               className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === VIRSE_DEV_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                             >
                               Dev 节点（备用/认证文档）
@@ -1710,6 +1734,9 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                               value={virseApiKey}
                               onChange={(e) => {
                                 setVirseApiKey(e.target.value);
+                                setVirseSpaceId('');
+                                setVirseCanvasId('');
+                                setVirseWorkspaces([]);
                                 setVirseTestStatus('idle');
                                 setVirseTestMessage('');
                               }}

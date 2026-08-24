@@ -134,9 +134,25 @@ export const callVirseTool = async ({ apiKey, baseUrl, tool, args = {} }) => {
     .filter((item) => item?.type === 'text' && typeof item.text === 'string')
     .map((item) => item.text);
 
+  // Some Virse MCP tools report failures as a successful MCP result whose
+  // content is plain text (for example: "Upload failed: Invalid space_id").
+  // Treat those responses as errors here so callers do not mistake them for
+  // successful uploads that merely omitted an asset_id.
+  const structuredData = result.structuredContent ?? result.structured_content ?? result.data;
+  const failureCandidates = [
+    ...texts,
+    ...(typeof structuredData === 'string' ? [structuredData] : []),
+  ];
+  const textFailure = failureCandidates.find((text) => (
+    /(?:^|\n)\s*(?:upload\s+failed|failed|error)\s*:/i.test(text)
+    || /\binvalid_(?:space|canvas)_id\b/i.test(text)
+  ));
+  if (textFailure) {
+    throw new Error(textFailure.trim().slice(0, 500));
+  }
+
   // MCP servers may return machine-readable output in structuredContent while
   // content only contains presentation blocks (or is completely empty).
-  const structuredData = result.structuredContent ?? result.structured_content ?? result.data;
   const textData = parseTextPayload(texts);
 
   return {

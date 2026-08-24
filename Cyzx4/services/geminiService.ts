@@ -24,7 +24,7 @@ import {
   API_TIMEOUT_MS
 } from "../utils/apiHelpers";
 import { resolveXiaocheImageModel } from "../utils/xiaocheModels";
-import { generateVirseImage, uploadVirseReference } from "../../services/virseService";
+import { generateVirseImage, listVirseWorkspaces, uploadVirseReference } from "../../services/virseService";
 
 import type {
   GeminiResponse,
@@ -1459,14 +1459,11 @@ export const generateImageToImage = async (
       throw new Error('Virse 中转已开启，但尚未配置 API Key。请先在模型配置中补全 Virse 配置，或关闭 Virse 中转。');
     }
     const virseBaseUrl = localStorage.getItem('virse_base_url') || 'https://api.virse.ai';
-    const virseSpaceId = localStorage.getItem('virse_space_id') || '';
-    const virseCanvasId = localStorage.getItem('virse_canvas_id') || '';
+    const storedVirseSpaceId = localStorage.getItem('virse_space_id') || '';
+    const storedVirseCanvasId = localStorage.getItem('virse_canvas_id') || '';
     const imageHostProvider = localStorage.getItem('image_host_provider') || '';
     const imgbbApiKey = localStorage.getItem('imgbb_api_key')?.trim() || '';
     const freeimageApiKey = localStorage.getItem('freeimage_api_key')?.trim() || '';
-    if (!virseSpaceId || !virseCanvasId) {
-      throw new Error('Virse 尚未选择工作区/画布，请在模型配置中点击“测试并同步”，选择工作区后保存配置。');
-    }
     const configuredVirseModel = localStorage.getItem('virse_model') || 'nano-banana-2';
     const requestedModel = modelId || configuredVirseModel;
     const virseModelMap: Record<string, string> = {
@@ -1490,41 +1487,62 @@ export const generateImageToImage = async (
       virseBaseUrl,
       virseBaseUrl === 'https://api.virse.ai' ? 'https://dev.virse.ai' : 'https://api.virse.ai',
     ])];
-    let activeVirseBaseUrl = virseBaseUrl;
+
+    // A saved space/canvas pair can become stale after an account, node or
+    // workspace change. Resolve it against the live workspace list before any
+    // upload and persist the refreshed authoritative pair.
+    let activeVirseBaseUrl = '';
+    let activeVirseSpaceId = '';
+    let activeVirseCanvasId = '';
+    let workspaceResolveError: any = null;
+    for (const candidateBaseUrl of baseUrlCandidates) {
+      try {
+        const workspaces = await listVirseWorkspaces(virseApiKey, candidateBaseUrl);
+        const selectedWorkspace = workspaces.find((workspace) => (
+          workspace.space_id === storedVirseSpaceId
+          && workspace.canvas_id === storedVirseCanvasId
+        )) || workspaces.find((workspace) => workspace.canvas_id === storedVirseCanvasId)
+          || workspaces[0];
+        if (!selectedWorkspace) continue;
+        activeVirseBaseUrl = candidateBaseUrl;
+        activeVirseSpaceId = selectedWorkspace.space_id;
+        activeVirseCanvasId = selectedWorkspace.canvas_id;
+        break;
+      } catch (error) {
+        workspaceResolveError = error;
+      }
+    }
+    if (!activeVirseSpaceId || !activeVirseCanvasId) {
+      localStorage.removeItem('virse_space_id');
+      localStorage.removeItem('virse_canvas_id');
+      throw new Error(`Virse 没有可用的工作区/画布，请在模型配置中重新“测试并同步”。${workspaceResolveError ? ` ${workspaceResolveError?.message || String(workspaceResolveError)}` : ''}`);
+    }
+    localStorage.setItem('virse_base_url', activeVirseBaseUrl);
+    localStorage.setItem('virse_space_id', activeVirseSpaceId);
+    localStorage.setItem('virse_canvas_id', activeVirseCanvasId);
+
     let assetIds: string[] = [];
     let uploadError: any = null;
-    for (let baseIndex = 0; baseIndex < baseUrlCandidates.length; baseIndex += 1) {
-      const candidateBaseUrl = baseUrlCandidates[baseIndex];
-      const candidateAssetIds: string[] = [];
-      try {
-        for (let index = 0; index < images.slice(0, 10).length; index += 1) {
-          throwIfAborted(signal);
-          onStatus?.('submitting');
-          const image = images[index];
-          candidateAssetIds.push(await uploadVirseReference({
-            apiKey: virseApiKey,
-            baseUrl: candidateBaseUrl,
-            spaceId: virseSpaceId,
-            canvasId: virseCanvasId,
-            base64: image.base64,
-            mimeType: image.mimeType || 'image/png',
-            index,
-            imageHostProvider,
-            imgbbApiKey,
-            freeimageApiKey,
-          }));
-        }
-        activeVirseBaseUrl = candidateBaseUrl;
-        assetIds = candidateAssetIds;
-        uploadError = null;
-        break;
-      } catch (error: any) {
-        uploadError = error;
-        const message = error?.message || String(error);
-        const canTryAlternateNode = /\b429\b|\b50[234]\b|no healthy upstream|service unavailable|bad gateway|rate|too many requests/i.test(message);
-        if (!canTryAlternateNode || baseIndex === baseUrlCandidates.length - 1) break;
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+    try {
+      for (let index = 0; index < images.slice(0, 10).length; index += 1) {
+        throwIfAborted(signal);
+        onStatus?.('submitting');
+        const image = images[index];
+        assetIds.push(await uploadVirseReference({
+          apiKey: virseApiKey,
+          baseUrl: activeVirseBaseUrl,
+          spaceId: activeVirseSpaceId,
+          canvasId: activeVirseCanvasId,
+          base64: image.base64,
+          mimeType: image.mimeType || 'image/png',
+          index,
+          imageHostProvider,
+          imgbbApiKey,
+          freeimageApiKey,
+        }));
       }
+    } catch (error: any) {
+      uploadError = error;
     }
     if (uploadError) {
       throw new Error(`Virse 参考图上传失败：${uploadError?.message || String(uploadError)}`);
@@ -1559,8 +1577,8 @@ export const generateImageToImage = async (
         return await generateVirseImage({
           apiKey: virseApiKey,
           baseUrl: activeVirseBaseUrl,
-          spaceId: virseSpaceId,
-          canvasId: virseCanvasId,
+          spaceId: activeVirseSpaceId,
+          canvasId: activeVirseCanvasId,
           model: candidateModel,
           prompt: fullPrompt,
           aspectRatio,
