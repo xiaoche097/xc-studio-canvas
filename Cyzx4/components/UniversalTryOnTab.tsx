@@ -39,7 +39,6 @@ import {
 } from '../services/geminiService';
 import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
-import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 
@@ -455,23 +454,36 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
     (slot) => currentTask.shoesImages.find((image) => image.shoeViewSlot === slot) ?? legacyShoeImages[slot]
   );
 
-  const {
-    startGenerationTask,
-    cancelGenerationTask,
-    finishGenerationTask,
-  } = useCancelableGeneration();
+  const generationControllersRef = useRef(new Map<string, { taskId: number; controller: AbortController }>());
+  const generationSequenceRef = useRef(0);
+  const isLoading = currentTask.status === 'generating';
 
-  const [isLoading, setIsLoading] = useState(false);
+  const startGenerationTask = (taskId: string) => {
+    const controller = new AbortController();
+    const generationId = ++generationSequenceRef.current;
+    generationControllersRef.current.set(taskId, { taskId: generationId, controller });
+    return { taskId: generationId, signal: controller.signal };
+  };
+
+  const cancelGenerationTask = (taskId: string) => {
+    generationControllersRef.current.get(taskId)?.controller.abort();
+  };
+
+  const finishGenerationTask = (taskId: string, generationId: number) => {
+    if (generationControllersRef.current.get(taskId)?.taskId === generationId) {
+      generationControllersRef.current.delete(taskId);
+    }
+  };
 
   useEffect(() => {
-    if (!isLoading) return;
+    if (!tasks.some((task) => task.status === 'generating')) return;
     const preventAccidentalUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', preventAccidentalUnload);
     return () => window.removeEventListener('beforeunload', preventAccidentalUnload);
-  }, [isLoading]);
+  }, [tasks]);
   const [error, setError] = useState<string | null>(null);
 
   // Lightbox Zoom Modal Image State (For ALL images)
@@ -842,9 +854,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
     }));
 
     setError(null);
-    setIsLoading(true);
-
-    const { taskId, signal } = startGenerationTask();
+    const { taskId, signal } = startGenerationTask(currentTask.id);
     const fullPrompt = `${currentTask.customPrompt} ${customPromptAddon}`.trim();
     generationContextsRef.current.set(currentTask.id, { productImgs, fullPrompt });
 
@@ -1022,8 +1032,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
           : task));
       }
     } finally {
-      finishGenerationTask(taskId);
-      setIsLoading(false);
+      finishGenerationTask(currentTask.id, taskId);
     }
   };
 
@@ -1255,7 +1264,6 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
               <button
                 type="button"
                 onClick={() => handleAddNewTask(currentTask.subMode)}
-                disabled={isLoading}
                 className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#172238] text-sm font-black text-white disabled:opacity-50 hover:bg-[#1f2e4c] transition"
               >
                 <Plus className="h-4 w-4" />
@@ -2683,7 +2691,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
             {isLoading ? (
               <button
                 type="button"
-                onClick={() => cancelGenerationTask()}
+                onClick={() => cancelGenerationTask(currentTask.id)}
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-red-500 text-sm font-black text-white shadow transition hover:bg-red-600"
               >
                 <Loader2 className="h-4 w-4 animate-spin" />

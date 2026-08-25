@@ -36,7 +36,6 @@ import { applyColorCorrection, ColorCorrectionMode, compositeInpaintedFaceBack, 
 import { convertImageDataUrlFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
-import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { useImagePaste } from '../hooks/useImagePaste';
 
 // ==================== Types & Interfaces ====================
@@ -105,6 +104,8 @@ export interface ModelTransferRecord {
   agentAnalysis: AgentAnalysis | null;
   results: ResultItem[];
   error: string | null;
+  isGenerating?: boolean;
+  statusMessage?: string;
 }
 
 const MAX_RECORDS = 20;
@@ -857,8 +858,6 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const [activeRecordId, setActiveRecordId] = useState<string>(initialRecordRef.current.id);
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [activeUploadKind, setActiveUploadKind] = useState<UploadKind>('model');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const [maskEditingImage, setMaskEditingImage] = useState<UploadedImage | null>(null);
   const [isRatioModalOpen, setIsRatioModalOpen] = useState(false);
@@ -879,6 +878,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const activeUploadKindRef = useRef<UploadKind>('model');
   const modelInputRef = useRef<HTMLInputElement>(null);
   const sceneInputRef = useRef<HTMLInputElement>(null);
+  const generationControllersRef = useRef(new Map<string, { taskId: number; controller: AbortController }>());
+  const generationSequenceRef = useRef(0);
 
   const activeRecord = useMemo(
     () => records.find((r) => r.id === activeRecordId) || records[0],
@@ -899,20 +900,41 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     [activeRecordId]
   );
 
-  const {
-    cancelMessage,
-    startGenerationTask,
-    cancelGenerationTask,
-    isCurrentGenerationTask,
-    assertCurrentGenerationTask,
-    finishGenerationTask,
-  } = useCancelableGeneration();
+  const patchRecord = useCallback((recordId: string, patch: Partial<ModelTransferRecord>) => {
+    setRecords((prev) => prev.map((rec) => (rec.id === recordId ? { ...rec, ...patch } : rec)));
+  }, []);
 
+  const isGenerating = Boolean(activeRecord.isGenerating);
+  const statusMessage = activeRecord.statusMessage || '';
   const canGenerate = activeRecord.sourceModels.length > 0 && activeRecord.targetScenes.length > 0 && !isGenerating;
   const completedCount = activeRecord.results.filter((item) => item.status === 'done' || item.status === 'error' || item.status === 'cancelled').length;
 
+  const startGenerationTask = (recordId: string) => {
+    const previous = generationControllersRef.current.get(recordId);
+    previous?.controller.abort();
+    const controller = new AbortController();
+    const taskId = ++generationSequenceRef.current;
+    generationControllersRef.current.set(recordId, { taskId, controller });
+    return { taskId, signal: controller.signal };
+  };
+
+  const isCurrentGenerationTask = (recordId: string, taskId: number) => {
+    const task = generationControllersRef.current.get(recordId);
+    return Boolean(task && task.taskId === taskId && !task.controller.signal.aborted);
+  };
+
+  const assertCurrentGenerationTask = (recordId: string, taskId: number, signal?: AbortSignal) => {
+    if (signal?.aborted || !isCurrentGenerationTask(recordId, taskId)) throw new DOMException('Generation cancelled', 'AbortError');
+  };
+
+  const finishGenerationTask = (recordId: string, taskId: number) => {
+    if (generationControllersRef.current.get(recordId)?.taskId === taskId) {
+      generationControllersRef.current.delete(recordId);
+      patchRecord(recordId, { isGenerating: false });
+    }
+  };
+
   const startNewRecord = () => {
-    if (isGenerating) return;
     const fresh = createRecord();
     setRecords((prev) => [fresh, ...prev.slice(0, MAX_RECORDS - 1)]);
     setActiveRecordId(fresh.id);
@@ -1024,25 +1046,25 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const runStep1_Analyze = async () => {
     if (!activeRecord.sourceModels.length || !activeRecord.targetScenes.length || isGenerating) return;
 
-    const { taskId, signal } = startGenerationTask();
-    patchActive({ error: null, agentAnalysis: null, step: 'analyzing' });
-    setIsGenerating(true);
-    setStatusMessage('Agent 正在深度解析源模特基因与目标场景光影...');
+    const recordId = activeRecord.id;
+    const record = activeRecord;
+    const { taskId, signal } = startGenerationTask(recordId);
+    patchRecord(recordId, { error: null, agentAnalysis: null, step: 'analyzing', isGenerating: true, statusMessage: 'Agent 正在深度解析源模特基因与目标场景光影...' });
 
     try {
-      assertCurrentGenerationTask(taskId, signal);
+      assertCurrentGenerationTask(recordId, taskId, signal);
       const text = await generateText(
-        [...activeRecord.sourceModels.map(toApiImage), ...activeRecord.targetScenes.map(toApiImage)],
-        buildAgentPrompt(activeRecord.sourceModels.length, activeRecord.extraNotes)
+        [...record.sourceModels.map(toApiImage), ...record.targetScenes.map(toApiImage)],
+        buildAgentPrompt(record.sourceModels.length, record.extraNotes)
       );
-      assertCurrentGenerationTask(taskId, signal);
+      assertCurrentGenerationTask(recordId, taskId, signal);
 
       const defaultTransferPrompt = buildTransferPrompt({
-        sourceCount: activeRecord.sourceModels.length,
-        analysis: fallbackAnalysis(activeRecord.extraNotes),
-        transferSourceOutfit: detectsSourceOutfitRequest(activeRecord.extraNotes),
+        sourceCount: record.sourceModels.length,
+        analysis: fallbackAnalysis(record.extraNotes),
+        transferSourceOutfit: detectsSourceOutfitRequest(record.extraNotes),
         hasMask: true,
-        extraNotes: activeRecord.extraNotes,
+        extraNotes: record.extraNotes,
         sceneNumber: 1,
       });
 
@@ -1050,54 +1072,53 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
 
       // Pre-generate face masks for all target scenes if missing
       const scenesWithMasks = await Promise.all(
-        activeRecord.targetScenes.map(async (sc) => {
+        record.targetScenes.map(async (sc) => {
           if (sc.maskDataUrl) return sc;
           const maskDataUrl = await detectAndCreateFaceMaskDataUrl(sc);
           return { ...sc, maskDataUrl };
         })
       );
 
-      patchActive({
+      patchRecord(recordId, {
         agentAnalysis: analysis,
         targetScenes: scenesWithMasks,
         checkpoint: 'analyzed',
         step: 'analyzing',
       });
-      setStatusMessage('Agent 分析完成，请确认人脸涂抹遮罩与光影方案。');
+      patchRecord(recordId, { statusMessage: 'Agent 分析完成，请确认人脸涂抹遮罩与光影方案。' });
 
-      if (activeRecord.oneClick) {
-        finishGenerationTask(taskId);
-        setIsGenerating(false);
-        await runStep2_MaskingCheck(analysis);
+      if (record.oneClick) {
+        finishGenerationTask(recordId, taskId);
+        await runStep2_MaskingCheck(recordId, analysis);
         return;
       }
     } catch (err: any) {
-      if (!isAbortError(err)) patchActive({ error: getErrorMessage(err), step: 'input' });
+      if (!isAbortError(err)) patchRecord(recordId, { error: getErrorMessage(err), step: 'input' });
     } finally {
-      if (isCurrentGenerationTask(taskId)) {
-        finishGenerationTask(taskId);
-        setIsGenerating(false);
+      if (isCurrentGenerationTask(recordId, taskId)) {
+        finishGenerationTask(recordId, taskId);
       }
     }
   };
 
-  const runStep2_MaskingCheck = async (analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes)) => {
-    patchActive({ checkpoint: 'masked', step: 'color' });
-    setStatusMessage('Agent 已确认目标场景图人脸涂抹遮罩就绪。');
+  const runStep2_MaskingCheck = async (recordId = activeRecord.id, analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes)) => {
+    patchRecord(recordId, { checkpoint: 'masked', step: 'color', statusMessage: 'Agent 已确认目标场景图人脸涂抹遮罩就绪。' });
 
-    if (activeRecord.oneClick) {
-      await runStep3_FinalTransfer(analysis);
+    const record = records.find((item) => item.id === recordId);
+    if (record?.oneClick) {
+      await runStep3_FinalTransfer(recordId, analysis);
     }
   };
 
-  const runStep3_FinalTransfer = async (analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes)) => {
-    const sources = [...activeRecord.sourceModels];
-    const scenes = [...activeRecord.targetScenes];
-    const { taskId, signal } = startGenerationTask();
+  const runStep3_FinalTransfer = async (recordId = activeRecord.id, analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes)) => {
+    const record = records.find((item) => item.id === recordId);
+    if (!record) return;
+    const sources = [...record.sourceModels];
+    const scenes = [...record.targetScenes];
+    const { taskId, signal } = startGenerationTask(recordId);
 
-    patchActive({ error: null, step: 'upscaling' });
-    setIsGenerating(true);
-    patchActive({
+    patchRecord(recordId, { error: null, step: 'upscaling', isGenerating: true, statusMessage: '正在提取模特身份锚点与目标遮罩图层...' });
+    patchRecord(recordId, {
       results: scenes.map((scene) => ({
         id: `pending-${scene.id}`,
         sceneId: scene.id,
@@ -1109,27 +1130,26 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     });
 
     try {
-      assertCurrentGenerationTask(taskId, signal);
-      setStatusMessage('正在提取模特身份锚点与目标遮罩图层...');
+      assertCurrentGenerationTask(recordId, taskId, signal);
 
       const [identityAnchors, preparedScenes] = await Promise.all([
         prepareIdentityAnchors(sources),
         prepareScenes(scenes),
       ]);
-      assertCurrentGenerationTask(taskId, signal);
+      assertCurrentGenerationTask(recordId, taskId, signal);
 
-      setStatusMessage(`已并发提交 ${scenes.length} 个场景的精准人脸迁移与光影重建...`);
+      patchRecord(recordId, { statusMessage: `已并发提交 ${scenes.length} 个场景的精准人脸迁移与光影重建...` });
 
       const settled = await Promise.allSettled(
         preparedScenes.map((prepared, sceneIndex) =>
-          generatePreparedScene({ prepared, sceneIndex, sources, identityAnchors, analysis, signal })
+          generatePreparedScene({ record, recordId, prepared, sceneIndex, sources, identityAnchors, analysis, signal })
             .then((item) => {
-              if (isCurrentGenerationTask(taskId)) updateResult(prepared.scene.id, item);
+              if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, prepared.scene.id, item);
               return item;
             })
             .catch((itemError) => {
               if (isAbortError(itemError)) {
-                if (isCurrentGenerationTask(taskId)) updateResult(prepared.scene.id, { status: 'cancelled', error: '已中止' });
+                if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, prepared.scene.id, { status: 'cancelled', error: '已中止' });
                 throw itemError;
               }
               const failed: ResultItem = {
@@ -1141,26 +1161,24 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                 prompt: '',
                 error: getErrorMessage(itemError),
               };
-              if (isCurrentGenerationTask(taskId)) updateResult(prepared.scene.id, failed);
+              if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, prepared.scene.id, failed);
               return failed;
             })
         )
       );
 
-      assertCurrentGenerationTask(taskId, signal);
+      assertCurrentGenerationTask(recordId, taskId, signal);
       const batchResults = settled
         .filter((entry): entry is PromiseFulfilledResult<ResultItem> => entry.status === 'fulfilled')
         .map((entry) => entry.value);
 
-      await saveBatch(sources, scenes, analysis, batchResults);
-      patchActive({ checkpoint: 'complete', step: 'complete' });
-      setStatusMessage(`批量迁移完成：${batchResults.filter((item) => item.status === 'done').length}/${scenes.length} 张成功`);
+      await saveBatch(record, sources, scenes, analysis, batchResults);
+      patchRecord(recordId, { checkpoint: 'complete', step: 'complete', statusMessage: `批量迁移完成：${batchResults.filter((item) => item.status === 'done').length}/${scenes.length} 张成功` });
     } catch (generateError) {
       if (!isAbortError(generateError)) patchActive({ error: getErrorMessage(generateError) });
     } finally {
-      if (!isCurrentGenerationTask(taskId)) return;
-      finishGenerationTask(taskId);
-      setIsGenerating(false);
+      if (!isCurrentGenerationTask(recordId, taskId)) return;
+      finishGenerationTask(recordId, taskId);
     }
   };
 
@@ -1176,10 +1194,10 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     })
   );
 
-  const updateResult = (sceneId: string, patch: Partial<ResultItem>) => {
+  const updateResult = (recordId: string, sceneId: string, patch: Partial<ResultItem>) => {
     setRecords((prev) =>
       prev.map((rec) => {
-        if (rec.id !== activeRecordId) return rec;
+        if (rec.id !== recordId) return rec;
         const exists = rec.results.some((item) => item.sceneId === sceneId);
         const updatedResults: ResultItem[] = exists
           ? rec.results.map((item) => (item.sceneId === sceneId ? { ...item, ...patch } : item))
@@ -1193,6 +1211,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   };
 
   const generatePreparedScene = async (options: {
+    record: ModelTransferRecord;
+    recordId: string;
     prepared: PreparedScene;
     sceneIndex: number;
     sources: UploadedImage[];
@@ -1200,17 +1220,17 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     analysis: AgentAnalysis;
     signal: AbortSignal;
   }): Promise<ResultItem> => {
-    const { prepared, sceneIndex, sources, identityAnchors, analysis, signal } = options;
-    const transferSourceOutfit = activeRecord.outfitMode === 'source' || (activeRecord.outfitMode === 'auto' && analysis.transferSourceOutfit);
+    const { record, recordId, prepared, sceneIndex, sources, identityAnchors, analysis, signal } = options;
+    const transferSourceOutfit = record.outfitMode === 'source' || (record.outfitMode === 'auto' && analysis.transferSourceOutfit);
     const prompt = buildTransferPrompt({
       sourceCount: sources.length,
       analysis,
       transferSourceOutfit,
       hasMask: Boolean(prepared.maskAnchor),
-      extraNotes: activeRecord.extraNotes,
+      extraNotes: record.extraNotes,
       sceneNumber: sceneIndex + 1,
     });
-    updateResult(prepared.scene.id, { status: 'submitting', error: undefined, prompt });
+    updateResult(recordId, prepared.scene.id, { status: 'submitting', error: undefined, prompt });
 
     const inputImages = [
       toApiImage(prepared.scene),
@@ -1225,22 +1245,22 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       inputImages,
       prompt,
       {
-        aspectRatio: activeRecord.aspectRatio,
-        resolution: activeRecord.resolution,
-        modelId: activeRecord.selectedModel,
+        aspectRatio: record.aspectRatio,
+        resolution: record.resolution,
+        modelId: record.selectedModel,
         workflowHint: 'model-transfer',
         hasModelRef: true,
         signal,
-        onStatus: (status) => updateResult(prepared.scene.id, { status }),
+        onStatus: (status) => updateResult(recordId, prepared.scene.id, { status }),
       }
     );
 
     if (!rawImage) throw new Error('模型未返回图片。');
-    updateResult(prepared.scene.id, { status: 'processing' });
+    updateResult(recordId, prepared.scene.id, { status: 'processing' });
     const correctedImage = await applyColorCorrection(rawImage, {
-      mode: activeRecord.colorCorrectionMode,
-      reference: activeRecord.colorCorrectionMode === 'match' ? getDataUrl(prepared.scene) : undefined,
-      blend: activeRecord.colorCorrectionBlend,
+      mode: record.colorCorrectionMode,
+      reference: record.colorCorrectionMode === 'match' ? getDataUrl(prepared.scene) : undefined,
+      blend: record.colorCorrectionBlend,
     });
 
     let finalBaseImage = correctedImage;
@@ -1252,7 +1272,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       );
     }
 
-    const formattedImage = await convertImageDataUrlFormat(finalBaseImage, activeRecord.outputFormat);
+    const formattedImage = await convertImageDataUrlFormat(finalBaseImage, record.outputFormat);
     const finalResult: ResultItem = {
       id: `result-${prepared.scene.id}`,
       sceneId: prepared.scene.id,
@@ -1261,14 +1281,14 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       status: 'done',
       prompt,
     };
-    updateResult(prepared.scene.id, finalResult);
+    updateResult(recordId, prepared.scene.id, finalResult);
     return finalResult;
   };
 
-  const saveBatch = async (sources: UploadedImage[], scenes: UploadedImage[], analysis: AgentAnalysis, batchResults: ResultItem[]) => {
+  const saveBatch = async (record: ModelTransferRecord, sources: UploadedImage[], scenes: UploadedImage[], analysis: AgentAnalysis, batchResults: ResultItem[]) => {
     const successful = batchResults.filter((item) => item.status === 'done' && item.imageUrl);
     if (!successful.length) return;
-    const effectiveOutfitTransfer = activeRecord.outfitMode === 'source' || (activeRecord.outfitMode === 'auto' && analysis.transferSourceOutfit);
+    const effectiveOutfitTransfer = record.outfitMode === 'source' || (record.outfitMode === 'auto' && analysis.transferSourceOutfit);
     await saveGeneratedProject({
       type: 'MODEL',
       generated: successful.map((item) => item.imageUrl!),
@@ -1277,18 +1297,18 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       params: {
         subType: 'model_transfer_batch',
         source: 'Cyzx4/components/ModelTransferTab',
-        aspectRatio: activeRecord.aspectRatio,
-        resolution: activeRecord.resolution,
-        model: activeRecord.selectedModel,
-        outputFormat: activeRecord.outputFormat,
+        aspectRatio: record.aspectRatio,
+        resolution: record.resolution,
+        model: record.selectedModel,
+        outputFormat: record.outputFormat,
         sourceModelCount: sources.length,
         targetSceneCount: scenes.length,
-        outfitMode: activeRecord.outfitMode,
+        outfitMode: record.outfitMode,
         transferSourceOutfit: effectiveOutfitTransfer,
         outfitReason: analysis.outfitReason,
-        colorCorrectionMode: activeRecord.colorCorrectionMode,
-        colorCorrectionBlend: activeRecord.colorCorrectionBlend,
-        extraNotes: activeRecord.extraNotes,
+        colorCorrectionMode: record.colorCorrectionMode,
+        colorCorrectionBlend: record.colorCorrectionBlend,
+        extraNotes: record.extraNotes,
         identityBrief: analysis.identityBrief,
         sceneResultMap: batchResults.map((item) => ({ sceneId: item.sceneId, sceneName: item.sceneName, status: item.status, error: item.error })),
       },
@@ -1297,16 +1317,17 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   };
 
   const handleCancelGenerate = () => {
-    cancelGenerationTask('已中止模特迁移生成');
-    patchActive({
+    const task = generationControllersRef.current.get(activeRecord.id);
+    task?.controller.abort();
+    patchRecord(activeRecord.id, {
       results: activeRecord.results.map((item) =>
         ['pending', 'submitting', 'polling', 'processing'].includes(item.status)
           ? { ...item, status: 'cancelled', error: '已中止' }
           : item
       ),
+      isGenerating: false,
+      statusMessage: '已中止模特迁移生成',
     });
-    setIsGenerating(false);
-    setStatusMessage('');
   };
 
   const handleDownload = async (url: string, index: number) => {
@@ -1363,7 +1384,6 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       <button
         type="button"
         onClick={startNewRecord}
-        disabled={isGenerating}
         className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#17243c] text-xs font-black text-white hover:bg-[#253858] disabled:opacity-40 shadow-md"
       >
         <Plus className="h-4 w-4" /> 新开任务
@@ -1392,9 +1412,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
             return (
               <div
                 key={rec.id}
-                onClick={() => {
-                  if (!isGenerating) setActiveRecordId(rec.id);
-                }}
+                onClick={() => setActiveRecordId(rec.id)}
                 className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border-2 transition-all shadow-2xs ${
                   isCurrentRec
                     ? 'border-[#ed6d46] bg-white ring-2 ring-[#ed6d46]/20'
@@ -1807,7 +1825,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                 <X className="h-4 w-4" /> 中止全部任务
               </button>
             )}
-            {cancelMessage && !isGenerating ? <p className="text-center text-sm font-bold text-[#d8552e]">{cancelMessage}</p> : null}
+            {!isGenerating && activeRecord.statusMessage ? <p className="text-center text-sm font-bold text-[#d8552e]">{activeRecord.statusMessage}</p> : null}
             {activeRecord.error && <p className="text-center text-xs font-bold text-red-500">{activeRecord.error}</p>}
           </div>
 

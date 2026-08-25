@@ -1,5 +1,9 @@
 {
   "rewrites": [
+    {
+      "source": "/api/image-download",
+      "destination": "/api/image-download.js"
+    },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
