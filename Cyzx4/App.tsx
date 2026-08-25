@@ -4,6 +4,7 @@ import CreativeHub from './components/CreativeHub';
 import { CREATIVE_FEATURES, getFeatureByMode } from './featureRegistry';
 import { AppMode } from './types';
 import GlobalSidebar, { type SidebarItem } from './components/GlobalSidebar';
+import RuntimeStatusBar from './components/RuntimeStatusBar';
 
 interface CreativeCenterAppProps {
   onBack?: () => void;
@@ -103,8 +104,8 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
 
             <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
               {/* 顶部面包屑与功能 Header */}
-              <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-6 backdrop-blur-md dark:border-white/10 dark:bg-[#0b0f17]/90">
-                <div className="flex items-center gap-2 text-xs">
+              <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/90 px-3 backdrop-blur-md sm:px-6 dark:border-white/10 dark:bg-[#0b0f17]/90">
+                <div className="flex min-w-0 shrink items-center gap-2 text-xs">
                   <button
                     type="button"
                     onClick={openHub}
@@ -113,14 +114,12 @@ const App: React.FC<CreativeCenterAppProps> = ({ onBack }) => {
                     创意中心
                   </button>
                   <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-                  <span className="font-black text-slate-900 dark:text-white">
+                  <span className="truncate font-black text-slate-900 dark:text-white">
                     {activeFeature?.title}
                   </span>
                 </div>
 
-                <div className="text-[0.7rem] font-bold text-slate-400">
-                  {activeFeature?.description}
-                </div>
+                <RuntimeStatusBar />
               </header>
 
               <div className="relative min-h-0 flex-1 overflow-hidden">

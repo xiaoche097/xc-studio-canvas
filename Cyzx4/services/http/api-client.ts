@@ -1,3 +1,10 @@
+import {
+  beginRuntimeActivity,
+  failRuntimeActivity,
+  finishRuntimeActivity,
+  updateRuntimeActivity,
+} from '../runtime-status';
+
 type RetryOptions = {
   retries?: number;
   baseDelayMs?: number;
@@ -52,6 +59,15 @@ export async function fetchWithResilience(
   } = options;
 
   let lastError: unknown;
+  const surfaceStatus = !/pricing|availablemodels|model-list|health|poll/i.test(operation);
+  const runtimeId = surfaceStatus
+    ? beginRuntimeActivity({
+        kind: 'model',
+        tone: 'working',
+        title: '正在连接 AI 服务',
+        detail: '请求已发送，正在等待上游响应…',
+      })
+    : null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
@@ -98,11 +114,29 @@ export async function fetchWithResilience(
         externalSignal.removeEventListener('abort', onExternalAbort);
       }
 
-      if (response.ok || !retryOnStatuses.includes(response.status) || attempt === retries) {
+      if (response.ok) {
+        if (runtimeId) finishRuntimeActivity(runtimeId, { title: 'AI 服务已响应' });
+        return response;
+      }
+
+      if (!retryOnStatuses.includes(response.status) || attempt === retries) {
+        if (runtimeId) failRuntimeActivity(runtimeId, new Error(`HTTP ${response.status}`), {
+          kind: 'model',
+          status: response.status,
+        });
         return response;
       }
 
       const delay = computeBackoff(attempt, baseDelayMs, maxDelayMs);
+      if (runtimeId) {
+        updateRuntimeActivity(runtimeId, {
+          tone: 'retrying',
+          title: response.status === 429 ? '请求受限，正在自动重试' : '上游繁忙，正在自动重试',
+          detail: `服务返回 ${response.status}，${Math.ceil(delay / 1000)} 秒后再次尝试。`,
+          attempt: attempt + 2,
+          maxAttempts: retries + 1,
+        });
+      }
       console.warn(`[${operation}] retrying status=${response.status}, attempt=${attempt + 1}/${retries + 1}, wait=${delay}ms`);
       await sleep(delay);
     } catch (error) {
@@ -115,15 +149,31 @@ export async function fetchWithResilience(
 
       if (isAbortError(error)) {
         if (abortSource === 'external') {
+          if (runtimeId) finishRuntimeActivity(runtimeId, {
+            tone: 'warning',
+            title: '任务已取消',
+            detail: '请求已由用户停止。',
+          });
           throw error;
         }
 
         if (abortSource === 'idle-timeout' || abortSource === 'total-timeout') {
           if (attempt === retries) {
-            throw new Error(`[${operation}] request timeout after ${abortSource === 'idle-timeout' ? `idle ${idleTimeoutMs}ms` : `${timeoutMs}ms`}`);
+            const timeoutError = new Error(`[${operation}] request timeout after ${abortSource === 'idle-timeout' ? `idle ${idleTimeoutMs}ms` : `${timeoutMs}ms`}`);
+            if (runtimeId) failRuntimeActivity(runtimeId, timeoutError, { kind: 'model' });
+            throw timeoutError;
           }
 
           const delay = computeBackoff(attempt, baseDelayMs, maxDelayMs);
+          if (runtimeId) {
+            updateRuntimeActivity(runtimeId, {
+              tone: 'retrying',
+              title: '响应超时，正在自动重试',
+              detail: `第 ${attempt + 1} 次连接未响应，即将重新连接。`,
+              attempt: attempt + 2,
+              maxAttempts: retries + 1,
+            });
+          }
           console.warn(`[${operation}] retrying ${abortSource}, attempt=${attempt + 1}/${retries + 1}, wait=${delay}ms`);
           await sleep(delay);
           continue;
@@ -131,14 +181,26 @@ export async function fetchWithResilience(
       }
 
       if (!isRetryableError(error) || attempt === retries) {
+        if (runtimeId) failRuntimeActivity(runtimeId, error, { kind: 'model' });
         throw error;
       }
 
       const delay = computeBackoff(attempt, baseDelayMs, maxDelayMs);
+      if (runtimeId) {
+        updateRuntimeActivity(runtimeId, {
+          tone: 'retrying',
+          title: '网络波动，正在自动重试',
+          detail: `连接失败，${Math.ceil(delay / 1000)} 秒后再次尝试。`,
+          attempt: attempt + 2,
+          maxAttempts: retries + 1,
+        });
+      }
       console.warn(`[${operation}] retrying network error, attempt=${attempt + 1}/${retries + 1}, wait=${delay}ms`);
       await sleep(delay);
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Request failed after retries');
+  const finalError = lastError instanceof Error ? lastError : new Error('Request failed after retries');
+  if (runtimeId) failRuntimeActivity(runtimeId, finalError, { kind: 'model' });
+  throw finalError;
 }

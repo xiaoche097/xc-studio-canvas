@@ -12,6 +12,7 @@ const runtimeConfigSchema = z.object({
   model: z.string().min(1),
   reasoningEffort: z.enum(['off', 'low', 'high', 'max']).default('high'),
   maxTokens: z.number().int().positive().max(262_144).default(32_768),
+  firstByteTimeoutMs: z.number().int().positive().max(180_000).default(45_000),
   idleTimeoutMs: z.number().int().positive().max(900_000).default(300_000),
 });
 
@@ -68,6 +69,7 @@ export const getDeepSeekRuntimeConfig = (): DeepSeekRuntimeConfig => {
     model: provider.model || localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL,
     reasoningEffort: localStorage.getItem('deepseek_reasoning_effort') || 'high',
     maxTokens: Number.parseInt(localStorage.getItem('deepseek_max_tokens') || '32768', 10),
+    firstByteTimeoutMs: Number.parseInt(localStorage.getItem('deepseek_first_byte_timeout_ms') || '45000', 10),
     idleTimeoutMs: Number.parseInt(localStorage.getItem('deepseek_stream_idle_timeout_ms') || '300000', 10),
   };
   return runtimeConfigSchema.parse(raw);
@@ -118,14 +120,24 @@ async function* parseSse(stream: ReadableStream<Uint8Array>): AsyncGenerator<str
   if (!sawDone) throw new Error('DeepSeek SSE stream ended before [DONE].');
 }
 
-const createIdleSignal = (upstream: AbortSignal | undefined, timeoutMs: number) => {
+const createIdleSignal = (
+  upstream: AbortSignal | undefined,
+  firstByteTimeoutMs: number,
+  idleTimeoutMs: number,
+) => {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
   const pulse = () => {
     clearTimeout(timer);
-    timer = setTimeout(() => controller.abort(new Error('DeepSeek stream idle timeout.')), timeoutMs);
+    timer = setTimeout(
+      () => controller.abort(new Error('DeepSeek stream idle timeout.')),
+      idleTimeoutMs,
+    );
   };
-  pulse();
+  timer = setTimeout(
+    () => controller.abort(new Error('DeepSeek first response byte timeout.')),
+    firstByteTimeoutMs,
+  );
   const signal = upstream ? AbortSignal.any([upstream, controller.signal]) : controller.signal;
   return { signal, pulse, dispose: () => clearTimeout(timer) };
 };
@@ -137,7 +149,7 @@ export const streamDeepSeekTurn = async (options: {
   onEvent?: (event: DeepSeekStreamEvent) => void;
 }): Promise<DeepSeekAssistantTurn> => {
   const config = getDeepSeekRuntimeConfig();
-  const watchdog = createIdleSignal(options.signal, config.idleTimeoutMs);
+  const watchdog = createIdleSignal(options.signal, config.firstByteTimeoutMs, config.idleTimeoutMs);
   const request: Record<string, unknown> = {
     model: config.model,
     messages: options.messages,
@@ -270,6 +282,7 @@ export const testDeepSeekConnection = async (input: {
     baseUrl: normalizeBaseUrl(input.baseUrl || DEFAULT_DEEPSEEK_BASE_URL),
     reasoningEffort: 'off',
     maxTokens: 32,
+    firstByteTimeoutMs: 30_000,
     idleTimeoutMs: 30_000,
   });
   const response = await fetch('/api/deepseek/chat', {

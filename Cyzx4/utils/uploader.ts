@@ -1,9 +1,32 @@
 import { useImageHostStore } from '../stores/imageHost.store';
+import {
+  beginRuntimeActivity,
+  failRuntimeActivity,
+  finishRuntimeActivity,
+  updateRuntimeActivity,
+} from '../services/runtime-status';
 import { safeLocalStorageSetItem } from './safe-storage';
 
 const DATA_URL_BASE64_PREFIX = /^data:image\/[a-zA-Z0-9.+-]+;base64,/;
 const IMGBB_ROUND_ROBIN_KEY = 'image_host_poll_index_imgbb';
 const CUSTOM_ROUND_ROBIN_KEY = 'image_host_poll_index_custom';
+const UPLOAD_TIMEOUT_MS = 45_000;
+
+async function fetchUpload(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('图片上传超时')),
+    UPLOAD_TIMEOUT_MS,
+  );
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw controller.signal.reason || new Error('图片上传超时');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function splitApiKeys(raw: string): string[] {
   if (!raw) return [];
@@ -54,7 +77,7 @@ async function uploadToImgbbWithKey(file: File, key: string): Promise<string> {
   const formData = new FormData();
   formData.append('image', pureBase64);
 
-  const response = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`, {
+  const response = await fetchUpload(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`, {
     method: 'POST',
     body: formData,
   });
@@ -111,7 +134,7 @@ async function uploadToCustomWithKey(file: File, apiKey: string): Promise<string
     headers[apiKeyHeaderName] = apiKey;
   }
 
-  const response = await fetch(url, {
+  const response = await fetchUpload(url, {
     method: method || 'POST',
     headers,
     body: formData,
@@ -137,7 +160,7 @@ async function uploadToCustomWithKey(file: File, apiKey: string): Promise<string
  * @param file 要上传的图片文件
  * @returns 返回上传后的公网 URL
  */
-export async function uploadImage(file: File): Promise<string> {
+async function uploadImageInternal(file: File, runtimeId: string): Promise<string> {
   const { selectedProvider, imgbbKey, customConfig } = useImageHostStore.getState(); // cspell:disable-line
 
   if (selectedProvider === 'none') {
@@ -160,6 +183,15 @@ export async function uploadImage(file: File): Promise<string> {
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        if (i < keys.length - 1) {
+          updateRuntimeActivity(runtimeId, {
+            tone: 'retrying',
+            title: '上传节点不可用，正在切换',
+            detail: `第 ${i + 1} 个图床 Key 上传失败，正在尝试下一个。`,
+            attempt: i + 2,
+            maxAttempts: keys.length,
+          });
+        }
       }
     }
 
@@ -185,6 +217,15 @@ export async function uploadImage(file: File): Promise<string> {
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        if (i < keys.length - 1) {
+          updateRuntimeActivity(runtimeId, {
+            tone: 'retrying',
+            title: '上传节点不可用，正在切换',
+            detail: `第 ${i + 1} 个图床 Key 上传失败，正在尝试下一个。`,
+            attempt: i + 2,
+            maxAttempts: keys.length,
+          });
+        }
       }
     }
 
@@ -192,6 +233,35 @@ export async function uploadImage(file: File): Promise<string> {
   }
 
   return URL.createObjectURL(file);
+}
+
+export async function uploadImage(file: File): Promise<string> {
+  const runtimeId = beginRuntimeActivity({
+    kind: 'upload',
+    tone: 'working',
+    title: '正在上传图片',
+    detail: `${file.name || '图片'} 正在发送至图床…`,
+  });
+  try {
+    const provider = useImageHostStore.getState().selectedProvider;
+    const result = await uploadImageInternal(file, runtimeId);
+    if (provider === 'none') {
+      finishRuntimeActivity(runtimeId, {
+        tone: 'warning',
+        title: '图片仅保存在本地',
+        detail: '尚未配置图床，Agent 上游可能无法读取这张图片。',
+      });
+    } else {
+      finishRuntimeActivity(runtimeId, {
+        title: '图片上传完成',
+        detail: `${file.name || '图片'} 已可供 AI 服务读取。`,
+      });
+    }
+    return result;
+  } catch (error) {
+    failRuntimeActivity(runtimeId, error, { kind: 'upload' });
+    throw error;
+  }
 }
 
 /**

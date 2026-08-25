@@ -8,6 +8,13 @@ import {
 } from './deepseek-adapter';
 import type { HarnessToolDefinition } from './tool-catalog';
 import { BrowserHarnessSession, type HarnessAgentMode } from './harness-session';
+import {
+  beginRuntimeActivity,
+  describeRuntimeError,
+  failRuntimeActivity,
+  finishRuntimeActivity,
+  updateRuntimeActivity,
+} from '../../runtime-status';
 
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
 
@@ -79,6 +86,12 @@ export const runHarnessLoop = async (options: {
   const maxRequestRetries = Math.max(0, Math.min(options.maxRequestRetries ?? 2, 4));
   let finalText = '';
   let allReasoning = '';
+  const runtimeId = beginRuntimeActivity({
+    kind: 'agent',
+    tone: 'working',
+    title: 'Agent 正在连接模型',
+    detail: '正在等待文本模型开始响应…',
+  });
   emit({ type: 'turn/start', at: Date.now() });
   session.append('turn/start', { mode: session.mode });
   session.append('request/header', {
@@ -95,9 +108,15 @@ export const runHarnessLoop = async (options: {
     for (let step = 1; step <= maxSteps; step += 1) {
       if (options.signal?.aborted) throw options.signal.reason || new DOMException('Aborted', 'AbortError');
       emit({ type: 'step/start', step, at: Date.now() });
+      updateRuntimeActivity(runtimeId, {
+        tone: 'working',
+        title: step === 1 ? 'Agent 正在思考' : `Agent 正在执行第 ${step} 步`,
+        detail: '已连接文本模型，正在等待本步结果…',
+      });
       session.append('step/start', { step });
       let streamedText = '';
       let streamedReasoning = '';
+      let receivedUpstreamSignal = false;
       let turn: Awaited<ReturnType<typeof streamDeepSeekTurn>> | undefined;
       for (let attempt = 0; attempt <= maxRequestRetries; attempt += 1) {
         try {
@@ -106,8 +125,28 @@ export const runHarnessLoop = async (options: {
             tools: options.tools,
             signal: options.signal,
             onEvent: event => {
-              if (event.type === 'text-delta') streamedText += event.text;
-              if (event.type === 'reasoning-delta') streamedReasoning += event.text;
+              if (event.type === 'text-delta') {
+                streamedText += event.text;
+                if (!receivedUpstreamSignal) {
+                  receivedUpstreamSignal = true;
+                  updateRuntimeActivity(runtimeId, {
+                    tone: 'working',
+                    title: 'Agent 正在回复',
+                    detail: '文本模型正在持续输出内容。',
+                  });
+                }
+              }
+              if (event.type === 'reasoning-delta') {
+                streamedReasoning += event.text;
+                if (!receivedUpstreamSignal) {
+                  receivedUpstreamSignal = true;
+                  updateRuntimeActivity(runtimeId, {
+                    tone: 'working',
+                    title: 'Agent 正在推理',
+                    detail: '已收到上游响应，正在分析与决策。',
+                  });
+                }
+              }
               options.onEvent?.(event);
             },
           });
@@ -119,6 +158,14 @@ export const runHarnessLoop = async (options: {
             message: error instanceof Error ? error.message.slice(0, 800) : String(error).slice(0, 800),
           });
           if (attempt >= maxRequestRetries || options.signal?.aborted) throw error;
+          const friendly = describeRuntimeError(error, undefined, 'agent');
+          updateRuntimeActivity(runtimeId, {
+            tone: 'retrying',
+            title: `${friendly.title}，正在重试`,
+            detail: friendly.detail,
+            attempt: attempt + 2,
+            maxAttempts: maxRequestRetries + 1,
+          });
           await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(resolve, Math.min(4000, 500 * (2 ** attempt)));
             options.signal?.addEventListener('abort', () => {
@@ -151,6 +198,10 @@ export const runHarnessLoop = async (options: {
         emit({ type: 'turn/end', reason: 'completed', at: Date.now() });
         session.append('step/end', { step, reason: turn.finishReason || 'stop' });
         session.append('turn/end', { reason: 'completed' });
+        finishRuntimeActivity(runtimeId, {
+          title: 'Agent 已完成',
+          detail: `共完成 ${step} 个执行步骤。`,
+        });
         return { text: finalText, reasoning: allReasoning, steps: step, stopReason: 'completed', events, toolExecutions, mode: session.mode, sessionEvents: session.events.length };
       }
 
@@ -178,6 +229,11 @@ export const runHarnessLoop = async (options: {
       }
 
       if (prepared.length > 0) {
+        updateRuntimeActivity(runtimeId, {
+          tone: 'working',
+          title: 'Agent 正在调用工具',
+          detail: `正在执行 ${prepared.length} 个任务，请稍候…`,
+        });
         const executed = await options.executeTools(prepared);
         for (const execution of executed) {
           toolExecutions.push(execution);
@@ -207,6 +263,11 @@ export const runHarnessLoop = async (options: {
 
     emit({ type: 'turn/end', reason: 'max-steps', at: Date.now() });
     session.append('turn/end', { reason: 'max-steps' });
+    finishRuntimeActivity(runtimeId, {
+      tone: 'warning',
+      title: 'Agent 已安全停止',
+      detail: `已达到最大执行步数 ${maxSteps}，现有结果已保留。`,
+    });
     return {
       text: finalText || '已达到本轮最大执行步数，当前工具结果已保留。',
       reasoning: allReasoning,
@@ -224,6 +285,15 @@ export const runHarnessLoop = async (options: {
       reason: aborted ? 'aborted' : 'error',
       message: error instanceof Error ? error.message.slice(0, 800) : String(error).slice(0, 800),
     });
+    if (aborted) {
+      finishRuntimeActivity(runtimeId, {
+        tone: 'warning',
+        title: 'Agent 任务已停止',
+        detail: '本次执行已取消，不会继续等待上游响应。',
+      });
+    } else {
+      failRuntimeActivity(runtimeId, error, { kind: 'agent' });
+    }
     throw error;
   }
 };
