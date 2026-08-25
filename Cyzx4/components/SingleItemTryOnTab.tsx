@@ -11,17 +11,19 @@ import {
   Info,
   Loader2,
   Maximize2,
+  Paintbrush,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   RefreshCw,
+  Eraser,
   Shirt,
   Sparkles,
   Upload,
   WandSparkles,
   X,
 } from 'lucide-react';
-import { generateImageToImage, generateText, compressImage } from '../services/geminiService';
+import { generateImageToImage, generateInpainting, generateText, compressImage } from '../services/geminiService';
 import { AspectRatio, ImageResolution } from '../types';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
@@ -51,6 +53,9 @@ type UploadedImage = {
   preview: string;
   width?: number;
   height?: number;
+  targetMaskBase64?: string;
+  targetMaskPreview?: string;
+  targetMaskOpacity?: number;
 };
 
 type TryOnAnalysis = {
@@ -316,12 +321,19 @@ const verifyReferenceFidelity = async (reference: UploadedImage, generatedImage:
     if (!genApiImage.base64) {
       return { pass: true, personIdentityScore: 95, poseCompositionScore: 95, sceneIntegrityScore: 95, productScaleScore: 90, corrections: [] };
     }
+    const hasTargetMask = Boolean(reference.targetMaskBase64);
+    const generatedIndex = hasTargetMask ? 3 : 2;
     const response = await generateText(
-      [toApiImage(reference), genApiImage],
+      [
+        toApiImage(reference),
+        ...(reference.targetMaskBase64 ? [{ base64: reference.targetMaskBase64, mimeType: 'image/png' }] : []),
+        genApiImage,
+      ],
       `You are a strict virtual try-on reference-fidelity inspector.
 
 IMAGE 1 is the immutable user-provided person/body reference and intended base canvas.
-IMAGE 2 is the generated try-on result for category: ${categoryLabel(category)}.
+${hasTargetMask ? 'IMAGE 2 is a binary target mask: WHITE is the user-painted editable/replacement region and BLACK must remain immutable.' : ''}
+IMAGE ${generatedIndex} is the generated try-on result for category: ${categoryLabel(category)}.
 
 Evaluate only these requirements:
 1. The same visible person must remain: identical facial identity when visible, hair, skin tone, body shape and unchanged anatomy.
@@ -329,6 +341,7 @@ Evaluate only these requirements:
 3. Background, existing clothing outside the target wearing region, accessories, lighting, shadows, color temperature and image character must remain unchanged.
 4. The added product must use a physically realistic category-appropriate size derived from body landmarks; it must not be enlarged for visibility, float, or sit at the wrong anatomical location.
 5. Only the smallest wearing/contact/occlusion region may differ.
+${hasTargetMask ? '6. Changes must remain inside the WHITE mask region, except for a minimal physically necessary edge blend. Any visible change in BLACK regions fails the check.' : ''}
 
 Return JSON only:
 {"pass":true,"personIdentityScore":0,"poseCompositionScore":0,"sceneIntegrityScore":0,"productScaleScore":0,"corrections":["specific correction if needed"]}`,
@@ -340,16 +353,33 @@ Return JSON only:
   }
 };
 
+const buildAnalysisImages = (record: TryOnRecord) => [
+  ...record.productImages.map(toApiImage),
+  ...record.bodyReferences.flatMap((reference) => [
+    toApiImage(reference),
+    ...(reference.targetMaskBase64 ? [{ base64: reference.targetMaskBase64, mimeType: 'image/png' }] : []),
+  ]),
+];
+
 const buildAnalysisPrompt = (record: TryOnRecord) => {
   const productEnd = record.productImages.length;
-  const bodyStart = productEnd + 1;
-  const bodyEnd = productEnd + record.bodyReferences.length;
+  let imageIndex = productEnd + 1;
+  const bodyRouting = record.bodyReferences.map((reference, index) => {
+    const referenceIndex = imageIndex;
+    imageIndex += 1;
+    if (reference.targetMaskBase64) {
+      const maskIndex = imageIndex;
+      imageIndex += 1;
+      return `- Image ${referenceIndex} is person/body reference ${index + 1}; Image ${maskIndex} is its binary target mask (WHITE = user-selected replacement area, BLACK = immutable area).`;
+    }
+    return `- Image ${referenceIndex} is person/body reference ${index + 1}.`;
+  }).join('\n');
   return `
 You are an Elite Ecommerce Virtual Try-On Agent and 3D Visual Director. Perform a precision pre-generation analysis for try-on category: ${categoryLabel(record.category)}.
 
 IMAGE ROUTING
 - Images 1-${productEnd} are multiple views/details of ONE identical product SKU.
-${record.bodyReferences.length ? `- Images ${bodyStart}-${bodyEnd} are ${record.bodyReferences.length} independent person/body reference base canvas(es). Analyze each reference independently in exact sequence.` : '- No person reference is supplied. Plan a suitable adult model, framing and wearing region.'}
+${record.bodyReferences.length ? `${bodyRouting}\nAnalyze every reference independently in exact sequence. Treat each supplied mask as the user's precise spatial intent.` : '- No person reference is supplied. Plan a suitable adult model, framing and wearing region.'}
 
 USER REQUIREMENTS
 ${record.extraRequirements.trim() || 'No extra requirements.'}
@@ -358,6 +388,7 @@ MANDATORY ANALYSIS PROTOCOL:
 1. **PRODUCT 3D STRUCTURE & MATERIAL LOCK**: Analyze exact 3D shape, silhouette, material texture, color hue, metallic sheen, pattern, logos, and hardware details of the product.
 2. **ANATOMICAL ATTACHMENT ANCHOR**: Identify the exact body landmark (e.g. earlobe for earrings, suprasternal notch for necklaces, wrist bone for watches, nose bridge for glasses, waistline for trousers).
 3. **IMMUTABLE CANVAS PRESERVATION STRATEGY**: Detail how to keep the reference person's face, hair, expression, posture, lighting, and background 100% UNCHANGED while replacing/attaching ONLY the target product.
+4. **USER MASK CONTRACT**: When a target mask is supplied, infer the intended body part from the WHITE region. The replacement/contact area must stay inside it and every BLACK pixel is locked. Explicitly mention the painted area in that reference's plan.
 
 Return valid JSON only, with no markdown:
 {
@@ -374,15 +405,16 @@ Return valid JSON only, with no markdown:
 `.trim();
 };
 
-const buildGenerationPrompt = (record: TryOnRecord, resultIndex: number, hasBodyReference: boolean, qaCorrection = '') => {
+const buildGenerationPrompt = (record: TryOnRecord, resultIndex: number, hasBodyReference: boolean, hasTargetMask = false, qaCorrection = '') => {
   const analysis = record.analysis!;
-  const productStart = hasBodyReference ? 2 : 1;
+  const productStart = hasBodyReference ? (hasTargetMask ? 3 : 2) : 1;
   const productEnd = productStart + record.productImages.length - 1;
   return `
 Create ONE photorealistic in-place ecommerce product try-on edit, variation ${resultIndex + 1}.
 
 # INPUT ROUTING
 ${hasBodyReference ? `- Image 1 is the IMMUTABLE BASE CANVAS and the exact person/body reference for this output. The output image MUST BE an in-place localized pixel edit on Image 1.
+${hasTargetMask ? '- Image 2 is the BINARY TARGET MASK. WHITE is the only user-authorized replacement/editing region; BLACK is immutable.' : ''}
 - Images ${productStart}-${productEnd} are multiple views of ONE identical product SKU and together are the sole source of truth for the item being worn.` : `- Images 1-${productEnd} are multiple views of ONE identical product SKU and together are the sole source of truth for the product.
 - No person reference supplied. Create one tasteful adult ecommerce model with an anatomically appropriate pose and clear product visibility.`}
 
@@ -406,6 +438,7 @@ ${CATEGORY_RULES[record.category]}
 - **PRESERVE 100% UNCHANGED**: Facial identity, eyes, nose, lips, makeup, facial expression, hair strands, hairline, skin tone, skin texture/imperfections, body height, weight, shoulder width, chest/waist/hip proportions, hand/finger pose, leg stance, camera angle, focal length, framing, background objects, environment lighting, color temperature, and all existing clothing/accessories outside the target product replacement zone.
 - **ZERO DISTORTION PRINCIPLE**: Change ONLY the target product wearing area. All surrounding body parts, face, hair, and scene MUST REMAIN 100% VISUALLY IDENTICAL to Image 1.
 - **REALISTIC PRODUCT SCALE**: Derive product size strictly from real human landmarks (e.g. earlobe size for earrings, wrist width for watches). Never enlarge the product artificially.
+${hasTargetMask ? `- **MASK IS A HARD SPATIAL CONTRACT**: Replace or attach the product ONLY in the WHITE area of Image 2. Every BLACK area must remain pixel-level unchanged. A minimal soft edge blend at the mask boundary is allowed only when physically necessary; do not expand, reinterpret, or ignore the painted region.` : ''}
 
 ${qaCorrection ? `# REQUIRED CORRECTION AFTER REFERENCE QA
 The prior result was rejected. Correct all of the following while returning to Image 1 as the immutable base canvas:
@@ -538,9 +571,10 @@ interface UploadZoneProps {
   onActivate: () => void;
   onFiles: (files: File[]) => void;
   onRemove: (id: string) => void;
+  onEditMask?: (image: UploadedImage) => void;
 }
 
-const UploadZone: React.FC<UploadZoneProps> = ({ kind, title, description, images, max, disabled, active, inputRef, onActivate, onFiles, onRemove }) => (
+const UploadZone: React.FC<UploadZoneProps> = ({ kind, title, description, images, max, disabled, active, inputRef, onActivate, onFiles, onRemove, onEditMask }) => (
   <section
     className={`rounded-2xl border bg-white p-4 shadow-sm transition sm:p-5 dark:bg-[#121212] ${active ? 'border-[#ed6d46] ring-4 ring-[#ed6d46]/10' : 'border-pastel-border'}`}
     data-upload-kind={kind}
@@ -552,11 +586,300 @@ const UploadZone: React.FC<UploadZoneProps> = ({ kind, title, description, image
       <div className="flex gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#2d6bb1] dark:bg-blue-500/10"><ImageIcon className="h-5 w-5" /></span><div><h3 className="text-sm font-black text-pastel-text">{title}</h3><p className="mt-1 text-xs leading-5 text-pastel-muted">{description}</p></div></div>
       <span className="shrink-0 text-xs font-bold text-pastel-muted">{images.length}/{max}</span>
     </div>
-    {images.length > 0 && <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-5">{images.map((image) => <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg"><img src={image.preview} alt={image.name} className="h-full w-full object-cover" /><button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onRemove(image.id); }} className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#16233b]/85 text-white shadow-sm transition hover:bg-red-500" aria-label={`删除${image.name}`}><X className="h-4 w-4" /></button></div>)}</div>}
+    {images.length > 0 && <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-5">{images.map((image) => <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg"><img src={image.preview} alt={image.name} className="h-full w-full object-cover" />{image.targetMaskPreview && <img src={image.targetMaskPreview} alt="已涂抹替换区域" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}{onEditMask && <button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onEditMask(image); }} className={`absolute bottom-1 left-1 flex min-h-9 items-center gap-1 rounded-lg px-2 text-[0.65rem] font-black text-white shadow-sm transition ${image.targetMaskBase64 ? 'bg-[#ed6d46]' : 'bg-[#16233b]/88 hover:bg-[#ed6d46]'}`} aria-label={`涂抹${image.name}的替换区域`}><Paintbrush className="h-3.5 w-3.5" />{image.targetMaskBase64 ? '已标记' : '涂抹'}</button>}<button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onRemove(image.id); }} className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#16233b]/85 text-white shadow-sm transition hover:bg-red-500" aria-label={`删除${image.name}`}><X className="h-4 w-4" /></button></div>)}</div>}
     {images.length < max && <button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onActivate(); inputRef.current?.click(); }} onDragOver={(event) => { event.preventDefault(); onActivate(); }} onDrop={(event) => { event.preventDefault(); onActivate(); onFiles(Array.from(event.dataTransfer.files)); }} className="mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#ccd9e8] bg-[#f8fbff] px-4 text-center transition hover:border-[#ed6d46] hover:bg-[#fff8f4] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03]"><Upload className="h-6 w-6 text-[#ed6d46]" /><span className="mt-2 text-sm font-black text-pastel-text">拖拽、点击或 Ctrl+V 粘贴图片</span><span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张 ≤ 10MB</span></button>}
     <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={(event) => { onFiles(Array.from(event.target.files || [])); event.target.value = ''; }} data-kind={kind} />
   </section>
 );
+
+type ReferenceMaskEditorProps = {
+  image: UploadedImage;
+  category: ProductCategory;
+  productImages: UploadedImage[];
+  onClose: () => void;
+  onSave: (mask: { base64?: string; preview?: string; opacity?: number }) => void;
+};
+
+const ReferenceMaskEditor: React.FC<ReferenceMaskEditorProps> = ({ image, category, productImages, onClose, onSave }) => {
+  const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
+  const paintCanvasRef = useRef<HTMLCanvasElement>(null);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
+  const [brushSize, setBrushSize] = useState(42);
+  const [maskOpacity, setMaskOpacity] = useState(image.targetMaskOpacity ?? 80);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [isAutoSelecting, setIsAutoSelecting] = useState(false);
+  const [autoSelectNotice, setAutoSelectNotice] = useState('');
+  const [hasPaint, setHasPaint] = useState(Boolean(image.targetMaskBase64));
+  const [brushCursor, setBrushCursor] = useState({ x: 0, y: 0, visible: false });
+  const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
+
+  useEffect(() => {
+    const sourceCanvas = sourceCanvasRef.current;
+    const paintCanvas = paintCanvasRef.current;
+    if (!sourceCanvas || !paintCanvas) return;
+    let disposed = false;
+    const source = new window.Image();
+    source.onload = () => {
+      if (disposed) return;
+      const width = source.naturalWidth || 1;
+      const height = source.naturalHeight || 1;
+      sourceCanvas.width = width;
+      sourceCanvas.height = height;
+      paintCanvas.width = width;
+      paintCanvas.height = height;
+      sourceCanvas.getContext('2d')?.drawImage(source, 0, 0, width, height);
+      setCanvasSize({ width, height });
+      if (image.targetMaskPreview) {
+        const overlay = new window.Image();
+        overlay.onload = () => {
+          if (disposed) return;
+          const paintContext = paintCanvas.getContext('2d');
+          paintContext?.drawImage(overlay, 0, 0, width, height);
+          if (paintContext) {
+            const overlayPixels = paintContext.getImageData(0, 0, width, height);
+            for (let index = 0; index < overlayPixels.data.length; index += 4) {
+              if (overlayPixels.data[index + 3] > 8) {
+                overlayPixels.data[index] = 237;
+                overlayPixels.data[index + 1] = 78;
+                overlayPixels.data[index + 2] = 70;
+                overlayPixels.data[index + 3] = 255;
+              }
+            }
+            paintContext.putImageData(overlayPixels, 0, 0);
+          }
+          setIsReady(true);
+        };
+        overlay.onerror = () => !disposed && setIsReady(true);
+        overlay.src = image.targetMaskPreview;
+      } else {
+        setIsReady(true);
+      }
+    };
+    source.onerror = () => !disposed && setIsReady(true);
+    source.src = image.preview;
+    return () => { disposed = true; };
+  }, [image]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  const getPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = paintCanvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  const updateBrushCursor = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setBrushCursor({ x: event.clientX - rect.left, y: event.clientY - rect.top, visible: true });
+  };
+
+  const drawSegment = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const canvas = paintCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    const scaledSize = brushSize * (canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+    context.save();
+    context.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+    context.strokeStyle = '#ed4e46';
+    context.fillStyle = '#ed4e46';
+    context.lineWidth = scaledSize;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    if (from.x === to.x && from.y === to.y) {
+      context.beginPath();
+      context.arc(to.x, to.y, scaledSize / 2, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.beginPath();
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+    }
+    context.restore();
+    setHasPaint(true);
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isReady || isAutoSelecting) return;
+    updateBrushCursor(event);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = getPoint(event);
+    lastPointRef.current = point;
+    setIsDrawing(true);
+    drawSegment(point, point);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    updateBrushCursor(event);
+    if (!isDrawing || !lastPointRef.current) return;
+    const point = getPoint(event);
+    drawSegment(lastPointRef.current, point);
+    lastPointRef.current = point;
+  };
+
+  const finishDrawing = () => {
+    lastPointRef.current = null;
+    setIsDrawing(false);
+  };
+
+  const clearMask = () => {
+    const canvas = paintCanvasRef.current;
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    setHasPaint(false);
+    setAutoSelectNotice('已清空识别与手动涂抹区域。');
+  };
+
+  const autoSelectProduct = async () => {
+    const canvas = paintCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context || !isReady || isAutoSelecting) return;
+    setIsAutoSelecting(true);
+    setAutoSelectNotice(`正在识别${categoryLabel(category)}的精准轮廓…`);
+    try {
+      const response = await generateText(
+        [toApiImage(image), ...productImages.map(toApiImage)],
+        `You are a precision fashion segmentation agent. Analyze Image 1 for a virtual try-on edit targeting category "${categoryLabel(category)}" (${category}).
+
+${productImages.length ? `Images 2-${productImages.length + 1} show the replacement product from one or more views. Use them only to understand its product category and intended wearing position; create polygons only for Image 1.` : ''}
+Find the exact visible product in Image 1 that should be replaced. If that product is not already present, find the smallest anatomically correct placement region for it. Trace the visible outer contour precisely, following garment, accessory, body-contact, and occlusion edges. Return multiple polygons for disconnected parts such as two earrings. Do not include face, hair, hands, skin, background, or unrelated clothing unless they are inside the actual target product boundary.
+
+Coordinates must be normalized from 0 to 1000 relative to the full image, using [x, y] order. Each polygon needs 8-60 boundary points. Return JSON only:
+{"target":"short Chinese target name","confidence":0.0,"polygons":[[[x,y],[x,y],[x,y]]]}`,
+      );
+      const match = response.replace(/\`\`\`json|\`\`\`/gi, '').match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('AI 未返回可用轮廓');
+      const parsed = JSON.parse(match[0]) as { target?: string; confidence?: number; polygons?: unknown[] };
+      const polygons = (Array.isArray(parsed.polygons) ? parsed.polygons : []).map((polygon) => {
+        if (!Array.isArray(polygon)) return [];
+        return polygon.map((point): { x: number; y: number } | null => {
+          let x: number;
+          let y: number;
+          if (Array.isArray(point)) {
+            x = Number(point[0]);
+            y = Number(point[1]);
+          } else if (point && typeof point === 'object') {
+            x = Number((point as { x?: number }).x);
+            y = Number((point as { y?: number }).y);
+          } else return null;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+          if (x >= 0 && x <= 1 && y >= 0 && y <= 1) { x *= 1000; y *= 1000; }
+          return {
+            x: Math.max(0, Math.min(canvas.width, (x / 1000) * canvas.width)),
+            y: Math.max(0, Math.min(canvas.height, (y / 1000) * canvas.height)),
+          };
+        }).filter((point): point is { x: number; y: number } => Boolean(point));
+      }).filter((polygon) => polygon.length >= 3);
+      if (!polygons.length) throw new Error('没有识别到可涂抹的产品轮廓');
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.save();
+      context.fillStyle = '#ed4e46';
+      context.strokeStyle = '#ed4e46';
+      context.lineJoin = 'round';
+      context.lineWidth = Math.max(2, canvas.width / 500);
+      polygons.forEach((polygon) => {
+        context.beginPath();
+        context.moveTo(polygon[0].x, polygon[0].y);
+        polygon.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.closePath();
+        context.fill();
+        context.stroke();
+      });
+      context.restore();
+      setHasPaint(true);
+      const confidence = Math.round(Math.max(0, Math.min(1, Number(parsed.confidence) || 0)) * 100);
+      setAutoSelectNotice(`已识别${parsed.target ? `“${parsed.target}”` : categoryLabel(category)}${confidence ? `，置信度 ${confidence}%` : ''}；可继续用画笔微调。`);
+    } catch (error) {
+      setAutoSelectNotice(`自动识别失败：${getErrorMessage(error)}，可以继续手动涂抹。`);
+    } finally {
+      setIsAutoSelecting(false);
+    }
+  };
+
+  const saveMask = () => {
+    const paintCanvas = paintCanvasRef.current;
+    if (!paintCanvas) return;
+    const pixels = paintCanvas.getContext('2d')?.getImageData(0, 0, paintCanvas.width, paintCanvas.height).data;
+    let containsPaint = false;
+    if (pixels) {
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] > 8) { containsPaint = true; break; }
+      }
+    }
+    if (!containsPaint) {
+      onSave({ opacity: maskOpacity });
+      return;
+    }
+    const whiteLayer = document.createElement('canvas');
+    whiteLayer.width = paintCanvas.width;
+    whiteLayer.height = paintCanvas.height;
+    const whiteContext = whiteLayer.getContext('2d')!;
+    whiteContext.drawImage(paintCanvas, 0, 0);
+    whiteContext.globalCompositeOperation = 'source-in';
+    whiteContext.fillStyle = '#ffffff';
+    whiteContext.fillRect(0, 0, whiteLayer.width, whiteLayer.height);
+    const binaryMask = document.createElement('canvas');
+    binaryMask.width = paintCanvas.width;
+    binaryMask.height = paintCanvas.height;
+    const maskContext = binaryMask.getContext('2d')!;
+    maskContext.fillStyle = '#000000';
+    maskContext.fillRect(0, 0, binaryMask.width, binaryMask.height);
+    maskContext.drawImage(whiteLayer, 0, 0);
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = paintCanvas.width;
+    previewCanvas.height = paintCanvas.height;
+    const previewContext = previewCanvas.getContext('2d')!;
+    previewContext.globalAlpha = maskOpacity / 100;
+    previewContext.drawImage(paintCanvas, 0, 0);
+    onSave({
+      base64: binaryMask.toDataURL('image/png').split(',')[1],
+      preview: previewCanvas.toDataURL('image/png'),
+      opacity: maskOpacity,
+    });
+  };
+
+  const displayRatio = canvasSize.width / Math.max(1, canvasSize.height);
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#101827]/88 p-2 backdrop-blur-sm sm:p-5" role="dialog" aria-modal="true" aria-label="涂抹精准替换区域">
+      <div className="flex max-h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#f5f8fc] shadow-2xl dark:bg-[#111827]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dbe5ef] bg-white px-4 py-3 dark:border-white/10 dark:bg-[#141c2b] sm:px-5">
+          <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff0e9] text-[#ed6d46]"><Paintbrush className="h-5 w-5" /></span><div><h2 className="text-sm font-black text-[#17243c] dark:text-white">涂抹需要替换的部件</h2><p className="mt-0.5 text-xs text-[#718096]">红色区域将作为精准替换范围，未涂抹区域保持不变</p></div></div>
+          <button type="button" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-xl text-[#718096] hover:bg-[#edf3f9]" aria-label="关闭涂抹编辑器"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="border-b border-[#dbe5ef] bg-white px-4 py-3 dark:border-white/10 dark:bg-[#141c2b] sm:px-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void autoSelectProduct()} disabled={!isReady || isAutoSelecting} className="flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-[#ed6d46] to-[#f28b57] px-4 text-xs font-black text-white shadow-[0_8px_18px_rgba(237,109,70,0.2)] disabled:cursor-wait disabled:opacity-60">{isAutoSelecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}AI 自动识别</button>
+            <div className="flex rounded-xl bg-[#edf3f9] p-1 dark:bg-white/5"><button type="button" onClick={() => setTool('brush')} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs font-black ${tool === 'brush' ? 'bg-[#16233b] text-white shadow-sm' : 'text-[#60708a]'}`}><Paintbrush className="h-4 w-4" />画笔</button><button type="button" onClick={() => setTool('eraser')} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs font-black ${tool === 'eraser' ? 'bg-[#16233b] text-white shadow-sm' : 'text-[#60708a]'}`}><Eraser className="h-4 w-4" />橡皮擦</button></div>
+            <label className="flex min-h-11 min-w-[12rem] flex-1 items-center gap-3 rounded-xl bg-[#edf3f9] px-3 text-xs font-bold text-[#60708a] dark:bg-white/5 lg:max-w-xs">笔刷大小<input type="range" min="8" max="120" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} className="min-w-20 flex-1 accent-[#ed6d46]" /><span className="w-8 text-right">{brushSize}</span></label>
+            <label className="flex min-h-11 min-w-[12rem] flex-1 items-center gap-3 rounded-xl bg-[#edf3f9] px-3 text-xs font-bold text-[#60708a] dark:bg-white/5 lg:max-w-xs">透明度<input type="range" min="10" max="100" value={maskOpacity} onChange={(event) => setMaskOpacity(Number(event.target.value))} className="min-w-20 flex-1 accent-[#ed6d46]" /><span className="w-10 text-right">{maskOpacity}%</span></label>
+            <button type="button" onClick={clearMask} className="min-h-11 rounded-xl border border-[#dbe5ef] bg-white px-4 text-xs font-black text-[#60708a] hover:border-[#ed6d46] hover:text-[#ed6d46] dark:bg-white/5">清空</button>
+          </div>
+          {autoSelectNotice && <p className={`mt-2 text-xs font-bold ${autoSelectNotice.includes('失败') ? 'text-red-500' : 'text-[#52708f]'}`}>{autoSelectNotice}</p>}
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_#eef4fa,_#e4edf6)] p-3 sm:p-5">
+          <div className="relative mx-auto overflow-hidden rounded-xl bg-white shadow-xl" style={{ width: `min(100%, calc(65vh * ${displayRatio}))`, aspectRatio: `${canvasSize.width} / ${canvasSize.height}` }}>
+            <canvas ref={sourceCanvasRef} className="absolute inset-0 h-full w-full" />
+            <canvas ref={paintCanvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerEnter={updateBrushCursor} onPointerLeave={() => !isDrawing && setBrushCursor((cursor) => ({ ...cursor, visible: false }))} onPointerUp={finishDrawing} onPointerCancel={finishDrawing} className={`absolute inset-0 h-full w-full touch-none ${isReady && !isAutoSelecting ? 'cursor-none' : 'cursor-wait'}`} style={{ opacity: maskOpacity / 100 }} />
+            {brushCursor.visible && isReady && !isAutoSelecting && <span className={`pointer-events-none absolute rounded-full border-2 ${tool === 'eraser' ? 'border-white bg-white/15 shadow-[0_0_0_1px_rgba(22,35,59,0.95),0_0_8px_rgba(22,35,59,0.35)]' : 'border-white bg-[#ed4e46]/10 shadow-[0_0_0_1px_rgba(237,78,70,0.95),0_0_10px_rgba(237,78,70,0.45)]'}`} style={{ width: brushSize, height: brushSize, left: brushCursor.x - brushSize / 2, top: brushCursor.y - brushSize / 2 }} aria-hidden="true" />}
+            {isAutoSelecting && <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#16233b]/35 text-white backdrop-blur-[2px]"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15"><Loader2 className="h-6 w-6 animate-spin" /></span><span className="rounded-full bg-[#16233b]/75 px-4 py-2 text-xs font-black">AI 正在追踪产品边缘</span></div>}
+            {!isReady && <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-[#ed6d46]"><Loader2 className="h-7 w-7 animate-spin" /></div>}
+          </div>
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-[#dbe5ef] bg-white px-4 py-3 dark:border-white/10 dark:bg-[#141c2b] sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <p className="text-xs text-[#718096]">建议稍微覆盖部件边缘，AI 会在边界处自然融合。</p><div className="flex gap-2"><button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-xl bg-[#edf3f9] px-5 text-sm font-black text-[#60708a] sm:flex-none">取消</button><button type="button" onClick={saveMask} disabled={!isReady} className="min-h-11 flex-1 rounded-xl bg-[#ed6d46] px-6 text-sm font-black text-white shadow-[0_10px_22px_rgba(237,109,70,0.24)] disabled:opacity-50 sm:flex-none">{hasPaint ? '保存涂抹区域' : '保存并清除蒙版'}</button></div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const initialRecordRef = useRef<TryOnRecord | null>(null);
@@ -567,6 +890,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const [maskEditorImageId, setMaskEditorImageId] = useState<string | null>(null);
   const activeUploadKindRef = useRef<UploadKind>('product');
   const [activeUploadKind, setActiveUploadKind] = useState<UploadKind>('product');
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -583,6 +907,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   const activeRecord = records.find((record) => record.id === activeRecordId) || records[0];
   const isBusy = activeRecord?.step === 'analyzing' || activeRecord?.step === 'generating';
   const outputTotal = activeRecord?.bodyReferences.length || activeRecord?.outputCount || 1;
+  const maskEditorImage = activeRecord?.bodyReferences.find((image) => image.id === maskEditorImageId) || null;
 
   const updateRecord = useCallback((id: string, updater: (record: TryOnRecord) => TryOnRecord) => {
     setRecords((current) => current.map((record) => record.id === id ? updater(record) : record));
@@ -631,8 +956,27 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
   useImagePaste((files) => void processFiles(files, activeUploadKindRef.current), isActive && !isBusy && activeRecord?.step === 'input');
 
   const removeImage = (kind: UploadKind, id: string) => {
+    if (id === maskEditorImageId) setMaskEditorImageId(null);
     updateRecord(activeRecord.id, (record) => ({ ...record, [kind === 'product' ? 'productImages' : 'bodyReferences']: (kind === 'product' ? record.productImages : record.bodyReferences).filter((image) => image.id !== id), analysis: null, results: [], step: 'input', error: '' }));
   };
+
+  const saveReferenceMask = useCallback((mask: { base64?: string; preview?: string; opacity?: number }) => {
+    if (!maskEditorImageId) return;
+    updateRecord(activeRecordId, (record) => ({
+      ...record,
+      bodyReferences: record.bodyReferences.map((image) => image.id === maskEditorImageId ? {
+        ...image,
+        targetMaskBase64: mask.base64,
+        targetMaskPreview: mask.preview,
+        targetMaskOpacity: mask.opacity ?? 80,
+      } : image),
+      analysis: null,
+      results: [],
+      step: 'input',
+      error: '',
+    }));
+    setMaskEditorImageId(null);
+  }, [activeRecordId, maskEditorImageId, updateRecord]);
 
   const startNewRecord = () => {
     if (isBusy) return;
@@ -671,7 +1015,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
     const { taskId, signal } = startGenerationTask();
     updateRecord(recordId, (record) => ({ ...record, step: 'analyzing', error: '', analysis: null, results: [], createdAt: Date.now() }));
     try {
-      const text = await generateText([...snapshot.productImages, ...snapshot.bodyReferences].map(toApiImage), buildAnalysisPrompt(snapshot));
+      const text = await generateText(buildAnalysisImages(snapshot), buildAnalysisPrompt(snapshot));
       assertCurrentGenerationTask(taskId, signal);
       const analysis = parseAnalysis(text, snapshot.bodyReferences.length);
       updateRecord(recordId, (record) => ({ ...record, step: 'confirm', analysis, placement: analysis.recommendedPlacement, backgroundStrategy: analysis.backgroundStrategy, error: '' }));
@@ -688,28 +1032,50 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
 
   const generateOne = async (record: TryOnRecord, result: TryOnResult, index: number, signal: AbortSignal) => {
     const reference = record.bodyReferences[index];
+    const hasTargetMask = Boolean(reference?.targetMaskBase64);
     const inputs = reference
-      ? [toApiImage(reference), ...record.productImages.map(toApiImage)]
+      ? [
+          toApiImage(reference),
+          ...(reference.targetMaskBase64 ? [{ base64: reference.targetMaskBase64, mimeType: 'image/png' }] : []),
+          ...record.productImages.map(toApiImage),
+        ]
       : record.productImages.map(toApiImage);
     let qaCorrection = '';
     let finalPrompt = '';
 
     for (let attempt = 0; attempt < (reference ? 2 : 1); attempt += 1) {
-      finalPrompt = buildGenerationPrompt(record, index, Boolean(reference), qaCorrection);
+      finalPrompt = buildGenerationPrompt(record, index, Boolean(reference), hasTargetMask, qaCorrection);
       updateResult(record.id, result.id, { status: 'submitting', prompt: finalPrompt, error: undefined });
-      const [rawImage] = await generateImageToImage(
-        inputs,
-        finalPrompt,
-        {
-          aspectRatio: record.aspectRatio,
-          resolution: record.resolution,
-          modelId: record.modelId,
-          workflowHint: 'single-item-try-on',
-          hasModelRef: Boolean(reference),
-          signal,
-          onStatus: (status) => updateResult(record.id, result.id, { status }),
-        },
-      );
+      let rawImage: string | undefined;
+      if (reference?.targetMaskBase64 && record.modelId !== 'qwen-image-3.0-pro') {
+        updateResult(record.id, result.id, { status: 'processing' });
+        [rawImage] = await generateInpainting(
+            toApiImage(reference),
+            { base64: reference.targetMaskBase64, mimeType: 'image/png' },
+            finalPrompt,
+            {
+              aspectRatio: record.aspectRatio,
+              resolution: record.resolution,
+              modelId: record.modelId,
+              refImages: record.productImages.map(toApiImage),
+              signal,
+            },
+          );
+      } else {
+        [rawImage] = await generateImageToImage(
+            inputs,
+            finalPrompt,
+            {
+              aspectRatio: record.aspectRatio,
+              resolution: record.resolution,
+              modelId: record.modelId,
+              workflowHint: 'single-item-try-on',
+              hasModelRef: Boolean(reference),
+              signal,
+              onStatus: (status) => updateResult(record.id, result.id, { status }),
+            },
+          );
+      }
       if (!rawImage) throw new Error('模型未返回图片。');
       updateResult(record.id, result.id, { status: 'processing' });
       const imageUrl = await convertImageDataUrlFormat(rawImage, record.outputFormat);
@@ -751,6 +1117,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
         outputCount: results.length,
         productImageCount: record.productImages.length,
         bodyReferenceCount: record.bodyReferences.length,
+        paintedReferenceCount: record.bodyReferences.filter((reference) => reference.targetMaskBase64).length,
         extraRequirements: record.extraRequirements,
         placement: record.placement,
         backgroundStrategy: record.backgroundStrategy,
@@ -782,7 +1149,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
       const finalResults = settled.map((outcome, index): TryOnResult => {
         if (outcome.status === 'fulfilled') return outcome.value;
         const error = outcome.reason;
-        return { ...initialResults[index], status: isAbortError(error) ? 'cancelled' : 'error', prompt: buildGenerationPrompt(snapshot, index, Boolean(snapshot.bodyReferences[index])), error: isAbortError(error) ? '任务已取消' : getErrorMessage(error) };
+        return { ...initialResults[index], status: isAbortError(error) ? 'cancelled' : 'error', prompt: buildGenerationPrompt(snapshot, index, Boolean(snapshot.bodyReferences[index]), Boolean(snapshot.bodyReferences[index]?.targetMaskBase64)), error: isAbortError(error) ? '任务已取消' : getErrorMessage(error) };
       });
       updateRecord(recordId, (record) => ({ ...record, step: 'complete', results: finalResults, error: finalResults.every((item) => item.status !== 'done') ? '本次任务未生成成功，可单张重试。' : '' }));
       await saveRecord(snapshot, finalResults);
@@ -866,7 +1233,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
           <div className="flex min-w-0 flex-col gap-4">
             {activeRecord.step === 'input' || activeRecord.step === 'analyzing' ? <>
               <UploadZone kind="product" title="商品图资料" description="同一款商品至少 1 张、最多 5 张；复杂结构建议补充侧面与细节。" images={activeRecord.productImages} max={MAX_PRODUCT_IMAGES} disabled={isBusy} active={activeUploadKind === 'product'} inputRef={productInputRef} onActivate={() => activateUpload('product')} onFiles={(files) => void processFiles(files, 'product')} onRemove={(id) => removeImage('product', id)} />
-              <UploadZone kind="body" title="部位 / 人物参考（选填）" description="完整人物或清晰局部均可，最多 6 张；每张参考对应一张结果。" images={activeRecord.bodyReferences} max={MAX_BODY_REFERENCES} disabled={isBusy} active={activeUploadKind === 'body'} inputRef={bodyInputRef} onActivate={() => activateUpload('body')} onFiles={(files) => void processFiles(files, 'body')} onRemove={(id) => removeImage('body', id)} />
+              <UploadZone kind="body" title="部位 / 人物参考（选填）" description="上传后点击缩略图上的“涂抹”，精准标记要替换的部件；最多 6 张。" images={activeRecord.bodyReferences} max={MAX_BODY_REFERENCES} disabled={isBusy} active={activeUploadKind === 'body'} inputRef={bodyInputRef} onActivate={() => activateUpload('body')} onFiles={(files) => void processFiles(files, 'body')} onRemove={(id) => removeImage('body', id)} onEditMask={(image) => setMaskEditorImageId(image.id)} />
               <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5"><div className="mb-4 flex items-center gap-2"><WandSparkles className="h-5 w-5 text-[#ed6d46]" /><h3 className="text-sm font-black">试穿设置</h3></div><label className="block text-xs font-bold text-pastel-muted">试穿类型<select value={activeRecord.category} disabled={isBusy} onChange={(event) => patchActive({ category: event.target.value as ProductCategory, analysis: null, results: [] })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold text-pastel-text outline-none focus:border-[#ed6d46]"><optgroup label="配饰">{CATEGORY_OPTIONS.filter((item) => item.group === '配饰').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup><optgroup label="服装">{CATEGORY_OPTIONS.filter((item) => item.group === '服装').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup></select></label>{activeRecord.bodyReferences.length === 0 && <label className="mt-4 block text-xs font-bold text-pastel-muted">无人物参考时生成数量<div className="mt-2 grid grid-cols-6 gap-2">{[1, 2, 3, 4, 5, 6].map((count) => <button key={count} type="button" disabled={isBusy} onClick={() => patchActive({ outputCount: count })} className={`min-h-11 rounded-xl border text-sm font-black ${activeRecord.outputCount === count ? 'border-[#ed6d46] bg-[#fff2eb] text-[#d8552e]' : 'border-pastel-border bg-pastel-card text-pastel-muted'}`}>{count}</button>)}</div></label>}<label className="mt-4 block text-xs font-bold text-pastel-muted">额外要求（选填）<textarea value={activeRecord.extraRequirements} disabled={isBusy} onChange={(event) => patchActive({ extraRequirements: event.target.value, analysis: null })} className="mt-1 min-h-28 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" placeholder="例如：高级通勤风，保留人物与背景，只替换外套；重点保持 Logo、五金和面料纹理……" /></label><button type="button" onClick={() => setShowAdvanced((value) => !value)} className="mt-4 flex min-h-11 w-full items-center justify-between rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-black"><span>高级设置</span>{showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>{showAdvanced && <div className="mt-3 space-y-4 rounded-xl border border-pastel-border bg-[#f8fbff] p-3 dark:bg-white/[0.03]"><div><span className="text-xs font-bold text-pastel-muted">生成模型</span><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">{MODEL_OPTIONS.map((model) => <button key={model.id} type="button" disabled={isBusy} onClick={() => patchActive({ modelId: model.id })} className={`min-h-14 rounded-xl border px-2 text-center ${activeRecord.modelId === model.id ? 'border-[#ed6d46] bg-[#fff2eb] text-[#d8552e]' : 'border-pastel-border bg-white text-pastel-text dark:bg-white/5'}`}><span className="block text-xs font-black">{model.label}</span><span className="mt-0.5 block text-[0.65rem] opacity-65">{model.desc}</span></button>)}</div></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><label className="text-xs font-bold text-pastel-muted">画幅比例<select value={activeRecord.aspectRatio} onChange={(event) => patchActive({ aspectRatio: event.target.value as AspectRatio })} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm font-bold text-pastel-text dark:bg-[#121212]">{ASPECT_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="text-xs font-bold text-pastel-muted">清晰度<select value={activeRecord.resolution} onChange={(event) => patchActive({ resolution: event.target.value as ImageResolution })} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm font-bold text-pastel-text dark:bg-[#121212]"><option value={ImageResolution.RES_1K}>1K</option><option value={ImageResolution.RES_2K}>2K</option><option value={ImageResolution.RES_4K}>4K</option></select></label><label className="text-xs font-bold text-pastel-muted">输出格式<select value={activeRecord.outputFormat} onChange={(event) => patchActive({ outputFormat: event.target.value as OutputImageFormat })} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm font-bold text-pastel-text dark:bg-[#121212]"><option value="png">PNG</option><option value="jpg">JPG</option></select></label></div></div>}</section>
               <button type="button" onClick={() => void handleAnalyze()} disabled={!activeRecord.productImages.length || isBusy} className="flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#ed6d46] to-[#f28b57] px-5 text-sm font-black text-white shadow-[0_14px_28px_rgba(237,109,70,0.25)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none">{activeRecord.step === 'analyzing' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}{activeRecord.step === 'analyzing' ? '正在分析商品与佩戴关系…' : '分析商品，生成试穿方案'}</button>
             </> : <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5"><div className="flex items-center justify-between gap-3"><div><span className="text-xs font-black tracking-[0.14em] text-[#ed6d46]">CONFIRMED INPUT</span><h2 className="mt-1 text-lg font-black">{categoryLabel(activeRecord.category)} · {outputTotal} 张结果</h2></div>{!isBusy && <button type="button" onClick={() => patchActive({ step: 'input', results: [], error: '' })} className="flex min-h-11 items-center gap-2 rounded-xl border border-pastel-border px-3 text-xs font-black text-pastel-muted hover:border-[#ed6d46] hover:text-[#ed6d46]"><ArrowLeft className="h-4 w-4" />修改输入</button>}</div><div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">商品图</span><strong className="mt-1 block text-base">{activeRecord.productImages.length} 张</strong></div><div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">人物参考</span><strong className="mt-1 block text-base">{activeRecord.bodyReferences.length || 'AI 匹配'}</strong></div></div></section>}
@@ -882,6 +1249,7 @@ const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true 
           </div>
         </div>
       </div>
+      {maskEditorImage && <ReferenceMaskEditor image={maskEditorImage} category={activeRecord.category} productImages={activeRecord.productImages} onClose={() => setMaskEditorImageId(null)} onSave={saveReferenceMask} />}
       {selectedPreview && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4" onClick={() => setSelectedPreview(null)}><button type="button" onClick={() => setSelectedPreview(null)} className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white" aria-label="关闭预览"><X className="h-6 w-6" /></button><img src={selectedPreview} alt="单品试穿大图预览" className="max-h-[88vh] max-w-full rounded-xl object-contain" /></div>}
     </div>
   );
