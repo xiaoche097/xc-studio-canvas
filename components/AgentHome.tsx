@@ -207,7 +207,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart }) => {
 
   return (
     <div className="h-full w-full overflow-y-auto overflow-x-hidden flex flex-col items-center p-6 py-12 relative bg-[#F8FAFC] dark:bg-[#050505] transition-colors duration-500 font-sans">
-      <div className="fixed top-0 left-0 w-full h-full opacity-40 dark:opacity-20 pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+      <div className="fixed top-0 left-0 w-full h-full opacity-40 dark:opacity-20 pointer-events-none bg-white/[0.015]"></div>
       <div className="fixed -top-[20%] right-[10%] w-[800px] h-[800px] bg-brand-orange/5 blur-[120px] rounded-full pointer-events-none"></div>
 
       <div className="w-full max-w-6xl z-10 flex flex-col items-center gap-10">

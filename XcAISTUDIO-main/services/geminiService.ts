@@ -667,7 +667,14 @@ export const generateImageFromText = async (
     prompt: string,
     model: string,
     inputImages: string[] = [],
-    options: { aspectRatio?: string, resolution?: string, count?: number, workflowHint?: WorkflowHint } = {}
+    options: {
+        aspectRatio?: string,
+        resolution?: string,
+        count?: number,
+        workflowHint?: WorkflowHint,
+        signal?: AbortSignal,
+        onStatus?: (status: 'submitting' | 'polling' | 'processing') => void,
+    } = {}
 ): Promise<string[]> => {
     const count = Math.min(4, Math.max(1, Math.floor(options.count || 1)));
 
@@ -702,6 +709,8 @@ export const generateImageFromText = async (
             sampleCount: count,
             workflowHint: options.workflowHint,
             hasModelRef: normalizedInputImages.length > 0,
+            signal: options.signal,
+            onStatus: options.onStatus,
         });
     }
 
@@ -1220,6 +1229,71 @@ export const prepareImageForCanvas = async (source: string): Promise<string> => 
     return `data:${mimeType};base64,${await blobToBase64(blob)}`;
 };
 
+const estimateDataUrlBytes = (source: string): number => {
+    const payload = source.split(',')[1] || '';
+    return Math.floor(payload.replace(/\s/g, '').length * 0.75);
+};
+
+/**
+ * Keep reference images small enough for the serverless Virse proxy while
+ * retaining enough detail for identity and scene matching.
+ */
+export const compressImageDataUrl = async (
+    source: string,
+    maxEdge = 1536,
+    quality = 0.82,
+): Promise<string> => {
+    if (!/^data:image\//i.test(source)) return source;
+    const mimeType = source.match(/^data:(image\/[^;]+);base64,/i)?.[1] || 'image/png';
+    // Node uploads already arrive as compact WebP/JPEG in most cases. Avoid
+    // a second lossy encode unless the payload is large or is an uncompressed
+    // format that commonly causes the /api/virse request to exceed its limit.
+    if (estimateDataUrlBytes(source) <= 2_000_000 && /image\/(?:webp|jpe?g)/i.test(mimeType)) {
+        return source;
+    }
+
+    return new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.decoding = 'async';
+        image.onload = () => {
+            const sourceWidth = image.naturalWidth || image.width;
+            const sourceHeight = image.naturalHeight || image.height;
+            if (!sourceWidth || !sourceHeight) {
+                reject(new Error('Reference image has invalid dimensions'));
+                return;
+            }
+
+            const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+            const width = Math.max(1, Math.round(sourceWidth * scale));
+            const height = Math.max(1, Math.round(sourceHeight * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d', { colorSpace: 'srgb' });
+            if (!context) {
+                reject(new Error('Reference image compression is unavailable'));
+                return;
+            }
+            context.fillStyle = '#FFFFFF';
+            context.fillRect(0, 0, width, height);
+            context.drawImage(image, 0, 0, width, height);
+            canvas.toBlob(async (blob) => {
+                if (!blob) {
+                    reject(new Error('Reference image compression failed'));
+                    return;
+                }
+                try {
+                    resolve(`data:image/webp;base64,${await blobToBase64(blob)}`);
+                } catch (error) {
+                    reject(error);
+                }
+            }, 'image/webp', quality);
+        };
+        image.onerror = () => reject(new Error('Reference image could not be loaded for compression'));
+        image.src = source;
+    });
+};
+
 export const cropGridCellCanvas = (
     sourceDataUrl: string,
     row: number,
@@ -1460,7 +1534,11 @@ export const generateStoryboardGridImages = async (
     optionType: StoryboardOptionType,
     aspectRatio: string = '2:3',
     userBrief: string = '',
-    onPlan?: (plan: StoryboardCreativePlan) => void
+    onPlan?: (plan: StoryboardCreativePlan) => void,
+    options: {
+        signal?: AbortSignal;
+        onStatus?: (status: 'submitting' | 'polling' | 'processing') => void;
+    } = {},
 ): Promise<{ id: string; image: string; prompt: string }[]> => {
     let rows = 3;
     let cols = 3;
@@ -1519,15 +1597,20 @@ No text, no numbers, pure high fashion photography contact sheet.`;
     }
 
     const totalCells = rows * cols;
-    const inputImages = sourceImage ? [sourceImage] : [];
+    if (options.signal?.aborted) throw new DOMException('Generation cancelled', 'AbortError');
+    const storyboardSourceImage = sourceImage
+        ? await compressImageDataUrl(await prepareImageForCanvas(sourceImage))
+        : '';
+    const inputImages = storyboardSourceImage ? [storyboardSourceImage] : [];
     const directorPlan = await planStoryboardWithDirectorAgent(
-        sourceImage,
+        storyboardSourceImage,
         optionType,
         aspectRatio,
         totalCells,
         userBrief
     );
     onPlan?.(directorPlan);
+    if (options.signal?.aborted) throw new DOMException('Generation cancelled', 'AbortError');
     const plannedShots = directorPlan.shots.map(shot => [
         `Panel ${shot.shotNumber}`,
         `Framing: ${shot.framing}`,
@@ -1597,7 +1680,14 @@ Present the clothing in a polished, neutral commercial style. Every panel must b
                 safetyNeutralPrompt,
                 'gemini-3.1-flash-image-preview',
                 inputImages,
-                { aspectRatio, resolution: '2K', count: 1, workflowHint: 'storyboard-grid' }
+                {
+                    aspectRatio,
+                    resolution: '2K',
+                    count: 1,
+                    workflowHint: 'storyboard-grid',
+                    signal: options.signal,
+                    onStatus: options.onStatus,
+                }
             );
         } catch (error) {
             if (!isGatewaySensitiveContentError(error)) throw error;
@@ -1606,14 +1696,21 @@ Present the clothing in a polished, neutral commercial style. Every panel must b
                 minimalSafetyRetryPrompt,
                 'gemini-3.1-flash-image-preview',
                 inputImages,
-                { aspectRatio, resolution: '2K', count: 1, workflowHint: 'storyboard-grid' }
+                {
+                    aspectRatio,
+                    resolution: '2K',
+                    count: 1,
+                    workflowHint: 'storyboard-grid',
+                    signal: options.signal,
+                    onStatus: options.onStatus,
+                }
             );
         }
 
         let sheetUrl = generatedSheet[0];
         if (!sheetUrl) throw new Error("生成画板图片为空");
 
-        const visualAudit = await auditStoryboardVisualDiversity(sourceImage, sheetUrl, totalCells);
+        const visualAudit = await auditStoryboardVisualDiversity(storyboardSourceImage, sheetUrl, totalCells);
         if (!visualAudit.pass) {
             const duplicateLabel = visualAudit.duplicateGroups.length > 0
                 ? `Duplicate panel groups: ${visualAudit.duplicateGroups.map(group => group.join('/')).join(', ')}.`
@@ -1623,11 +1720,19 @@ ${duplicateLabel}
 QA notes: ${neutralizeStoryboardText(visualAudit.notes)}
 Required correction: ${neutralizeStoryboardText(visualAudit.correctionPrompt || 'Replace repeated positions with clearly different natural editorial actions and viewing directions.')}
 Regenerate the entire contact sheet. Preserve the exact reference location, recognizable fashion subject, hairstyle, complete styling, garment pattern, accessories, handbag and footwear. Do not reuse the rejected duplicate poses.`;
+            options.onStatus?.('processing');
             const correctedSheet = await generateImageFromText(
                 correctedPrompt,
                 'gemini-3.1-flash-image-preview',
                 inputImages,
-                { aspectRatio, resolution: '2K', count: 1, workflowHint: 'storyboard-grid' }
+                {
+                    aspectRatio,
+                    resolution: '2K',
+                    count: 1,
+                    workflowHint: 'storyboard-grid',
+                    signal: options.signal,
+                    onStatus: options.onStatus,
+                }
             );
             if (correctedSheet[0]) sheetUrl = correctedSheet[0];
         }
@@ -1647,16 +1752,9 @@ Regenerate the entire contact sheet. Preserve the exact reference location, reco
         }
         return cells;
     } catch (error) {
-        console.warn(`[StoryboardGrid] Batch grid generation failed, fallback to multi-image fallback:`, error);
-        const fallbackCells: { id: string; image: string; prompt: string }[] = [];
-        for (let i = 0; i < totalCells; i++) {
-            fallbackCells.push({
-                id: `cell-fallback-${Date.now()}-${i + 1}`,
-                image: sourceImage,
-                prompt: `${optionTitle} · ${directorPlan.shots[i]?.framing || `Shot ${i + 1}`} · ${directorPlan.shots[i]?.action || directorPlan.concept}`,
-            });
-        }
-        return fallbackCells;
+        console.error(`[StoryboardGrid] Batch grid generation failed:`, error);
+        // Do not make a failed Virse request look like a successful storyboard.
+        throw error;
     }
 };
 

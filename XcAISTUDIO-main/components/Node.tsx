@@ -2138,6 +2138,11 @@ const NodeComponent: React.FC<NodeProps> = ({
                                 <p className="mt-1 text-[11px] font-medium text-emerald-200/70">
                                     {isStoryboardNode ? '正在智能分解镜号与渲染多宫格画面...' : hasContent ? '正在替换为新的结果' : '结果会显示在这里'}
                                 </p>
+                                {isStoryboardNode && node.data.progress && (
+                                    <p className="mt-2 max-w-[260px] text-[10px] font-medium text-cyan-200/80">
+                                        {node.data.progress}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>

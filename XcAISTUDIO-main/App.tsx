@@ -18,7 +18,7 @@ declare global {
     }
 }
 import { AppNode, NodeType, NodeStatus, Connection, ContextMenuState, Group, Workflow, SmartSequenceItem, StoryboardOptionType, GridCropConfig } from './types';
-import { generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio, generateStoryboardGridImages, cropGridCellCanvas, prepareImageForCanvas } from './services/geminiService';
+import { compressImageDataUrl, generateImageFromText, generateVideo, analyzeVideo, editImageWithText, planStoryboard, orchestrateVideoPrompt, compileMultiFramePrompt, urlToBase64, extractLastFrame, generateAudio, generateStoryboardGridImages, cropGridCellCanvas, prepareImageForCanvas } from './services/geminiService';
 
 
 import { getGenerationStrategy } from './services/videoStrategies';
@@ -59,6 +59,17 @@ const getImageSourceFingerprint = (src?: string) => {
     if (src.startsWith('data:')) return `${src.length}:${src.slice(-32)}`;
     return src;
 };
+
+const readBlobAsDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Image file reading failed'));
+    reader.readAsDataURL(blob);
+});
+
+const prepareUploadedImageDataUrl = async (file: File): Promise<string> => (
+    compressImageDataUrl(await readBlobAsDataUrl(file))
+);
 
 const createCanvasImagePreview = (src: string): Promise<string> => new Promise((resolve, reject) => {
     const image = new Image();
@@ -1656,17 +1667,15 @@ export const App: React.FC<VideoStationAppProps> = ({
         }));
     }, [handleAssetGenerated, handleAssetsGenerated]);
 
-    const handleReplaceFile = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
+    const handleReplaceFile = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
         const file = e.target.files?.[0];
         const targetId = replacementTargetRef.current;
         if (file && targetId) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const result = e.target?.result as string;
-                if (type === 'image') handleNodeUpdate(targetId, { image: result, assetOrigin: 'uploaded' });
-                else handleNodeUpdate(targetId, { videoUri: result });
-            };
-            reader.readAsDataURL(file);
+            const result = type === 'image'
+                ? await prepareUploadedImageDataUrl(file)
+                : await readBlobAsDataUrl(file);
+            if (type === 'image') handleNodeUpdate(targetId, { image: result, assetOrigin: 'uploaded' });
+            else handleNodeUpdate(targetId, { videoUri: result });
         }
         e.target.value = ''; setContextMenu(null); replacementTargetRef.current = null;
     };
@@ -1840,6 +1849,7 @@ export const App: React.FC<VideoStationAppProps> = ({
             data: {
                 storyboardAspectRatio: detectedAspectRatio,
                 storyboardGridSize: gridSize,
+                progress: '正在准备参考图与导演方案...',
                 storyboardCells: Array.from({ length: totalCells }).map((_, i) => ({
                     id: `cell-placeholder-${i + 1}`,
                     prompt: `${optionTitle} 镜头 ${i + 1}`,
@@ -1856,6 +1866,8 @@ export const App: React.FC<VideoStationAppProps> = ({
         setConnections(prev => [...prev, { id: `c-${sourceNodeId}-${gridNodeId}`, from: sourceNodeId, to: gridNodeId }]);
 
         // 5. 异步调用 AI 批量生成镜头画面填入分镜单元
+        const storyboardController = new AbortController();
+        const storyboardTimeout = window.setTimeout(() => storyboardController.abort(), 8 * 60 * 1000);
         try {
             const sourceImg = sourceNode.data.image || '';
             const generatedCells = await generateStoryboardGridImages(
@@ -1873,6 +1885,17 @@ export const App: React.FC<VideoStationAppProps> = ({
                             `已规划 ${plan.shots.length} 个不重复镜头`,
                         ].filter(Boolean).join('\n'),
                     });
+                },
+                {
+                    signal: storyboardController.signal,
+                    onStatus: (status) => {
+                        const progress = status === 'submitting'
+                            ? '正在压缩并上传参考图...'
+                            : status === 'polling'
+                                ? '任务已提交，正在等待 Virse 返回结果...'
+                                : 'Virse 正在渲染多宫格画面...';
+                        handleNodeUpdate(gridNodeId, { progress });
+                    },
                 }
             );
 
@@ -1885,8 +1908,13 @@ export const App: React.FC<VideoStationAppProps> = ({
             setNodes(prev => prev.map(n => n.id === gridNodeId ? { ...n, status: NodeStatus.SUCCESS } : n));
         } catch (err: any) {
             console.error("Storyboard grid generation error:", err);
-            handleNodeUpdate(gridNodeId, { error: err?.message || '分镜格子生成失败' });
+            const errorMessage = err?.name === 'AbortError'
+                ? '分镜生成超时或已取消，请检查 Virse 任务状态后重试。'
+                : (err?.message || '分镜格子生成失败');
+            handleNodeUpdate(gridNodeId, { error: errorMessage, progress: '' });
             setNodes(prev => prev.map(n => n.id === gridNodeId ? { ...n, status: NodeStatus.ERROR } : n));
+        } finally {
+            window.clearTimeout(storyboardTimeout);
         }
     }, [handleNodeUpdate]);
 
@@ -2416,13 +2444,6 @@ export const App: React.FC<VideoStationAppProps> = ({
     }, [selectedWorkflowId, selectedNodeIds, selectedGroupId, deleteNodes, undo, redo, saveHistory]);
 
     useEffect(() => {
-        const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = event => resolve(event.target?.result as string);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(file);
-        });
-
         const handlePaste = async (event: ClipboardEvent) => {
             if (event.defaultPrevented) return;
             const target = event.target as HTMLElement | null;
@@ -2444,7 +2465,7 @@ export const App: React.FC<VideoStationAppProps> = ({
                 const startY = (viewportCenterY - currentPan.y) / currentScale - 180;
 
                 try {
-                    const images = await Promise.all(imageFiles.map(file => readFileAsDataUrl(file)));
+                    const images = await Promise.all(imageFiles.map(file => prepareUploadedImageDataUrl(file)));
                     images.forEach((src, index) => {
                         const col = index % 3;
                         const row = Math.floor(index / 3);
@@ -2554,16 +2575,15 @@ export const App: React.FC<VideoStationAppProps> = ({
                     const xPos = startX + (col * (BASE_WIDTH + GAP));
                     const yPos = startY + (row * BASE_HEIGHT);
 
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        const res = event.target?.result as string;
-                        if (file.type.startsWith('image/')) {
+                    if (file.type.startsWith('image/')) {
+                        void prepareUploadedImageDataUrl(file).then((res) => {
                             addNode(NodeType.IMAGE_GENERATOR, xPos, yPos, { image: res, prompt: file.name, assetOrigin: 'uploaded', status: NodeStatus.SUCCESS });
-                        } else if (file.type.startsWith('video/')) {
+                        }).catch((error) => console.error('Image drop preparation failed:', error));
+                    } else if (file.type.startsWith('video/')) {
+                        void readBlobAsDataUrl(file).then((res) => {
                             addNode(NodeType.VIDEO_GENERATOR, xPos, yPos, { videoUri: res, prompt: file.name, status: NodeStatus.SUCCESS });
-                        }
-                    };
-                    reader.readAsDataURL(file);
+                        }).catch((error) => console.error('Video drop preparation failed:', error));
+                    }
                 });
             }
         }
