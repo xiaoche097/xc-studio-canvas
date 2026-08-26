@@ -12,6 +12,7 @@ export enum AppMode {
   MODEL_ORIGINAL_PASTE_BACK = 'MODEL_ORIGINAL_PASTE_BACK', // Model Original Paste Back
   PRODUCT_REPAIR = 'PRODUCT_REPAIR', // 产品修复 (Product Repair) [deprecated]
   OUTFIT_EXTRACTION = 'OUTFIT_EXTRACTION', // 搭配提取 (Outfit Extraction)
+  OUTFIT_DECONSTRUCTION = 'OUTFIT_DECONSTRUCTION', // 一键分离模特穿搭
   RATIO_QUERY = 'RATIO_QUERY', // Aspect Ratio Query (New)
   PRODUCT_SWAP = 'PRODUCT_SWAP', // Product Replacement Agent (New)
   INPAINTING = 'INPAINTING', // 局部替换 (Inpainting)

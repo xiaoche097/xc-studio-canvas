@@ -195,6 +195,12 @@ const CAPABILITY_PRESETS: Record<AppMode, CapabilityPreset> = {
     attachmentRoles: ['ATTACHMENT_0：待分析穿搭图'],
     instructions: ['先识别品类、廓形、材质、颜色与搭配关系', '只有用户要求视觉成片时才继续调用 generateImage'],
   },
+  [AppMode.OUTFIT_DECONSTRUCTION]: imagePreset(
+    '将人物当前真实穿搭拆解为一张纯白底商品搭配全览图',
+    ['只输出原图中明确可见的服装与配饰', '保持每件单品的颜色、图案、材质、结构和比例', '移除人物与场景，所有单品完整、独立且不重叠', '固定输出 2:3 竖版，不添加文字、标签、Logo 或装饰道具'],
+    ['ATTACHMENT_0：待拆解的人物穿搭图'],
+    'campaign',
+  ),
   [AppMode.RETOUCHING]: editPreset(
     '提升图片清晰度、分辨率和商品纹理细节',
     ['使用 upscale 编辑类型', '不得重绘成另一个产品', '保持颜色、Logo、文字、人物身份和构图'],

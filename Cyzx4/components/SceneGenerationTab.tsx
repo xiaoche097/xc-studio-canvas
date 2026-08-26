@@ -54,7 +54,7 @@ import type {
   EcommerceStyleAnalysis,
 } from '../types/ecommerceHero.types';
 import { ModelLibraryModal } from './ModelLibraryModal';
-import { modelLibrary, ModelItem } from '../services/modelLibrary';
+import { getModelReferenceImages, modelLibrary, ModelItem } from '../services/modelLibrary';
 import './SceneGenerationTab.css';
 
 export type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset' | 'mobile';
@@ -404,12 +404,14 @@ const buildAnalysisPrompt = (
   const lowerBodyPlanningRule = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
     ? `- LOWER-BODY POSE RULE: Every image plan must keep the legs and feet uncrossed. Keep each leg on its own side of the body's centerline, with both shoes/feet separately visible and a clear gap between the ankles. Use a stable hip-width stance or a naturally separated stride. Never plan crossed legs, crossed ankles, a scissor stance, overlapping calves/shoes, one foot placed across the other, or a toe-point crossover. Create pose variety with the arms, gaze, torso angle and camera position instead of crossing the legs.`
     : '';
-  const modelIndex = selectedModel ? record.productImages.length + 1 : null;
+  const modelReferences = selectedModel ? getModelReferenceImages(selectedModel, 8) : [];
+  const modelStart = modelReferences.length ? record.productImages.length + 1 : null;
+  const modelEnd = modelStart ? modelStart + modelReferences.length - 1 : null;
   const sceneIndex = record.referenceSceneImage
-    ? record.productImages.length + (selectedModel ? 1 : 0) + 1
+    ? record.productImages.length + modelReferences.length + 1
     : null;
-  const selectedModelText = selectedModel && modelIndex
-    ? `Image ${modelIndex} is the USER-SELECTED MODEL IDENTITY ANCHOR named "${selectedModel.name}". This image defines the mandatory person identity only: exact face geometry, facial features, skin tone/texture, hair identity, apparent age and body proportions. The final person must be recognizably this same model. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from this image. Plan new pose, action, expression and camera angle for the target garment and scene.`
+  const selectedModelText = selectedModel && modelStart && modelEnd
+    ? `Images ${modelStart}-${modelEnd} are the USER-SELECTED MODEL IDENTITY PROFILE named "${selectedModel.name}". Image ${modelStart} is the explicitly selected PRIMARY GENERATION REFERENCE: prioritize its current face presentation and hairstyle. The remaining images are supporting identity evidence of the same person across other angles or hairstyles. Fuse their shared facial geometry, eyes, brows, nose, lips, jaw, skin tone/texture and apparent age into one stable identity, while keeping the hairstyle and visible look from Image ${modelStart} unless the user requests otherwise. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from these images. Plan new pose, action, expression and camera angle for the target garment and scene.`
     : 'No fixed model was selected. Recommend a suitable adult model persona.';
   const isLightOnlyMode = record.refSceneLockMode === 'scene_light_only';
   const refSceneText = record.referenceSceneImage && sceneIndex
@@ -417,7 +419,7 @@ const buildAnalysisPrompt = (
       ? `Image ${sceneIndex} is the USER-SELECTED LIGHTING & ENVIRONMENT SCENE ANCHOR (MODE: REF SCENE LIGHT & ATMOSPHERE ONLY, LOCK PRODUCT/SUBJECT POSE & IDENTITY). Extract ONLY its background location environment, directional light source, lighting intensity, shadow characteristics, color temperature, and atmospheric background. DO NOT COPY THE POSE, BODY POSITION, GAZE, OR ACTION FROM IMAGE ${sceneIndex}. Keep the product and model in their ORIGINAL POSE AND POSTURE from the product/model reference photos (Image 1), seamlessly integrating them into this new scene with realistic lighting, shadows, and environment reflections.`
       : `Image ${sceneIndex} is the USER-SELECTED SCENE AND PERFORMANCE ANCHOR (MODE: LOCK SCENE & POSE). Treat its location identity as visual ground truth. Extract and preserve its camera position, perspective, crop boundaries, horizon/vanishing lines, architecture geometry, wall/floor junctions, panel seams, surface materials, object placement, spatial depth, weather/season, light direction, shadow geometry, color temperature and atmosphere. Do not replace these with a generic similar location. ${isHeadlessCrop ? `The selected crop hides the head, so transfer only visible performance cues: torso/hip orientation, weight distribution, leg rhythm, arm/hand placement and fabric movement. Do not plan gaze, head angle or facial expression.` : `Also extract the reference person's gaze direction, attention target, head turn/tilt, expression intensity, shoulder line and candid body energy as performance cues.`} Apply only those performance cues to the selected model while preserving identity. The reference person's identity, garments, accessories, text and logos are non-authoritative and must not be copied.`
     : 'No reference scene image provided.';
-  const instagramStart = record.productImages.length + (selectedModel ? 1 : 0) + (record.referenceSceneImage ? 1 : 0) + 1;
+  const instagramStart = record.productImages.length + modelReferences.length + (record.referenceSceneImage ? 1 : 0) + 1;
   const instagramEnd = instagramStart + record.instagramReferences.length - 1;
   const instagramText = record.instagramReferences.length
     ? `Instagram source label: ${record.instagramUrl || 'not provided'}\nImages ${instagramStart}-${instagramEnd} are USER-PROVIDED SCREENSHOTS of an Instagram grid/posts. They are the only verified Instagram visual evidence. Ignore browser chrome, Instagram navigation, profile avatars, story highlights, recommendation cards, captions, logos, likes, icons and all text. Analyze only the actual fashion-post tiles. Find recurring evidence across multiple tiles: palette, locations, natural/artificial light, framing distance, camera height, styling mood, model movement, candid/editorial balance and negative space. Do not infer unseen posts and do not copy a specific person or garment.`
@@ -511,11 +513,12 @@ const buildGenerationPrompt = (
   const productEnd = record.productImages.length;
   const secondaryProductCount = Math.max(0, productEnd - 1);
   const isHeadlessCrop = record.cropFraming === 'short-bottom' || record.cropFraming === 'long-bottom';
+  const modelReferenceCount = selectedModel ? getModelReferenceImages(selectedModel, 8).length : 0;
 
   let nextImageIndex = 2;
-  const modelStart = selectedModel ? nextImageIndex : null;
-  const modelEnd = selectedModel ? nextImageIndex + 1 : null;
-  if (selectedModel) nextImageIndex += 2;
+  const modelStart = modelReferenceCount ? nextImageIndex : null;
+  const modelEnd = modelReferenceCount ? nextImageIndex + modelReferenceCount - 1 : null;
+  nextImageIndex += modelReferenceCount;
   const sceneIndex = record.referenceSceneImage ? nextImageIndex++ : null;
   const secondaryProductStart = secondaryProductCount ? nextImageIndex : null;
   const secondaryProductEnd = secondaryProductCount ? nextImageIndex + secondaryProductCount - 1 : null;
@@ -530,7 +533,9 @@ const buildGenerationPrompt = (
   const referenceMap = [
     'Image 1 = Primary product identity (主产品 - highest weight authority).',
     selectedModel && modelStart && modelEnd
-      ? `Images ${modelStart}-${modelEnd} = Selected model identity anchor (${selectedModel.name}).`
+      ? modelStart === modelEnd
+        ? `Image ${modelStart} = User-selected PRIMARY face/hairstyle reference for ${selectedModel.name}.`
+        : `Image ${modelStart} = User-selected PRIMARY face/hairstyle reference for ${selectedModel.name}; Images ${modelStart + 1}-${modelEnd} = supporting identity references of the same person.`
       : '',
     record.referenceSceneImage && sceneIndex
       ? isLightOnlyMode
@@ -573,7 +578,7 @@ Create a ${record.aspectRatio} photorealistic commercial lifestyle fashion image
 ${referenceMap}
 
 [SUBJECT & PRODUCT]
-Model: ${selectedModel && modelStart && modelEnd ? `Exact model from Images ${modelStart}-${modelEnd}` : analysis.modelPersonaPreset}.
+Model: ${selectedModel && modelStart && modelEnd ? `Exact model identity from Images ${modelStart}-${modelEnd}; prioritize the face presentation and hairstyle in Image ${modelStart}` : analysis.modelPersonaPreset}.
 Main Product (Image 1): ${analysis.productCategory} - ${analysis.productIdentity}. Material & Color: ${analysis.materialColor}. Preserve exact design.
 ${secondaryProductStart && secondaryProductEnd ? `Matching Products (Images ${secondaryProductStart}-${secondaryProductEnd}): MUST ALL BE INCLUDED AND VISIBLE in the scene alongside the main product.` : ''}
 
@@ -903,7 +908,9 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
   }, []);
 
   useEffect(() => {
-    modelLibrary.list().then(setModelPersonas).catch(() => {});
+    const refreshModels = () => { modelLibrary.list().then(setModelPersonas).catch(() => {}); };
+    refreshModels();
+    return modelLibrary.subscribe(refreshModels);
   }, []);
 
   const handleCreateModelPersona = async (name: string, file: File) => {
@@ -927,6 +934,11 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
     const next = { ...model, name: newName, updatedAt: Date.now() };
     await modelLibrary.save(next);
     setModelPersonas((prev) => prev.map((m) => (m.id === model.id ? next : m)));
+  };
+
+  const handleUpdateModelPersona = async (model: ModelItem) => {
+    await modelLibrary.save(model);
+    setModelPersonas((prev) => prev.map((item) => (item.id === model.id ? model : item)));
   };
 
   const handleDeleteModelPersona = async (id: string) => {
@@ -1226,10 +1238,11 @@ Return ONLY JSON:
     if (!record.analysis) throw new Error('缺少可用的 Agent 规划方案。');
     const style = styleSummary(record, customStyles);
     const selectedModel = modelPersonas.find((m) => m.id === record.selectedModelPersonaId);
-    if (record.selectedModelPersonaId && (!selectedModel?.base64 || !selectedModel.mime)) {
+    const selectedModelReferences = selectedModel ? getModelReferenceImages(selectedModel, 8) : [];
+    if (record.selectedModelPersonaId && !selectedModelReferences.length) {
       throw new Error('所选模特参考图未能加载，请重新选择模特后再生成。');
     }
-    const selectedModelReference = selectedModel?.base64 && selectedModel.mime ? selectedModel : undefined;
+    const selectedModelReference = selectedModelReferences.length ? selectedModel : undefined;
     const prompt = buildGenerationPrompt(
       record,
       record.analysis,
@@ -1244,10 +1257,7 @@ Return ONLY JSON:
     const [primaryProductImage, ...secondaryProductImages] = record.productImages;
     const inputImages = [toApiImage(primaryProductImage)];
     if (selectedModelReference) {
-      inputImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
-      // Repeat the identity reference deliberately so image models weight the selected person
-      // more strongly than scene/style people without treating pose or accessories as locked.
-      inputImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
+      selectedModelReferences.forEach((reference) => inputImages.push({ base64: reference.base64, mimeType: reference.mime }));
     }
     if (record.referenceSceneImage) inputImages.push(toApiImage(record.referenceSceneImage));
     secondaryProductImages.forEach((image) => inputImages.push(toApiImage(image)));
@@ -1346,12 +1356,13 @@ Return ONLY JSON:
     try {
       const apiImages = [...snapshot.productImages.map(toApiImage)];
       const selectedModel = modelPersonas.find((model) => model.id === snapshot.selectedModelPersonaId);
-      if (snapshot.selectedModelPersonaId && (!selectedModel?.base64 || !selectedModel.mime)) {
+      const selectedModelReferences = selectedModel ? getModelReferenceImages(selectedModel, 8) : [];
+      if (snapshot.selectedModelPersonaId && !selectedModelReferences.length) {
         throw new Error('所选模特参考图未能加载，请重新选择模特后再分析。');
       }
-      const selectedModelReference = selectedModel?.base64 && selectedModel.mime ? selectedModel : undefined;
+      const selectedModelReference = selectedModelReferences.length ? selectedModel : undefined;
       if (selectedModelReference) {
-        apiImages.push({ base64: selectedModelReference.base64!, mimeType: selectedModelReference.mime! });
+        selectedModelReferences.forEach((reference) => apiImages.push({ base64: reference.base64, mimeType: reference.mime }));
       }
       if (snapshot.referenceSceneImage) apiImages.push(toApiImage(snapshot.referenceSceneImage));
       snapshot.instagramReferences.forEach((ref) => apiImages.push(toApiImage(ref)));
@@ -2401,6 +2412,7 @@ Return ONLY JSON:
           models={modelPersonas}
           onSelectModel={(model) => patchActive({ selectedModelPersonaId: model?.id || null })}
           onCreateModel={handleCreateModelPersona}
+          onUpdateModel={handleUpdateModelPersona}
           onRenameModel={handleRenameModelPersona}
           onDeleteModel={handleDeleteModelPersona}
           onClose={() => setIsModelModalOpen(false)}

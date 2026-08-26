@@ -25,6 +25,7 @@ export const ProjectGallery: React.FC<ProjectGalleryProps> = ({ onSelectProject,
 
     const filters = [
         { id: 'ALL', label: '全部项目' },
+        { id: 'OUTFIT_DECONSTRUCTION', label: '穿搭分离' },
         { id: 'LAUNCH_PACKAGE', label: 'SKYSPER视觉系统' },
         { id: 'SEAT_COVER', label: '座套试装' },
         { id: 'FUSION', label: '图像生成' }, // New FUSION Tab
