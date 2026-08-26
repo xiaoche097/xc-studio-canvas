@@ -1,5 +1,17 @@
 import { openDB, type DBSchema } from 'idb';
 
+export type ModelReferenceKind = 'face' | 'hairstyle';
+
+export interface ModelReferenceImage {
+  id: string;
+  label: string;
+  kind: ModelReferenceKind;
+  preview: string;
+  base64: string;
+  mime: string;
+  createdAt: number;
+}
+
 export interface ModelItem {
   id: string;
   name: string;
@@ -7,6 +19,9 @@ export interface ModelItem {
   preview: string;
   base64?: string;
   mime?: string;
+  references?: ModelReferenceImage[];
+  /** The reference that should lead identity/hairstyle generation and represent the model in selectors. */
+  primaryReferenceId?: string;
   prompt: string;
   createdAt: number;
   updatedAt: number;
@@ -22,6 +37,11 @@ interface ModelLibraryDB extends DBSchema {
 
 const DB_NAME = 'skysper-model-library';
 const STORE_NAME = 'models';
+const MODEL_LIBRARY_CHANGE_EVENT = 'skysper-model-library-change';
+const RETIRED_MODEL_IDS = new Set([
+  'official-model-elen-hart-casual',
+  'official-model-elen-hart-elegant',
+]);
 
 const OFFICIAL_MODEL_PROMPT = `
 You will create a "High-Precision Reference Chart" based on the attached character image that can be used for AI image generation or character consistency.
@@ -98,29 +118,44 @@ export const OFFICIAL_MODELS: ModelItem[] = [
     createdAt: 1700000000003,
     updatedAt: 1700000000003,
   },
-  {
-    id: 'official-model-elen-hart-casual',
-    name: 'ELEN-HART (休闲版)',
-    isOfficial: true,
-    preview: 'data:image/jpeg;base64,' + ELEN_HART_CASUAL_BASE64,
-    base64: ELEN_HART_CASUAL_BASE64,
-    mime: 'image/jpeg',
-    prompt: OFFICIAL_MODEL_PROMPT,
-    createdAt: 1700000000004,
-    updatedAt: 1700000000004,
-  },
-  {
-    id: 'official-model-elen-hart-elegant',
-    name: 'ELEN-HART (优雅版)',
-    isOfficial: true,
-    preview: 'data:image/jpeg;base64,' + ELEN_HART_ELEGANT_BASE64,
-    base64: ELEN_HART_ELEGANT_BASE64,
-    mime: 'image/jpeg',
-    prompt: OFFICIAL_MODEL_PROMPT,
-    createdAt: 1700000000005,
-    updatedAt: 1700000000005,
-  },
 ];
+
+export const getModelReferenceImages = (model: ModelItem, max = Number.POSITIVE_INFINITY): ModelReferenceImage[] => {
+  const references = (model.references || []).filter((reference) => Boolean(reference.base64 && reference.mime));
+  if (references.length > 0) {
+    const primaryIndex = references.findIndex((reference) =>
+      reference.id === model.primaryReferenceId || (!model.primaryReferenceId && reference.preview === model.preview)
+    );
+    const ordered = primaryIndex > 0
+      ? [references[primaryIndex], ...references.slice(0, primaryIndex), ...references.slice(primaryIndex + 1)]
+      : references;
+    return ordered.slice(0, max);
+  }
+  if (!model.base64 || !model.mime) return [];
+  return [{
+    id: `${model.id}-primary`,
+    label: '主面部参考',
+    kind: 'face',
+    preview: model.preview,
+    base64: model.base64,
+    mime: model.mime,
+    createdAt: model.createdAt,
+  }].slice(0, max);
+};
+
+export const getPrimaryModelReference = (model: ModelItem): ModelReferenceImage | null => {
+  const references = getModelReferenceImages(model);
+  return references.find((reference) => reference.id === model.primaryReferenceId)
+    || references.find((reference) => reference.preview === model.preview)
+    || references[0]
+    || null;
+};
+
+const normalizeModel = (model: ModelItem): ModelItem => ({
+  ...model,
+  references: getModelReferenceImages(model),
+  primaryReferenceId: getPrimaryModelReference(model)?.id,
+});
 
 const dbPromise = openDB<ModelLibraryDB>(DB_NAME, 1, {
   upgrade(db) {
@@ -133,21 +168,38 @@ export const modelLibrary = {
   async list(): Promise<ModelItem[]> {
     try {
       const db = await dbPromise;
-      const customModels = (await db.getAllFromIndex(STORE_NAME, 'by-updated')).reverse();
-      return [...OFFICIAL_MODELS, ...customModels];
+      const storedModels = (await db.getAllFromIndex(STORE_NAME, 'by-updated')).reverse();
+      const storedById = new Map(storedModels.map((model) => [model.id, model]));
+      const officialModels = OFFICIAL_MODELS.map((model) => normalizeModel({
+        ...model,
+        ...(storedById.get(model.id) || {}),
+        id: model.id,
+        isOfficial: true,
+      }));
+      const customModels = storedModels
+        .filter((model) => !RETIRED_MODEL_IDS.has(model.id) && !OFFICIAL_MODELS.some((official) => official.id === model.id))
+        .map(normalizeModel);
+      return [...officialModels, ...customModels];
     } catch {
-      return [...OFFICIAL_MODELS];
+      return OFFICIAL_MODELS.map(normalizeModel);
     }
   },
 
   async save(model: ModelItem): Promise<void> {
-    if (model.isOfficial) return;
     const db = await dbPromise;
-    await db.put(STORE_NAME, model);
+    await db.put(STORE_NAME, normalizeModel(model));
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(MODEL_LIBRARY_CHANGE_EVENT));
   },
 
   async remove(id: string): Promise<void> {
     const db = await dbPromise;
     await db.delete(STORE_NAME, id);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(MODEL_LIBRARY_CHANGE_EVENT));
+  },
+
+  subscribe(listener: () => void): () => void {
+    if (typeof window === 'undefined') return () => undefined;
+    window.addEventListener(MODEL_LIBRARY_CHANGE_EVENT, listener);
+    return () => window.removeEventListener(MODEL_LIBRARY_CHANGE_EVENT, listener);
   },
 };

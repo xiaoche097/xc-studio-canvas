@@ -68,6 +68,9 @@ const ModelAngleControlTab = lazy(() => import('./components/ModelAngleControlTa
 const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
 const ModelFaceSwapTab = lazy(() => import('./components/ModelFaceSwapTab'));
 const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
+const OutfitDeconstructionStudio = lazy(() =>
+  import('../components/OutfitDeconstructionStudio').then((module) => ({ default: module.OutfitDeconstructionStudio })),
+);
 const UniversalTryOnTab = lazy(() => import('./components/UniversalTryOnTab'));
 const HDUpscaleTab = lazy(() => import('./components/HDUpscaleTab'));
 const AspectRatioTab = lazy(() => import('./components/AspectRatioTab'));
@@ -292,6 +295,17 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/outfit-extract.webp?v=20260802',
     icon: Scissors,
     component: OutfitExtractionTab,
+  },
+  {
+    mode: AppMode.OUTFIT_DECONSTRUCTION,
+    title: '一键分离模特穿搭',
+    englishTitle: 'Outfit Breakdown',
+    description: '上传一张人物穿搭图，自动识别全部可见单品并生成 2:3 纯白底搭配全览。',
+    category: 'model',
+    keywords: ['一键分离', '穿搭拆解', '模特服饰分离', '白底搭配全览', 'Outfit Breakdown', 'Get The Look'],
+    cover: './creative-covers/outfit-deconstruction.png?v=20260826',
+    icon: Scissors,
+    component: OutfitDeconstructionStudio,
   },
   {
     mode: AppMode.RETOUCHING,

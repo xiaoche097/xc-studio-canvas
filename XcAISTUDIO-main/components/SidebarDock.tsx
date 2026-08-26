@@ -9,7 +9,7 @@ import {
     Clock3, LayoutGrid, Folder, FolderOpen, ArrowUpDown, Play
 } from 'lucide-react';
 import { NodeType, Workflow } from '../types';
-import { OFFICIAL_MODELS, modelLibrary, ModelItem } from '../../Cyzx4/services/modelLibrary';
+import { getModelReferenceImages, OFFICIAL_MODELS, modelLibrary, ModelItem } from '../../Cyzx4/services/modelLibrary';
 import { loadFromStorage, saveToStorage } from '../services/storage';
 
 // 素材库精选假数据
@@ -40,11 +40,7 @@ const DEFAULT_AVATAR_SUITES = OFFICIAL_MODELS.map(model => ({
     src: model.preview,
     type: 'image',
     category: '角色套图',
-    items: [
-        { id: `suite-${model.id}-1`, title: `${model.name} - 正面特写`, src: model.preview, type: 'image' },
-        { id: `suite-${model.id}-2`, title: `${model.name} - 全身商拍`, src: model.preview, type: 'image' },
-        { id: `suite-${model.id}-3`, title: `${model.name} - 姿势视图`, src: model.preview, type: 'image' }
-    ]
+    items: getModelReferenceImages(model).map(reference => ({ id: `suite-${model.id}-${reference.id}`, title: `${model.name} - ${reference.label}`, src: reference.preview, type: 'image' }))
 }));
 
 const DEFAULT_AVATARS = OFFICIAL_MODELS.map(model => ({
@@ -263,11 +259,7 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
                     src: model.preview,
                     type: 'image',
                     category: '角色套图',
-                    items: [
-                        { id: `suite-${model.id}-1`, title: `${model.name} - 正面特写`, src: model.preview, type: 'image' },
-                        { id: `suite-${model.id}-2`, title: `${model.name} - 全身商拍`, src: model.preview, type: 'image' },
-                        { id: `suite-${model.id}-3`, title: `${model.name} - 姿势视图`, src: model.preview, type: 'image' }
-                    ]
+                    items: getModelReferenceImages(model).map(reference => ({ id: `suite-${model.id}-${reference.id}`, title: `${model.name} - ${reference.label}`, src: reference.preview, type: 'image' }))
                 }));
                 const singleAvatars = models.map(model => ({
                     id: `avatar-${model.id}`,
@@ -285,7 +277,10 @@ export const SidebarDock: React.FC<SidebarDockProps> = ({
         if (activePanel === 'history' && activeMainTab === 'avatar') {
             loadModelLibrary();
         }
-        return () => { isMounted = false; };
+        const unsubscribe = modelLibrary.subscribe(() => {
+            if (activePanel === 'history' && activeMainTab === 'avatar') loadModelLibrary();
+        });
+        return () => { isMounted = false; unsubscribe(); };
     }, [activePanel, activeMainTab]);
 
     const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');

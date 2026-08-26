@@ -35,7 +35,7 @@ import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { ModelLibraryModal } from './ModelLibraryModal';
-import { modelLibrary, ModelItem } from '../services/modelLibrary';
+import { getModelReferenceImages, modelLibrary, ModelItem } from '../services/modelLibrary';
 import { downloadImageFile } from '../utils/imageDownload';
 
 export interface FaceSwapUploadedImage {
@@ -204,7 +204,9 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
   }, []);
 
   useEffect(() => {
-    modelLibrary.list().then(setModelPersonas).catch(() => {});
+    const refreshModels = () => { modelLibrary.list().then(setModelPersonas).catch(() => {}); };
+    refreshModels();
+    return modelLibrary.subscribe(refreshModels);
   }, []);
 
   const handleCreateModelPersona = async (name: string, file: File) => {
@@ -228,6 +230,11 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
     const next = { ...model, name: newName, updatedAt: Date.now() };
     await modelLibrary.save(next);
     setModelPersonas((prev) => prev.map((m) => (m.id === model.id ? next : m)));
+  };
+
+  const handleUpdateModelPersona = async (model: ModelItem) => {
+    await modelLibrary.save(model);
+    setModelPersonas((prev) => prev.map((item) => (item.id === model.id ? model : item)));
   };
 
   const handleDeleteModelPersona = async (id: string) => {
@@ -386,6 +393,10 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
       patchActive({ error: '请上传 1 张参考人脸图片或在模特库中选择固定模特。' });
       return;
     }
+    if (!activeRecord.referenceFaceImage && selectedModelPersona && !getModelReferenceImages(selectedModelPersona, 8).length) {
+      patchActive({ error: '所选模特档案没有可用的身份参考图，请先在模特库中补充图片。' });
+      return;
+    }
 
     const taskRecordId = activeRecord.id;
     const { taskId, signal } = startGenerationTask();
@@ -423,11 +434,10 @@ export const ModelFaceSwapTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
           });
           refFacePromptNote = `Image 2 contains the EXACT REFERENCE FACE. Seamlessly swap the facial features, eyes, nose, mouth, skin tone, and face shape of the model in Image 1 with the reference face from Image 2.`;
         } else if (selectedModelPersona) {
-          inputImages.push({
-            base64: selectedModelPersona.base64,
-            mimeType: selectedModelPersona.mime,
-          });
-          refFacePromptNote = `Image 2 contains the target model persona (${selectedModelPersona.name}). Seamlessly replace the face of the model in Image 1 with this exact model's facial structure and identity.`;
+          const modelReferences = getModelReferenceImages(selectedModelPersona, 8);
+          modelReferences.forEach((reference) => inputImages.push({ base64: reference.base64, mimeType: reference.mime }));
+          const referenceEnd = modelReferences.length + 1;
+          refFacePromptNote = `Images 2-${referenceEnd} contain the complete identity profile for target model persona (${selectedModelPersona.name}). Image 2 is the user's explicitly selected PRIMARY GENERATION REFERENCE: prioritize its face presentation and hairstyle. ${modelReferences.length > 1 ? `Images 3-${referenceEnd} are supporting identity evidence of the same person across other angles or hairstyles.` : 'No additional supporting identity images are present.'} Fuse their shared facial geometry, eyes, brows, nose, lips, jaw, skin tone and age into one stable identity, keep the hairstyle from Image 2 unless explicitly requested otherwise, then seamlessly replace the face of the model in Image 1. Do not average toward a new person and do not copy reference clothing or accessories.`;
         }
 
         let refScenePromptNote = '';
@@ -1423,6 +1433,7 @@ RULES:
           models={modelPersonas}
           onSelectModel={(m) => patchActive({ selectedModelPersonaId: m ? m.id : null })}
           onCreateModel={handleCreateModelPersona}
+          onUpdateModel={handleUpdateModelPersona}
           onRenameModel={handleRenameModelPersona}
           onDeleteModel={handleDeleteModelPersona}
           onClose={() => setIsModelModalOpen(false)}

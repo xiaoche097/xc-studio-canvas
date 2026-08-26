@@ -46,6 +46,7 @@ interface AssetItem {
 
 // 对应功能与友好文件夹中文名映射字典
 const FEATURE_TYPE_MAP: Record<string, string> = {
+  OUTFIT_DECONSTRUCTION: '一键分离模特穿搭',
   UNIVERSAL_TRY_ON: '万物上身与试穿',
   MODEL: '万物上身与试穿',
   SINGLE_ITEM_TRY_ON: '单品试穿',
