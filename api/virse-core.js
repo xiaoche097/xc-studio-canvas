@@ -231,6 +231,8 @@ const uploadThroughImgBb = async ({
   canvasId,
   positionX,
   positionY,
+  sizeWidth,
+  sizeHeight,
 }) => {
   const extension = mimeType.includes('jpeg') ? 'jpg' : mimeType.includes('webp') ? 'webp' : 'png';
   const safeFilename = String(filename || `reference.${extension}`)
@@ -288,8 +290,8 @@ const uploadThroughImgBb = async ({
         filename: safeFilename,
         position_x: Number(positionX) || 0,
         position_y: Number(positionY) || 0,
-        size_width: 512,
-        size_height: 512,
+        size_width: sizeWidth,
+        size_height: sizeHeight,
       },
     });
   } catch (error) {
@@ -363,6 +365,8 @@ const uploadThroughFreeImage = async ({
   canvasId,
   positionX,
   positionY,
+  sizeWidth,
+  sizeHeight,
 }) => {
   const extension = mimeType.includes('jpeg') ? 'jpg' : mimeType.includes('webp') ? 'webp' : 'png';
   const safeFilename = String(filename || `reference.${extension}`)
@@ -427,8 +431,8 @@ const uploadThroughFreeImage = async ({
         filename: safeFilename,
         position_x: Number(positionX) || 0,
         position_y: Number(positionY) || 0,
-        size_width: 512,
-        size_height: 512,
+        size_width: sizeWidth,
+        size_height: sizeHeight,
       },
     });
   } catch (error) {
@@ -498,11 +502,20 @@ export const uploadVirseBase64 = async ({
   imageHostProvider = '',
   imgbbApiKey = '',
   freeimageApiKey = '',
+  sizeWidth,
+  sizeHeight,
 }) => {
   if (!spaceId || !canvasId) throw new Error('缺少 Virse 工作区或画布 ID');
   if (!base64) throw new Error('缺少要上传的参考图片');
 
   const cleanBase64 = String(base64).replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
+  const normalizeCanvasDimension = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.min(4096, Math.max(1, Math.round(numeric))) : 0;
+  };
+  const canvasWidth = normalizeCanvasDimension(sizeWidth);
+  const canvasHeight = normalizeCanvasDimension(sizeHeight);
+  if (!canvasWidth || !canvasHeight) throw new Error('Virse 参考图缺少有效的原始宽高比');
   const resolvedFreeImageApiKey = String(freeimageApiKey || process.env.FREEIMAGE_API_KEY || '').trim();
   const resolvedImgbbApiKey = String(imgbbApiKey || process.env.IMGBB_API_KEY || '').trim();
 
@@ -511,13 +524,13 @@ export const uploadVirseBase64 = async ({
   if (preferredProvider === 'freeimage' && resolvedFreeImageApiKey) {
     try {
       return await uploadThroughFreeImagePool({
-        apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+        apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY, sizeWidth: canvasWidth, sizeHeight: canvasHeight,
       });
     } catch (err) {
       if (resolvedImgbbApiKey) {
         try {
           return await uploadThroughImgBbPool({
-            apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+            apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY, sizeWidth: canvasWidth, sizeHeight: canvasHeight,
           });
         } catch (imgbbErr) {
           throw new Error(`FreeImage.host 上传失败：${err.message}\nImgBB 备用上传也失败：${imgbbErr.message}`);
@@ -528,13 +541,13 @@ export const uploadVirseBase64 = async ({
   } else if (preferredProvider === 'imgbb' && resolvedImgbbApiKey) {
     try {
       return await uploadThroughImgBbPool({
-        apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+        apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY, sizeWidth: canvasWidth, sizeHeight: canvasHeight,
       });
     } catch (err) {
       if (resolvedFreeImageApiKey) {
         try {
           return await uploadThroughFreeImagePool({
-            apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+            apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY, sizeWidth: canvasWidth, sizeHeight: canvasHeight,
           });
         } catch (freeErr) {
           throw new Error(`ImgBB 上传失败：${err.message}\nFreeImage.host 备用上传也失败：${freeErr.message}`);
@@ -556,8 +569,8 @@ export const uploadVirseBase64 = async ({
       form.append('canvas_id', String(canvasId));
       form.append('position_x', String(positionX));
       form.append('position_y', String(positionY));
-      form.append('size_width', '512');
-      form.append('size_height', '512');
+      form.append('size_width', String(canvasWidth));
+      form.append('size_height', String(canvasHeight));
       return form;
     };
 
@@ -596,7 +609,7 @@ export const uploadVirseBase64 = async ({
   if (resolvedFreeImageApiKey) {
     try {
       return await uploadThroughFreeImagePool({
-        apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+        apiKey, baseUrl, freeimageApiKey: resolvedFreeImageApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY, sizeWidth: canvasWidth, sizeHeight: canvasHeight,
       });
     } catch (fallbackErr) {
       throw new Error(`Virse 原生上传失败（${nativeError}）\nFreeImage.host 备用上传也失败：${fallbackErr.message}`);
@@ -606,7 +619,7 @@ export const uploadVirseBase64 = async ({
   if (resolvedImgbbApiKey) {
     try {
       return await uploadThroughImgBbPool({
-        apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY,
+        apiKey, baseUrl, imgbbApiKey: resolvedImgbbApiKey, cleanBase64, mimeType, filename, spaceId, canvasId, positionX, positionY, sizeWidth: canvasWidth, sizeHeight: canvasHeight,
       });
     } catch (fallbackErr) {
       throw new Error(`Virse 原生上传失败（${nativeError}）\nImgBB 备用上传也失败：${fallbackErr.message}`);

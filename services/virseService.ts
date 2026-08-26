@@ -150,6 +150,27 @@ const collectOutputImageUrls = (
   return [...preferred, ...fallback];
 };
 
+const getVirseReferenceCanvasSize = (base64: string, mimeType: string): Promise<{ width: number; height: number }> => (
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const sourceWidth = image.naturalWidth;
+      const sourceHeight = image.naturalHeight;
+      if (!sourceWidth || !sourceHeight) {
+        reject(new Error('Virse 无法读取参考图原始尺寸'));
+        return;
+      }
+      const scale = 512 / Math.max(sourceWidth, sourceHeight);
+      resolve({
+        width: Math.max(1, Math.round(sourceWidth * scale)),
+        height: Math.max(1, Math.round(sourceHeight * scale)),
+      });
+    };
+    image.onerror = () => reject(new Error('Virse 无法解析参考图宽高比'));
+    image.src = base64.startsWith('data:') ? base64 : `data:${mimeType};base64,${base64}`;
+  })
+);
+
 export const uploadVirseReference = async (options: {
   apiKey: string;
   baseUrl: string;
@@ -162,6 +183,7 @@ export const uploadVirseReference = async (options: {
   imgbbApiKey?: string;
   freeimageApiKey?: string;
 }): Promise<string> => {
+  const canvasSize = await getVirseReferenceCanvasSize(options.base64, options.mimeType);
   const response = await fetch('/api/virse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -179,6 +201,8 @@ export const uploadVirseReference = async (options: {
       filename: `reference-${options.index + 1}.${options.mimeType.includes('jpeg') ? 'jpg' : options.mimeType.includes('webp') ? 'webp' : 'png'}`,
       positionX: options.index * 540,
       positionY: 0,
+      sizeWidth: canvasSize.width,
+      sizeHeight: canvasSize.height,
     }),
   });
   const payload = await response.json().catch(() => ({}));

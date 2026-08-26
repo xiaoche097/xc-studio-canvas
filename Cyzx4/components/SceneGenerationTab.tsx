@@ -54,7 +54,7 @@ import type {
   EcommerceStyleAnalysis,
 } from '../types/ecommerceHero.types';
 import { ModelLibraryModal } from './ModelLibraryModal';
-import { getModelReferenceImages, modelLibrary, ModelItem } from '../services/modelLibrary';
+import { getPrimaryModelReference, modelLibrary, ModelItem } from '../services/modelLibrary';
 import './SceneGenerationTab.css';
 
 export type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset' | 'mobile';
@@ -98,8 +98,8 @@ export const SCENE_BOARD_CONFIGS: Record<BoardType, SceneBoardConfig> = {
   },
   asset: {
     id: 'asset',
-    label: '品牌资产卡',
-    description: '2:3 竖向场景图，适合高转化营销与资产沉淀',
+    label: '复刻参考',
+    description: '2:3 竖向场景图，适合复刻参考图的构图、氛围与视觉表达',
     aspectRatio: AspectRatio.PORTRAIT_2_3,
     icon: '🎴',
   },
@@ -404,14 +404,17 @@ const buildAnalysisPrompt = (
   const lowerBodyPlanningRule = !record.referenceSceneImage && (record.cropFraming === 'full-length' || record.cropFraming === 'long-bottom')
     ? `- LOWER-BODY POSE RULE: Every image plan must keep the legs and feet uncrossed. Keep each leg on its own side of the body's centerline, with both shoes/feet separately visible and a clear gap between the ankles. Use a stable hip-width stance or a naturally separated stride. Never plan crossed legs, crossed ankles, a scissor stance, overlapping calves/shoes, one foot placed across the other, or a toe-point crossover. Create pose variety with the arms, gaze, torso angle and camera position instead of crossing the legs.`
     : '';
-  const modelReferences = selectedModel ? getModelReferenceImages(selectedModel, 8) : [];
+  // A model profile may contain many face/hairstyle assets, but only the image
+  // explicitly chosen as the primary generation reference belongs in a request.
+  const primaryModelReference = selectedModel ? getPrimaryModelReference(selectedModel) : null;
+  const modelReferences = primaryModelReference ? [primaryModelReference] : [];
   const modelStart = modelReferences.length ? record.productImages.length + 1 : null;
   const modelEnd = modelStart ? modelStart + modelReferences.length - 1 : null;
   const sceneIndex = record.referenceSceneImage
     ? record.productImages.length + modelReferences.length + 1
     : null;
   const selectedModelText = selectedModel && modelStart && modelEnd
-    ? `Images ${modelStart}-${modelEnd} are the USER-SELECTED MODEL IDENTITY PROFILE named "${selectedModel.name}". Image ${modelStart} is the explicitly selected PRIMARY GENERATION REFERENCE: prioritize its current face presentation and hairstyle. The remaining images are supporting identity evidence of the same person across other angles or hairstyles. Fuse their shared facial geometry, eyes, brows, nose, lips, jaw, skin tone/texture and apparent age into one stable identity, while keeping the hairstyle and visible look from Image ${modelStart} unless the user requests otherwise. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from these images. Plan new pose, action, expression and camera angle for the target garment and scene.`
+    ? `Image ${modelStart} is the ONLY USER-SELECTED MODEL IDENTITY AND HAIRSTYLE REFERENCE for "${selectedModel.name}". Use only this image for the model's facial geometry, eyes, brows, nose, lips, jaw, skin tone/texture, apparent age and hairstyle. No other image from this model's library is included or authorized as a reference. Do not copy pose, camera, clothing, sunglasses, eyewear, jewelry, hat, bag, watch, scarf or handheld props from this image. Plan a new pose, action, expression and camera angle for the target garment and scene.`
     : 'No fixed model was selected. Recommend a suitable adult model persona.';
   const isLightOnlyMode = record.refSceneLockMode === 'scene_light_only';
   const refSceneText = record.referenceSceneImage && sceneIndex
@@ -513,7 +516,7 @@ const buildGenerationPrompt = (
   const productEnd = record.productImages.length;
   const secondaryProductCount = Math.max(0, productEnd - 1);
   const isHeadlessCrop = record.cropFraming === 'short-bottom' || record.cropFraming === 'long-bottom';
-  const modelReferenceCount = selectedModel ? getModelReferenceImages(selectedModel, 8).length : 0;
+  const modelReferenceCount = selectedModel && getPrimaryModelReference(selectedModel) ? 1 : 0;
 
   let nextImageIndex = 2;
   const modelStart = modelReferenceCount ? nextImageIndex : null;
@@ -533,9 +536,7 @@ const buildGenerationPrompt = (
   const referenceMap = [
     'Image 1 = Primary product identity (主产品 - highest weight authority).',
     selectedModel && modelStart && modelEnd
-      ? modelStart === modelEnd
-        ? `Image ${modelStart} = User-selected PRIMARY face/hairstyle reference for ${selectedModel.name}.`
-        : `Image ${modelStart} = User-selected PRIMARY face/hairstyle reference for ${selectedModel.name}; Images ${modelStart + 1}-${modelEnd} = supporting identity references of the same person.`
+      ? `Image ${modelStart} = The only user-selected face/hairstyle reference for ${selectedModel.name}; do not use any other model-library image.`
       : '',
     record.referenceSceneImage && sceneIndex
       ? isLightOnlyMode
@@ -578,7 +579,7 @@ Create a ${record.aspectRatio} photorealistic commercial lifestyle fashion image
 ${referenceMap}
 
 [SUBJECT & PRODUCT]
-Model: ${selectedModel && modelStart && modelEnd ? `Exact model identity from Images ${modelStart}-${modelEnd}; prioritize the face presentation and hairstyle in Image ${modelStart}` : analysis.modelPersonaPreset}.
+Model: ${selectedModel && modelStart && modelEnd ? `Exact model identity and hairstyle from the single authorized reference, Image ${modelStart}` : analysis.modelPersonaPreset}.
 Main Product (Image 1): ${analysis.productCategory} - ${analysis.productIdentity}. Material & Color: ${analysis.materialColor}. Preserve exact design.
 ${secondaryProductStart && secondaryProductEnd ? `Matching Products (Images ${secondaryProductStart}-${secondaryProductEnd}): MUST ALL BE INCLUDED AND VISIBLE in the scene alongside the main product.` : ''}
 
@@ -1084,12 +1085,16 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
   const handleRefSceneDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (isBusy) return;
     if (!isDraggingRefScene) setIsDraggingRefScene(true);
-  }, [isDraggingRefScene]);
+  }, [isBusy, isDraggingRefScene]);
 
   const handleRefSceneDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const nextTarget = e.relatedTarget as Node | null;
+    if (nextTarget && e.currentTarget.contains(nextTarget)) return;
     setIsDraggingRefScene(false);
   }, []);
 
@@ -1238,11 +1243,11 @@ Return ONLY JSON:
     if (!record.analysis) throw new Error('缺少可用的 Agent 规划方案。');
     const style = styleSummary(record, customStyles);
     const selectedModel = modelPersonas.find((m) => m.id === record.selectedModelPersonaId);
-    const selectedModelReferences = selectedModel ? getModelReferenceImages(selectedModel, 8) : [];
-    if (record.selectedModelPersonaId && !selectedModelReferences.length) {
+    const selectedModelImage = selectedModel ? getPrimaryModelReference(selectedModel) : null;
+    if (record.selectedModelPersonaId && !selectedModelImage) {
       throw new Error('所选模特参考图未能加载，请重新选择模特后再生成。');
     }
-    const selectedModelReference = selectedModelReferences.length ? selectedModel : undefined;
+    const selectedModelReference = selectedModelImage ? selectedModel : undefined;
     const prompt = buildGenerationPrompt(
       record,
       record.analysis,
@@ -1256,8 +1261,8 @@ Return ONLY JSON:
 
     const [primaryProductImage, ...secondaryProductImages] = record.productImages;
     const inputImages = [toApiImage(primaryProductImage)];
-    if (selectedModelReference) {
-      selectedModelReferences.forEach((reference) => inputImages.push({ base64: reference.base64, mimeType: reference.mime }));
+    if (selectedModelImage) {
+      inputImages.push({ base64: selectedModelImage.base64, mimeType: selectedModelImage.mime });
     }
     if (record.referenceSceneImage) inputImages.push(toApiImage(record.referenceSceneImage));
     secondaryProductImages.forEach((image) => inputImages.push(toApiImage(image)));
@@ -1356,13 +1361,13 @@ Return ONLY JSON:
     try {
       const apiImages = [...snapshot.productImages.map(toApiImage)];
       const selectedModel = modelPersonas.find((model) => model.id === snapshot.selectedModelPersonaId);
-      const selectedModelReferences = selectedModel ? getModelReferenceImages(selectedModel, 8) : [];
-      if (snapshot.selectedModelPersonaId && !selectedModelReferences.length) {
+      const selectedModelImage = selectedModel ? getPrimaryModelReference(selectedModel) : null;
+      if (snapshot.selectedModelPersonaId && !selectedModelImage) {
         throw new Error('所选模特参考图未能加载，请重新选择模特后再分析。');
       }
-      const selectedModelReference = selectedModelReferences.length ? selectedModel : undefined;
-      if (selectedModelReference) {
-        selectedModelReferences.forEach((reference) => apiImages.push({ base64: reference.base64, mimeType: reference.mime }));
+      const selectedModelReference = selectedModelImage ? selectedModel : undefined;
+      if (selectedModelImage) {
+        apiImages.push({ base64: selectedModelImage.base64, mimeType: selectedModelImage.mime });
       }
       if (snapshot.referenceSceneImage) apiImages.push(toApiImage(snapshot.referenceSceneImage));
       snapshot.instagramReferences.forEach((ref) => apiImages.push(toApiImage(ref)));
@@ -1704,10 +1709,24 @@ Return ONLY JSON:
       <section
         onMouseEnter={() => activateUploadKind('refScene')}
         onClick={() => activateUploadKind('refScene')}
-        className={`rounded-2xl border bg-white p-4 shadow-sm transition-all dark:bg-[#11151c] sm:p-5 ${
-          activeUploadKind === 'refScene' ? 'border-[#ed6d46]/50 ring-1 ring-[#ed6d46]/20' : 'border-pastel-border'
+        onDragOver={handleRefSceneDragOver}
+        onDragLeave={handleRefSceneDragLeave}
+        onDrop={handleRefSceneDrop}
+        className={`relative rounded-2xl border bg-white p-4 shadow-sm transition-all dark:bg-[#11151c] sm:p-5 ${
+          isDraggingRefScene && activeRecord.referenceSceneImage
+            ? 'border-slate-500 bg-slate-100 ring-2 ring-slate-400/60 dark:bg-slate-800'
+            : activeUploadKind === 'refScene'
+              ? 'border-[#ed6d46]/50 ring-1 ring-[#ed6d46]/20'
+              : 'border-pastel-border'
         }`}
       >
+        {isDraggingRefScene && activeRecord.referenceSceneImage && (
+          <div className="pointer-events-none absolute inset-2 z-40 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/90 bg-slate-700/80 px-6 text-center text-white shadow-xl backdrop-blur-sm">
+            <RefreshCw className="mb-2 h-8 w-8" />
+            <strong className="text-sm font-black">释放鼠标，替换当前参考图</strong>
+            <span className="mt-1 text-xs text-slate-200">灰色虚线框内均为有效替换范围</span>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-3">
           <div className="flex gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff0e8] text-[#ed6d46]">
@@ -1781,18 +1800,13 @@ Return ONLY JSON:
 
         {activeRecord.referenceSceneImage ? (
           <div
-            onDragOver={handleRefSceneDragOver}
-            onDragLeave={handleRefSceneDragLeave}
-            onDrop={handleRefSceneDrop}
-            className={`group relative mt-4 aspect-video overflow-hidden rounded-xl border transition-all sm:h-44 sm:w-auto cursor-pointer ${
-              isDraggingRefScene ? 'border-2 border-dashed border-[#ed6d46] bg-[#fff0e8]' : 'border-pastel-border bg-pastel-bg'
-            }`}
+            className="group relative mt-4 aspect-video w-full overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg transition-all sm:h-44"
           >
             <img
               src={activeRecord.referenceSceneImage.preview}
               alt="参考场景图"
               onClick={() => setSelectedPreview(activeRecord.referenceSceneImage!.preview)}
-              className="h-full w-full object-cover transition hover:scale-105"
+              className={`h-full w-full object-cover transition ${isDraggingRefScene ? 'grayscale opacity-30' : 'hover:scale-105'}`}
               title="点击放大预览大图"
             />
             {/* 缩略图上的可点击切换角标 */}
@@ -1823,12 +1837,7 @@ Return ONLY JSON:
                 </>
               )}
             </button>
-            {isDraggingRefScene ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#ed6d46]/85 text-white backdrop-blur-xs">
-                <Upload className="h-8 w-8 animate-bounce mb-1" />
-                <span className="text-sm font-black">松开鼠标替换参考场景图</span>
-              </div>
-            ) : (
+            {!isDraggingRefScene && (
               <>
                 <button
                   type="button"
@@ -1847,6 +1856,20 @@ Return ONLY JSON:
                 >
                   <X className="h-4 w-4" />
                 </button>
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    activateUploadKind('refScene');
+                    refSceneInputRef.current?.click();
+                  }}
+                  className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-lg border border-white/30 bg-[#17243c]/85 px-2.5 py-1 text-xs font-black text-white shadow backdrop-blur-md transition hover:bg-[#233555]"
+                  title="选择新图替换当前参考图"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span>替换参考图</span>
+                </button>
               </>
             )}
           </div>
@@ -1858,9 +1881,6 @@ Return ONLY JSON:
               activateUploadKind('refScene');
               refSceneInputRef.current?.click();
             }}
-            onDragOver={handleRefSceneDragOver}
-            onDragLeave={handleRefSceneDragLeave}
-            onDrop={handleRefSceneDrop}
             className={`mt-4 flex min-h-28 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all px-4 text-center disabled:opacity-50 ${
               isDraggingRefScene
                 ? 'border-[#ed6d46] bg-[#fff0e8]/50 ring-2 ring-[#ed6d46]/30'
