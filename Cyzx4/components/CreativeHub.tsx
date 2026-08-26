@@ -68,8 +68,7 @@ const SEARCH_SUGGESTIONS = [
 const FeatureCard: React.FC<{
   feature: CreativeFeature;
   onOpen: () => void;
-  badge?: string;
-}> = ({ feature, onOpen, badge }) => {
+}> = ({ feature, onOpen }) => {
   return (
     <div
       onClick={onOpen}
@@ -83,9 +82,9 @@ const FeatureCard: React.FC<{
           loading="lazy"
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
-        {badge && (
+        {feature.badge && (
           <span className="absolute right-2.5 top-2.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-0.5 text-[0.6rem] font-black text-white shadow-xs">
-            {badge}
+            {feature.badge}
           </span>
         )}
 
@@ -489,7 +488,6 @@ const CreativeHub: React.FC<CreativeHubProps> = ({
                         key={feature.mode}
                         feature={feature}
                         onOpen={() => handleOpenFeatureWithRecord(feature.mode)}
-                        badge={feature.mode === AppMode.UNIVERSAL_TRY_ON ? '+上新' : undefined}
                       />
                     ))}
                   </div>

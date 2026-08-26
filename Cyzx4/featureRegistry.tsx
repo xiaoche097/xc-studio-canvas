@@ -32,6 +32,7 @@ export interface CreativeFeature {
   category: FeatureCategory;
   keywords: string[];
   cover: string;
+  badge?: string;
   icon: LucideIcon;
   component: React.LazyExoticComponent<React.ComponentType<any>>;
 }
@@ -49,9 +50,6 @@ export const FEATURE_CATEGORIES: Array<{
 
 const FusionTab = lazy(() => import('./components/FusionTab'));
 const ProductSwapTab = lazy(() => import('./components/ProductSwapTab'));
-const PlanningAgentTab = lazy(() =>
-  import('./components/PlanningAgentTab').then((module) => ({ default: module.PlanningAgentTab })),
-);
 const InpaintingTab = lazy(() => import('./components/InpaintingTab'));
 const ImageCleanTab = lazy(() => import('./components/ImageCleanTab'));
 const WhiteBackgroundRetouchTab = lazy(() => import('./components/WhiteBackgroundRetouchTab'));
@@ -97,17 +95,6 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     cover: './creative-covers/product-swap.webp?v=20260802',
     icon: ArrowLeftRight,
     component: ProductSwapTab,
-  },
-  {
-    mode: AppMode.PLANNING,
-    title: '视觉策划',
-    englishTitle: 'Visual Planning',
-    description: '从商品信息出发，梳理创意方向与视觉方案。',
-    category: 'core',
-    keywords: ['策划', '视觉方案', '创意方向', '分析'],
-    cover: './creative-covers/visual-planning.webp?v=20260802',
-    icon: Camera,
-    component: PlanningAgentTab,
   },
   {
     mode: AppMode.INPAINTING,
@@ -303,7 +290,8 @@ export const CREATIVE_FEATURES: CreativeFeature[] = [
     description: '上传一张人物穿搭图，自动识别全部可见单品并生成 2:3 纯白底搭配全览。',
     category: 'model',
     keywords: ['一键分离', '穿搭拆解', '模特服饰分离', '白底搭配全览', 'Outfit Breakdown', 'Get The Look'],
-    cover: './creative-covers/outfit-deconstruction.png?v=20260826',
+    cover: './creative-covers/outfit-deconstruction-v2.png?v=20260826-v2',
+    badge: '+上新',
     icon: Scissors,
     component: OutfitDeconstructionStudio,
   },
