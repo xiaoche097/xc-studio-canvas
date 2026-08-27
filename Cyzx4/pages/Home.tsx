@@ -571,7 +571,40 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
     if (/^https?:\/\//i.test(copiedImageUrl || '')) {
       event.preventDefault();
       void appendRemoteImage(copiedImageUrl!);
+      return;
     }
+
+    // Never let contentEditable import clipboard HTML/CSS. Rich text copied from
+    // documents and websites can contain nowrap elements with an intrinsic width
+    // large enough to stretch the whole composer.
+    const plainText = event.clipboardData.getData('text/plain');
+    if (!plainText) return;
+
+    event.preventDefault();
+    const editor = richTextEditorRef.current;
+    if (!editor) return;
+
+    editor.focus();
+    const selection = window.getSelection();
+    const selectedRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const range = selectedRange && editor.contains(selectedRange.commonAncestorContainer)
+      ? selectedRange
+      : document.createRange();
+
+    if (!selectedRange || !editor.contains(selectedRange.commonAncestorContainer)) {
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+
+    range.deleteContents();
+    const textNode = document.createTextNode(plainText.replace(/\r\n?/g, '\n'));
+    range.insertNode(textNode);
+    range.setStartAfter(textNode);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    setPrompt(normalizeComposerText(editor.innerText));
   };
 
   const handleComposerDrop = (event: React.DragEvent<HTMLDivElement>) => {
@@ -840,13 +873,12 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
     const compactCaret = composerTokenCount > 0 && !hasComposerText;
     const editorWidthClass = compactCaret
       ? 'w-[2px] shrink-0'
-      : hasComposerText
-        ? 'w-fit max-w-full shrink-0'
-        : 'min-w-[12rem] flex-[1_1_12rem]';
+      : 'w-full min-w-0 max-w-full basis-full';
     return (
       <div
         key={`composer-editor-${position}`}
         className={`relative min-h-7 ${editorWidthClass}`}
+        style={compactCaret ? undefined : { alignSelf: 'stretch', contain: 'inline-size', flex: '1 1 100%', width: '100%', minWidth: 0, maxWidth: '100%', height: 'auto' }}
       >
         {!hasComposerText && composerTokenCount === 0 && (
           <span className="pointer-events-none absolute inset-x-0 top-0 text-sm font-normal leading-7 text-slate-400">
@@ -860,9 +892,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
           suppressContentEditableWarning
           aria-label="设计需求"
           aria-multiline="true"
-          className={`relative inline-block min-h-7 min-w-[1px] max-w-full whitespace-pre-wrap break-words bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${compactCaret ? 'w-[2px]' : hasComposerText ? 'w-fit' : 'w-full'} ${
+          className={`relative min-h-7 min-w-0 max-w-full whitespace-pre-wrap break-all bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${compactCaret ? 'inline-block w-[2px]' : 'block w-full'} ${
             selectedComposerTokenIndex !== null || isCaretBeforeComposerTokens ? 'caret-transparent' : ''
           }`}
+          style={compactCaret ? undefined : { boxSizing: 'border-box', display: 'block', width: '100%', maxWidth: '100%', minWidth: 0, height: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', overflow: 'visible' }}
           onPointerDown={(event) => {
             event.stopPropagation();
             setSelectedComposerTokenIndex(null);
@@ -980,7 +1013,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                   松开即可添加图片
                 </div>
               )}
-              <div className="relative flex min-h-[3.5rem] flex-wrap content-start items-center gap-x-0 gap-y-1.5">
+              <div className="relative flex min-h-[3.5rem] min-w-0 max-w-full flex-wrap content-start items-center gap-x-0 gap-y-1.5 overflow-visible">
                 {renderComposerTextPosition(0)}
                 {selectedSkills.map((skill, skillIndex) => (
                     <React.Fragment key={skill.mode}>

@@ -374,14 +374,16 @@ export const InputArea: React.FC<InputAreaProps> = ({
             }
         }
 
-        if (imageFiles.length === 0) return;
-
-        e.preventDefault();
-        handlePickedFiles(imageFiles);
-
         const plainText = clipboardData.getData('text/plain');
+        if (imageFiles.length === 0 && !plainText) return;
+
+        // Strip clipboard HTML/CSS before it reaches contentEditable. Pasted rich
+        // text can otherwise retain nowrap/min-content styles and widen the panel.
+        e.preventDefault();
+        if (imageFiles.length > 0) handlePickedFiles(imageFiles);
+
         if (plainText) {
-            insertPlainTextAtCursor(plainText);
+            insertPlainTextAtCursor(plainText.replace(/\r\n?/g, '\n'));
         }
 
         const nextText = e.currentTarget.textContent || '';
@@ -615,8 +617,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         el?.focus();
                     }}>
                     <div
-                        className="input-flow-container flex min-h-[3.5rem] max-h-40 flex-wrap content-start items-center gap-x-0.5 gap-y-1.5 overflow-y-auto pr-1"
-                        style={{ wordBreak: 'break-word', lineHeight: '1.75rem' }}
+                        className="input-flow-container flex min-h-[3.5rem] min-w-0 max-w-full max-h-64 flex-wrap content-start items-center gap-x-0.5 gap-y-1.5 overflow-x-hidden overflow-y-auto pr-1"
+                        style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', lineHeight: '1.75rem' }}
                     >
                         {activeQuickSkill && creationMode === 'agent' && (
                             <div
@@ -837,11 +839,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                 const placeholder = isLastTextBlock && textBlocks.length <= 1 && !hasInlineComposerTokens
                                     ? (creationMode === 'agent' ? "请输入你的设计需求" : creationMode === 'chat' ? "聊聊灵感、方向、文案、风格..." : "今天我们要创作什么")
                                     : "";
-                                const textFlex = hasText
-                                    ? '0 1 auto'
-                                    : hasInlineComposerTokens
-                                        ? '0 0 2px'
-                                        : '1 1 12rem';
+                                const compactTextCaret = hasInlineComposerTokens && !hasText;
+                                const textFlex = compactTextCaret ? '0 0 2px' : '1 1 100%';
 
                                 return (
                                     <span
@@ -849,9 +848,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                         id={`input-block-${block.id}`}
                                         contentEditable
                                         suppressContentEditableWarning
-                                        className={`ce-placeholder inline-block min-h-7 max-w-full whitespace-pre-wrap break-words border-none bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${isAllInputSelected && hasText ? 'rounded bg-blue-100 px-0.5 text-blue-900' : ''}`}
+                                        className={`ce-placeholder min-h-7 min-w-0 max-w-full whitespace-pre-wrap break-all border-none bg-transparent text-sm font-normal leading-7 text-slate-800 outline-none ${compactTextCaret ? 'inline-block' : 'block w-full'} ${isAllInputSelected && hasText ? 'rounded bg-blue-100 px-0.5 text-blue-900' : ''}`}
                                         data-placeholder={placeholder}
-                                        style={{ verticalAlign: 'top', wordBreak: 'break-word', caretColor: '#0f172a', minWidth: hasInlineComposerTokens && !hasText ? '2px' : '1px', margin: '0 1px', flex: textFlex }}
+                                        style={{ boxSizing: 'border-box', contain: compactTextCaret ? 'none' : 'inline-size', display: compactTextCaret ? 'inline-block' : 'block', verticalAlign: 'top', width: compactTextCaret ? '2px' : '100%', maxWidth: '100%', height: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowWrap: 'anywhere', overflow: 'visible', caretColor: '#0f172a', minWidth: compactTextCaret ? '2px' : 0, margin: compactTextCaret ? '0 1px' : 0, flex: textFlex }}
                                         ref={el => { if (el && document.activeElement !== el && el.textContent !== (block.text || '')) el.textContent = block.text || ''; }}
                                         onInput={(e) => {
                                             if (isAllInputSelected) setIsAllInputSelected(false);

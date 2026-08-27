@@ -302,11 +302,6 @@ const parseSceneAnalysis = (
   if (required.some((key) => typeof parsed[key] !== 'string' || !String(parsed[key]).trim())) {
     throw new Error('Agent 返回的场景方案不完整，请重试。');
   }
-  const availableBoards = new Set(['main', 'aplus', 'social', 'story', 'asset', 'mobile']);
-  const recommended = availableBoards.has(parsed.recommendedBoard as BoardType)
-    ? parsed.recommendedBoard as BoardType
-    : fallbackBoard;
-
   const imagePlans = normalizeStringList(parsed.imagePlans);
   while (imagePlans.length < count) {
     imagePlans.push(`生成第 ${imagePlans.length + 1} 张高转化商业场景视觉，突出商品真实材质与环境氛围。`);
@@ -321,7 +316,9 @@ const parseSceneAnalysis = (
     materialColor: String(parsed.materialColor).trim(),
     sellingPoints: normalizeStringList(parsed.sellingPoints).slice(0, 6),
     targetAudience: String(parsed.targetAudience).trim(),
-    recommendedBoard: recommended,
+    // The scene board is an explicit user setting. Keep it authoritative even
+    // when the analysis model returns a different recommendation.
+    recommendedBoard: fallbackBoard,
     boardReason: String(parsed.boardReason).trim(),
     boardVisualStrategy: String(parsed.boardVisualStrategy).trim(),
     backgroundComposition: String(parsed.backgroundComposition).trim(),
@@ -440,6 +437,7 @@ ${instagramText}
 
 CURRENT SETTINGS
 - Scene Board: ${board.label} (${board.description})
+- Scene Board Lock: This board was explicitly selected by the user and is immutable. Do not recommend or return a different board type. Set "recommendedBoard" to "${record.boardType}" and make boardReason/boardVisualStrategy explain how to execute this selected board.
 - Crop Framing Category: ${cropConfig.label} (${cropConfig.description})
 - Camera & Framing Requirement: ${cropConfig.promptRule}
 - Target Ratio: ${record.aspectRatio}
@@ -1381,7 +1379,9 @@ Return ONLY JSON:
       const resolved: SceneGenerationRecord = {
         ...snapshot,
         analysis,
-        boardType: analysis.recommendedBoard || snapshot.boardType,
+        // Never let an AI recommendation override the board explicitly chosen
+        // by the user (including the "复刻参考" / asset workflow).
+        boardType: snapshot.boardType,
         aspectRatio: snapshot.aspectRatio,
         step: snapshot.oneClick ? 'generating' : 'confirm',
         error: '',
