@@ -4,6 +4,10 @@
       "source": "/api/image-download",
       "destination": "/api/image-download.js"
     },
+    {
+      "source": "/api/imgbb",
+      "destination": "/api/imgbb.js"
+    },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
