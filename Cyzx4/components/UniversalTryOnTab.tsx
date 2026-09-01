@@ -32,6 +32,7 @@ import {
   Scissors,
   Crop,
   Undo2,
+  Paintbrush,
 } from 'lucide-react';
 import {
   generateUniversalTryOn,
@@ -41,6 +42,7 @@ import { compressImage, getErrorMessage, isAbortError } from '../utils/apiHelper
 import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
+import MaskPaintEditor, { type SavedPaintMask } from './MaskPaintEditor';
 
 export type UniversalTryOnSubMode = 'model' | 'mannequin' | 'shoes';
 export type ClothingType = 'two-piece' | 'one-piece';
@@ -100,6 +102,9 @@ interface UploadedImage {
   height?: number;
   angle?: ProductAngle;
   shoeViewSlot?: ShoeViewSlot;
+  targetMaskBase64?: string;
+  targetMaskPreview?: string;
+  targetMaskOpacity?: number;
 }
 
 interface TryOnResultItem {
@@ -488,6 +493,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
 
   // Lightbox Zoom Modal Image State (For ALL images)
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [maskEditorImageId, setMaskEditorImageId] = useState<string | null>(null);
 
   // File input refs
   const topInputRef = useRef<HTMLInputElement>(null);
@@ -526,6 +532,29 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
       prev.map((t) => (t.id === activeTaskId ? updater(t) : t))
     );
   }, [activeTaskId]);
+
+  const maskEditorImage = currentTask.modelReferences.find((image) => image.id === maskEditorImageId) || null;
+
+  const saveModelReferenceMask = useCallback((mask: SavedPaintMask) => {
+    if (!maskEditorImageId) return;
+    updateCurrentTask((task) => ({
+      ...task,
+      modelReferences: task.modelReferences.map((image) => image.id === maskEditorImageId
+        ? {
+            ...image,
+            targetMaskBase64: mask.base64,
+            targetMaskPreview: mask.preview,
+            targetMaskOpacity: mask.opacity,
+          }
+        : image),
+      generatedResults: [],
+      resultItems: [],
+      status: 'editing',
+      stage: 1,
+      agentStatus: mask.base64 ? '输入准备 Agent · 已保存模特图涂抹区域' : '输入准备 Agent · 已清除模特图涂抹区域',
+    }));
+    setMaskEditorImageId(null);
+  }, [maskEditorImageId, updateCurrentTask]);
 
   const [angleModal, setAngleModal] = useState<{
     target: ActiveUploadTarget | 'top' | 'bottom' | 'full' | 'accessory' | 'shoes';
@@ -895,11 +924,16 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
           try {
             const results = await generateUniversalTryOn(
               productImgs,
-              modelReference ? { base64: modelReference.base64, mime: modelReference.mime } : null,
+              modelReference ? {
+                base64: modelReference.base64,
+                mime: modelReference.mime,
+                targetMaskBase64: modelReference.targetMaskBase64,
+                targetMaskMime: modelReference.targetMaskBase64 ? 'image/png' : undefined,
+              } : null,
               currentTask.subMode,
               fullPrompt,
               {
-                aspectRatio: currentTask.lockCropping && modelReference
+                aspectRatio: modelReference && (currentTask.lockCropping || modelReference.targetMaskBase64)
                   ? getClosestAspectRatio(modelReference) || currentTask.aspectRatio
                   : currentTask.aspectRatio,
                 resolution: currentTask.resolution,
@@ -1000,6 +1034,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
               aspectRatio: currentTask.aspectRatio,
               resolution: currentTask.resolution,
               modelReferenceCount: targetModelReferences.filter(Boolean).length,
+              paintedModelReferenceCount: targetModelReferences.filter((image) => image?.targetMaskBase64).length,
             },
           });
         } catch (historyError) {
@@ -1063,11 +1098,16 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
     try {
       const results = await generateUniversalTryOn(
         context.productImgs,
-        modelReference ? { base64: modelReference.base64, mime: modelReference.mime } : null,
+        modelReference ? {
+          base64: modelReference.base64,
+          mime: modelReference.mime,
+          targetMaskBase64: modelReference.targetMaskBase64,
+          targetMaskMime: modelReference.targetMaskBase64 ? 'image/png' : undefined,
+        } : null,
         taskSnapshot.subMode,
         context.fullPrompt,
         {
-          aspectRatio: taskSnapshot.lockCropping && modelReference
+          aspectRatio: modelReference && (taskSnapshot.lockCropping || modelReference.targetMaskBase64)
             ? getClosestAspectRatio(modelReference) || taskSnapshot.aspectRatio
             : taskSnapshot.aspectRatio,
           resolution: taskSnapshot.resolution,
@@ -2506,7 +2546,10 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                 {currentTask.modelReferences.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => updateCurrentTask((task) => ({ ...task, modelReferences: [] }))}
+                    onClick={() => {
+                      setMaskEditorImageId(null);
+                      updateCurrentTask((task) => ({ ...task, modelReferences: [] }));
+                    }}
                     className="text-[0.68rem] font-bold text-red-500 hover:underline"
                   >
                     全部移除
@@ -2540,7 +2583,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
               >
                 {currentTask.modelReferences.length > 0 ? (
                   <div className="w-full">
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                       {currentTask.modelReferences.map((modelReference, index) => (
                         <div key={modelReference.id || index} className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800">
                           <img
@@ -2550,13 +2593,34 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                             className="h-full w-full cursor-pointer object-cover"
                             title="点击放大预览"
                           />
+                          {modelReference.targetMaskPreview && (
+                            <img
+                              src={modelReference.targetMaskPreview}
+                              alt={`模特 ${index + 1} 已涂抹区域`}
+                              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                            />
+                          )}
                           <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
                             #{index + 1}
                           </span>
                           <button
                             type="button"
+                            disabled={isLoading}
                             onClick={(event) => {
                               event.stopPropagation();
+                              setMaskEditorImageId(modelReference.id || null);
+                            }}
+                            className={`absolute bottom-1 right-1 flex min-h-7 items-center gap-1 rounded-md px-1.5 text-[0.58rem] font-black text-white shadow-md transition disabled:cursor-not-allowed disabled:opacity-50 ${modelReference.targetMaskBase64 ? 'bg-[#ed6d46]' : 'bg-[#17243c]/88 hover:bg-[#ed6d46]'}`}
+                            title={modelReference.targetMaskBase64 ? '修改涂抹区域' : '涂抹换装区域'}
+                          >
+                            <Paintbrush className="h-3 w-3" />
+                            {modelReference.targetMaskBase64 ? '已涂抹' : '涂抹'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (maskEditorImageId === modelReference.id) setMaskEditorImageId(null);
                               updateCurrentTask((task) => ({
                                 ...task,
                                 modelReferences: task.modelReferences.filter((image) => image.id !== modelReference.id),
@@ -2960,6 +3024,17 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
             })}
           </div>
         </SelectionModal>
+      )}
+
+      {maskEditorImage && (
+        <MaskPaintEditor
+          imageUrl={maskEditorImage.preview}
+          imageName={maskEditorImage.name}
+          initialPreview={maskEditorImage.targetMaskPreview}
+          initialOpacity={maskEditorImage.targetMaskOpacity}
+          onClose={() => setMaskEditorImageId(null)}
+          onSave={saveModelReferenceMask}
+        />
       )}
 
       {/* FULLSCREEN LIGHTBOX ZOOM MODAL (Applies to ALL Images) */}
