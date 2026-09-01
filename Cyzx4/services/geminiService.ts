@@ -5647,7 +5647,12 @@ export interface UniversalTryOnProductImage {
 
 export const generateUniversalTryOn = async (
   productImages: UniversalTryOnProductImage[],
-  modelReference: { base64: string; mime: string } | null,
+  modelReference: {
+    base64: string;
+    mime: string;
+    targetMaskBase64?: string;
+    targetMaskMime?: string;
+  } | null,
   subMode: 'model' | 'mannequin' | 'shoes' = 'model',
   customPrompt?: string,
   options: {
@@ -5664,8 +5669,9 @@ export const generateUniversalTryOn = async (
   throwIfAborted(signal);
 
   const hasModelRef = !!modelReference;
-  const isCroppingLocked = hasModelRef && lockCropping;
-  const firstProductImageIndex = hasModelRef ? 2 : 1;
+  const hasTargetMask = Boolean(modelReference?.targetMaskBase64);
+  const isCroppingLocked = hasModelRef && (lockCropping || hasTargetMask);
+  const firstProductImageIndex = hasModelRef ? (hasTargetMask ? 3 : 2) : 1;
   const productRoleLabels: Record<UniversalTryOnProductRole, string> = {
     top: 'TOP GARMENT reference (replace upper-body clothing only)',
     bottom: 'BOTTOM GARMENT reference (replace lower-body clothing only)',
@@ -5795,9 +5801,11 @@ You MUST process the input through these 8 distinct phases:
 
 ## INPUT IMAGE MAP — FOLLOW THESE ROLES EXACTLY
 ${hasModelRef ? '- Image 1: TARGET MODEL / IMMUTABLE BASE CANVAS (highest priority)' : '- No target model image: generate a suitable model.'}
+${hasTargetMask ? '- Image 2: BINARY USER-PAINTED TARGET MASK (WHITE = the only editable try-on region; BLACK = immutable source pixels).' : ''}
 ${inputImageMap}
 
 Do not infer image roles from visual similarity. An ACCESSORY image must never replace a top or bottom garment.
+${hasTargetMask ? `USER-PAINTED MASK CONTRACT (ABSOLUTE): The WHITE pixels in Image 2 are the user-authorized replacement region. Modify only that white region, plus at most a minimal anti-aliased seam blend at its boundary. Every BLACK pixel must remain identical to Image 1. The mask overrides requests to restage, beautify, expand, relight, recrop or alter any other part of the image.` : ''}
 ${hasModelRef ? `IMAGE 1 AUTHORITY HIERARCHY: Image 1 has absolute highest authority for the person, identity, body geometry, pose, camera, crop, background, lighting, shadows, visibility and all non-target content. Product Images ${firstProductImageIndex}+ have authority only for the explicitly labeled wearable item's design. If any product image contains a person, mannequin, body, pose, hands, face, scene, styling or background, ignore those carrier attributes completely. Never let product images replace, reinterpret, beautify or restage the model from Image 1.` : ''}
 ${hasModelRef ? `
 MODEL-FIRST EXECUTION ORDER (MANDATORY):
@@ -5851,9 +5859,38 @@ ${preservationContract}
 **OUTPUT**:
 - Generate **ONE** photo-realistic final try-on image.
 - ${isCroppingLocked ? 'The output must have the same framing, subject scale, visible body range, and boundary intersections as Image 1.' : 'Compose a natural complete fashion image.'}
+- ${hasTargetMask ? 'Treat Image 2 as a hard spatial edit boundary: white can change, black cannot change.' : 'Use the smallest anatomically correct garment replacement region.'}
 - When Image 1 exists, preserve its pose and all non-requested content exactly. Do not add any item that is absent from both Image 1 and the role-labeled references.
 - Do NOT output text. Just the final image.
 `;
+
+  if (modelReference?.targetMaskBase64 && model !== 'qwen-image-3.0-pro') {
+    const maskedResults: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      throwIfAborted(signal);
+      const generated = await generateInpainting(
+        { base64: modelReference.base64, mimeType: modelReference.mime },
+        {
+          base64: modelReference.targetMaskBase64,
+          mimeType: modelReference.targetMaskMime || 'image/png',
+        },
+        prompt,
+        {
+          aspectRatio,
+          resolution,
+          modelId: model,
+          refImages: productImages.map((image) => ({
+            base64: image.base64,
+            mimeType: image.mime,
+          })),
+          signal,
+        },
+      );
+      if (generated[0]) maskedResults.push(generated[0]);
+    }
+    if (!maskedResults.length) throw new Error('蒙版试穿未返回图片');
+    return maskedResults;
+  }
 
   const parts: any[] = [];
   parts.push({ text: prompt });
@@ -5863,6 +5900,14 @@ ${preservationContract}
     parts.push({
       inlineData: { mimeType: modelReference.mime, data: modelReference.base64 }
     });
+    if (modelReference.targetMaskBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: modelReference.targetMaskMime || 'image/png',
+          data: modelReference.targetMaskBase64,
+        },
+      });
+    }
   }
 
   for (const img of productImages) {
