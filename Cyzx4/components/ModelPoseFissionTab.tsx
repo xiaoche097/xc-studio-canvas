@@ -31,6 +31,7 @@ import { generateImageToImage, generateText } from '../services/geminiService';
 import { compressImage, getErrorMessage } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { applyColorCorrection } from '../utils/imageProcessor';
+import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { CROP_FRAMING_OPTIONS, CropFramingId, cropFramingById } from '../constants/cropFramingPresets';
 import { CLOTHING_POSES } from '../constants/clothingPresets';
@@ -176,6 +177,47 @@ interface ModelPoseFissionTabProps {
 const MAX_IMAGES = 10;
 const COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
+const POSE_REVERSE_PROMPT = `你是一个高准确度的服装模特动作反推助手。请根据这张动作参考图，反推出一条可直接用于图像生成的中文动作提示词。
+
+必须严格按照这个顺序组织完整描述：裁图范围 → 身体朝向 → 重心与腿部 → 头部与视线 → 肩颈状态 → 手臂、手腕与手指 → 整体姿态气质。
+
+要求：
+1. 裁图必须明确从哪里到哪里、哪些部位可见或不可见。
+2. 明确身体是正面、侧面、背面或四分之三角度。
+3. 下半身可见时，明确重心落点、支撑腿以及另一条腿的前伸、后撤或放松关系。
+4. 头部方向与目光方向分开描述。
+5. 明确肩颈状态，以及双臂、手腕、手指的位置和放松程度。
+6. 存在包、球、椅子等关键道具时，准确描述人与道具的接触关系。
+7. 优先描述动作结构，不描述服装款式、颜色、人物五官或背景，不使用空泛的“时尚”“有氛围”等表达。
+8. 只写一种准确判断，不给备选动作；动作提示词必须是一整段自然、清晰、可直接复制的中文语句。
+
+只返回 JSON，不要 Markdown，不要解释：
+{
+  "shotType": "简短的中文景别名称",
+  "shootingAngle": "简短的中文身体朝向或拍摄角度",
+  "cropRange": "准确的入镜范围",
+  "poseDescription": "完整中文动作提示词",
+  "promptBlock": "与 poseDescription 相同的完整中文动作提示词"
+}`;
+
+const reverseActionReference = async (asset: FissionAsset): Promise<ActionReferenceAnalysis> => {
+  const text = await generateText(
+    [{ base64: asset.base64, mimeType: asset.mime }],
+    POSE_REVERSE_PROMPT
+  );
+  const parsed = parseJson<Record<string, unknown>>(text);
+  const promptBlock = String(parsed.promptBlock || parsed.poseDescription || '').trim();
+  if (!promptBlock) throw new Error('动作反推未返回有效提示词，请重试');
+
+  return {
+    shotType: String(parsed.shotType || '参考图景别'),
+    shootingAngle: String(parsed.shootingAngle || '参考图角度'),
+    cropRange: String(parsed.cropRange || '按参考图裁切范围'),
+    poseDescription: String(parsed.poseDescription || promptBlock),
+    promptBlock,
+  };
+};
+
 const MODEL_OPTIONS = [
   { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '3.1 Flash', hint: '速度首选' },
   { id: 'nanobananapro', label: 'Banana Pro', desc: '3.0 Pro', hint: '细节精准' },
@@ -251,7 +293,7 @@ const ROLE_LABELS: Record<UploadRole, { label: string; bg: string; text: string 
   model: { label: '模特原图', bg: 'bg-blue-500/10 dark:bg-blue-500/20', text: 'text-blue-600 dark:text-blue-400' },
   product: { label: '服装/产品图', bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-600 dark:text-amber-400' },
   scene: { label: '场景图', bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-600 dark:text-emerald-400' },
-  action: { label: '动作参考图', bg: 'bg-purple-500/10 dark:bg-purple-500/20', text: 'text-purple-600 dark:text-purple-400' },
+  action: { label: '动作反推', bg: 'bg-purple-500/10 dark:bg-purple-500/20', text: 'text-purple-600 dark:text-purple-400' },
   accessory: { label: '配饰参考图', bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-600 dark:text-rose-400' },
   overall: { label: '整体参考图', bg: 'bg-indigo-500/10 dark:bg-indigo-500/20', text: 'text-indigo-600 dark:text-indigo-400' },
 };
@@ -605,6 +647,9 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
 
   const updateAssetRole = (id: string, role: UploadRole) => {
     setImages((current) => current.map((item) => (item.id === id ? { ...item, role } : item)));
+    if (role === 'action') {
+      setActionMode('referenceImage');
+    }
   };
 
   const removeAsset = (id: string) => {
@@ -613,25 +658,10 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
 
   const downloadSingleImage = useCallback(async (url: string, title: string) => {
     const filename = `${title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]+/g, '-') || 'pose-fission'}-${Date.now()}.png`;
-    let downloadUrl = url;
-    let objectUrl: string | null = null;
     try {
-      if (!url.startsWith('data:')) {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Download failed (${response.status})`);
-        objectUrl = URL.createObjectURL(await response.blob());
-        downloadUrl = objectUrl;
-      }
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      await downloadImageFile(url, filename);
+    } catch (downloadError) {
+      setError(`图片下载失败：${getErrorMessage(downloadError)}`);
     }
   }, []);
 
@@ -931,30 +961,22 @@ No extra markdown outside the JSON code block.`
           const analyzedPoses = await Promise.all(
             actionAssets.slice(0, count).map(async (actionImg, idx) => {
               try {
-                const text = await generateText(
-                  [{ base64: actionImg.base64, mimeType: actionImg.mime }],
-                  `You are an expert computer vision model pose reverse-engineer.
-Analyze the human model posture in this action reference image.
-Extract ONLY the exact physical body posture (standing/sitting/walking/leaning), limb placements (hands, arms, legs), torso rotation, head direction, and camera angle.
-Do NOT describe clothing, colors, face features, or background.
-Return ONLY a JSON object:
-{
-  "poseAction": "A precise English description of the exact body posture and gesture from this reference image",
-  "shotName": "A short 2-5 word Chinese name for this pose",
-  "cameraAngle": "Camera angle in Chinese"
-}`
-                );
-                const parsed = JSON.parse(text.replace(/^`*(?:json)?\s*/i, '').replace(/\s*`*$/, '').trim());
+                const analysis = actionImg.poseAnalysis || await reverseActionReference(actionImg);
+                if (!actionImg.poseAnalysis) {
+                  setImages((current) => current.map((item) => (
+                    item.id === actionImg.id ? { ...item, poseAnalysis: analysis } : item
+                  )));
+                }
                 return {
-                  shotName: String(parsed.shotName || `参考图姿态 #${idx + 1}`),
-                  cameraAngle: String(parsed.cameraAngle || '参考图视角'),
-                  poseAction: String(parsed.poseAction || 'Full-body posture extracted directly from action reference image'),
+                  shotName: `${analysis.shotType || '反推动作'} #${idx + 1}`,
+                  cameraAngle: analysis.shootingAngle || '参考图视角',
+                  poseAction: analysis.promptBlock,
                 };
               } catch {
                 return {
-                  shotName: `参考图姿姿 #${idx + 1}`,
+                  shotName: `动作反推 #${idx + 1}`,
                   cameraAngle: '参考图视角',
-                  poseAction: 'Full-body pose directly reverse-engineered from reference image',
+                  poseAction: '严格按照动作参考图还原人物裁图、身体朝向、重心、腿部、头部视线、肩颈与手部姿态',
                 };
               }
             })
@@ -1043,6 +1065,7 @@ Return ONLY a JSON object:
     setStage(3);
     setError(null);
     setCompletedCount(0);
+    setFissionImages([]);
     updateTask({ status: 'generating' });
     setAgentStatus(`高清并发 Agent · 正在并发生成 ${count} 张独立高画质姿态大图 (0/${count})...`);
     setAgentLog((current) => [...current, `高清并发 Agent 启动！正在最高 ${count} 并发并行生成单图...`]);
@@ -1095,11 +1118,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
 
         if (!generatedUrl) throw new Error(`姿态 #${shot.index} 生成失败`);
 
-        localCompleted += 1;
-        setCompletedCount(localCompleted);
-        setAgentStatus(`高清并发 Agent · 已完成并发生成 (${localCompleted}/${count} 张)...`);
-
-        return {
+        const item: FissionImageItem = {
           index: shot.index,
           title: shot.shotName,
           framing: `${shot.framing} · ${shot.cameraAngle}`,
@@ -1107,6 +1126,13 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
           imageUrl: generatedUrl,
           prompt: shotPrompt,
         };
+
+        localCompleted += 1;
+        setCompletedCount(localCompleted);
+        setFissionImages((current) => [...current, item].sort((a, b) => a.index - b.index));
+        setAgentStatus(`高清并发 Agent · 已完成并发生成 (${localCompleted}/${count} 张)...`);
+
+        return item;
       });
 
       const items = await Promise.all(tasks);
@@ -1390,7 +1416,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 }}
               />
               <div className="mt-3 rounded-xl border border-pastel-border bg-pastel-bg/50 px-3 py-2 text-xs leading-5 text-pastel-muted">
-                提示：第一张图片将作为模特五官与服装锁定的第一参照。多张「动作参考图」将自动识别匹配生成对应数量的姿态大图。
+                提示：第一张图片将作为模特五官与服装锁定的第一参照。将图片标记为「动作反推」后，点击下方「下一步」才会开始反推并输出提示词。
               </div>
             </section>
 
@@ -1403,14 +1429,14 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                     动作控制与姿态来源
                   </h2>
                   <p className="mt-0.5 text-xs text-pastel-muted">
-                    默认使用 Agent 智能规划；也可切换按姿态库抽取、指定动作、动作提示词或参考图反推
+                    默认使用 Agent 智能规划；也可按姿态库抽取、从参考图反推动作提示词或直接填写动作提示词
                   </p>
                 </div>
                 <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[0.68rem] font-black text-purple-600 dark:bg-purple-950/40 dark:text-purple-400">
                   {actionMode === 'agent'
                     ? '🤖 Agent 智能规划'
                     : actionMode === 'referenceImage'
-                    ? `动作图优先 (${actionCount}张)`
+                    ? `反推动作提示词 (${actionCount}张)`
                     : actionMode === 'random'
                     ? '智能随机动作'
                     : actionMode === 'manual'
@@ -1419,14 +1445,13 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 </span>
               </div>
 
-              {/* 5 Mode Segmented Selection */}
-              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {/* Action mode selection */}
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   { key: 'agent', label: 'Agent智能规划', desc: 'AI总监策划解构', icon: '🤖' },
                   { key: 'random', label: '智能随机动作', desc: '按姿态库抽取', icon: '🎲' },
-                  { key: 'manual', label: '手动指定动作', desc: '固定单个动作', icon: '📌' },
+                  { key: 'referenceImage', label: '反推动作提示词', desc: '标记图片后输出', icon: '📌' },
                   { key: 'promptText', label: '动作提示词', desc: '多条独立动作', icon: '📝' },
-                  { key: 'referenceImage', label: '动作参考图', desc: '上传图优先', icon: '📸' },
                 ].map((m) => {
                   const isSelected = actionMode === m.key;
                   return (
@@ -1435,7 +1460,6 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       type="button"
                       onClick={() => {
                         setActionMode(m.key as ActionMode);
-                        if (m.key === 'manual') setSelectionModal('library');
                       }}
                       className={`flex flex-col items-center justify-center rounded-xl border-2 p-3 text-center transition ${
                         isSelected
@@ -1500,9 +1524,9 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
               {actionMode === 'referenceImage' && (
                 <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50/50 p-3 text-xs leading-5 text-purple-700 dark:border-purple-900/40 dark:bg-purple-950/20 dark:text-purple-300">
                   {actionCount > 0 ? (
-                    <span>✨ 已成功识别 {actionCount} 张「动作参考图」，生成时将精准提取肢体姿态与透视结构。</span>
+                    <span>✨ 已标记 {actionCount} 张「动作反推」图片，点击下方「下一步」后，右侧会按图片编号输出高准确动作提示词。</span>
                   ) : (
-                    <span>💡 提示：您尚未上传「动作参考图」。可在上方素材管理中上传并标记，或使用智能随机/提示词模式。</span>
+                    <span>💡 请点击上方素材图片，在角色弹窗中标记为「动作反推」，系统会立即分析并输出动作提示词。</span>
                   )}
                 </div>
               )}
@@ -1686,6 +1710,40 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                           </div>
                         ))}
                       </div>
+                      {images.some((img) => img.role === 'action') && (
+                        <div className="mt-5 space-y-3 text-left">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-sm font-black text-pastel-text">反推动作提示词</h3>
+                            <span className="rounded-full bg-purple-100 px-2.5 py-1 text-[0.65rem] font-black text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
+                              一张图对应一条提示词
+                            </span>
+                          </div>
+                          {images.filter((img) => img.role === 'action').map((img, index) => {
+                            const isReversing = busy && actionMode === 'referenceImage' && !img.poseAnalysis;
+                            return (
+                              <div key={img.id} className="rounded-xl border border-purple-200 bg-purple-50/60 p-3 dark:border-purple-900/50 dark:bg-purple-950/20">
+                                <div className="flex items-center justify-between gap-3">
+                                  <strong className="text-xs text-purple-800 dark:text-purple-200">{index + 1}.</strong>
+                                  {img.poseAnalysis && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void navigator.clipboard.writeText(img.poseAnalysis?.promptBlock || '')}
+                                      className="rounded-lg border border-purple-200 bg-white px-2.5 py-1 text-[0.65rem] font-bold text-purple-700 hover:bg-purple-100 dark:border-purple-800 dark:bg-slate-900 dark:text-purple-300"
+                                    >
+                                      复制提示词
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="mt-2 text-xs leading-6 text-pastel-text">
+                                  {isReversing
+                                    ? '正在按高准确动作反推公式分析图片…'
+                                    : img.poseAnalysis?.promptBlock || '已标记为「动作反推」，点击下方「下一步」后开始反推。'}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <p className="mt-5 text-xs text-pastel-muted">
                         点击左侧「下一步：AI 规划 {count} 姿姿动作方案」开始 Agent 规划
                       </p>
@@ -1782,6 +1840,60 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       已完成 {completedCount} / {count} 张姿态单图
                     </span>
                   </div>
+
+                  {fissionImages.length > 0 && (
+                    <div className="mt-8 w-full">
+                      <div className="mb-4 flex items-center justify-between gap-3 text-left">
+                        <div>
+                          <h3 className="text-sm font-black text-pastel-text">
+                            已实时返回 {fissionImages.length} 张，剩余任务继续并行生成
+                          </h3>
+                          <p className="mt-1 text-xs text-pastel-muted">每张图片完成后会立即显示，无需等待全部任务结束。</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        {fissionImages.map((item) => (
+                          <div
+                            key={item.index}
+                            className="group relative overflow-hidden rounded-2xl border border-pastel-border bg-white text-left shadow-sm dark:bg-slate-900"
+                          >
+                            <div className="relative aspect-[2/3] w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+                              <img
+                                src={item.imageUrl}
+                                alt={item.title}
+                                className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 backdrop-blur-xs transition group-hover:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewImage(item.imageUrl)}
+                                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-800 shadow-md hover:bg-slate-100"
+                                  title="大图预览"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => downloadSingleImage(item.imageUrl, item.title)}
+                                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-800 shadow-md hover:bg-slate-100"
+                                  title="下载大图"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </button>
+                              </div>
+                              <span className="absolute left-2.5 top-2.5 rounded-full bg-black/60 px-2.5 py-1 text-[0.65rem] font-black text-white backdrop-blur-md">
+                                #{item.index} {item.title}
+                              </span>
+                            </div>
+                            <div className="p-3">
+                              <p className="text-xs font-bold text-pastel-text">{item.framing}</p>
+                              <p className="mt-1 line-clamp-2 text-[0.68rem] text-pastel-muted">{item.pose}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1804,7 +1916,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     {fissionImages.map((item, idx) => (
-                      <div key={idx} className="group relative overflow-hidden rounded-2xl border border-pastel-border bg-white shadow-sm dark:bg-slate-900">
+                      <div key={item.index} className="group relative overflow-hidden rounded-2xl border border-pastel-border bg-white shadow-sm dark:bg-slate-900">
                         <div className="relative aspect-[2/3] w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
                           <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
                           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 backdrop-blur-xs transition group-hover:opacity-100">
@@ -1862,7 +1974,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 { role: 'model', label: '模特原图', desc: '作为面部五官与身体比例的核心参照', color: 'bg-blue-500/10 text-blue-600 border-blue-200' },
                 { role: 'product', label: '服装/产品图', desc: '作为服装版型、颜色与面料材质核心参照', color: 'bg-amber-500/10 text-amber-600 border-amber-200' },
                 { role: 'scene', label: '场景图', desc: '作为背景建筑、拍摄环境与光影调性参照', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-200' },
-                { role: 'action', label: '动作参考图', desc: '提取肢体动作姿态与镜头视角结构', color: 'bg-purple-500/10 text-purple-600 border-purple-200' },
+                { role: 'action', label: '动作反推', desc: '按裁图、朝向、重心、肢体和视线反推动作提示词', color: 'bg-purple-500/10 text-purple-600 border-purple-200' },
                 { role: 'accessory', label: '配饰参考图', desc: '作为包包/鞋履/首饰配饰局部参照', color: 'bg-rose-500/10 text-rose-600 border-rose-200' },
                 { role: 'overall', label: '整体参考图', desc: '综合参考人物、服装与氛围 DNA', color: 'bg-indigo-500/10 text-indigo-600 border-indigo-200' },
               ] as const
