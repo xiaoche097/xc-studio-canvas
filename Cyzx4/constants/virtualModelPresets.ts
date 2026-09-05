@@ -1,3 +1,4 @@
+import { BASE_OUTFIT, referenceDirection } from './virtualModelPlan';
 export type ModelPresetKind = 'person' | 'style' | 'age' | 'scope' | 'actions' | 'photography';
 export type ModelPreset = { label: string; description: string; guidance: string; child?: boolean };
 export const MODEL_PRESETS: Record<ModelPresetKind, { title: string; image: string; columns: number; rows: number; items: ModelPreset[] }> = {
@@ -72,7 +73,7 @@ export function presetBackground(kind: ModelPresetKind, label: string) {
   return { backgroundImage: `url("${group.image}")`, backgroundSize: `${group.columns * 100}% ${group.rows * 100}%`, backgroundPosition: `${(index % group.columns) / (group.columns - 1) * 100}% ${Math.floor(index / group.columns) / (group.rows - 1) * 100}%` };
 }
 
-type AdaptationSettings = { source: 'ai' | 'reference'; person: string; style: string; age: string; scope: string; part?: string; actions?: string[]; photography: string; notes: string };
+type AdaptationSettings = { referenceMode?: 'single' | 'fusion'; fusionBias?: string; source: 'ai' | 'reference'; person: string; style: string; age: string; scope: string; part?: string; actions?: string[]; photography: string; notes: string };
 export function modelRequestSettings<T extends AdaptationSettings>(settings: T) {
   if (settings.source !== 'reference') return settings;
   const { person, style, age, ...referenceSettings } = settings;
@@ -82,10 +83,10 @@ export function modelAdaptationBrief(settings: AdaptationSettings) {
   const person = getModelPreset('person', settings.person), style = getModelPreset('style', settings.style), age = getModelPreset('age', settings.age);
   return [
     '参考分工与适配规则（必须执行）：',
-    settings.source === 'reference' ? '身份锚点：用户上传人像。保留其可见脸型、发型、肤色、性别呈现和年龄；不得用预设图替换身份，也不得从照片推断国籍或血统。' : `人物类型：${person.label}。${person.guidance} 类型参考只提供选角方向，创建新的虚构身份，不原样复制参考人物。`,
+    settings.source === 'reference' ? '人物外貌参考：用户上传人像。提取外貌与气质，创造有相似感的新虚构人物，不复制原身份或服装，也不得从照片推断国籍或血统。' : `人物类型：${person.label}。${person.guidance} 类型参考只提供选角方向，创建新的虚构身份，不原样复制参考人物。`,
     ...(settings.source === 'reference' ? [
-      '参考人像模式不使用人物类型、风格或年龄预设。逐张分析用户提供的1–5张图片：脸部轮廓、五官、发型发色、肤色与纹理、可见年龄气质、体态、妆容及服装造型；区分真实稳定特征与角度、表情、光线造成的差异。',
-      '第1张为主参考，其余图片用于补足同一人物的角度、细节与造型证据。若出现不同人物或造型冲突，以第1张身份为准，在方案中说明采用与排除的依据，不混合多个人的五官。不得凭空推断遮挡或未展示的细节。',
+      '参考人像模式不使用人物类型、风格或年龄预设。逐张分析用户提供的1–5张图片：脸部轮廓、五官、发型发色、肤色与纹理、可见年龄气质、体态与自然妆发（排除服装和配饰）；区分真实稳定特征与角度、表情、光线造成的差异。',
+      referenceDirection(settings.referenceMode, settings.fusionBias),
       '从用户参考归纳年龄气质与造型，保持人物实际年龄呈现，不套用任何历史预设。参考为儿童时使用适龄童装、自然妆发及儿童姿态。摄影风格只调整背景与光影，不更换人物身份或年龄。',
     ] : [
       `风格参考：${style.label}（${style.description}）。${style.guidance} 只提取妆发、配色、材质、表情与布光，不复制示例的性别、脸和年龄。`,
@@ -95,7 +96,8 @@ export function modelAdaptationBrief(settings: AdaptationSettings) {
     `取景适配：${settings.scope}${settings.scope === '试戴部位' ? `（${settings.part || '耳部'}）` : ''}。${['手部', '耳部', '脚部', '颈部', '试戴部位'].includes(settings.scope) ? '将年龄特征、肤色、皮肤纹理与风格迁移到指定部位，优先结构准确与商业展示，不生成整个人像替代部位。动作需转译为局部姿态或轻微角度变化，不能为了表现奔跑、跳跃、插兜而扩展为全身或隐藏目标部位；在方案中逐项说明转译结果。' : getModelPreset('scope', settings.scope).guidance}`,
     `动作适配：${(settings.actions || []).map(action => `${action}：${getModelPreset('actions', action).guidance}`).join('；')}。动作参考只控制姿态，不复制性别、衣服、年龄或背景。面部模特仅体现表情、头颈角度与动态气氛，不扩大为全身。`,
     `摄影场景：${settings.photography}。${getModelPreset('photography', settings.photography).guidance} 摄影参考只控制布光、背景和构图氛围，不更换人物身份、性别与年龄。补充要求：${settings.notes || '无'}。协调风格与场景，不覆盖用户指定背景。`,
-    settings.source === 'reference' ? '冲突处理顺序：用户主参考身份与年龄 > 其他用户参考中可确认的同人物细节 > 摄影与动作示例。说明参考图之间的差异与采用结果。' : '冲突处理顺序：所选人物类型 > 年龄气质 > 风格示例。明确指出不兼容的组合及实际采用的适配结果。',
+    settings.source === 'reference' ? '冲突处理顺序：统一基础着装 > 新人物设定与年龄 > A/B参考采用方向 > 摄影与动作示例。说明参考图之间的差异与采用结果。' : '冲突处理顺序：所选人物类型 > 年龄气质 > 风格示例。明确指出不兼容的组合及实际采用的适配结果。',
+    `基础着装最高优先级：${BASE_OUTFIT}`,
     '输出适配结论而非笼统形容词：说明人物设定、妆发服装、动作表现、光线背景如何匹配；固定发色、发型、肤色、服装及年龄以维持跨动作一致性。',
   ].join('\n');
 }

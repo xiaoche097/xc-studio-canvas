@@ -8,12 +8,24 @@ await build({ entryPoints: ['Cyzx4/components/VirtualModelTab.tsx'], outfile: 's
   builder.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: 'export const generateText=()=>{},generateImageToImage=()=>{},compressImage=()=>{},downloadImageFile=()=>{},fetchImageBlob=()=>{},saveGeneratedProject=()=>{};' }));
 } }] });
 await build({ entryPoints: ['Cyzx4/constants/virtualModelPresets.ts'], outfile: 'scratch/virtual-model-presets.cjs', bundle: true, platform: 'node', format: 'cjs' });
+await build({ entryPoints: ['Cyzx4/constants/virtualModelPlan.ts'], outfile: 'scratch/virtual-model-plan.cjs', bundle: true, platform: 'node', format: 'cjs' });
 await build({ entryPoints: ['Cyzx4/components/ModelPresetPicker.tsx'], outfile: 'scratch/virtual-model-picker.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['react', 'lucide-react'] });
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const { default: Component } = require('./virtual-model-ssr.cjs');
 const { MODEL_PRESETS, isChildModel, modelAdaptationBrief, modelRequestSettings, presetBackground } = require('./virtual-model-presets.cjs');
 const { togglePresetSelection } = require('./virtual-model-picker.cjs');
+const { PLAN_FIELDS, parseModelPlan, modelPlanPrompt, referenceDirection } = require('./virtual-model-plan.cjs');
+const traits = Object.fromEntries(PLAN_FIELDS.map(([key, label]) => [key, `${label}测试`]));
+assert.deepEqual(parseModelPlan('```json\n' + JSON.stringify(traits) + '\n```'), traits);
+assert.throws(() => parseModelPlan('{"face":"鹅蛋脸"}'), /缺少必要特征/);
+assert.throws(() => parseModelPlan('文字方案'), /格式不完整/);
+assert.ok(modelPlanPrompt({ ...traits, face: '柔和鹅蛋脸' }).includes('脸型与骨相: 柔和鹅蛋脸'));
+assert.ok(modelPlanPrompt(traits).includes('白色短裤'));
+assert.ok(!modelPlanPrompt(traits).includes('参考采用依据:'), 'Analysis image numbering must not leak into image generation');
+assert.ok(modelPlanPrompt(traits).includes('subtle left-right asymmetry'));
+assert.ok(modelPlanPrompt(traits).includes('Do not add conspicuous blemishes'), 'Realism must not artificially age the model');
+assert.ok(referenceDirection('fusion', '偏 B').includes('偏 B'));
 const html = renderToStaticMarkup(React.createElement(Component));
 assert.equal((html.match(/aria-haspopup="dialog"/g) || []).length, 6, 'Six visual preset selectors');
 assert.ok(html.includes('value="2:3" selected=""'), 'Default portrait ratio 2:3');
@@ -37,8 +49,8 @@ assert.ok(child.includes('儿童适配优先'));
 assert.ok(child.includes('不生成整个人像替代部位'));
 assert.ok(child.includes('不使用成熟妆容或成人体态'));
 const reference = modelAdaptationBrief({ ...settings, source: 'reference' });
-assert.ok(reference.includes('身份锚点：用户上传人像'));
-assert.ok(reference.includes('不得用预设图替换身份'));
+assert.ok(reference.includes('人物外貌参考：用户上传人像'));
+assert.ok(reference.includes('不复制原身份或服装'));
 assert.ok(!reference.includes('人物类型：韩系小男孩'));
 assert.ok(!reference.includes('风格参考：'));
 assert.ok(!reference.includes('年龄气质：'));
@@ -64,6 +76,16 @@ try {
   assert.ok(referenceHtml.includes('已添加5张参考图'));
   assert.equal((referenceHtml.match(/aria-label="移除参考图/g) || []).length, 5);
   assert.equal((referenceHtml.match(/设为主参考/g) || []).length, 4);
+} finally { React.useState = originalUseState; }
+try {
+  React.useState = initial => originalUseState(() => {
+    const value = typeof initial === 'function' ? initial() : initial;
+    if (Array.isArray(value) && value[0]?.settings) return value.map(record => ({ ...record, step: 2, traits, plan: modelPlanPrompt(traits), settings: { ...record.settings, source: 'reference', referenceMode: 'fusion', scope: '面部模特' }, references: ['A', 'B'].map(group => ({ group, name: group, preview: 'data:image/png;base64,dGVzdA==', base64: 'dGVzdA==', mimeType: 'image/png' })) }));
+    return value;
+  });
+  const planHtml = renderToStaticMarkup(React.createElement(Component));
+  for (const text of ['双参考融合', '人物 A', '人物 B', '多视角模卡', '白色短裤', '查看生成人物提示词', '生成 1 张四宫格模卡', '脸型与骨相']) assert.ok(planHtml.includes(text), text);
+  assert.equal((planHtml.match(/aria-haspopup="dialog"/g) || []).length, 2, 'Multiview only retains scope and lighting preset pickers');
 } finally { React.useState = originalUseState; }
 const closeup = modelAdaptationBrief({ ...settings, scope: '试戴部位', part: '脚部', actions: ['奔跑'], photography: '儿童棚拍' });
 assert.ok(closeup.includes('试戴部位（脚部）'));
