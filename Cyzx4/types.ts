@@ -1,6 +1,7 @@
 import type { Content } from '@google/genai';
 
 export enum AppMode {
+  VIRTUAL_MODEL = 'VIRTUAL_MODEL', // 生成虚拟模特
   PLANNING = 'PLANNING',     // Visual Planning (Was Director)
   FUSION = 'FUSION',         // Scene Fusion (New)
   RETOUCHING = 'RETOUCHING', // HD Upscale (Was Editor)

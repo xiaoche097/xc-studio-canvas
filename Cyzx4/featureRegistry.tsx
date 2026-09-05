@@ -59,6 +59,7 @@ const PhotographyLabTab = lazy(() => import('./components/PhotographyLabTab'));
 const StyleReplicateTab = lazy(() => import('./components/StyleReplicateTab'));
 const ModelTransferTab = lazy(() => import('./components/ModelTransferTab'));
 const SingleItemTryOnTab = lazy(() => import('./components/SingleItemTryOnTab'));
+const VirtualModelTab = lazy(() => import('./components/VirtualModelTab'));
 const EcommerceHeroTab = lazy(() => import('./components/EcommerceHeroTab'));
 const ModelPoseFissionTab = lazy(() => import('./components/ModelPoseFissionTab'));
 const ModelSceneFissionTab = lazy(() => import('./components/ModelSceneFissionTab'));
@@ -74,6 +75,18 @@ const HDUpscaleTab = lazy(() => import('./components/HDUpscaleTab'));
 const AspectRatioTab = lazy(() => import('./components/AspectRatioTab'));
 
 export const CREATIVE_FEATURES: CreativeFeature[] = [
+  {
+    mode: AppMode.VIRTUAL_MODEL,
+    title: '生成虚拟模特',
+    englishTitle: 'Virtual Model Studio',
+    description: '按喜好生成专属虚拟模特，支持参考人像、动作多选及手部、耳部、脚部等部位生成。',
+    category: 'model',
+    keywords: ['虚拟模特', 'AI模特', '生成模特', '人体部位', '手部', '耳部', '脚部'],
+    cover: './creative-covers/virtual-model.png?v=20260905',
+    badge: '+上新',
+    icon: UserRoundCog,
+    component: VirtualModelTab,
+  },
   {
     mode: AppMode.FUSION,
     title: '图像生成',
