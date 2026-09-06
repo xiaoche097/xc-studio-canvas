@@ -21,8 +21,11 @@ export function parseModelPlan(raw: string): ModelPlan {
   if (!value || typeof value !== 'object' || PLAN_FIELDS.some(([key]) => typeof (value as ModelPlan)[key] !== 'string' || !(value as ModelPlan)[key].trim())) throw new Error('人物方案缺少必要特征，请重新分析。');
   return Object.fromEntries(PLAN_FIELDS.map(([key]) => [key, (value as ModelPlan)[key].trim()])) as ModelPlan;
 }
-export function modelPlanPrompt(plan: ModelPlan): string {
-  return ['Photograph a newly designed fictional model in a natural casting session. No illustration, text or watermark.', ...PLAN_FIELDS.filter(([key]) => key !== 'references').map(([key, label]) => `${label}: ${plan[key]}`), NATURAL_CASTING, `统一基础着装: ${BASE_OUTFIT}`].join('\n');
+export function modelPlanPrompt(plan: ModelPlan, faceDirection?: string): string {
+  return ['Photograph a newly designed fictional model in a natural casting session. No illustration, text or watermark.', ...PLAN_FIELDS.filter(([key]) => key !== 'references').map(([key, label]) => `${label}: ${plan[key]}`), faceDirectionBrief(faceDirection), NATURAL_CASTING, `统一基础着装: ${BASE_OUTFIT}`].join('\n');
+}
+export function faceDirectionBrief(direction?: string): string {
+  return [direction?.trim() ? `用户明确指定的新虚构模特面孔方向：${direction.trim()}。这是生成目标，不是对参考人物种族、国籍或血统的判断。按此方向结合参考中的具体可见特征创作，不用地域标签覆盖个体差异。` : '面孔方向跟随用户参考的可见结构，不自动推断或添加人物种族、国籍或血统标签。', '保留有辨识度的脸部纵横比例、眉骨与眼窝深度、眼睑形态、鼻根高度与鼻部投影、颧骨及下颌结构；只描述图片中有依据的特征。新身份不等于改变整体面孔方向，融合不等于将这些结构平均化为通用美人模板。'].join('\n');
 }
 export function referenceDirection(mode?: string, bias?: string) {
   return mode === 'fusion'

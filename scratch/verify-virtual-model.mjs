@@ -9,6 +9,15 @@ await build({ entryPoints: ['Cyzx4/components/VirtualModelTab.tsx'], outfile: 's
 } }] });
 await build({ entryPoints: ['Cyzx4/constants/virtualModelPresets.ts'], outfile: 'scratch/virtual-model-presets.cjs', bundle: true, platform: 'node', format: 'cjs' });
 await build({ entryPoints: ['Cyzx4/constants/virtualModelPlan.ts'], outfile: 'scratch/virtual-model-plan.cjs', bundle: true, platform: 'node', format: 'cjs' });
+await build({ entryPoints: ['Cyzx4/constants/modelFraming.ts'], outfile: 'scratch/model-framing.cjs', bundle: true, platform: 'node', format: 'cjs' });
+const { modelFraming, framingReviewPrompt, parseFramingReview } = require('./model-framing.cjs');
+assert.ok(modelFraming('全身模特').includes('both complete feet'));
+assert.ok(modelFraming('全身模特').includes('reference crop'));
+assert.ok(!modelFraming('半身模特').includes('Move the camera BACK'));
+assert.ok(framingReviewPrompt('全身模特').includes('只到大腿，即使短裤可见也不合格'));
+assert.deepEqual(parseFramingReview('{"pass":false,"reason":"仅到大腿，双脚不可见"}'), { pass: false, reason: '仅到大腿，双脚不可见' });
+assert.throws(() => parseFramingReview('{"pass":"true","reason":"可能合格"}'));
+assert.throws(() => parseFramingReview('{}'));
 await build({ entryPoints: ['Cyzx4/components/ModelPresetPicker.tsx'], outfile: 'scratch/virtual-model-picker.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['react', 'lucide-react'] });
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
@@ -22,6 +31,8 @@ assert.throws(() => parseModelPlan('{"face":"鹅蛋脸"}'), /缺少必要特征/
 assert.throws(() => parseModelPlan('文字方案'), /格式不完整/);
 assert.ok(modelPlanPrompt({ ...traits, face: '柔和鹅蛋脸' }).includes('脸型与骨相: 柔和鹅蛋脸'));
 assert.ok(modelPlanPrompt(traits).includes('白色短裤'));
+assert.ok(modelPlanPrompt(traits, '欧美／欧洲面孔方向').includes('用户明确指定的新虚构模特面孔方向：欧美／欧洲面孔方向'));
+assert.ok(modelPlanPrompt(traits).includes('不自动推断或添加人物种族'));
 assert.ok(!modelPlanPrompt(traits).includes('参考采用依据:'), 'Analysis image numbering must not leak into image generation');
 assert.ok(modelPlanPrompt(traits).includes('subtle left-right asymmetry'));
 assert.ok(modelPlanPrompt(traits).includes('Do not add conspicuous blemishes'), 'Realism must not artificially age the model');
@@ -70,7 +81,9 @@ try {
     return value;
   });
   const referenceHtml = renderToStaticMarkup(React.createElement(Component));
-  assert.equal((referenceHtml.match(/aria-haspopup="dialog"/g) || []).length, 3, 'Reference mode only shows photography controls');
+  assert.equal((referenceHtml.match(/aria-haspopup="dialog"/g) || []).length, 4, 'Reference mode shows photography controls and face-direction picker');
+  assert.ok(referenceHtml.includes('跟随参考'));
+  assert.ok(!referenceHtml.includes('面孔方向（选填）'), 'Free-text direction replaced by picker');
   assert.ok(!referenceHtml.includes('选择年龄气质'));
   assert.ok(referenceHtml.includes('multiple=""'), 'Multi-file upload enabled');
   assert.ok(referenceHtml.includes('已添加5张参考图'));
@@ -85,7 +98,7 @@ try {
   });
   const planHtml = renderToStaticMarkup(React.createElement(Component));
   for (const text of ['双参考融合', '人物 A', '人物 B', '多视角模卡', '白色短裤', '查看生成人物提示词', '生成 1 张四宫格模卡', '脸型与骨相']) assert.ok(planHtml.includes(text), text);
-  assert.equal((planHtml.match(/aria-haspopup="dialog"/g) || []).length, 2, 'Multiview only retains scope and lighting preset pickers');
+  assert.equal((planHtml.match(/aria-haspopup="dialog"/g) || []).length, 3, 'Multiview retains scope, lighting and face-direction pickers');
 } finally { React.useState = originalUseState; }
 const closeup = modelAdaptationBrief({ ...settings, scope: '试戴部位', part: '脚部', actions: ['奔跑'], photography: '儿童棚拍' });
 assert.ok(closeup.includes('试戴部位（脚部）'));

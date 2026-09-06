@@ -5,18 +5,20 @@ import { AspectRatio, ImageResolution } from '../types';
 import { downloadImageFile, fetchImageBlob } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import ModelPresetPicker from './ModelPresetPicker';
+import FaceDirectionPicker from './FaceDirectionPicker';
 import { isChildModel, loadPresetReference, modelAdaptationBrief, modelRequestSettings } from '../constants/virtualModelPresets';
 import './VirtualModelTab.css';
+import { modelFraming, framingReviewPrompt, parseFramingReview } from '../constants/modelFraming';
 import VirtualModelPlanCard from './VirtualModelPlanCard';
-import { BASE_OUTFIT, NATURAL_CASTING, FACE_VIEWS, FACE_SHEET_LAYOUT, PLAN_FIELDS, ModelPlan, parseModelPlan, modelPlanPrompt, referenceDirection } from '../constants/virtualModelPlan';
+import { BASE_OUTFIT, NATURAL_CASTING, FACE_VIEWS, FACE_SHEET_LAYOUT, PLAN_FIELDS, ModelPlan, parseModelPlan, modelPlanPrompt, faceDirectionBrief, referenceDirection } from '../constants/virtualModelPlan';
 
 type Settings = {
-  referenceMode?: 'single' | 'fusion'; fusionBias?: string; presentation?: string;
+  faceDirection?: string; referenceMode?: 'single' | 'fusion'; fusionBias?: string; presentation?: string;
   source: 'ai' | 'reference'; person: string; style: string; age: string; scope: string; part: string;
   actions: string[]; photography: string; ratio: AspectRatio; resolution: ImageResolution; notes: string; model: string;
 };
 type Reference = { base64: string; mimeType: string; preview: string; name: string; group?: 'A' | 'B' };
-type Result = { action: string; image?: string; error?: string };
+type Result = { action: string; image?: string; rejectedImage?: string; checking?: boolean; error?: string };
 type RecordItem = { id: string; created: number; settings: Settings; references: Reference[]; step: number; traits?: ModelPlan; plan: string; results: Result[]; error: string };
 const MAX_REFERENCES = 5;
 const STEPS = ['输入', '分析中', '确认规划', '生成中', '完成'];
@@ -99,7 +101,7 @@ export default function VirtualModelTab() {
     update(snapshot.id, { step: 1, error: '', results: [] });
     try {
       const identityReferences = s.source === 'reference' ? snapshot.references : await Promise.all([loadPresetReference('person', s.person), loadPresetReference('style', s.style), loadPresetReference('age', s.age)]);
-      const photographyReferences = await Promise.all([
+      const photographyReferences = s.source === 'reference' ? [] : await Promise.all([
         loadPresetReference('scope', s.scope), loadPresetReference('photography', s.photography),
         ...s.actions.map(action => loadPresetReference('actions', action)),
       ]);
@@ -107,11 +109,11 @@ export default function VirtualModelTab() {
       const roleMap = s.source === 'reference' ? `${referenceDirection(s.referenceMode, s.fusionBias)} ${snapshot.references.map((ref, i) => `图${i + 1}=人物${s.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('；')}` : '图1=选角示例；图2=气质示例；图3=年龄示例。';
       if (controller.signal.aborted) return;
       const plan = await generateText(references,
-        `你是写实虚拟模特设计师。观察参考，反推新人物设定。${roleMap} 后续图仅为取景、布光与动作参考，不复制其中人物。\n${modelAdaptationBrief(s)}\n设置：${JSON.stringify(modelRequestSettings(s))}\n只输出JSON对象，必须包含这些字符串字段：${PLAN_FIELDS.map(([key, label]) => `${key}（${label}）`).join("、")}。用简短中文描述可执行的外貌特征。direction不超过80字，其他外貌字段每项20–45字，只写该字段的可见特征，不重复摄影规则、服装或生成指令。references逐图说明采用依据，融合时注明A/B来源。不确定的特征说明待确认。不要推理过程或Markdown。photography覆盖这些视角或动作：${(isFaceSheet ? FACE_VIEWS : outputActions).join("、")}。${isFaceSheet ? '仅生成1张2×2四宫格模卡，四格是同一个人的不同角度，不是四张独立图片。' : ''}。多视角保持同一个新人物、年龄、发型和布光条件，但允许眼神、眼睑张力、嘴角和碎发有轻微自然变化，不能将一致性写成表情僵硬固定。参考只提取个体特征，不把每项五官都美化成标准美人。不要默认精致底妆、玫瑰唇、雕塑波浪发或均匀发光皮肤。自然试拍要求：${NATURAL_CASTING}统一着装：${BASE_OUTFIT}`);
+        `你是写实虚拟模特设计师。观察参考，反推新人物设定。${roleMap} ${s.source === 'reference' ? '本次所有输入图片均为用户人物参考；取景、布光和动作只按文字设置，不存在其他示例图。' : '后续图仅为取景、布光与动作参考，不复制其中人物。'}${faceDirectionBrief(s.faceDirection)}\n${modelAdaptationBrief(s)}\n设置：${JSON.stringify(modelRequestSettings(s))}\n只输出JSON对象，必须包含这些字符串字段：${PLAN_FIELDS.map(([key, label]) => `${key}（${label}）`).join("、")}。用简短中文描述可执行的外貌特征。direction不超过80字，其他外貌字段每项20–45字，只写该字段的可见特征，不重复摄影规则、服装或生成指令。references逐图说明采用依据，融合时注明A/B来源。不确定的特征说明待确认。不要推理过程或Markdown。photography覆盖这些视角或动作：${(isFaceSheet ? FACE_VIEWS : outputActions).join("、")}。${isFaceSheet ? '仅生成1张2×2四宫格模卡，四格是同一个人的不同角度，不是四张独立图片。' : ''}。多视角保持同一个新人物、年龄、发型和布光条件，但允许眼神、眼睑张力、嘴角和碎发有轻微自然变化，不能将一致性写成表情僵硬固定。参考只提取个体特征，不把每项五官都美化成标准美人。不要默认精致底妆、玫瑰唇、雕塑波浪发或均匀发光皮肤。取景硬性要求：${modelFraming(s.scope, s.part, isFaceSheet)}自然试拍要求：${NATURAL_CASTING}统一着装：${BASE_OUTFIT}`);
       if (!controller.signal.aborted) {
         if (!plan.trim()) throw new Error('分析未返回方案，请重试');
         const traits = parseModelPlan(plan);
-        update(snapshot.id, { traits, plan: modelPlanPrompt(traits), step: 2 });
+        update(snapshot.id, { traits, plan: modelPlanPrompt(traits, s.faceDirection), step: 2 });
       }
     } catch (error) { if (!controller.signal.aborted) update(snapshot.id, { step: 0, error: errorText(error) }); }
     finally { if (controllers.current.get(snapshot.id) === controller) controllers.current.delete(snapshot.id); }
@@ -133,34 +135,44 @@ export default function VirtualModelTab() {
         if (existing) identity = await imageReference(existing);
       }
       const firstImageReferences = identity || userReferences.length ? [] : await Promise.all([loadPresetReference('person', snapshot.settings.person), loadPresetReference('style', snapshot.settings.style), loadPresetReference('age', snapshot.settings.age)]);
-      const photographyReference = await loadPresetReference('photography', snapshot.settings.photography);
+      const photographyReference = userReferences.length ? undefined : await loadPresetReference('photography', snapshot.settings.photography);
       for (let index = 0; index < results.length; index++) {
         if (controller.signal.aborted) break;
         if (results[index].image) continue;
         try {
-          const actionReference = snapshot.settings.scope === '面部模特' && snapshot.settings.presentation !== '单张肖像'
+          const actionReference = userReferences.length ? undefined : snapshot.settings.scope === '面部模特' && snapshot.settings.presentation !== '单张肖像'
             ? await loadPresetReference('scope', '面部模特')
             : await loadPresetReference('actions', results[index].action);
           if (controller.signal.aborted) break;
           const identityInputs = identity ? [identity] : userReferences.length ? userReferences : firstImageReferences;
-          const identityInstructions = identity ? 'Image 1 is the ONLY identity anchor: the already generated NEW fictional model. Preserve face, age, skin, hair and proportions. Image 2 lighting ONLY; image 3 pose ONLY.' : userReferences.length ? `Images 1 through ${userReferences.length} are appearance inspirations, not outfits or identities to copy. ${referenceDirection(snapshot.settings.referenceMode, snapshot.settings.fusionBias)} ${userReferences.map((ref, i) => `Image ${i + 1}: person ${snapshot.settings.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('; ')} Create ONE coherent NEW fictional model with visual resemblance. Remaining images are lighting and pose ONLY.` : 'Images 1-3 provide casting, mood and age direction. Create ONE new fictional identity. Images 4-5 are lighting and pose ONLY. Never copy reference clothes.';
-          const [image] = await generateImageToImage([...identityInputs, photographyReference, actionReference],
-            `${isFaceSheet ? FACE_SHEET_LAYOUT : 'Create one natural casting photograph, before beauty retouching, no collage, no text or watermark.'} ${identityInstructions} Natural accurate anatomy. Children must be appropriately dressed in everyday clothing and age-appropriate poses.\n${identity ? '保持已生成的新模特面孔，不重新融合，不恢复原始参考人物。' : ''}\nApproved appearance: ${snapshot.traits ? modelPlanPrompt(snapshot.traits) : snapshot.plan + '\n' + NATURAL_CASTING}\nMANDATORY OUTFIT: ${BASE_OUTFIT}\nTHIS IMAGE ONLY: ${results[index].action}. ${snapshot.settings.scope === '面部模特' && snapshot.settings.presentation !== '单张肖像' ? 'Keep the same identity and lighting setup while allowing subtle, relaxed microexpression and hair movement between exposures.' : ''} Frame exactly: ${snapshot.settings.scope}${snapshot.settings.scope === '试戴部位' ? `（${snapshot.settings.part} ONLY）` : ''}. Framing overrides the full-body pose reference; translate action to a local angle or gesture for body-part and face crops. ${isFaceSheet ? '' : 'Do not render other selected actions in this image.'}`,
+          const identityInstructions = identity ? 'Image 1 is the ONLY identity anchor: the already generated NEW fictional model. Preserve face, age, skin, hair and proportions. Any additional images, if present, are lighting and pose ONLY.' : userReferences.length ? `Images 1 through ${userReferences.length} are appearance inspirations, not outfits or identities to copy. ${referenceDirection(snapshot.settings.referenceMode, snapshot.settings.fusionBias)} ${userReferences.map((ref, i) => `Image ${i + 1}: person ${snapshot.settings.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('; ')} Create ONE coherent NEW fictional model with visual resemblance. There are no other reference images. Derive facial structure only from these user references and the explicit requested appearance direction.` : 'Images 1-3 provide casting, mood and age direction. Create ONE new fictional identity. Images 4-5 are lighting and pose ONLY. Never copy reference clothes.';
+          const [image] = await generateImageToImage([...identityInputs, ...(photographyReference ? [photographyReference] : []), ...(actionReference ? [actionReference] : [])],
+            `${modelFraming(snapshot.settings.scope, snapshot.settings.part, isFaceSheet)}\n${isFaceSheet ? FACE_SHEET_LAYOUT : 'Create one natural casting photograph, before beauty retouching, no collage, no text or watermark.'} ${identityInstructions} Natural accurate anatomy. Children must be appropriately dressed in everyday clothing and age-appropriate poses.\n${identity ? '保持已生成的新模特面孔，不重新融合，不恢复原始参考人物。' : ''}\nApproved appearance: ${snapshot.traits ? modelPlanPrompt(snapshot.traits, snapshot.settings.faceDirection) : snapshot.plan + '\n' + NATURAL_CASTING}\n${faceDirectionBrief(snapshot.settings.faceDirection)}\nMANDATORY OUTFIT: ${BASE_OUTFIT}\nTHIS IMAGE ONLY: ${results[index].action}. ${snapshot.settings.scope === '面部模特' && snapshot.settings.presentation !== '单张肖像' ? 'Keep the same identity and lighting setup while allowing subtle, relaxed microexpression and hair movement between exposures.' : ''} Frame exactly: ${snapshot.settings.scope}${snapshot.settings.scope === '试戴部位' ? `（${snapshot.settings.part} ONLY）` : ''}. Framing overrides the full-body pose reference; translate action to a local angle or gesture for body-part and face crops. ${isFaceSheet ? '' : 'Do not render other selected actions in this image.'}\n${modelFraming(snapshot.settings.scope, snapshot.settings.part, isFaceSheet)}`,
             { aspectRatio: snapshot.settings.ratio, resolution: snapshot.settings.resolution, modelId: snapshot.settings.model, hasModelRef: Boolean(identity || userReferences.length), signal: controller.signal });
           if (controller.signal.aborted) break;
           if (!image) throw new Error('未返回图片，请重试');
+          results[index] = { action: results[index].action, rejectedImage: image, checking: true };
+          update(snapshot.id, { results: [...results] });
+          const generatedReference = await imageReference(image);
+          const review = parseFramingReview(await generateText([generatedReference], framingReviewPrompt(snapshot.settings.scope, snapshot.settings.part, isFaceSheet)));
+          if (controller.signal.aborted) break;
+          if (!review.pass) {
+            results[index] = { action: results[index].action, rejectedImage: image, error: `取景不合格：${review.reason}。请重试。` };
+            update(snapshot.id, { results: [...results] });
+            continue;
+          }
           results[index] = { action: results[index].action, image };
           if (!identity) {
-            identity = await imageReference(image);
+            identity = generatedReference;
           }
         } catch (error) {
           if (controller.signal.aborted) break;
           if (results[index].image) throw new Error(`成片已保留，但无法读取人物参考，后续生成已暂停：${errorText(error)}`);
-          results[index] = { action: results[index].action, error: errorText(error) };
+          results[index] = { action: results[index].action, rejectedImage: results[index].rejectedImage, error: results[index].rejectedImage ? `取景检查未完成：${errorText(error)}。可下载待检查图片或重试。` : errorText(error) };
         }
         update(snapshot.id, { results: [...results] });
       }
-      results = results.map(item => item.image || item.error ? item : { ...item, error: '已取消，可重试' });
+      results = results.map(item => item.image || item.error ? item : { ...item, checking: false, error: '已取消，可重试' });
       update(snapshot.id, { step: 4, results: [...results] });
       const images = results.flatMap(item => item.image ? [item.image] : []);
       if (images.length) {
@@ -206,7 +218,7 @@ export default function VirtualModelTab() {
             <div className="vm-tabs">{(['ai', 'reference'] as const).map(source => <button key={source} aria-pressed={s.source === source} className={s.source === source ? 'selected' : ''} onClick={() => change({ source })}>{source === 'ai' ? <Sparkles size={15} /> : <ImagePlus size={15} />}{source === 'ai' ? 'AI 自动生成' : '参考人像'}</button>)}</div>
             {s.source === 'ai' ? <ModelPresetPicker kind="person" value={s.person} onChange={person => change({ person })} /> : <>
               <div className="vm-tabs">{(['single', 'fusion'] as const).map(referenceMode => <button key={referenceMode} aria-pressed={(s.referenceMode || 'single') === referenceMode} className={(s.referenceMode || 'single') === referenceMode ? 'selected' : ''} onClick={() => change({ referenceMode })}>{referenceMode === 'single' ? '单人物参考' : '双参考融合'}</button>)}</div>
-              {s.referenceMode === 'fusion' && select('融合倾向', 'fusionBias', ['均衡', '偏 A', '偏 B'])}
+              {s.referenceMode === 'fusion' && select('融合倾向', 'fusionBias', ['均衡', '偏 A', '偏 B'])}<FaceDirectionPicker value={s.faceDirection} onChange={faceDirection => change({ faceDirection })} />
               <div className="vm-heading"><h3>参考人像</h3><span className="vm-caption" aria-live="polite">{current.references.length}/5</span></div>
               <input ref={fileInput} type="file" multiple accept="image/jpeg,image/png,image/webp" hidden onChange={event => { void upload(Array.from(event.target.files || [])); event.target.value = ''; }} />
               <button className="vm-upload" disabled={current.references.length >= MAX_REFERENCES} onClick={() => fileInput.current?.click()} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); void upload(Array.from(event.dataTransfer.files)); }}><Upload size={25} /><b>{uploadBusy ? '正在处理图片…' : current.references.length >= MAX_REFERENCES ? '已添加5张参考图' : '拖拽、点击或 Ctrl+V 粘贴图片'}</b><small>最多5张 · JPG / JPEG / PNG / WEBP · 单张 ≤ 10MB</small></button>
@@ -235,9 +247,9 @@ export default function VirtualModelTab() {
       <section className={`vm-output ${current.step === 0 ? 'vm-empty' : 'vm-card'}`}>
         {current.step === 0 ? <div className="vm-empty-content"><span><UserRound size={36} /></span><h2>从人物身份开始，打造专属模特</h2><p>在左侧选择模特来源与摄影参数，点击「分析信息」。<br />确认人物与拍摄方案后，AI 将按所选动作逐张生成。</p><div className="vm-tags">全身 / 半身 / 面部 · 手部 / 耳部 / 脚部 / 颈部</div></div> : current.step === 1 ? <div className="vm-empty-content"><Loader2 size={34} className="vm-spin" /><h2>正在规划人物与摄影方案</h2><p>分析人物特征、动作、取景与光线…</p></div> : <>
           <div className="vm-section-title"><span><Sparkles size={20} /></span><div><h2>{current.step === 2 ? '确认模特与摄影方案' : '生成结果'}</h2><p>{current.step === 2 ? '可编辑方案，确认后开始生成' : `${current.results.filter(result => result.image).length} / ${outputActions.length} 张已完成`}</p></div></div>
-          {current.step === 2 ? <><VirtualModelPlanCard key={current.id} traits={current.traits!} references={s.source === 'reference' ? current.references : []} fusion={s.source === 'reference' && s.referenceMode === 'fusion'} faceSheet={isFaceSheet} scope={s.scope} ratio={s.ratio} resolution={s.resolution} onChange={traits => update(current.id, { traits, plan: modelPlanPrompt(traits) })} /><details className="vm-approved"><summary>查看生成人物提示词</summary><p>{current.plan}</p></details><div className="vm-tags">{s.scope} · {s.ratio} · {s.resolution} · {outputActions.length} 张</div><button className="vm-primary" disabled={!current.plan.trim() || !current.traits || PLAN_FIELDS.some(([key]) => !current.traits![key].trim())} onClick={() => void generate()}><Sparkles size={18} />确认方案，生成 {outputActions.length} 张{isFaceSheet ? '四宫格模卡' : ''}</button></> : <>
+          {current.step === 2 ? <><VirtualModelPlanCard key={current.id} traits={current.traits!} references={s.source === 'reference' ? current.references : []} fusion={s.source === 'reference' && s.referenceMode === 'fusion'} faceSheet={isFaceSheet} scope={s.scope} ratio={s.ratio} resolution={s.resolution} onChange={traits => update(current.id, { traits, plan: modelPlanPrompt(traits, s.faceDirection) })} /><details className="vm-approved"><summary>查看生成人物提示词</summary><p>{current.plan}</p></details><div className="vm-tags">{s.scope} · {s.ratio} · {s.resolution} · {outputActions.length} 张</div><button className="vm-primary" disabled={!current.plan.trim() || !current.traits || PLAN_FIELDS.some(([key]) => !current.traits![key].trim())} onClick={() => void generate()}><Sparkles size={18} />确认方案，生成 {outputActions.length} 张{isFaceSheet ? '四宫格模卡' : ''}</button></> : <>
             <details className="vm-approved"><summary>查看已确认方案</summary><p>{current.plan}</p></details>
-            <div className="vm-results" style={isFaceSheet ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>{current.results.map((item, index) => <article key={item.action}><div className="vm-result-image" style={{ aspectRatio: s.ratio.replace(':', '/') }}>{item.image ? <button aria-label={`放大${item.action}`} onClick={() => setPreview(item.image)}><img src={item.image} alt={item.action} /></button> : item.error ? <p role="alert">{item.error}</p> : <div><Loader2 size={24} className="vm-spin" /><p>{index === current.results.findIndex(result => !result.image && !result.error) ? '正在生成' : '等待生成'}</p></div>}</div><footer><b>{item.action}</b>{item.image && <button aria-label={`下载${item.action}`} onClick={() => void download(item)}><Download size={17} /></button>}</footer></article>)}</div>
+            <div className="vm-results" style={isFaceSheet ? { gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>{current.results.map((item, index) => <article key={item.action}><div className="vm-result-image" style={{ aspectRatio: s.ratio.replace(':', '/') }}>{item.image ? <button aria-label={`放大${item.action}`} onClick={() => setPreview(item.image)}><img src={item.image} alt={item.action} /></button> : item.rejectedImage ? <button aria-label={`查看待检查图片${item.action}`} onClick={() => setPreview(item.rejectedImage)}><img src={item.rejectedImage} alt={`待检查：${item.action}`} /></button> : item.error ? <p role="alert">{item.error}</p> : <div><Loader2 size={24} className="vm-spin" /><p>{index === current.results.findIndex(result => !result.image && !result.error) ? '正在生成' : '等待生成'}</p></div>}</div><footer><b>{item.action}{item.checking ? ' · 检查取景中' : item.rejectedImage ? ' · 未通过检查' : ''}</b>{item.image && <button aria-label={`下载${item.action}`} onClick={() => void download(item)}><Download size={17} /></button>}{item.rejectedImage && <button aria-label="下载待检查图片" onClick={() => void download({ ...item, image: item.rejectedImage })}><Download size={17} /></button>}</footer>{item.error && item.rejectedImage && <p className="vm-error" role="alert">{item.error}</p>}</article>)}</div>
             {current.step === 4 && current.results.some(item => !item.image) && <button className="vm-primary" onClick={() => void generate(true)}>重试未完成图片</button>}
           </>}
         </>}
