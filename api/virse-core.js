@@ -3,6 +3,7 @@ const VIRSE_BASE_URLS = new Set(['https://api.virse.ai', 'https://dev.virse.ai']
 const ALLOWED_TOOLS = new Set([
   'get_account',
   'list_workspaces',
+  'get_canvas',
   'list_image_models',
   'generate_image',
   'get_asset_detail',
@@ -59,6 +60,7 @@ const postMcp = async (baseUrl, body, apiKey, sessionId) => {
 
     const response = await fetch(`${baseUrl}/mcp`, {
       method: 'POST',
+      cache: 'no-store',
       headers,
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -89,9 +91,9 @@ const parseTextPayload = (texts) => {
   return texts;
 };
 
-export const callVirseTool = async ({ apiKey, baseUrl, tool, args = {} }) => {
+const requestVirseMcp = async ({ apiKey, baseUrl, tool, args = {} }, listTools = false) => {
   if (typeof apiKey !== 'string' || !apiKey.trim()) throw new Error('缺少 Virse API Key');
-  if (!ALLOWED_TOOLS.has(tool)) throw new Error('不支持的 Virse 工具');
+  if (!listTools && !ALLOWED_TOOLS.has(tool)) throw new Error('不支持的 Virse 工具');
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const initialized = await postMcp(normalizedBaseUrl, {
@@ -114,6 +116,25 @@ export const callVirseTool = async ({ apiKey, baseUrl, tool, args = {} }) => {
     method: 'notifications/initialized',
     params: {},
   }, apiKey.trim(), initialized.sessionId);
+
+  if (listTools) {
+    const tools = [];
+    const cursors = new Set();
+    let cursor;
+    do {
+      const page = await postMcp(normalizedBaseUrl, {
+        jsonrpc: '2.0', id: tools.length + 2, method: 'tools/list',
+        params: cursor ? { cursor } : {},
+      }, apiKey.trim(), initialized.sessionId);
+      if (page.data?.error) throw new Error(page.data.error.message || '无法读取 MCP 工具清单');
+      if (!Array.isArray(page.data?.result?.tools)) throw new Error('MCP 工具清单格式无法识别');
+      tools.push(...page.data.result.tools);
+      cursor = page.data.result.nextCursor;
+      if (cursor && (cursors.has(cursor) || cursors.size >= 100)) throw new Error('MCP 工具清单分页异常');
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    return { data: tools };
+  }
 
   const called = await postMcp(normalizedBaseUrl, {
     jsonrpc: '2.0',
@@ -143,7 +164,7 @@ export const callVirseTool = async ({ apiKey, baseUrl, tool, args = {} }) => {
     ...texts,
     ...(typeof structuredData === 'string' ? [structuredData] : []),
   ];
-  const textFailure = failureCandidates.find((text) => (
+  const textFailure = failureCandidates.map((text) => tool === 'get_canvas' ? text.trim().split(/\r?\n/, 1)[0] : text).find((text) => (
     /(?:^|\n)\s*(?:upload\s+failed|failed|error)\s*:/i.test(text)
     || /\binvalid_(?:space|canvas)_id\b/i.test(text)
   ));
@@ -160,6 +181,8 @@ export const callVirseTool = async ({ apiKey, baseUrl, tool, args = {} }) => {
     content: result.content || [],
   };
 };
+
+export const callVirseTool = (options) => requestVirseMcp(options);
 
 const findFieldDeep = (value, fieldNames, depth = 0) => {
   if (depth > 6 || value == null) return undefined;
@@ -630,6 +653,7 @@ export const uploadVirseBase64 = async ({
 };
 
 export const executeVirseRequest = async (body) => {
+  if (body?.operation === 'list_tools') return requestVirseMcp(body, true);
   if (body?.operation === 'test_imgbb') return testImgBbKeys(body?.imgbbApiKey);
   if (body?.operation === 'test_freeimage') return testFreeImageKeys(body?.freeimageApiKey);
   if (body?.operation === 'upload_base64') return uploadVirseBase64(body);

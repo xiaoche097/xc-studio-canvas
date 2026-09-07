@@ -36,8 +36,10 @@ import {
 import { storageService, CacheStats } from '../services/storageService';
 import { deleteFromStorage } from '../XcAISTUDIO-main/services/storage';
 import {
+  findVirseWorkspace,
   getVirseAccount,
   getVirseRawToolData,
+  getVirseWorkspaceDiagnostic,
   listVirseImageModels,
   listVirseWorkspaces,
   VirseImageModel,
@@ -224,7 +226,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [qwenEnabled, setQwenEnabled] = useState(false);
 
   const [virseApiKey, setVirseApiKey] = useState('');
-  const [virseBaseUrl, setVirseBaseUrl] = useState(VIRSE_DEV_BASE_URL);
+  const [virseBaseUrl, setVirseBaseUrl] = useState(DEFAULT_VIRSE_BASE_URL);
   const [isVirseKeyVisible, setIsVirseKeyVisible] = useState(false);
   const [virseEnabled, setVirseEnabled] = useState(false);
   const [virseWorkspaces, setVirseWorkspaces] = useState<VirseWorkspace[]>([]);
@@ -261,6 +263,12 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   const [virseTestStatus, setVirseTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [virseTestMessage, setVirseTestMessage] = useState('');
   const [virseDiagnostic, setVirseDiagnostic] = useState('');
+  const [virseDiagnosticLoading, setVirseDiagnosticLoading] = useState(false);
+  const virseSyncVersion = useRef(0);
+  useEffect(() => {
+    virseSyncVersion.current += 1;
+    return () => { virseSyncVersion.current += 1; };
+  }, [isOpen, virseApiKey, virseBaseUrl]);
 
   const [xiaocheTestStatus, setXiaocheTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [xiaocheTestMessage, setXiaocheTestMessage] = useState('');
@@ -398,13 +406,14 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     const savedVirseKey = localStorage.getItem('virse_api_key');
     const savedVirseEnabled = localStorage.getItem('virse_enabled');
     const savedVirseUrl = localStorage.getItem('virse_base_url');
-    const effectiveVirseUrl = (!savedVirseUrl || savedVirseUrl === VIRSE_DEV_BASE_URL)
-      ? DEFAULT_VIRSE_BASE_URL
-      : savedVirseUrl;
+    const effectiveVirseUrl = savedVirseUrl || DEFAULT_VIRSE_BASE_URL;
     setVirseApiKey(savedVirseKey || '');
     setVirseEnabled(savedVirseEnabled === 'true');
     setVirseBaseUrl(effectiveVirseUrl);
-    localStorage.setItem('virse_base_url', effectiveVirseUrl);
+    setVirseWorkspaces([]);
+    setVirseModels([]);
+    setVirseTestStatus('idle');
+    setVirseTestMessage('');
     setVirseSpaceId(localStorage.getItem('virse_space_id') || '');
     setVirseCanvasId(localStorage.getItem('virse_canvas_id') || '');
     setVirseModel(localStorage.getItem('virse_model') || 'nano-banana-2');
@@ -710,6 +719,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   };
 
   const handleTestVirse = async () => {
+    const syncVersion = ++virseSyncVersion.current;
     const key = virseApiKey.trim();
     if (!key) {
       setVirseTestStatus('error');
@@ -717,40 +727,24 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       return;
     }
     setVirseTestStatus('testing');
-    setVirseTestMessage('正在连接 Virse MCP...');
+    setVirseTestMessage('正在重新获取工作区并逐一核实画布...');
+    setVirseWorkspaces([]);
+    setVirseModels([]);
     setVirseDiagnostic('');
     try {
-      const candidates = [virseBaseUrl, virseBaseUrl === VIRSE_DEV_BASE_URL ? DEFAULT_VIRSE_BASE_URL : VIRSE_DEV_BASE_URL];
-      let account: Record<string, any> = {};
-      let workspaces: VirseWorkspace[] = [];
-      let models: VirseImageModel[] = [];
-      let activeBaseUrl = virseBaseUrl;
-      let lastError: any = null;
-      for (const candidate of candidates) {
-        try {
-          const candidateAccount = await getVirseAccount(key, candidate);
-          const [candidateWorkspaces, candidateModels] = await Promise.all([
-            listVirseWorkspaces(key, candidate),
-            listVirseImageModels(key, candidate),
-          ]);
-          account = candidateAccount;
-          workspaces = candidateWorkspaces;
-          models = candidateModels;
-          activeBaseUrl = candidate;
-          // Image routing needs a real workspace/canvas pair. A node that only
-          // returns models is not usable and must not preserve stale IDs.
-          if (candidateWorkspaces.length > 0) break;
-        } catch (error) {
-          lastError = error;
-        }
-      }
-      if (workspaces.length === 0 && models.length === 0 && lastError) throw lastError;
-      setVirseBaseUrl(activeBaseUrl);
+      const activeBaseUrl = virseBaseUrl;
+      const [account, workspaces, models] = await Promise.all([
+        getVirseAccount(key, activeBaseUrl),
+        listVirseWorkspaces(key, activeBaseUrl),
+        listVirseImageModels(key, activeBaseUrl),
+      ]);
+      if (syncVersion !== virseSyncVersion.current) return;
       if (workspaces.length === 0 && models.length === 0) {
         const [rawWorkspaces, rawModels] = await Promise.all([
           getVirseRawToolData(key, activeBaseUrl, 'list_workspaces'),
           getVirseRawToolData(key, activeBaseUrl, 'list_image_models'),
         ]);
+        if (syncVersion !== virseSyncVersion.current) return;
         setVirseDiagnostic(JSON.stringify({
           endpoint: activeBaseUrl,
           list_workspaces: rawWorkspaces,
@@ -765,18 +759,15 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
         setVirseCanvasId('');
         localStorage.removeItem('virse_space_id');
         localStorage.removeItem('virse_canvas_id');
+        window.dispatchEvent(new Event('api-settings-updated'));
         throw new Error('Virse 未返回可用工作区/画布，请确认 API Key、账号权限和 API 节点。');
       }
 
-      const currentWorkspace = workspaces.find((workspace) => (
-        workspace.space_id === virseSpaceId && workspace.canvas_id === virseCanvasId
-      )) || workspaces.find((workspace) => workspace.canvas_id === virseCanvasId) || workspaces[0];
-      const nextSpaceId = currentWorkspace.space_id;
-      const nextCanvasId = currentWorkspace.canvas_id;
-      if (currentWorkspace) {
-        setVirseSpaceId(nextSpaceId);
-        setVirseCanvasId(nextCanvasId);
-      }
+      const currentWorkspace = findVirseWorkspace(workspaces, virseSpaceId, virseCanvasId);
+      const nextSpaceId = currentWorkspace?.space_id || '';
+      const nextCanvasId = currentWorkspace?.canvas_id || '';
+      setVirseSpaceId(nextSpaceId);
+      setVirseCanvasId(nextCanvasId);
       const nextModel = models.length > 0 && !models.some((model) => model.id === virseModel)
         ? models[0].id
         : virseModel;
@@ -805,13 +796,74 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
         balance !== undefined ? `余额 ${balance} CU` : '',
       ].filter(Boolean).join(' · ');
       setVirseTestStatus('success');
-      setVirseTestMessage(details);
+      setVirseTestMessage(`${details}${currentWorkspace ? '' : virseCanvasId ? ' · 原画布已失效，请重新选择' : ' · 请选择目标画布'}`);
     } catch (e: any) {
+      if (syncVersion !== virseSyncVersion.current) return;
+      setVirseWorkspaces([]);
+      setVirseModels([]);
       setVirseTestStatus('error');
       setVirseTestMessage(e?.message || 'Virse 连接失败');
-      setVirseDiagnostic('');
     }
   };
+
+  // Refresh on opening settings, returning from Virse, and while this panel stays
+  // visible. Never let a delayed refresh undo a manual sync or a new selection.
+  useEffect(() => {
+    const key = virseApiKey.trim();
+    if (!isOpen || !settingsLoaded || !virseEnabled || !key || virseTestStatus === 'testing'
+      || key !== localStorage.getItem('virse_api_key')?.trim()
+      || virseBaseUrl !== (localStorage.getItem('virse_base_url') || DEFAULT_VIRSE_BASE_URL)) return;
+    let disposed = false;
+    let pending = false;
+    const refresh = async () => {
+      if (disposed || pending || document.visibilityState === 'hidden') return;
+      pending = true;
+      const version = virseSyncVersion.current;
+      try {
+        const [workspaces, models] = await Promise.all([
+          listVirseWorkspaces(key, virseBaseUrl),
+          listVirseImageModels(key, virseBaseUrl).catch(() => null),
+        ]);
+        if (disposed || version !== virseSyncVersion.current) return;
+        setVirseWorkspaces(workspaces);
+        if (models) setVirseModels(models);
+        const selected = findVirseWorkspace(workspaces, virseSpaceId, virseCanvasId);
+        if (!selected && (virseSpaceId || virseCanvasId)) {
+          setVirseSpaceId('');
+          setVirseCanvasId('');
+          // Do not erase a choice changed in another tab while the request ran.
+          if (localStorage.getItem('virse_api_key')?.trim() === key
+            && localStorage.getItem('virse_base_url') === virseBaseUrl
+            && localStorage.getItem('virse_space_id') === virseSpaceId
+            && localStorage.getItem('virse_canvas_id') === virseCanvasId) {
+            localStorage.removeItem('virse_space_id');
+            localStorage.removeItem('virse_canvas_id');
+            window.dispatchEvent(new Event('api-settings-updated'));
+          }
+        }
+        setVirseTestStatus('success');
+        setVirseTestMessage(`已同步 · ${workspaces.length} 个可用画布${!selected && virseCanvasId ? ' · 已移除失效画布，请重新选择' : ''}`);
+      } catch {
+        if (disposed || version !== virseSyncVersion.current) return;
+        setVirseWorkspaces([]);
+        setVirseTestStatus('error');
+        setVirseTestMessage('工作区同步失败，请重试；尚未确认当前画布是否有效。');
+      } finally {
+        pending = false;
+      }
+    };
+    if (virseTestStatus === 'idle') void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 30000);
+    const onFocus = () => { void refresh(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [isOpen, settingsLoaded, virseEnabled, virseApiKey, virseBaseUrl, virseSpaceId, virseCanvasId, virseTestStatus]);
 
   const handleTestImgBb = async () => {
     const keys = imgbbApiKey.split(/[\n,;]+/).map((key) => key.trim()).filter(Boolean);
@@ -1700,24 +1752,28 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => {
+                                if (virseBaseUrl === DEFAULT_VIRSE_BASE_URL) return;
                                 setVirseBaseUrl(DEFAULT_VIRSE_BASE_URL);
                                 setVirseSpaceId('');
                                 setVirseCanvasId('');
                                 setVirseWorkspaces([]);
                                 setVirseTestStatus('idle');
                               }}
+                              disabled={virseTestStatus === 'testing'}
                               className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === DEFAULT_VIRSE_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                             >
                               API 节点（默认/新版）
                             </button>
                             <button
                               onClick={() => {
+                                if (virseBaseUrl === VIRSE_DEV_BASE_URL) return;
                                 setVirseBaseUrl(VIRSE_DEV_BASE_URL);
                                 setVirseSpaceId('');
                                 setVirseCanvasId('');
                                 setVirseWorkspaces([]);
                                 setVirseTestStatus('idle');
                               }}
+                              disabled={virseTestStatus === 'testing'}
                               className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${virseBaseUrl === VIRSE_DEV_BASE_URL ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'}`}
                             >
                               Dev 节点（备用/认证文档）
@@ -1732,6 +1788,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                           <div className="relative">
                             <textarea
                               value={virseApiKey}
+                              disabled={virseTestStatus === 'testing'}
                               onChange={(e) => {
                                 setVirseApiKey(e.target.value);
                                 setVirseSpaceId('');
@@ -1757,20 +1814,27 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                             <div className="space-y-2">
                               <label className="text-sm font-bold text-gray-500">目标工作区 / 画布</label>
                               <select
-                                value={virseCanvasId}
+                                value={virseSpaceId && virseCanvasId ? JSON.stringify([virseSpaceId, virseCanvasId]) : ''}
+                                disabled={virseTestStatus === 'testing'}
                                 onChange={(e) => {
-                                  const workspace = virseWorkspaces.find((item) => item.canvas_id === e.target.value);
-                                  setVirseCanvasId(e.target.value);
-                                  setVirseSpaceId(workspace?.space_id || '');
+                                  const workspace = virseWorkspaces.find((item) => JSON.stringify([item.space_id, item.canvas_id]) === e.target.value);
+                                  if (!workspace) return;
+                                  setVirseCanvasId(workspace.canvas_id);
+                                  setVirseSpaceId(workspace.space_id);
+                                  localStorage.setItem('virse_canvas_id', workspace.canvas_id);
+                                  localStorage.setItem('virse_space_id', workspace.space_id);
+                                  window.dispatchEvent(new Event('api-settings-updated'));
                                 }}
                                 className="w-full bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm outline-none"
                               >
+                                <option value="" disabled>请选择目标画布</option>
                                 {virseWorkspaces.map((workspace) => (
-                                  <option key={workspace.canvas_id} value={workspace.canvas_id}>
+                                  <option key={JSON.stringify([workspace.space_id, workspace.canvas_id])} value={JSON.stringify([workspace.space_id, workspace.canvas_id])}>
                                     {workspace.name || workspace.organization_name || workspace.space_id}
                                   </option>
                                 ))}
                               </select>
+                              <p className="text-xs text-gray-500">选择后立即生效。页面可见时每 30 秒同步，切回页面立即核验并移除失效画布。</p>
                             </div>
                             <div className="space-y-2">
                               <label className="text-sm font-bold text-gray-500">默认图片模型</label>
@@ -1805,10 +1869,28 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                             {virseTestStatus === 'testing' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '测试并同步'}
                           </button>
                         </div>
+                        <button
+                          disabled={!virseApiKey.trim() || virseDiagnosticLoading || virseTestStatus === 'testing'}
+                          onClick={async () => {
+                            const version = virseSyncVersion.current;
+                            setVirseDiagnosticLoading(true);
+                            try {
+                              const diagnostic = await getVirseWorkspaceDiagnostic(virseApiKey.trim(), virseBaseUrl);
+                              if (version === virseSyncVersion.current) setVirseDiagnostic(diagnostic);
+                            } catch {
+                              if (version === virseSyncVersion.current) setVirseDiagnostic('诊断请求失败，请稍后重试。');
+                            } finally {
+                              setVirseDiagnosticLoading(false);
+                            }
+                          }}
+                          className="text-xs text-gray-600 dark:text-gray-300 underline disabled:opacity-50"
+                        >
+                          {virseDiagnosticLoading ? '正在读取工作区诊断…' : '工作区列表不一致？读取诊断'}
+                        </button>
                         {virseDiagnostic && (
                           <details className="rounded-2xl border border-amber-200 bg-amber-50/70 dark:bg-amber-500/10 dark:border-amber-500/30 p-4">
                             <summary className="cursor-pointer text-xs font-bold text-amber-700 dark:text-amber-300">
-                              未识别到列表，展开查看 Virse 原始返回
+                              展开查看工作区诊断（不含 API Key）
                             </summary>
                             <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] leading-5 text-gray-700 dark:text-gray-200 select-text">
                               {virseDiagnostic}

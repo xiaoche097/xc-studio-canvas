@@ -24,7 +24,7 @@ import {
   API_TIMEOUT_MS
 } from "../utils/apiHelpers";
 import { resolveXiaocheImageModel } from "../utils/xiaocheModels";
-import { generateVirseImage, listVirseWorkspaces, uploadVirseReference } from "../../services/virseService";
+import { findVirseWorkspace, generateVirseImage, listVirseWorkspaces, uploadVirseReference } from "../../services/virseService";
 
 import type {
   GeminiResponse,
@@ -1483,43 +1483,18 @@ export const generateImageToImage = async (
       mj_imagine: configuredVirseModel,
     };
     const virseModel = virseModelMap[requestedModel] || requestedModel || configuredVirseModel;
-    const baseUrlCandidates = [...new Set([
-      virseBaseUrl,
-      virseBaseUrl === 'https://api.virse.ai' ? 'https://dev.virse.ai' : 'https://api.virse.ai',
-    ])];
-
-    // A saved space/canvas pair can become stale after an account, node or
-    // workspace change. Resolve it against the live workspace list before any
-    // upload and persist the refreshed authoritative pair.
-    let activeVirseBaseUrl = '';
-    let activeVirseSpaceId = '';
-    let activeVirseCanvasId = '';
-    let workspaceResolveError: any = null;
-    for (const candidateBaseUrl of baseUrlCandidates) {
-      try {
-        const workspaces = await listVirseWorkspaces(virseApiKey, candidateBaseUrl);
-        const selectedWorkspace = workspaces.find((workspace) => (
-          workspace.space_id === storedVirseSpaceId
-          && workspace.canvas_id === storedVirseCanvasId
-        )) || workspaces.find((workspace) => workspace.canvas_id === storedVirseCanvasId)
-          || workspaces[0];
-        if (!selectedWorkspace) continue;
-        activeVirseBaseUrl = candidateBaseUrl;
-        activeVirseSpaceId = selectedWorkspace.space_id;
-        activeVirseCanvasId = selectedWorkspace.canvas_id;
-        break;
-      } catch (error) {
-        workspaceResolveError = error;
-      }
+    if (!storedVirseSpaceId || !storedVirseCanvasId) {
+      throw new Error('请先在模型配置中测试并同步 Virse，然后选择目标画布。');
     }
-    if (!activeVirseSpaceId || !activeVirseCanvasId) {
-      localStorage.removeItem('virse_space_id');
-      localStorage.removeItem('virse_canvas_id');
-      throw new Error(`Virse 没有可用的工作区/画布，请在模型配置中重新“测试并同步”。${workspaceResolveError ? ` ${workspaceResolveError?.message || String(workspaceResolveError)}` : ''}`);
+    const workspaces = await listVirseWorkspaces(virseApiKey, virseBaseUrl);
+    const selectedWorkspace = findVirseWorkspace(workspaces, storedVirseSpaceId, storedVirseCanvasId);
+    if (!selectedWorkspace) {
+      // Keep the user's choice on transient failures; never route to another canvas.
+      throw new Error('所选 Virse 画布已不存在或无访问权限，请在模型配置中测试并同步，然后重新选择画布。');
     }
-    localStorage.setItem('virse_base_url', activeVirseBaseUrl);
-    localStorage.setItem('virse_space_id', activeVirseSpaceId);
-    localStorage.setItem('virse_canvas_id', activeVirseCanvasId);
+    const activeVirseBaseUrl = virseBaseUrl;
+    const activeVirseSpaceId = selectedWorkspace.space_id;
+    const activeVirseCanvasId = selectedWorkspace.canvas_id;
 
     let assetIds: string[] = [];
     let uploadError: any = null;

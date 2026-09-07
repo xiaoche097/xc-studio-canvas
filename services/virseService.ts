@@ -15,6 +15,7 @@ export interface VirseImageModel {
 const callVirse = async <T = unknown>(apiKey: string, baseUrl: string, tool: string, args: Record<string, unknown> = {}): Promise<T> => {
   const response = await fetch('/api/virse', {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ apiKey, baseUrl, tool, args }),
   });
@@ -410,9 +411,82 @@ const parseModelText = (value: unknown): VirseImageModel[] => {
 
 export const getVirseAccount = (apiKey: string, baseUrl: string) => callVirse<Record<string, any>>(apiKey, baseUrl, 'get_account');
 
+// Never fall back to the first canvas: that can send a job to an unrelated project.
+export const findVirseWorkspace = (workspaces: VirseWorkspace[], spaceId: string, canvasId: string) => (
+  workspaces.find((workspace) => workspace.space_id === spaceId && workspace.canvas_id === canvasId)
+);
+
+export const getVirseWorkspaceDiagnostic = async (apiKey: string, baseUrl: string) => {
+  const read = async (body: Record<string, unknown>) => {
+    const response = await fetch('/api/virse', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey, baseUrl, ...body }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    return payload;
+  };
+  const results = await Promise.allSettled([
+    read({ tool: 'list_workspaces', args: {} }),
+    read({ operation: 'list_tools' }),
+  ]);
+  const values = results.map((result) => result.status === 'fulfilled'
+    ? result.value : { error: String(result.reason?.message || result.reason) });
+  // Diagnostics need the list and tool schemas, never the API key or account profile.
+  return JSON.stringify({ endpoint: baseUrl, checked_at: new Date().toISOString(),
+    workspaces: values[0], tools: values[1] }, null, 2).split(apiKey).join('[REDACTED]');
+};
+
+const isDeletedWorkspace = (value: Record<string, any>): boolean => {
+  const flagged = (flag: unknown) => flag === true || flag === 1 || flag === 'true' || flag === '1';
+  return ['deleted', 'is_deleted', 'isDeleted', 'trashed', 'is_trashed', 'isTrashed'].some((key) => flagged(value[key]))
+    || Boolean(value.deleted_at || value.deletedAt || value.trashed_at || value.trashedAt)
+    || /^(deleted|trashed)$/i.test(String(value.status || ''))
+    || Boolean(value.canvas && typeof value.canvas === 'object' && isDeletedWorkspace(value.canvas));
+};
+
+const canvasUnavailableMessage = (message: string): boolean => {
+  // Inspect only the error/summary line, never text inside canvas elements.
+  const line = message.trim().split(/\r?\n/, 1)[0];
+  return /^(?:error\s*:\s*)?(?:(?:canvas|workspace|space)\b.{0,160}\b(?:not found|does not exist|deleted|access denied|permission denied)|(?:no access|access denied|permission denied|not authorized|not permitted)\b.{0,100}\b(?:canvas|workspace|space)|invalid[_ ](?:canvas|space)[_ ]id\b)/i.test(line)
+    || /^(?:错误[：:]\s*)?(?:画布|工作区).{0,100}(?:不存在|已删除|无访问权限)/.test(line);
+};
+
+export const isVirseCanvasAvailable = async (apiKey: string, baseUrl: string, canvasId: string): Promise<boolean> => {
+  let data: unknown;
+  try {
+    data = await callVirse<unknown>(apiKey, baseUrl, 'get_canvas', { canvas_id: canvasId });
+  } catch (error) {
+    if (error instanceof Error && canvasUnavailableMessage(error.message)) return false;
+    throw error;
+  }
+  if (typeof data === 'string') {
+    if (canvasUnavailableMessage(data)) return false;
+    if (!data.trim() || /^(?:error|failed)\s*:/i.test(data.trim())) throw new Error('Virse 画布校验失败，请重试');
+  } else if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const result = data as Record<string, any>;
+    if (isDeletedWorkspace(result)) return false;
+    const code = String(result.error_code || result.code || '').toUpperCase();
+    if (/^(?:CANVAS|SPACE|WORKSPACE)_(?:NOT_FOUND|DELETED|ACCESS_DENIED|PERMISSION_DENIED)$/.test(code)) return false;
+    const message = String(result.error?.message || result.error || result.message || '');
+    if (canvasUnavailableMessage(message)) return false;
+    if (result.error || result.success === false || result.status === 0 || result.status === 'error') {
+      throw new Error(message || 'Virse 画布校验失败，请重试');
+    }
+    if (Object.keys(result).length === 0) throw new Error('Virse 未返回画布校验结果，请重试');
+  } else if (!Array.isArray(data)) {
+    throw new Error('Virse 未返回画布校验结果，请重试');
+  }
+  // An existing canvas with zero elements is valid.
+  return true;
+};
+
 export const listVirseWorkspaces = async (apiKey: string, baseUrl: string): Promise<VirseWorkspace[]> => {
   const data = await callVirse<unknown>(apiKey, baseUrl, 'list_workspaces');
-  const structured = deepCollectionFrom<Record<string, any>>(data, ['workspaces', 'spaces', 'items', 'data'])
+  const rows = deepCollectionFrom<Record<string, any>>(data, ['workspaces', 'spaces', 'items', 'data']);
+  const structured = rows
+    .filter((workspace) => workspace && typeof workspace === 'object' && !isDeletedWorkspace(workspace))
     .map((workspace) => ({
       ...workspace,
       space_id: String(workspace.space_id || workspace.spaceId || workspace.id || ''),
@@ -420,7 +494,25 @@ export const listVirseWorkspaces = async (apiKey: string, baseUrl: string): Prom
       name: workspace.name || workspace.space_name || workspace.title,
     }))
     .filter((workspace) => workspace.space_id && workspace.canvas_id);
-  return structured.length > 0 ? structured : parseWorkspaceText(data);
+  // An all-deleted structured list must remain empty, including JSON text payloads.
+  const workspaces = rows.length > 0 ? structured : parseWorkspaceText(data);
+  const unique = workspaces.filter((workspace, index) => workspaces.findIndex((other) => (
+    other.space_id === workspace.space_id && other.canvas_id === workspace.canvas_id
+  )) === index);
+  const available: boolean[] = [];
+  // Bound concurrency and preserve the server's order. Every sync rechecks every
+  // canvas, since list_workspaces can retain deleted Spaces without a marker.
+  for (let index = 0; index < unique.length; index += 3) {
+    available.push(...await Promise.all(unique.slice(index, index + 3).map(async (workspace) => {
+      try {
+        return await isVirseCanvasAvailable(apiKey, baseUrl, workspace.canvas_id);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : '查询失败';
+        throw new Error(`无法核实画布「${workspace.name || workspace.canvas_id}」：${reason}。请重新测试并同步。`);
+      }
+    })));
+  }
+  return unique.filter((_, index) => available[index]);
 };
 
 export const listVirseImageModels = async (apiKey: string, baseUrl: string): Promise<VirseImageModel[]> => {

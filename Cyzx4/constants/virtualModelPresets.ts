@@ -40,7 +40,7 @@ export const MODEL_PRESETS: Record<ModelPresetKind, { title: string; image: stri
     { label: '韩系小男孩', description: '清爽、童真', guidance: '约6–10岁男孩，韩系简洁童装与轻松儿童姿态。', child: true },
     { label: '日系女生', description: '轻盈、生活感', guidance: '日系时装选角方向的成年女性，轻盈层次发型、生活化妆感。' },
     { label: '日系男生', description: '松弛、层次感', guidance: '日系时装选角方向的成年男性，自然层次发型、松弛造型。' },
-    { label: '欧美模特', description: '立体、时装感', guidance: '欧美商业时装选角方向，参考图为成年男性示例；以用户明确需求确定性别、发型与服装。' },
+    { label: '欧美模特', description: '欧美面孔、时装选角', guidance: '创建欧美／欧洲面孔方向的新虚构成年女性模特；用户明确指定男性时采用男性。面孔方向是人物外貌要求，不仅是服装或摄影风格。保留自然眉眼深度、鼻部投影与颧颌轮廓及个体差异，不套用示例图人物的脸或性别。' },
     { label: '欧美小女孩', description: '自然、明快', guidance: '欧美童装选角方向，约6–10岁女孩，日常童装与自然儿童表情。', child: true },
     { label: '欧美小男孩', description: '活力、自然', guidance: '欧美童装选角方向，约6–10岁男孩，日常童装与自然儿童姿态。', child: true },
     { label: '混血感', description: '多元、鲜明', guidance: '多元商业选角审美，以示例的卷发、肤色和脸部轮廓作为可见外观灵感；不推断真实人物血统。' },
