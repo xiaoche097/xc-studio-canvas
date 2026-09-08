@@ -6,9 +6,9 @@ import { downloadImageFile, fetchImageBlob } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import ModelPresetPicker from './ModelPresetPicker';
 import FaceDirectionPicker from './FaceDirectionPicker';
-import { isChildModel, loadPresetReference, modelAdaptationBrief, modelRequestSettings } from '../constants/virtualModelPresets';
+import { isChildModel, modelAdaptationBrief, modelRequestSettings } from '../constants/virtualModelPresets';
 import './VirtualModelTab.css';
-import { DEFAULT_MODEL_PERSON, modelCastingBrief, modelFaceDirection, useTextOnlyModelPresets } from '../constants/virtualModelCasting';
+import { DEFAULT_MODEL_PERSON, modelCastingBrief, modelFaceDirection, modelVariationBrief } from '../constants/virtualModelCasting';
 import { modelFraming, framingReviewPrompt, parseFramingReview } from '../constants/modelFraming';
 import VirtualModelPlanCard from './VirtualModelPlanCard';
 import { BASE_OUTFIT, NATURAL_CASTING, FACE_VIEWS, FACE_SHEET_LAYOUT, PLAN_FIELDS, ModelPlan, parseModelPlan, modelPlanPrompt, faceDirectionBrief, referenceDirection } from '../constants/virtualModelPlan';
@@ -101,16 +101,12 @@ export default function VirtualModelTab() {
     const controller = new AbortController(); controllers.current.set(snapshot.id, controller);
     update(snapshot.id, { step: 1, error: '', results: [] });
     try {
-      const identityReferences = s.source === 'reference' ? snapshot.references : useTextOnlyModelPresets(s) ? [] : await Promise.all([loadPresetReference('person', s.person), loadPresetReference('style', s.style), loadPresetReference('age', s.age)]);
-      const photographyReferences = s.source === 'reference' || useTextOnlyModelPresets(s) ? [] : await Promise.all([
-        loadPresetReference('scope', s.scope), loadPresetReference('photography', s.photography),
-        ...s.actions.map(action => loadPresetReference('actions', action)),
-      ]);
-      const references = [...identityReferences, ...photographyReferences];
-      const roleMap = useTextOnlyModelPresets(s) ? 'No preset images are supplied. Build the subject, age, mood, framing, lighting and pose from the explicit text settings.' : s.source === 'reference' ? `${referenceDirection(s.referenceMode, s.fusionBias)} ${snapshot.references.map((ref, i) => `图${i + 1}=人物${s.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('；')}` : '图1=选角示例；图2=气质示例；图3=年龄示例。';
+      const references = s.source === 'reference' ? snapshot.references : [];
+      const roleMap = s.source === 'reference' ? `${referenceDirection(s.referenceMode, s.fusionBias)} ${snapshot.references.map((ref, i) => `图${i + 1}=人物${s.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('；')}` : '没有预设图片。人物、年龄、气质、取景、布光和动作全部按文字设置设计。';
+      const variation = modelVariationBrief(s, snapshot.traits ? JSON.stringify(snapshot.traits) : undefined);
       if (controller.signal.aborted) return;
       const plan = await generateText(references,
-        `你是写实虚拟模特设计师。观察参考，反推新人物设定。${roleMap} ${s.source === 'reference' ? '本次所有输入图片均为用户人物参考；取景、布光和动作只按文字设置，不存在其他示例图。' : '后续图仅为取景、布光与动作参考，不复制其中人物。'}${faceDirectionBrief(modelFaceDirection(s))}\n${modelCastingBrief(s)}\n${modelAdaptationBrief(s)}\n设置：${JSON.stringify(modelRequestSettings(s))}\n只输出JSON对象，必须包含这些字符串字段：${PLAN_FIELDS.map(([key, label]) => `${key}（${label}）`).join("、")}。用简短中文描述可执行的外貌特征。direction不超过80字，其他外貌字段每项20–45字，只写该字段的可见特征，不重复摄影规则、服装或生成指令。references逐图说明采用依据，融合时注明A/B来源。不确定的特征说明待确认。不要推理过程或Markdown。photography覆盖这些视角或动作：${(isFaceSheet ? FACE_VIEWS : outputActions).join("、")}。${isFaceSheet ? '仅生成1张2×2四宫格模卡，四格是同一个人的不同角度，不是四张独立图片。' : ''}。多视角保持同一个新人物、年龄、发型和布光条件，但允许眼神、眼睑张力、嘴角和碎发有轻微自然变化，不能将一致性写成表情僵硬固定。参考只提取个体特征，不把每项五官都美化成标准美人。不要默认精致底妆、玫瑰唇、雕塑波浪发或均匀发光皮肤。取景硬性要求：${modelFraming(s.scope, s.part, isFaceSheet)}自然试拍要求：${NATURAL_CASTING}统一着装：${BASE_OUTFIT}`);
+        `你是写实虚拟模特设计师。观察参考，反推新人物设定。${roleMap} ${s.source === 'reference' ? '本次所有输入图片均为用户人物参考；取景、布光和动作只按文字设置，不存在其他示例图。' : '内置示例仅在界面展示，不参与分析或生成。'}${faceDirectionBrief(modelFaceDirection(s))}\n${modelCastingBrief(s)}\n${variation}\n${modelAdaptationBrief(s)}\n设置：${JSON.stringify(modelRequestSettings(s))}\n只输出JSON对象，必须包含这些字符串字段：${PLAN_FIELDS.map(([key, label]) => `${key}（${label}）`).join("、")}。用简短中文描述可执行的外貌特征。direction不超过80字，其他外貌字段每项20–45字，只写该字段的可见特征，不重复摄影规则、服装或生成指令。references逐图说明采用依据，融合时注明A/B来源。不确定的特征说明待确认。不要推理过程或Markdown。photography覆盖这些视角或动作：${(isFaceSheet ? FACE_VIEWS : outputActions).join("、")}。${isFaceSheet ? '仅生成1张2×2四宫格模卡，四格是同一个人的不同角度，不是四张独立图片。' : ''}。多视角保持同一个新人物、年龄、发型和布光条件，但允许眼神、眼睑张力、嘴角和碎发有轻微自然变化，不能将一致性写成表情僵硬固定。参考只提取个体特征，不把每项五官都美化成标准美人。不要默认精致底妆、玫瑰唇、雕塑波浪发或均匀发光皮肤。取景硬性要求：${modelFraming(s.scope, s.part, isFaceSheet)}自然试拍要求：${NATURAL_CASTING}统一着装：${BASE_OUTFIT}`);
       if (!controller.signal.aborted) {
         if (!plan.trim()) throw new Error('分析未返回方案，请重试');
         const traits = parseModelPlan(plan);
@@ -135,19 +131,13 @@ export default function VirtualModelTab() {
         const existing = results.find(item => item.image)?.image;
         if (existing) identity = await imageReference(existing);
       }
-      const firstImageReferences = identity || userReferences.length || useTextOnlyModelPresets(snapshot.settings) ? [] : await Promise.all([loadPresetReference('person', snapshot.settings.person), loadPresetReference('style', snapshot.settings.style), loadPresetReference('age', snapshot.settings.age)]);
-      const photographyReference = userReferences.length || useTextOnlyModelPresets(snapshot.settings) ? undefined : await loadPresetReference('photography', snapshot.settings.photography);
       for (let index = 0; index < results.length; index++) {
         if (controller.signal.aborted) break;
         if (results[index].image) continue;
         try {
-          const actionReference = userReferences.length || useTextOnlyModelPresets(snapshot.settings) ? undefined : snapshot.settings.scope === '面部模特' && snapshot.settings.presentation !== '单张肖像'
-            ? await loadPresetReference('scope', '面部模特')
-            : await loadPresetReference('actions', results[index].action);
-          if (controller.signal.aborted) break;
-          const identityInputs = identity ? [identity] : userReferences.length ? userReferences : firstImageReferences;
-          const identityInstructions = identity ? 'Image 1 is the ONLY identity anchor: the already generated NEW fictional model. Preserve face, age, skin, hair and proportions. Any additional images, if present, are lighting and pose ONLY.' : userReferences.length ? `Images 1 through ${userReferences.length} are appearance inspirations, not outfits or identities to copy. ${referenceDirection(snapshot.settings.referenceMode, snapshot.settings.fusionBias)} ${userReferences.map((ref, i) => `Image ${i + 1}: person ${snapshot.settings.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('; ')} Create ONE coherent NEW fictional model with visual resemblance. There are no other reference images. Derive facial structure only from these user references and the explicit requested appearance direction.` : useTextOnlyModelPresets(snapshot.settings) ? 'No preset images are supplied. Follow the explicit casting and approved appearance. Use text settings for mood, age, lighting and pose.' : 'Images 1-3 provide casting, mood and age direction. Create ONE new fictional identity. Images 4-5 are lighting and pose ONLY. Never copy reference clothes.';
-          const [image] = await generateImageToImage([...identityInputs, ...(photographyReference ? [photographyReference] : []), ...(actionReference ? [actionReference] : [])],
+          const identityInputs = identity ? [identity] : userReferences;
+          const identityInstructions = identity ? 'Image 1 is the ONLY identity anchor: the already generated NEW fictional model. Preserve face, age, skin, hair and proportions. Any additional images, if present, are lighting and pose ONLY.' : userReferences.length ? `Images 1 through ${userReferences.length} are appearance inspirations, not outfits or identities to copy. ${referenceDirection(snapshot.settings.referenceMode, snapshot.settings.fusionBias)} ${userReferences.map((ref, i) => `Image ${i + 1}: person ${snapshot.settings.referenceMode === 'fusion' ? ref.group || 'A' : 'A'}`).join('; ')} Create ONE coherent NEW fictional model with visual resemblance. There are no other reference images. Derive facial structure only from these user references and the explicit requested appearance direction.` : 'No preset images are supplied. Follow the approved appearance. Use text settings for mood, age, lighting and pose.';
+          const [image] = await generateImageToImage(identityInputs,
             `${modelFraming(snapshot.settings.scope, snapshot.settings.part, isFaceSheet)}\n${isFaceSheet ? FACE_SHEET_LAYOUT : 'Create one natural casting photograph, before beauty retouching, no collage, no text or watermark.'} ${identityInstructions} Natural accurate anatomy. Children must be appropriately dressed in everyday clothing and age-appropriate poses.\n${identity ? '保持已生成的新模特面孔，不重新融合，不恢复原始参考人物。' : ''}\nApproved appearance: ${snapshot.traits ? modelPlanPrompt(snapshot.traits, modelFaceDirection(snapshot.settings)) : snapshot.plan + '\n' + NATURAL_CASTING}\n${faceDirectionBrief(modelFaceDirection(snapshot.settings))}\n${modelAdaptationBrief(snapshot.settings)}\n${modelCastingBrief(snapshot.settings)}\nMANDATORY OUTFIT: ${BASE_OUTFIT}\nTHIS IMAGE ONLY: ${results[index].action}. ${snapshot.settings.scope === '面部模特' && snapshot.settings.presentation !== '单张肖像' ? 'Keep the same identity and lighting setup while allowing subtle, relaxed microexpression and hair movement between exposures.' : ''} Frame exactly: ${snapshot.settings.scope}${snapshot.settings.scope === '试戴部位' ? `（${snapshot.settings.part} ONLY）` : ''}. Framing overrides the full-body pose reference; translate action to a local angle or gesture for body-part and face crops. ${isFaceSheet ? '' : 'Do not render other selected actions in this image.'}\n${modelFraming(snapshot.settings.scope, snapshot.settings.part, isFaceSheet)}`,
             { aspectRatio: snapshot.settings.ratio, resolution: snapshot.settings.resolution, modelId: snapshot.settings.model, hasModelRef: Boolean(identity || userReferences.length), signal: controller.signal });
           if (controller.signal.aborted) break;
@@ -227,7 +217,7 @@ export default function VirtualModelTab() {
               <p className="vm-caption">{s.referenceMode === 'fusion' ? '将两个人物分别标记为 A、B，同一人物的补充图使用相同分组。' : '第1张为主要外貌参考，其余补充同人物角度，生成有相似感的新模特。'}</p>
             </>}
             {s.source === 'ai' && <><ModelPresetPicker kind="style" value={s.style} onChange={style => change({ style })} /><ModelPresetPicker kind="age" value={s.age} onChange={age => change({ age })} childOnly={isChildModel(s.person)} /></>}
-            <p className="vm-adaptation-note"><Sparkles size={14} />{s.source === 'reference' ? '提取参考外貌与气质，重新设计新面孔，不沿用参考服装和配饰。' : 'Agent 将结合参考图，适配人物、妆发、年龄与拍摄范围。'}</p>
+            <p className="vm-adaptation-note"><Sparkles size={14} />{s.source === 'reference' ? '提取参考外貌与气质，重新设计新面孔，不沿用参考服装和配饰。' : '按所选条件随机设计新人物；重新分析可换一版，同组照片保持同一人。'}</p>
           </section>
           <section className="vm-card"><div className="vm-section-title"><span><Camera size={20} /></span><div><h2>摄影控制</h2><p>取景、动作与画面规格</p></div></div>
             <ModelPresetPicker kind="scope" value={s.scope} onChange={scope => change({ scope })} />

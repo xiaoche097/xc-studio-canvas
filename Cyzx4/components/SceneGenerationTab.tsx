@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Brain,
+  Crop,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -56,6 +57,7 @@ import type {
 import { ModelLibraryModal } from './ModelLibraryModal';
 import { getPrimaryModelReference, modelLibrary, ModelItem } from '../services/modelLibrary';
 import './SceneGenerationTab.css';
+import ImageCropModal from './ImageCropModal';
 
 export type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset' | 'mobile';
 
@@ -173,6 +175,7 @@ export interface SceneGenerationRecord {
   cropFraming: CropFramingId;
   productImages: SceneUploadedImage[];
   referenceSceneImage: SceneUploadedImage | null;
+  referenceSceneOriginal?: { url: string; file: File };
   refSceneLockMode?: 'scene_pose' | 'scene_light_only';
   userHint: string;
   productSize: string;
@@ -887,6 +890,8 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
   const [modelPersonas, setModelPersonas] = useState<ModelItem[]>([]);
   const [customStyles, setCustomStyles] = useState<EcommerceCustomStyle[]>([]);
   const [styleMutationError, setStyleMutationError] = useState('');
+  const [sceneCrop, setSceneCrop] = useState<{ recordId: string; url: string; file: File } | null>(null);
+  const sceneUploadVersion = useRef(0);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const [selectionModal, setSelectionModal] = useState<'ratio' | 'board' | 'crop' | null>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -1036,23 +1041,51 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      patchActive({ error: '单张图片不能超过 5MB。' });
+      patchActive({ error: '单张图片不能超过 30MB。' });
       return;
     }
+    const version = ++sceneUploadVersion.current;
+    const recordId = activeRecord.id;
+    try {
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('参考图读取失败，请重试。'));
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImage(file, 2048, 0.92);
+      if (version !== sceneUploadVersion.current) return;
+      const uploaded: SceneUploadedImage = {
+        id: crypto.randomUUID(), name: file.name, mime: compressed.mime,
+        base64: compressed.base64, preview: `data:${compressed.mime};base64,${compressed.base64}`,
+      };
+      updateRecord(recordId, record => record.step === 'analyzing' || record.step === 'generating' ? record : ({
+        ...record, referenceSceneImage: uploaded, referenceSceneOriginal: { url, file },
+        analysis: null, results: [], step: 'input', error: '',
+      }));
+    } catch (error) {
+      updateRecord(recordId, record => ({ ...record, error: getErrorMessage(error) }));
+    }
+  }, [isBusy, patchActive, activeRecord.id, updateRecord]);
+
+  const applySceneCrop = async (file: File, temporaryUrl: string) => {
+    const target = sceneCrop;
+    if (!target) { URL.revokeObjectURL(temporaryUrl); return; }
     try {
       const compressed = await compressImage(file, 2048, 0.92);
-      const uploaded: SceneUploadedImage = {
-        id: crypto.randomUUID(),
-        name: file.name,
-        mime: compressed.mime,
-        base64: compressed.base64,
-        preview: `data:${compressed.mime};base64,${compressed.base64}`,
-      };
-      patchActive({ referenceSceneImage: uploaded, analysis: null, results: [], step: 'input', error: '' });
+      const uploaded: SceneUploadedImage = { id: crypto.randomUUID(), name: file.name, mime: compressed.mime, base64: compressed.base64, preview: `data:${compressed.mime};base64,${compressed.base64}` };
+      updateRecord(target.recordId, record => record.step === 'analyzing' || record.step === 'generating' ? record : ({ ...record, referenceSceneImage: uploaded, referenceSceneOriginal: { url: target.url, file: target.file }, analysis: null, results: [], step: 'input', error: '' }));
     } catch (error) {
-      patchActive({ error: getErrorMessage(error) });
-    }
-  }, [isBusy, patchActive]);
+      updateRecord(target.recordId, record => ({ ...record, error: getErrorMessage(error) }));
+      throw error;
+    } finally { URL.revokeObjectURL(temporaryUrl); }
+  };
+
+  const editSceneCrop = () => {
+    if (isBusy || !activeRecord.referenceSceneImage) return;
+    const original = activeRecord.referenceSceneOriginal || { url: activeRecord.referenceSceneImage.preview, file: new File([], activeRecord.referenceSceneImage.name) };
+    setSceneCrop({ recordId: activeRecord.id, ...original });
+  };
 
   const processInstagramReferenceFiles = useCallback(async (files: File[]) => {
     if (!isInstagramExperience || isBusy) return;
@@ -1176,7 +1209,7 @@ const SceneGenerationTab: React.FC<SceneGenerationTabProps> = ({ isActive = true
       error: '',
     };
   });
-  const removeRefSceneImage = () => patchActive({ referenceSceneImage: null, analysis: null, results: [], error: '' });
+  const removeRefSceneImage = () => patchActive({ referenceSceneImage: null, referenceSceneOriginal: undefined, analysis: null, results: [], step: 'input', error: '' });
 
   const startNewRecord = () => {
     if (isBusy) return;
@@ -1847,6 +1880,7 @@ Return ONLY JSON:
                 >
                   <Maximize2 className="h-4 w-4" />
                 </button>
+                <button type="button" disabled={isBusy} onClick={editSceneCrop} className="absolute left-12 top-2 flex h-8 items-center gap-1.5 rounded-lg bg-[#17243c]/85 px-3 text-xs font-bold text-white shadow disabled:opacity-50" aria-label="裁剪场景参考图"><Crop className="h-4 w-4" />裁剪</button>
                 <button
                   type="button"
                   disabled={isBusy}
@@ -1889,7 +1923,7 @@ Return ONLY JSON:
           >
             <WandSparkles className={`h-6 w-6 ${isDraggingRefScene ? 'text-[#ed6d46] scale-110' : 'text-[#ed6d46]'} transition-transform`} />
             <span className="mt-2 text-sm font-black text-[#17243c]">拖拽、点击或Ctrl+V粘贴参考图</span>
-            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤30MB · 自动分析构图与光影</span>
+            <span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张≤30MB · 上传后可裁剪参考范围</span>
           </button>
         )}
         <input
@@ -2510,6 +2544,7 @@ Return ONLY JSON:
           </div>
         </div>
       )}
+      {sceneCrop && <ImageCropModal key={sceneCrop.url} target={sceneCrop} onClose={() => setSceneCrop(null)} onConfirmCrop={applySceneCrop} />}
       {selectedPreview && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-4" onClick={() => setSelectedPreview(null)}><button type="button" onClick={() => setSelectedPreview(null)} className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white" aria-label="关闭预览"><X className="h-6 w-6" /></button><img src={selectedPreview} alt="生成场景图大图预览" className="max-h-[88vh] max-w-full rounded-xl object-contain" /></div>}
     </div>
   );

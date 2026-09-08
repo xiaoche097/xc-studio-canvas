@@ -3,7 +3,7 @@ import { Check, ChevronDown, ScanFace, X } from 'lucide-react';
 
 const OPTIONS = [
   { value: '', label: '跟随参考', description: '以你上传的人物外貌为准', badge: '默认' },
-  ...['欧美／欧洲', '东亚', '南亚', '中东', '非洲', '拉美'].map(label => ({ value: `${label}面孔方向`, label: `${label}方向`, description: '结合参考中的个体特征创作', badge: '' })),
+  ...['欧美／欧洲', '东亚', '南亚', '中东', '非洲', '拉美'].map(label => ({ value: `${label}面孔方向`, label: `${label}方向`, description: '方向内自然变化，保留参考特点', badge: '' })),
 ];
 
 export default function FaceDirectionPicker({ value = '', onChange }: { value?: string; onChange: (value: string) => void }) {
@@ -32,7 +32,7 @@ export default function FaceDirectionPicker({ value = '', onChange }: { value?: 
     <small className="vm-caption">选择新模特的外貌方向，默认跟随参考。</small>
     {open && <div className="vm-picker-overlay" onClick={event => { if (event.target === event.currentTarget) setOpen(false); }}><div ref={dialog} className="vm-picker-dialog vm-face-direction-dialog" role="dialog" aria-modal="true" aria-label="选择面孔方向">
       <header><h2>选择面孔方向</h2><button type="button" className="vm-icon" aria-label="关闭面孔方向选择" onClick={() => setOpen(false)}><X size={17} /></button></header>
-      <div className="vm-picker-body"><p className="vm-caption">指定新虚构模特的创作方向，仍保留参考中的个体差异。</p>
+      <div className="vm-picker-body"><p className="vm-caption">限定外貌方向，不固定一张脸。重新分析可探索新的五官组合，同组照片保持同一人。</p>
         <div className="vm-face-direction-grid" role="radiogroup" aria-label="面孔方向选项" onKeyDown={event => {
           if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();

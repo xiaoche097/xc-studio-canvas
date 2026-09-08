@@ -2,13 +2,13 @@ import { BASE_OUTFIT, referenceDirection } from './virtualModelPlan';
 export type ModelPresetKind = 'person' | 'style' | 'age' | 'scope' | 'actions' | 'photography';
 export type ModelPreset = { label: string; description: string; guidance: string; child?: boolean };
 export const MODEL_PRESETS: Record<ModelPresetKind, { title: string; image: string; columns: number; rows: number; items: ModelPreset[] }> = {
-  scope: { title: '选择生成范围', image: './virtual-model/scopes.png', columns: 2, rows: 2, items: [
+  scope: { title: '选择生成范围', image: './virtual-model/scopes-mannequin.png', columns: 2, rows: 2, items: [
     { label: '全身模特', description: '从头到脚入镜', guidance: '完整头顶到脚底入镜，保留边距，不裁切四肢。' },
     { label: '半身模特', description: '腰部以上取景', guidance: '腰部以上构图，保留完整头部，合理安排双手。' },
     { label: '面部模特', description: '头像 / 特写', guidance: '头部与面部近景，保持五官、发际线与真实皮肤细节。' },
     { label: '试戴部位', description: '耳、手、颈等局部', guidance: '仅取指定耳、手、颈或脚部，突出解剖结构与佩戴空间，不替换为全身。' },
   ] },
-  actions: { title: '选择动作（多选）', image: './virtual-model/actions.png', columns: 3, rows: 3, items: [
+  actions: { title: '选择动作（多选）', image: './virtual-model/actions-mannequin.png', columns: 3, rows: 3, items: [
     { label: '自然站立', description: '放松、自然', guidance: '自然站立，重心稳定，双臂放松。' },
     { label: '插兜', description: '轻松、利落', guidance: '单手或双手自然插兜，衣物受力合理。' },
     { label: '行走', description: '轻快步态', guidance: '自然迈步，手臂轻摆，保持人体平衡。' },
@@ -19,7 +19,7 @@ export const MODEL_PRESETS: Record<ModelPresetKind, { title: string; image: stri
     { label: '跳跃', description: '轻盈、舒展', guidance: '轻盈跳起，四肢舒展，身体重心和衣物动态合理。' },
     { label: '伸懒腰', description: '舒展、松弛', guidance: '双臂自然向上伸展，肩颈放松，保留完整关节。' },
   ] },
-  photography: { title: '选择摄影风格', image: './virtual-model/photography.png', columns: 3, rows: 3, items: [
+  photography: { title: '选择摄影风格', image: './virtual-model/photography-mannequin.png', columns: 3, rows: 3, items: [
     { label: '电商白底', description: '干净白底、商品主图', guidance: '纯白无缝背景，均匀真实布光，清晰呈现人物与商品。' },
     { label: '极简纯色', description: '低干扰背景', guidance: '统一低饱和纯色背景，无多余装饰，主体轮廓清楚。' },
     { label: '柔光棚拍', description: '柔和布光、肤质友好', guidance: '大面积柔光，柔和阴影，保留真实皮肤纹理。' },
