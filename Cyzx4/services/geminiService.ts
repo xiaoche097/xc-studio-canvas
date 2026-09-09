@@ -1567,7 +1567,7 @@ export const generateImageToImage = async (
         lastVirseError = error;
         const message = error?.message || String(error);
         const isTransientUpstreamFailure = /\b50[234]\b|no healthy upstream|service unavailable|bad gateway/i.test(message);
-        if (!isTransientUpstreamFailure || candidateIndex === modelCandidates.length - 1) {
+        if (error?.artifactVersionId || !isTransientUpstreamFailure || candidateIndex === modelCandidates.length - 1) {
           throw new Error(`Virse 模型 ${candidateModel} 生成失败：${message}`);
         }
         await new Promise((resolve) => setTimeout(resolve, 600));

@@ -1,3 +1,5 @@
+import { isRateLimitError } from './requestErrors.ts';
+
 export interface VirseWorkspace {
   space_id: string;
   canvas_id: string;
@@ -21,7 +23,9 @@ const callVirse = async <T = unknown>(apiKey: string, baseUrl: string, tool: str
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || `Virse 连接失败（HTTP ${response.status}）`);
+    throw Object.assign(new Error(payload?.error || `Virse 连接失败（HTTP ${response.status}）`), {
+      status: response.status,
+    });
   }
   return payload.data as T;
 };
@@ -261,13 +265,30 @@ export const generateVirseImage = async (options: {
 
   options.onStatus?.('polling');
   // Virse may keep complex image edits in processing for several minutes.
-  // Poll for up to five minutes instead of failing after roughly two minutes.
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  // Keep polling the accepted task through short upstream outages. Never submit
+  // a replacement generation just because a read of its status failed.
+  const deadline = Date.now() + 5 * 60 * 1000;
+  let readFailures = 0;
+  for (let attempt = 0; attempt < 60 && Date.now() < deadline; attempt += 1) {
     if (options.signal?.aborted) throw new DOMException('Generation cancelled', 'AbortError');
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    const detail = await callVirse<unknown>(options.apiKey, options.baseUrl, 'get_asset_detail', {
-      artifact_version_id: artifactVersionId,
-    });
+    await new Promise((resolve) => setTimeout(resolve, Math.min(5000 * 2 ** readFailures, 30000)));
+    if (options.signal?.aborted) throw new DOMException('Generation cancelled', 'AbortError');
+    if (Date.now() >= deadline) break;
+    let detail: unknown;
+    try {
+      detail = await callVirse<unknown>(options.apiKey, options.baseUrl, 'get_asset_detail', {
+        artifact_version_id: artifactVersionId,
+      });
+      readFailures = 0;
+    } catch (error) {
+      const failure = error as Error & { status?: number };
+      const transient = isRateLimitError(failure) || [502, 503, 504].includes(failure.status || 0);
+      if (transient && ++readFailures <= 3) continue;
+      throw Object.assign(new Error(`Virse 任务已提交，但查询状态失败；请到所选画布查看，避免重复生成：${failure.message}`), {
+        artifactVersionId,
+        status: failure.status,
+      });
+    }
     const status = findVirseStatus(detail);
     if (/^(failed|failure|error|cancelled|canceled|rejected)$/.test(status)) {
       throw new Error(`Virse 图片生成失败：${summarizeVirseFailure(detail, artifactVersionId, status)}`);

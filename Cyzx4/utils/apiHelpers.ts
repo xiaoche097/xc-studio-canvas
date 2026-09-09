@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { isRateLimitError } from "../../services/requestErrors";
 import { DEFAULT_XIAOCHE_BASE_URL } from "./xiaocheModels";
 import {
     DEFAULT_DEEPSEEK_BASE_URL,
@@ -1125,8 +1126,13 @@ export function getErrorMessage(error: any): string {
         return '❌ API Key 未配置或已失效\n请检查您的 API Key 是否正确填写或已被禁用。';
     }
 
+    // Keep accepted-task diagnostics visible so users do not resubmit a running job.
+    if (errorMsg.includes('Virse 任务已提交')) {
+        return `⚠️ 状态查询暂时失败\n${errorMsg}`;
+    }
+
     // 请求频率限制
-    if (errorMsg.includes('rate') || errorMsg.includes('too many requests')) {
+    if (isRateLimitError({ status: errorStatus, message: errorMsg })) {
         return '🚦 请求过快\n请等待几秒后重试';
     }
 

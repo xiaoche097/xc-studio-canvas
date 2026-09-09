@@ -1753,133 +1753,6 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                     </div>
                   </div>
 
-                  {/* 搭配素材：鞋、包、首饰等不会参与上下装结构判断。 */}
-                  <div
-                    onMouseEnter={() => setActiveUploadTarget('accessory')}
-                    onClick={() => setActiveUploadTarget('accessory')}
-                    className={`rounded-[1.5rem] border bg-white p-4 shadow-xs transition-all dark:bg-[#11151c] ${
-                      activeUploadTarget === 'accessory'
-                        ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/30'
-                        : 'border-pastel-border'
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Gem className="h-4 w-4 text-amber-500" />
-                        <span className="text-xs font-black text-pastel-text">
-                          上传 / 拖拽 / 粘贴【搭配】（可选）
-                        </span>
-                      </div>
-                      <span className="text-xs font-bold text-pastel-muted">
-                        {accessoryImages.length} / 6 张
-                      </span>
-                    </div>
-
-                    <p className="mb-3 text-[0.68rem] leading-5 text-pastel-muted">
-                      支持鞋子、包、帽子、腰带、项链、耳饰、手表等配饰；建议使用单品白底图。
-                    </p>
-
-                    <div
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        setIsDraggingAccessory(true);
-                      }}
-                      onDragLeave={() => setIsDraggingAccessory(false)}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        setIsDraggingAccessory(false);
-                        if (event.dataTransfer.files?.length) {
-                          handleUploadTarget(event.dataTransfer.files, 'accessory');
-                        }
-                      }}
-                      className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-3 text-center transition ${
-                        isDraggingAccessory
-                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10'
-                          : 'border-amber-300 bg-amber-50/60 hover:border-amber-500 dark:border-amber-500/30 dark:bg-amber-500/5'
-                      }`}
-                    >
-                      {accessoryImages.length > 0 ? (
-                        <div className="w-full">
-                          <div className="no-scrollbar flex items-center justify-center gap-3 overflow-x-auto p-1">
-                            {accessoryImages.map((image, index) => (
-                              <div
-                                key={image.id || index}
-                                className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
-                              >
-                                <AngleBadgeButton
-                                  angle={image.angle}
-                                  onClick={() => setAngleModal({ target: 'accessory', index: index, currentAngle: image.angle || 'front' })}
-                                />
-                                <img
-                                  src={image.preview}
-                                  alt={`Accessory ${index + 1}`}
-                                  onClick={() => setZoomedImage(image.preview)}
-                                  className="h-full w-full cursor-pointer object-cover"
-                                  title="点击放大预览"
-                                />
-                                <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
-                                  #{index + 1}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    updateCurrentTask((task) => ({
-                                      ...task,
-                                      accessoryImages: (task.accessoryImages ?? []).filter((_, itemIndex) => itemIndex !== index),
-                                    }));
-                                  }}
-                                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition group-hover:opacity-100"
-                                  aria-label={`移除搭配素材 ${index + 1}`}
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ))}
-
-                            {accessoryImages.length < 6 && (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  accessoryInputRef.current?.click();
-                                }}
-                                className="flex h-36 w-28 shrink-0 flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300 text-amber-500 transition hover:border-amber-500"
-                                aria-label="继续添加搭配素材"
-                              >
-                                <Plus className="h-6 w-6" />
-                              </button>
-                            )}
-                          </div>
-                          <p className="mt-2 text-[0.68rem] font-bold text-pastel-muted">
-                            配饰将按类别放到脚部、肩部、手腕、颈部等正确位置
-                          </p>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            accessoryInputRef.current?.click();
-                          }}
-                          className="flex flex-col items-center justify-center py-3"
-                        >
-                          <Upload className="mb-1.5 h-6 w-6 text-amber-500" />
-                          <span className="text-xs font-bold text-pastel-text">
-                            点击、拖拽或粘贴鞋包与饰品素材
-                          </span>
-                        </button>
-                      )}
-                      <input
-                        ref={accessoryInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={(event) => event.target.files && handleUploadTarget(event.target.files, 'accessory')}
-                      />
-                    </div>
-                  </div>
                 </div>
               ) : null}
 
@@ -2030,6 +1903,137 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                       multiple
                       className="hidden"
                       onChange={(e) => e.target.files && handleUploadTarget(e.target.files, 'full')}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Shared accessories for both model clothing modes. */}
+              {currentTask.subMode === 'model' && (
+                <div
+                  onMouseEnter={() => setActiveUploadTarget('accessory')}
+                  onClick={() => setActiveUploadTarget('accessory')}
+                  onFocusCapture={() => setActiveUploadTarget('accessory')}
+                  className={`rounded-[1.5rem] border bg-white p-4 shadow-xs transition-all dark:bg-[#11151c] ${
+                    activeUploadTarget === 'accessory'
+                      ? 'border-[#ed6d46] ring-1 ring-[#ed6d46]/30'
+                      : 'border-pastel-border'
+                  }`}
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Gem className="h-4 w-4 text-amber-500" />
+                      <span className="text-xs font-black text-pastel-text">
+                        上传 / 拖拽 / 粘贴【搭配】（可选）
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold text-pastel-muted">
+                      {accessoryImages.length} / 6 张
+                    </span>
+                  </div>
+
+                  <p className="mb-3 text-[0.68rem] leading-5 text-pastel-muted">
+                    支持鞋子、包、帽子、腰带、项链、耳饰、手表等配饰；建议使用单品白底图。
+                  </p>
+
+                  <div
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDraggingAccessory(true);
+                    }}
+                    onDragLeave={() => setIsDraggingAccessory(false)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setIsDraggingAccessory(false);
+                      if (event.dataTransfer.files?.length) {
+                        handleUploadTarget(event.dataTransfer.files, 'accessory');
+                      }
+                    }}
+                    className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-3 text-center transition ${
+                      isDraggingAccessory
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10'
+                        : 'border-amber-300 bg-amber-50/60 hover:border-amber-500 dark:border-amber-500/30 dark:bg-amber-500/5'
+                    }`}
+                  >
+                    {accessoryImages.length > 0 ? (
+                      <div className="w-full">
+                        <div className="no-scrollbar flex items-center justify-center gap-3 overflow-x-auto p-1">
+                          {accessoryImages.map((image, index) => (
+                            <div
+                              key={image.id || index}
+                              className="group relative h-36 w-28 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-white/10 dark:bg-slate-800"
+                            >
+                              <AngleBadgeButton
+                                angle={image.angle}
+                                onClick={() => setAngleModal({ target: 'accessory', index: index, currentAngle: image.angle || 'front' })}
+                              />
+                              <img
+                                src={image.preview}
+                                alt={`Accessory ${index + 1}`}
+                                onClick={() => setZoomedImage(image.preview)}
+                                className="h-full w-full cursor-pointer object-cover"
+                                title="点击放大预览"
+                              />
+                              <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[0.62rem] font-bold text-white">
+                                #{index + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  updateCurrentTask((task) => ({
+                                    ...task,
+                                    accessoryImages: (task.accessoryImages ?? []).filter((_, itemIndex) => itemIndex !== index),
+                                  }));
+                                }}
+                                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition group-hover:opacity-100"
+                                aria-label={`移除搭配素材 ${index + 1}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+
+                          {accessoryImages.length < 6 && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                accessoryInputRef.current?.click();
+                              }}
+                              className="flex h-36 w-28 shrink-0 flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300 text-amber-500 transition hover:border-amber-500"
+                              aria-label="继续添加搭配素材"
+                            >
+                              <Plus className="h-6 w-6" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="mt-2 text-[0.68rem] font-bold text-pastel-muted">
+                          配饰将按类别放到脚部、肩部、手腕、颈部等正确位置
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          accessoryInputRef.current?.click();
+                        }}
+                        className="flex flex-col items-center justify-center py-3"
+                      >
+                        <Upload className="mb-1.5 h-6 w-6 text-amber-500" />
+                        <span className="text-xs font-bold text-pastel-text">
+                          点击、拖拽或粘贴鞋包与饰品素材
+                        </span>
+                      </button>
+                    )}
+                    <input
+                      ref={accessoryInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => event.target.files && handleUploadTarget(event.target.files, 'accessory')}
                     />
                   </div>
                 </div>

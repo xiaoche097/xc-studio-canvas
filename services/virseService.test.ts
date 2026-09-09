@@ -1,6 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findVirseWorkspace, getVirseWorkspaceDiagnostic, isVirseCanvasAvailable, listVirseWorkspaces } from './virseService.ts';
+import { findVirseWorkspace, generateVirseImage, getVirseWorkspaceDiagnostic, isVirseCanvasAvailable, listVirseWorkspaces } from './virseService.ts';
+
+for (const status of [429, 502, 401]) {
+  test(`polling handles HTTP ${status} without resubmitting generation`, async (t) => {
+    const delays: number[] = [];
+    const realTimeout = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+      delays.push(delay);
+      return realTimeout(callback, 0);
+    });
+    let submissions = 0;
+    let reads = 0;
+    t.mock.method(globalThis, 'fetch', async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.tool === 'generate_image') {
+        submissions++;
+        return Response.json({ data: { artifact_version_id: 'accepted-task', status: 'processing' } });
+      }
+      assert.equal(request.tool, 'get_asset_detail');
+      assert.equal(request.args.artifact_version_id, 'accepted-task');
+      reads++;
+      if (reads === 1 || status !== 502) return Response.json({ error: 'upstream unavailable' }, { status });
+      return Response.json({ data: { status: 'completed', image_url: 'https://example.com/result.png' } });
+    });
+    const result = generateVirseImage({ apiKey: 'test-key', baseUrl: 'https://api.virse.ai', spaceId: 's', canvasId: 'c', model: 'test', prompt: 'test', aspectRatio: '2:3', resolution: '2K' });
+    if (status === 502) {
+      assert.deepEqual(await result, ['https://example.com/result.png']);
+      assert.deepEqual(delays, [5000, 10000]);
+    } else {
+      await assert.rejects(result, (error: any) => error.artifactVersionId === 'accepted-task' && error.status === status);
+      assert.equal(reads, status === 429 ? 4 : 1);
+    }
+    assert.equal(submissions, 1);
+  });
+}
 
 test('keeps the selected workspace regardless of list order and never picks a replacement', () => {
   const first = { space_id: 'space-a', canvas_id: 'canvas-a' };
