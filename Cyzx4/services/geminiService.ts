@@ -3002,13 +3002,25 @@ export const generateInpainting = async (
     const references = [
       sourceImage,
       maskImage,
+      ...(options.editMapImage ? [options.editMapImage] : []),
       ...(options.refImages || []),
       ...(options.fabricRefImages || []),
       ...(options.colorRefImages || []),
       ...(options.structureRefImages || []),
-      ...(options.editMapImage ? [options.editMapImage] : []),
     ];
-    return generateImageToImage(references, `局部重绘任务：${prompt}`, {
+    const virseMaskContract = options.editMapImage
+      ? `[MASK-GUIDED EDIT CONTRACT — FOLLOW IMAGE ROLES EXACTLY]
+Reference Image 1 is the untouched source photograph and immutable base canvas.
+Reference Image 2 is a binary mask: WHITE pixels are the only editable region; BLACK pixels must remain unchanged.
+Reference Image 3 is the source photograph with a colored paint overlay showing the exact same editable region. The paint is an instruction overlay only: do not reproduce its color or marks in the result.
+Reference Images 4+ are product or style references. Use them only inside the painted/white region.
+Perform an in-place edit of Image 1. Preserve all pixels, pose, identity, camera, crop, background and lighting outside the marked region. Never ignore, broaden, invert or reinterpret the mask.`
+      : `[MASK-GUIDED EDIT CONTRACT — FOLLOW IMAGE ROLES EXACTLY]
+Reference Image 1 is the untouched source photograph and immutable base canvas.
+Reference Image 2 is a binary mask: WHITE pixels are the only editable region; BLACK pixels must remain unchanged.
+Reference Images 3+ are product or style references. Use them only inside the white region.
+Perform an in-place edit of Image 1 and preserve everything outside the mask.`;
+    return generateImageToImage(references, `${virseMaskContract}\n\n${prompt}`, {
       aspectRatio: options.aspectRatio || AspectRatio.SQUARE,
       resolution: options.resolution || ImageResolution.RES_2K,
       modelId: options.modelId,
@@ -5606,6 +5618,54 @@ export interface UniversalTryOnProductImage {
   angle?: 'front' | 'back' | 'side' | 'detail' | 'outfit';
 }
 
+const buildPaintedEditMap = async (
+  source: { base64: string; mime: string },
+  maskBase64: string,
+): Promise<string | undefined> => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+  const loadImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load mask edit-map image'));
+    image.src = url;
+  });
+  try {
+    const [sourceImage, maskImage] = await Promise.all([
+      loadImage(`data:${source.mime};base64,${source.base64}`),
+      loadImage(`data:image/png;base64,${maskBase64}`),
+    ]);
+    const width = sourceImage.naturalWidth || sourceImage.width;
+    const height = sourceImage.naturalHeight || sourceImage.height;
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = width;
+    overlayCanvas.height = height;
+    const overlayContext = overlayCanvas.getContext('2d');
+    if (!overlayContext) return undefined;
+    overlayContext.drawImage(maskImage, 0, 0, width, height);
+    const overlayPixels = overlayContext.getImageData(0, 0, width, height);
+    for (let index = 0; index < overlayPixels.data.length; index += 4) {
+      const luminance = (overlayPixels.data[index] + overlayPixels.data[index + 1] + overlayPixels.data[index + 2]) / 3;
+      overlayPixels.data[index] = 239;
+      overlayPixels.data[index + 1] = 68;
+      overlayPixels.data[index + 2] = 68;
+      overlayPixels.data[index + 3] = luminance > 127 ? 165 : 0;
+    }
+    overlayContext.putImageData(overlayPixels, 0, 0);
+
+    const compositeCanvas = document.createElement('canvas');
+    compositeCanvas.width = width;
+    compositeCanvas.height = height;
+    const compositeContext = compositeCanvas.getContext('2d');
+    if (!compositeContext) return undefined;
+    compositeContext.drawImage(sourceImage, 0, 0, width, height);
+    compositeContext.drawImage(overlayCanvas, 0, 0);
+    return compositeCanvas.toDataURL('image/png').split(',')[1];
+  } catch (error) {
+    console.warn('[UniversalTryOn] Failed to rebuild painted edit map from legacy mask:', error);
+    return undefined;
+  }
+};
+
 export const generateUniversalTryOn = async (
   productImages: UniversalTryOnProductImage[],
   modelReference: {
@@ -5613,6 +5673,8 @@ export const generateUniversalTryOn = async (
     mime: string;
     targetMaskBase64?: string;
     targetMaskMime?: string;
+    targetEditMapBase64?: string;
+    targetEditMapMime?: string;
   } | null,
   subMode: 'model' | 'mannequin' | 'shoes' = 'model',
   customPrompt?: string,
@@ -5631,8 +5693,16 @@ export const generateUniversalTryOn = async (
 
   const hasModelRef = !!modelReference;
   const hasTargetMask = Boolean(modelReference?.targetMaskBase64);
+  const targetEditMapBase64 = modelReference?.targetEditMapBase64
+    || (modelReference?.targetMaskBase64
+      ? await buildPaintedEditMap(
+          { base64: modelReference.base64, mime: modelReference.mime },
+          modelReference.targetMaskBase64,
+        )
+      : undefined);
+  const hasTargetEditMap = Boolean(targetEditMapBase64);
   const isCroppingLocked = hasModelRef && (lockCropping || hasTargetMask);
-  const firstProductImageIndex = hasModelRef ? (hasTargetMask ? 3 : 2) : 1;
+  const firstProductImageIndex = hasModelRef ? (hasTargetMask ? (hasTargetEditMap ? 4 : 3) : 2) : 1;
   const productRoleLabels: Record<UniversalTryOnProductRole, string> = {
     top: 'TOP GARMENT reference (replace upper-body clothing only)',
     bottom: 'BOTTOM GARMENT reference (replace lower-body clothing only)',
@@ -5763,10 +5833,11 @@ You MUST process the input through these 8 distinct phases:
 ## INPUT IMAGE MAP — FOLLOW THESE ROLES EXACTLY
 ${hasModelRef ? '- Image 1: TARGET MODEL / IMMUTABLE BASE CANVAS (highest priority)' : '- No target model image: generate a suitable model.'}
 ${hasTargetMask ? '- Image 2: BINARY USER-PAINTED TARGET MASK (WHITE = the only editable try-on region; BLACK = immutable source pixels).' : ''}
+${hasTargetEditMap ? '- Image 3: PAINTED EDIT MAP (Image 1 with a colored instruction overlay). The colored paint marks the editable region only and must not appear in the output.' : ''}
 ${inputImageMap}
 
 Do not infer image roles from visual similarity. An ACCESSORY image must never replace a top or bottom garment.
-${hasTargetMask ? `USER-PAINTED MASK CONTRACT (ABSOLUTE): The WHITE pixels in Image 2 are the user-authorized replacement region. Modify only that white region, plus at most a minimal anti-aliased seam blend at its boundary. Every BLACK pixel must remain identical to Image 1. The mask overrides requests to restage, beautify, expand, relight, recrop or alter any other part of the image.` : ''}
+${hasTargetMask ? `USER-PAINTED MASK CONTRACT (ABSOLUTE): The WHITE pixels in Image 2 are the user-authorized replacement region. Modify only that white region, plus at most a minimal anti-aliased seam blend at its boundary. Every BLACK pixel must remain identical to Image 1. ${hasTargetEditMap ? 'Image 3 visually confirms the same authorized region; use its colored overlay only as spatial guidance and never render the paint itself.' : ''} The mask overrides requests to restage, beautify, expand, relight, recrop or alter any other part of the image.` : ''}
 ${hasModelRef ? `IMAGE 1 AUTHORITY HIERARCHY: Image 1 has absolute highest authority for the person, identity, body geometry, pose, camera, crop, background, lighting, shadows, visibility and all non-target content. Product Images ${firstProductImageIndex}+ have authority only for the explicitly labeled wearable item's design. If any product image contains a person, mannequin, body, pose, hands, face, scene, styling or background, ignore those carrier attributes completely. Never let product images replace, reinterpret, beautify or restage the model from Image 1.` : ''}
 ${hasModelRef ? `
 MODEL-FIRST EXECUTION ORDER (MANDATORY):
@@ -5844,6 +5915,10 @@ ${preservationContract}
             base64: image.base64,
             mimeType: image.mime,
           })),
+          editMapImage: targetEditMapBase64 ? {
+            base64: targetEditMapBase64,
+            mimeType: 'image/png',
+          } : undefined,
           signal,
         },
       );
@@ -5868,6 +5943,14 @@ ${preservationContract}
           data: modelReference.targetMaskBase64,
         },
       });
+      if (targetEditMapBase64) {
+        parts.push({
+          inlineData: {
+            mimeType: 'image/png',
+            data: targetEditMapBase64,
+          },
+        });
+      }
     }
   }
 

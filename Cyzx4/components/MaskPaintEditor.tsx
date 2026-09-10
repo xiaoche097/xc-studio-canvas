@@ -34,6 +34,7 @@ const hexToRgba = (hex: string, alpha: number) => {
 export type SavedPaintMask = {
   base64?: string;
   preview?: string;
+  composite?: string;
   opacity: number;
 };
 
@@ -320,9 +321,20 @@ const MaskPaintEditor: React.FC<MaskPaintEditorProps> = ({
     previewContext.globalAlpha = brushOpacity;
     previewContext.drawImage(paintCanvas, 0, 0);
 
+    const compositeCanvas = document.createElement('canvas');
+    compositeCanvas.width = paintCanvas.width;
+    compositeCanvas.height = paintCanvas.height;
+    const compositeContext = compositeCanvas.getContext('2d');
+    const sourceCanvas = sourceCanvasRef.current;
+    if (!compositeContext || !sourceCanvas) return;
+    compositeContext.drawImage(sourceCanvas, 0, 0, compositeCanvas.width, compositeCanvas.height);
+    compositeContext.globalAlpha = brushOpacity;
+    compositeContext.drawImage(paintCanvas, 0, 0);
+
     onSave({
       base64: binaryMask.toDataURL('image/png').split(',')[1],
       preview: previewCanvas.toDataURL('image/png'),
+      composite: compositeCanvas.toDataURL('image/png'),
       opacity: Math.round(brushOpacity * 100),
     });
   };

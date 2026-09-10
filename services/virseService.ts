@@ -14,6 +14,54 @@ export interface VirseImageModel {
   max_resolution?: string;
 }
 
+export type VirseImageQuality = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export const VIRSE_IMAGE_QUALITY_OPTIONS: ReadonlyArray<{ value: VirseImageQuality; label: string }> = [
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'xhigh', label: '超高' },
+  { value: 'max', label: '极致' },
+];
+
+const VIRSE_IMAGE_QUALITY_STORAGE_KEY = 'virse_image_quality_by_model';
+const VIRSE_IMAGE_QUALITY_MODELS = new Set([
+  'gpt-image-2',
+  'gpt-image-2.5-flare',
+  'gpt-image-2.5-sunburst',
+]);
+
+const normalizeVirseImageModelId = (modelId: string) => (
+  modelId.trim().toLowerCase().split('/').pop() || ''
+);
+
+export const supportsVirseImageQuality = (modelId: string): boolean => (
+  VIRSE_IMAGE_QUALITY_MODELS.has(normalizeVirseImageModelId(modelId))
+);
+
+export const getVirseImageQuality = (modelId: string): VirseImageQuality => {
+  if (typeof window === 'undefined') return 'high';
+  try {
+    const values = JSON.parse(localStorage.getItem(VIRSE_IMAGE_QUALITY_STORAGE_KEY) || '{}');
+    const quality = values?.[normalizeVirseImageModelId(modelId)];
+    return VIRSE_IMAGE_QUALITY_OPTIONS.some((option) => option.value === quality) ? quality : 'high';
+  } catch {
+    return 'high';
+  }
+};
+
+export const setVirseImageQuality = (modelId: string, quality: VirseImageQuality): void => {
+  if (typeof window === 'undefined' || !supportsVirseImageQuality(modelId)) return;
+  let values: Record<string, VirseImageQuality> = {};
+  try {
+    values = JSON.parse(localStorage.getItem(VIRSE_IMAGE_QUALITY_STORAGE_KEY) || '{}');
+  } catch {
+    values = {};
+  }
+  values[normalizeVirseImageModelId(modelId)] = quality;
+  localStorage.setItem(VIRSE_IMAGE_QUALITY_STORAGE_KEY, JSON.stringify(values));
+};
+
 const callVirse = async <T = unknown>(apiKey: string, baseUrl: string, tool: string, args: Record<string, unknown> = {}): Promise<T> => {
   const response = await fetch('/api/virse', {
     method: 'POST',
@@ -245,6 +293,7 @@ export const generateVirseImage = async (options: {
     position_y: 600,
     aspect_ratio: options.aspectRatio,
     resolution: options.resolution,
+    quality: supportsVirseImageQuality(options.model) ? getVirseImageQuality(options.model) : undefined,
     num_images: options.numImages || 1,
     asset_id: options.assetIds && options.assetIds.length > 0 ? options.assetIds : undefined,
     size_width: sizeWidth,

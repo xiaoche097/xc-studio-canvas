@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, Cpu, Loader2, RefreshCw, Search, Star, X } from 'lucide-react';
-import { listVirseImageModels, type VirseImageModel } from '../../../services/virseService';
+import { Check, ChevronDown, ChevronRight, Cpu, Loader2, RefreshCw, Search, Star, X } from 'lucide-react';
+import {
+  getVirseImageQuality,
+  listVirseImageModels,
+  setVirseImageQuality,
+  supportsVirseImageQuality,
+  VIRSE_IMAGE_QUALITY_OPTIONS,
+  type VirseImageModel,
+  type VirseImageQuality,
+} from '../../../services/virseService';
 import {
   buildCreativeImageModels,
   CREATIVE_IMAGE_MODEL_PREFERENCE_EVENT,
@@ -99,6 +107,7 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
   const [loadError, setLoadError] = useState('');
   const [query, setQuery] = useState('');
   const [preferredModelId, setPreferredModelId] = useState(() => getPreferredCreativeImageModelId(resolveActiveImageGenerationChannel().id));
+  const [imageQualities, setImageQualities] = useState<Record<string, VirseImageQuality>>({});
   const syncedChannel = useRef<string>('');
 
   const models = useMemo(() => buildCreativeImageModels(remoteModels, channel.id), [remoteModels, channel.id]);
@@ -205,9 +214,38 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
             {activeModels.map((model) => {
               const selected = model.id === value || (value === 'nanobananapro' && model.id === 'gemini-3-pro-image-preview');
               const preferred = model.id === preferredModelId;
+              const supportsQuality = channel.id === 'virse' && supportsVirseImageQuality(model.id);
+              const quality = imageQualities[model.id] || getVirseImageQuality(model.id);
               const selectModel = () => { onChange(model.id); if (channel.id === 'virse') localStorage.setItem('virse_model', model.id); setActiveProvider(null); };
               const makeDefault = () => { setPreferredModelId(model.id); if (channel.id === 'virse') localStorage.setItem('virse_model', model.id); setPreferredCreativeImageModelId(channel.id, model.id); };
-              return <div key={`${channel.id}-${model.id}`} className={`flex min-h-16 items-center gap-2 rounded-2xl border p-2 transition-colors ${selected ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950' : 'border-slate-200 hover:border-slate-400 dark:border-white/10 dark:hover:border-white/30'}`}><button type="button" onClick={selectModel} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-xl px-2 py-1 text-left"><span className="min-w-0"><strong className="block truncate text-sm font-black">{model.name}</strong><small className={`mt-1 block truncate text-xs ${selected ? 'text-white/65 dark:text-slate-600' : 'text-slate-500'}`}>{model.description} · {channel.label}</small></span>{selected && <Check className="h-5 w-5 shrink-0" />}</button><button type="button" onClick={makeDefault} className={`flex min-h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition-colors ${preferred ? 'border-slate-500 bg-slate-100 text-slate-900 dark:border-white/30 dark:bg-white/10 dark:text-white' : selected ? 'border-white/20 text-white/75 hover:bg-white/10 dark:border-slate-300 dark:text-slate-600' : 'border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/10'}`} aria-label={preferred ? `${model.name} 已是当前通道默认模型` : `将 ${model.name} 设为当前通道默认模型`}><Star className={`h-3.5 w-3.5 ${preferred ? 'fill-current' : ''}`} />{preferred ? '默认' : '设为默认'}</button></div>;
+              return <div key={`${channel.id}-${model.id}`} className={`rounded-2xl border p-2 transition-colors ${selected ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950' : 'border-slate-200 hover:border-slate-400 dark:border-white/10 dark:hover:border-white/30'}`}>
+                <div className="flex min-h-12 items-center gap-2">
+                  <button type="button" onClick={selectModel} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-xl px-2 py-1 text-left">
+                    <span className="min-w-0"><strong className="block truncate text-sm font-black">{model.name}</strong><small className={`mt-1 block truncate text-xs ${selected ? 'text-white/65 dark:text-slate-600' : 'text-slate-500'}`}>{model.description} · {channel.label}</small></span>
+                    {selected && <Check className="h-5 w-5 shrink-0" />}
+                  </button>
+                  <button type="button" onClick={makeDefault} className={`flex min-h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition-colors ${preferred ? 'border-slate-500 bg-slate-100 text-slate-900 dark:border-white/30 dark:bg-white/10 dark:text-white' : selected ? 'border-white/20 text-white/75 hover:bg-white/10 dark:border-slate-300 dark:text-slate-600' : 'border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-white/10 dark:hover:bg-white/10'}`} aria-label={preferred ? `${model.name} 已是当前通道默认模型` : `将 ${model.name} 设为当前通道默认模型`}><Star className={`h-3.5 w-3.5 ${preferred ? 'fill-current' : ''}`} />{preferred ? '默认' : '设为默认'}</button>
+                </div>
+                {selected && supportsQuality && <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/10 px-2 pb-1 pt-2 dark:border-slate-200">
+                  <span className="min-w-0"><strong className="block text-xs font-black">生成强度</strong><small className="mt-0.5 block text-[0.65rem] text-white/55 dark:text-slate-500">影响细节与渲染投入</small></span>
+                  <label className="relative shrink-0">
+                    <span className="sr-only">{model.name} 生成强度</span>
+                    <select
+                      value={quality}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const nextQuality = event.target.value as VirseImageQuality;
+                        setVirseImageQuality(model.id, nextQuality);
+                        setImageQualities((current) => ({ ...current, [model.id]: nextQuality }));
+                      }}
+                      className="min-h-9 w-28 cursor-pointer appearance-none rounded-xl border border-white/15 bg-white/10 py-1 pl-3 pr-8 text-xs font-black text-white outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-300 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 dark:focus-visible:ring-slate-500"
+                    >
+                      {VIRSE_IMAGE_QUALITY_OPTIONS.map((option) => <option key={option.value} value={option.value} className="bg-white text-slate-900">{option.label}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-60" />
+                  </label>
+                </div>}
+              </div>;
             })}
             {!loading && activeModels.length === 0 && <p className="py-12 text-center text-sm text-slate-500">当前通道没有匹配的模型，请检查通道配置或刷新型号。</p>}
             {remoteModels.length === 0 && !loading && <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">尚未从通道读取到型号，当前展示兼容预设。刷新后将以 {channel.label} 实际返回的图片型号为准。</p>}

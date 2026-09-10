@@ -105,6 +105,7 @@ interface UploadedImage {
   shoeViewSlot?: ShoeViewSlot;
   targetMaskBase64?: string;
   targetMaskPreview?: string;
+  targetMaskCompositePreview?: string;
   targetMaskOpacity?: number;
 }
 
@@ -545,6 +546,7 @@ const UniversalTryOnTab: React.FC<UniversalTryOnTabProps> = ({ isActive = true }
             ...image,
             targetMaskBase64: mask.base64,
             targetMaskPreview: mask.preview,
+            targetMaskCompositePreview: mask.composite,
             targetMaskOpacity: mask.opacity,
           }
         : image),
@@ -877,7 +879,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
     const resultItems: TryOnResultItem[] = targetModelReferences.map((modelReference) => ({
       id: crypto.randomUUID(),
       modelReferenceId: modelReference?.id || null,
-      modelPreview: modelReference?.preview || null,
+      modelPreview: modelReference?.targetMaskCompositePreview || modelReference?.preview || null,
       url: null,
       status: 'generating',
       requestId: crypto.randomUUID(),
@@ -930,6 +932,8 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                 mime: modelReference.mime,
                 targetMaskBase64: modelReference.targetMaskBase64,
                 targetMaskMime: modelReference.targetMaskBase64 ? 'image/png' : undefined,
+                targetEditMapBase64: modelReference.targetMaskCompositePreview?.split(',')[1],
+                targetEditMapMime: modelReference.targetMaskCompositePreview ? 'image/png' : undefined,
               } : null,
               currentTask.subMode,
               fullPrompt,
@@ -1104,6 +1108,8 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
           mime: modelReference.mime,
           targetMaskBase64: modelReference.targetMaskBase64,
           targetMaskMime: modelReference.targetMaskBase64 ? 'image/png' : undefined,
+          targetEditMapBase64: modelReference.targetMaskCompositePreview?.split(',')[1],
+          targetEditMapMime: modelReference.targetMaskCompositePreview ? 'image/png' : undefined,
         } : null,
         taskSnapshot.subMode,
         context.fullPrompt,
@@ -2594,7 +2600,7 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
                           <img
                             src={modelReference.preview}
                             alt={`Model Reference ${index + 1}`}
-                            onClick={() => setZoomedImage(modelReference.preview)}
+                            onClick={() => setZoomedImage(modelReference.targetMaskCompositePreview || modelReference.preview)}
                             className="h-full w-full cursor-pointer object-cover"
                             title="点击放大预览"
                           />
