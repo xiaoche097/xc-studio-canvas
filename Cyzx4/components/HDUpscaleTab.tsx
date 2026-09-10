@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
     analyzeImageQuality,
     analyzeStyle,
@@ -689,7 +690,8 @@ const HDUpscaleTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => 
                                 </div>
                                 <span className="rounded-full bg-[#fff0e8] px-2.5 py-1 text-[0.65rem] font-black text-[#d8552e]">{selectedImageModel.badge}</span>
                             </div>
-                            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <CreativeImageModelSelector value={activeRecord.modelId} onChange={(modelId) => patchActive({ modelId })} disabled={isProcessing} title="" compact className="mt-4 border-0 bg-transparent p-0 shadow-none" />
+                            <div className="hidden">
                                 {IMAGE_MODEL_OPTIONS.map((model) => {
                                     const selected = activeRecord.modelId === model.id;
                                     return (

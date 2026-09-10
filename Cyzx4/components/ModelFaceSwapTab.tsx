@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   ArrowLeft,
@@ -1483,7 +1484,8 @@ RULES:
               </button>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <CreativeImageModelSelector value={activeRecord.modelId} onChange={(modelId) => { patchActive({ modelId, results: [], error: '' }); setIsGenerationModelModalOpen(false); }} title="" compact className="mt-5 border-0 bg-transparent p-0 shadow-none" />
+            <div className="hidden">
               {FACE_SWAP_MODEL_OPTIONS.map((model) => {
                 const isSelected = activeRecord.modelId === model.id;
                 return (

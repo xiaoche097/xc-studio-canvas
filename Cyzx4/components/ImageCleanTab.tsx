@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import { 
     Upload, X, Wand2, Sparkles, AlertCircle, Loader2, 
     Layout, Sun, Image as ImageIcon, CheckCircle2, 
@@ -2794,7 +2795,8 @@ Uploaded action references provide ONLY body pose and product-display crop. Do n
                                             <Cpu className="w-4 h-4 text-pastel-highlight" />
                                             <h4 className="font-bold text-pastel-text text-xs">图像模型选择</h4>
                                         </div>
-                                        <div className="grid grid-cols-3 gap-3">
+                                        <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+                                        <div className="hidden">
                                             {[
                                                 { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2', sub: '3.1 Flash', icon: <Zap className="w-4 h-4 text-orange-400" /> },
                                                 { id: 'nanobananapro', name: 'Banana Pro', sub: '3.0 Pro', icon: <Zap className="w-4 h-4 text-orange-500" /> },

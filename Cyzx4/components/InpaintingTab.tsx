@@ -13,6 +13,7 @@ import { AspectRatio, ImageResolution } from '../types';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
 import { downloadImageFile } from '../utils/imageDownload';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 
 // 自定义香蕉图标组件（复用）
 const BananaIcon = ({ className }: { className?: string }) => (
@@ -2357,7 +2358,8 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
                   <label className="block text-xs font-bold text-pastel-muted mb-2 flex items-center gap-1.5">
                     <Cpu className="w-3.5 h-3.5 text-purple-500" /> 图像模型选择
                   </label>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+                  <div className="hidden">
                     <button
                       type="button"
                       onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}

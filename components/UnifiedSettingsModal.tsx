@@ -753,6 +753,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       }
       setVirseWorkspaces(workspaces);
       setVirseModels(models);
+      localStorage.setItem('virse_image_models_cache', JSON.stringify(models));
 
       if (workspaces.length === 0) {
         setVirseSpaceId('');
@@ -826,7 +827,10 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
         ]);
         if (disposed || version !== virseSyncVersion.current) return;
         setVirseWorkspaces(workspaces);
-        if (models) setVirseModels(models);
+        if (models) {
+          setVirseModels(models);
+          localStorage.setItem('virse_image_models_cache', JSON.stringify(models));
+        }
         const selected = findVirseWorkspace(workspaces, virseSpaceId, virseCanvasId);
         if (!selected && (virseSpaceId || virseCanvasId)) {
           setVirseSpaceId('');

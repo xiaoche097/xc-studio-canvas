@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   ArrowLeft,
@@ -1224,10 +1225,11 @@ Return ONLY a JSON array with exactly 3 distinct schemes, each containing 9 stru
                   </span>
                 </label>
 
+                <CreativeImageModelSelector value={model} onChange={setModel} disabled={busy} title="" compact className="col-span-2 border-0 bg-transparent p-0 shadow-none" />
                 <button
                   type="button"
                   onClick={() => setSelectionModal('model')}
-                  className="col-span-2 flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]"
+                  className="hidden"
                 >
                   <span className="text-[0.68rem] font-bold text-pastel-muted">生成模型</span>
                   <span className="mt-1 flex items-center justify-between text-sm font-black text-pastel-text">

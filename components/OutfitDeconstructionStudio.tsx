@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from '../Cyzx4/components/image-models/CreativeImageModelSelector';
 import {
   Check,
   ChevronLeft,
@@ -376,7 +377,8 @@ export const OutfitDeconstructionStudio: React.FC<OutfitDeconstructionStudioProp
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111318]">
             <h2 className="font-black">图像与生成参数</h2>
-            <button type="button" onClick={() => setSelectionModal('model')} className="mt-3 flex min-h-16 w-full items-center justify-between rounded-xl bg-[#eef5ff] p-3 text-left transition hover:bg-[#e5f0ff] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]">
+            <CreativeImageModelSelector value={model} onChange={setModel} disabled={activeTask.status === 'generating'} title="" compact className="mt-3 border-0 bg-transparent p-0 shadow-none" />
+            <button type="button" onClick={() => setSelectionModal('model')} className="hidden">
               <span><span className="block text-[10px] font-bold text-slate-400">生成模型</span><span className="mt-1 block text-xs font-black">{IMAGE_MODELS.find((item) => item.id === model)?.name}</span></span>
               <span className="flex items-center gap-2"><span className="rounded-full bg-orange-100 px-2 py-1 text-[9px] font-black text-[#ed6d46] dark:bg-orange-500/10">{IMAGE_MODELS.find((item) => item.id === model)?.badge}</span><ChevronRight className="h-4 w-4 text-slate-400" /></span>
             </button>

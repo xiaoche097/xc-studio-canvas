@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   ChevronLeft,
@@ -1659,7 +1660,8 @@ const ModelOriginalPasteBackTab: React.FC<ModelOriginalPasteBackTabProps> = ({ i
                 <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#15223a] text-xs font-black text-white">4</span>
                 核心生成参数
               </h3>
-              <div className="mb-4 grid grid-cols-3 gap-2">
+              <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} disabled={isGenerating} title="" compact className="mb-4 border-0 bg-transparent p-0 shadow-none" />
+              <div className="hidden">
                 {MODEL_OPTIONS.map((model) => (
                   <button
                     key={model.id}

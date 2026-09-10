@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import { generateProductSwap, compressImage } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { storageService, Project } from '../../services/storageService';
@@ -483,7 +484,8 @@ const ProductSwapTab: React.FC<ProductSwapTabProps> = ({ isActive = true }) => {
                                 <label className="text-xs font-bold text-pastel-muted mb-3 flex items-center gap-1.5 px-1">
                                     <Cpu className="w-3.5 h-3.5" /> 图像模型选择
                                 </label>
-                                <div className="grid grid-cols-3 gap-2">
+                                <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+                                <div className="hidden">
                                     {MODEL_OPTIONS.map(m => (
                                         <button
                                             key={m.value}

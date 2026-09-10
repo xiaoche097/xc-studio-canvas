@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   CheckCircle2,
@@ -545,7 +546,8 @@ const WhiteBackgroundRetouchTab: React.FC<WhiteBackgroundRetouchTabProps> = ({ i
 
             <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5">
               <h2 className="mb-3 flex items-center gap-2 text-xs font-black text-pastel-muted"><Cpu className="h-4 w-4" />图像模型选择</h2>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} disabled={isGenerating} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+              <div className="hidden">
                 {MODEL_OPTIONS.map((model) => {
                   const selected = selectedModel === model.id;
                   return (

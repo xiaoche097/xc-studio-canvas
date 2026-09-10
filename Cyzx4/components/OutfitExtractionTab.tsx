@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
     Upload, X, Sparkles, Loader2,
     Download, Scissors, Shirt, Tag,
@@ -1315,7 +1316,8 @@ flat lay, outfit board, product layout, product grid, items arranged on floor, t
                                 <label className="text-[10px] font-black text-pastel-muted uppercase tracking-widest flex items-center gap-1.5">
                                     <Cpu className="w-3 h-3" /> 图像模型
                                 </label>
-                                <div className="grid grid-cols-3 gap-2">
+                                <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+                                <div className="hidden">
                                     {MODEL_OPTIONS.map(m => (
                                         <button
                                             key={m.id}

@@ -11,6 +11,7 @@ import { AspectRatio, ImageResolution } from '../types';
 import { compressImageFiles } from '../utils/imageCompressor';
 import { useImagePaste } from '../hooks/useImagePaste';
 import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 
 interface EditPoint {
   id: number;
@@ -1546,93 +1547,7 @@ Do not combine this image with any other uploaded image. Do not create extra var
 
             {/* 2. Configuration & Prompt Wrapper */}
             <div className="flex-1 flex flex-col gap-5 min-h-0">
-              {/* Model Selection - Top Row for consistency */}
-              <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">
-                <div className="mb-3 flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-50 text-purple-600 dark:bg-purple-950/30">
-                    <Cpu className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <h2 className="text-sm font-black text-pastel-text">图像生成模型</h2>
-                    <p className="text-xs text-pastel-muted">选择速度、画质和风格表现最适合的生成引擎</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  <button
-                    onClick={() => setSelectedModel('gemini-3.1-flash-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3.1-flash-image-preview'
-                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <BananaIcon className="w-3 h-3" />
-                      <span className={`text-[10px] font-bold ${selectedModel === 'gemini-3.1-flash-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Banana 2
-                      </span>
-                    </div>
-                    <span className="text-[8px] text-pastel-muted">3.1 Flash</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('gemini-3-pro-image-preview')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gemini-3-pro-image-preview'
-                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <BananaIcon className="w-3 h-3" />
-                      <span className={`text-[10px] font-bold ${selectedModel === 'gemini-3-pro-image-preview' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Banana Pro
-                      </span>
-                    </div>
-                    <span className="text-[8px] text-pastel-muted">3.0 Pro</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('gpt-image-2')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'gpt-image-2'
-                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-orange-500" />
-                      <span className={`text-[10px] font-bold ${selectedModel === 'gpt-image-2' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        GPT Image 2
-                      </span>
-                    </div>
-                    <span className="text-[8px] text-pastel-muted">Ultra Quality</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('mj_imagine')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'mj_imagine'
-                        ? 'border-purple-400 bg-purple-50 ring-2 ring-purple-100'
-                        : 'border-pastel-border hover:border-purple-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-sky-600" />
-                      <span className={`text-[10px] font-bold ${selectedModel === 'mj_imagine' ? 'text-purple-700' : 'text-pastel-text'}`}>
-                        Midjourney
-                      </span>
-                    </div>
-                    <span className="text-[8px] text-pastel-muted">MJ Imagine</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedModel('qwen-image-3.0-pro')}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${selectedModel === 'qwen-image-3.0-pro'
-                        ? 'border-cyan-400 bg-cyan-50 ring-2 ring-cyan-100'
-                        : 'border-pastel-border hover:border-cyan-200 bg-pastel-bg'
-                      }`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-cyan-500" />
-                      <span className={`text-[10px] font-bold ${selectedModel === 'qwen-image-3.0-pro' ? 'text-cyan-700' : 'text-pastel-text'}`}>千问3.0pro</span>
-                    </div>
-                    <span className="text-[8px] text-pastel-muted">Qwen Image</span>
-                  </button>
-                </div>
-              </section>
+              <CreativeImageModelSelector value={selectedModel} onChange={setSelectedModel} disabled={isGenerating} />
 
               {/* Settings Row */}
               <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm">

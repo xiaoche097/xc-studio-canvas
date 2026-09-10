@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   Aperture,
   Camera,
@@ -732,7 +733,8 @@ const PhotographyLabTab: React.FC<PhotographyLabTabProps> = ({ isActive = true }
           <div className="flex min-w-0 flex-col gap-4">
             <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c] sm:p-5">
               <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-black">生成模型</h2><p className="mt-1 text-xs leading-5 text-pastel-muted">默认使用Gemini Banana 2，也可切换GPT Image 2或Gemini 3 Pro。</p></div><span className="rounded-full bg-[#fff0e8] px-2.5 py-1 text-[0.65rem] font-black text-[#d8552e]">{selectedImageModel.badge}</span></div>
-              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <CreativeImageModelSelector value={activeRecord.modelId} onChange={(modelId) => updateActive((record) => ({ ...record, modelId, results: [], phase: 'idle' }))} disabled={busy} title="" compact className="mt-4 border-0 bg-transparent p-0 shadow-none" />
+              <div className="hidden">
                 {IMAGE_MODEL_OPTIONS.map((model) => {
                   const selected = activeRecord.modelId === model.id;
                   return <button key={model.id} type="button" disabled={busy} onClick={() => updateActive((record) => ({ ...record, modelId: model.id, results: [], phase: 'idle' }))} className={`relative flex min-h-20 items-center gap-2.5 rounded-xl border p-2.5 text-left transition hover:-translate-y-0.5 disabled:opacity-50 ${selected ? 'border-[#ed6d46] bg-gradient-to-br from-[#fff7f2] to-[#eef5ff] shadow-[0_8px_20px_rgba(237,109,70,0.12)]' : 'border-pastel-border bg-pastel-bg/60 hover:border-[#efb49d]'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${model.id === 'gpt-image-2' ? 'bg-[#17243c] text-white' : 'bg-[#e8f2ff] text-[#2d6bb1]'}`}><Sparkles className="h-4 w-4" /></span><span className="min-w-0 pr-3"><strong className="block text-xs font-black leading-snug text-[#17243c]">{model.label}</strong><small className="mt-0.5 block text-[0.68rem] text-pastel-muted">{model.note}</small></span>{selected ? <CheckCircle2 className="absolute right-2 top-2 h-4 w-4 text-[#ed6d46]" /> : null}</button>;

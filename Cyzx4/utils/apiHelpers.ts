@@ -1112,9 +1112,6 @@ export function getErrorMessage(error: any): string {
     if (/insufficient[_\s-]?quota|user quota is not enough|quota (?:is )?(?:exhausted|exceeded)|(?:account|billing|credit) balance (?:is )?(?:insufficient|empty|exhausted)|insufficient (?:balance|credit)|credits? exhausted|resource[_\s-]?exhausted|usage limit exceeded/i.test(errorMsg)) {
         const virseActive = typeof localStorage !== 'undefined'
             && localStorage.getItem('virse_enabled') === 'true';
-        if (/千问|qwen/i.test(errorMsg)) {
-            return `💳 千问图片 API 额度/配额不足\n[千问返回]: ${errorMsg}\n千问是独立图片通道，不受 Virse 开关影响，请检查千问 API 账户额度。`;
-        }
         if (virseActive || /\bvirse\b/i.test(errorMsg)) {
             return `💳 Virse 图片通道额度/配额不足\n[Virse 返回]: ${errorMsg}\n请在 Virse 检查账户额度、工作区配额和所选图片模型状态。Virse 已开启，本次请求不会回落到云雾。`;
         }

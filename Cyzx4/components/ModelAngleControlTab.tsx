@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   Aperture,
@@ -1215,7 +1216,8 @@ export const ModelAngleControlTab: React.FC<ModelAngleControlTabProps> = ({ isAc
             {/* GENERATION PARAMETERS & ACTION BUTTON */}
             <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs space-y-3">
               <div className="grid grid-cols-3 gap-2">
-                <div>
+                <CreativeImageModelSelector value={model} onChange={setModel} disabled={isGenerating} title="" compact className="col-span-3 border-0 bg-transparent p-0 shadow-none" />
+                <div className="hidden">
                   <span className="block text-[0.65rem] font-bold text-slate-400 mb-1">生成模型</span>
                   <select
                     value={model}

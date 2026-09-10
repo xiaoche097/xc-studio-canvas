@@ -82,11 +82,11 @@ const getImageGenerationContext = (
   if (virseEnabled && !virseApiKey) {
     throw new Error('Virse 已启用但 API Key 为空。为避免错误使用其他图片服务，本次生成已停止。');
   }
-  const routeThroughCentralImagePipeline = modelId === QWEN_IMAGE_MODEL_ID || virseEnabled;
+  const routeThroughCentralImagePipeline = virseEnabled;
   if (routeThroughCentralImagePipeline) {
     // Compatibility adapter for legacy image workflows that still expect a
-    // GoogleGenAI-shaped client. All image requests are redirected through the
-    // central Virse pipeline while text/Agent calls keep using getAiClient().
+    // GoogleGenAI-shaped client. Virse is a channel override, so every image
+    // model goes through it while text/Agent calls keep using getAiClient().
     const virseImageClient = {
       models: {
         generateContent: async (request: any) => {
@@ -1436,22 +1436,6 @@ export const generateImageToImage = async (
   } = options;
   throwIfAborted(signal);
   onStatus?.('submitting');
-  // Qwen is an explicit provider exception: Virse does not expose this model,
-  // so selecting it must continue to use the dedicated Qwen image API.
-  if (modelId === QWEN_IMAGE_MODEL_ID) {
-    try {
-      return await generateWithQwenImage(images, prompt, {
-        aspectRatio,
-        resolution,
-        sampleCount,
-        negativePrompt,
-        signal,
-        onStatus,
-      });
-    } catch (error: any) {
-      throw new Error(`千问3.0pro API：${error?.message || String(error)}`);
-    }
-  }
   const virseEnabled = isVirseImageRoutingEnabled();
   const virseApiKey = localStorage.getItem('virse_api_key')?.trim() || '';
   if (virseEnabled) {
@@ -1476,6 +1460,8 @@ export const generateImageToImage = async (
       'grok-4.6': 'grok-4.6',
       'claude-opus-5': 'claude-opus-5',
       nanobananapro: 'gemini-3-pro-image-preview',
+      'Nano Banana Pro': 'gemini-3-pro-image-preview',
+      'Banana Pro': 'gemini-3-pro-image-preview',
       pro: 'gemini-3-pro-image-preview',
       'gemini-3-pro-image': 'gemini-3-pro-image-preview',
       'gpt-image-2-all': 'gpt-image-2',

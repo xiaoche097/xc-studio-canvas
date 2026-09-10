@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import { downloadImageFile } from '../utils/imageDownload';
 import {
   Sparkles,
@@ -2706,10 +2707,11 @@ FRAME & TOP-EDGE LOCK: Preserve the target model image's (Image 1) exact top/bot
               <h2 className="font-black text-pastel-text">图像与试穿参数</h2>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {/* 1. 生成模型 Modal Button */}
+                <CreativeImageModelSelector value={currentTask.selectedModel} onChange={(selectedModel) => updateCurrentTask((task) => ({ ...task, selectedModel }))} title="" compact className="col-span-2 border-0 bg-transparent p-0 shadow-none" />
                 <button
                   type="button"
                   onClick={() => setSelectionModal('model')}
-                  className="col-span-2 flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]"
+                  className="hidden"
                 >
                   <span className="text-[0.68rem] font-bold text-pastel-muted">生成模型</span>
                   <span className="mt-1 flex items-center justify-between text-sm font-black text-pastel-text">

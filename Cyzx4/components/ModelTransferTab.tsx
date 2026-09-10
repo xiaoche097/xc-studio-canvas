@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   ArrowRight,
@@ -1636,7 +1637,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
               </div>
 
               {/* Model Options */}
-              <div className="grid grid-cols-3 gap-2">
+              <CreativeImageModelSelector value={activeRecord.selectedModel} onChange={(selectedModel) => patchActive({ selectedModel })} disabled={isGenerating} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+              <div className="hidden">
                 {MODEL_OPTIONS.map((model) => (
                   <button
                     key={model.id}

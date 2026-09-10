@@ -1680,16 +1680,6 @@ const generateImageDallE3 = async (
     return null;
 };
 
-const canFallbackAfterVirseFailure = (error: unknown): boolean => {
-    if (error instanceof DOMException && error.name === 'AbortError') return false;
-    const status = extractStatusCode(error);
-    if (status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599)) {
-        return true;
-    }
-    const message = error instanceof Error ? error.message : String(error || '');
-    return /timeout|timed out|超时|network|failed to fetch|fetch failed|bad gateway|service unavailable|no healthy upstream|connection|ECONN|\b50[0234]\b|\b429\b/i.test(message);
-};
-
 export const generateImage = async (config: ImageGenerationConfig): Promise<string | null> => {
     const references = config.referenceImages || (config.referenceImage ? [config.referenceImage] : []);
     const hasReferences = references.length > 0;
@@ -1726,21 +1716,25 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
                 ? '\n\n[Mask Rule]\n- The final reference is a binary mask. White is editable and black is locked.'
                 : '';
             const configuredVirseModel = window.localStorage.getItem('virse_model')?.trim() || 'nano-banana-2';
+            const requestedVirseModel = typeof config.model === 'string' && config.model.trim()
+                ? config.model.trim()
+                : configuredVirseModel;
             const { generateImageToImage } = await import('./geminiService');
             console.info('[image-gen] Routing through Virse first', {
-                model: configuredVirseModel,
+                model: requestedVirseModel,
                 refs: virseImages.length,
                 aspectRatio: config.aspectRatio,
             });
             const results = await generateImageToImage(virseImages, `${finalPrompt}${maskRule}`, {
-                modelId: configuredVirseModel,
+                modelId: requestedVirseModel,
                 aspectRatio: config.aspectRatio as any,
                 resolution: (config.imageSize || '2K') as any,
             });
             return results[0] || null;
         } catch (error) {
-            if (!canFallbackAfterVirseFailure(error)) throw error;
-            console.warn('[image-gen] Virse first route failed transiently; falling back to the configured image provider.', error);
+            // Virse is an explicit image-channel override. Never leak a failed
+            // Virse request to another relay without the user's choice.
+            throw error;
         }
     }
 

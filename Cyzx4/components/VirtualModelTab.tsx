@@ -11,6 +11,7 @@ import './VirtualModelTab.css';
 import { DEFAULT_MODEL_PERSON, modelCastingBrief, modelFaceDirection, modelVariationBrief } from '../constants/virtualModelCasting';
 import { modelFraming, framingReviewPrompt, parseFramingReview } from '../constants/modelFraming';
 import VirtualModelPlanCard from './VirtualModelPlanCard';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import { BASE_OUTFIT, NATURAL_CASTING, FACE_VIEWS, FACE_SHEET_LAYOUT, PLAN_FIELDS, ModelPlan, parseModelPlan, modelPlanPrompt, faceDirectionBrief, referenceDirection } from '../constants/virtualModelPlan';
 
 type Settings = {
@@ -228,7 +229,7 @@ export default function VirtualModelTab() {
             <div className="vm-pair"><ModelPresetPicker kind="photography" value={s.photography} onChange={photography => change({ photography })} /><label className="vm-field">图片比例<select value={s.ratio} onChange={event => change({ ratio: event.target.value as AspectRatio })}>{[AspectRatio.PORTRAIT_2_3, ...Object.values(AspectRatio).filter(ratio => ratio !== AspectRatio.PORTRAIT_2_3)].map(ratio => { const [width, height] = ratio.split(':').map(Number); return <option key={ratio} value={ratio}>{ratio} {width === height ? '方版' : width < height ? '竖版' : '横版'}</option>; })}</select></label></div>
             {select('分辨率', 'resolution', ['1K', '2K', '4K'])}
             <label className="vm-field">补充说明（选填）<textarea value={s.notes} maxLength={2000} onChange={event => change({ notes: event.target.value })} placeholder="例如：轮廓柔和一些、保留真实肤质、深棕微卷发…" rows={3} /></label>
-            <details className="vm-advanced"><summary>高级设置</summary><label className="vm-field">生成模型<select value={s.model} onChange={event => change({ model: event.target.value })}><option value="gemini-3.1-flash-image-preview">Banana 2</option><option value="gemini-3-pro-image-preview">Banana Pro</option><option value="gpt-image-2">GPT Image 2</option><option value="qwen-image-3.0-pro">千问3.0pro</option></select></label></details>
+            <details className="vm-advanced"><summary>高级设置</summary><CreativeImageModelSelector value={s.model} onChange={(model) => change({ model })} compact className="mt-3" /></details>
           </section>
         </fieldset>
         {current.error && <div className="vm-error" role="alert">{current.error}</div>}

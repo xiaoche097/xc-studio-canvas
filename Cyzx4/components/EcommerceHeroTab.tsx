@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
   ArrowLeft,
@@ -837,7 +838,8 @@ Return ONLY JSON:
           </div>
           <span className="rounded-full bg-[#fff0e8] px-2.5 py-1 text-[0.65rem] font-black text-[#d8552e]">{selectedImageModel.badge}</span>
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <CreativeImageModelSelector value={activeRecord.modelId} onChange={(modelId) => patchActive({ modelId: modelId as any, results: [] })} disabled={isBusy} title="" compact className="mt-4 border-0 bg-transparent p-0 shadow-none" />
+        <div className="hidden">
           {IMAGE_MODEL_OPTIONS.map((model) => {
             const selected = activeRecord.modelId === model.id;
             return <button key={model.id} type="button" disabled={isBusy} onClick={() => patchActive({ modelId: model.id, results: [] })} className={`relative flex min-h-20 items-center gap-3 rounded-xl border p-3 text-left transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${selected ? 'border-[#ed6d46] bg-gradient-to-br from-[#fff7f2] to-[#eef5ff] shadow-[0_8px_20px_rgba(237,109,70,0.12)]' : 'border-pastel-border bg-pastel-bg/60 hover:border-[#efb49d]'}`}>
