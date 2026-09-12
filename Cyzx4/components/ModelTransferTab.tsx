@@ -2,18 +2,16 @@ import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
 import {
   AlertCircle,
-  ArrowRight,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Crop,
   Download,
-  Eraser,
   Eye,
   Image as ImageIcon,
   Loader2,
   Maximize,
-  Paintbrush,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -21,30 +19,35 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
+  Shirt,
   Sun,
   Trash2,
-  Undo,
   Upload,
   UserRound,
-  Wand2,
   X,
-  Zap,
 } from 'lucide-react';
 import { generateImageToImage, generateText, compressImage } from '../services/geminiService';
 import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
-import { applyColorCorrection, ColorCorrectionMode, compositeInpaintedFaceBack, createModelHeadIdentityCrop, extractEdges, loadCanvasImage } from '../utils/imageProcessor';
+import { applyColorCorrection, ColorCorrectionMode, createModelHeadIdentityCrop } from '../utils/imageProcessor';
 import { convertImageDataUrlFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
 import { downloadImageFile } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useImagePaste } from '../hooks/useImagePaste';
+import ImageCropModal from './ImageCropModal';
+import { ECOMMERCE_RATIOS } from '../constants/ecommerceHeroPresets';
+import {
+  CROP_FRAMING_OPTIONS,
+  cropFramingById,
+  type CropFramingId,
+} from '../constants/cropFramingPresets';
 
 // ==================== Types & Interfaces ====================
 
-type UploadKind = 'model' | 'scene';
-type OutfitMode = 'auto' | 'source' | 'target';
+type UploadKind = 'model' | 'clothing' | 'scene';
+type BoardType = 'main' | 'aplus' | 'social' | 'story' | 'asset' | 'mobile';
 type GenerationStatus = 'pending' | 'submitting' | 'polling' | 'processing' | 'done' | 'error' | 'cancelled';
-type TransferCheckpoint = 'input' | 'analyzed' | 'masked' | 'complete';
+type TransferCheckpoint = 'input' | 'analyzed' | 'confirmed' | 'complete';
 export type HDStep = 'input' | 'analyzing' | 'color' | 'line' | 'upscaling' | 'complete';
 
 export type UploadedImage = {
@@ -53,7 +56,6 @@ export type UploadedImage = {
   base64: string;
   mime: string;
   name: string;
-  maskDataUrl?: string; // Optional B&W face mask DataURL
 };
 
 type AgentAnalysis = {
@@ -72,8 +74,6 @@ type AgentAnalysis = {
 
 type PreparedScene = {
   scene: UploadedImage;
-  poseAnchor: { base64: string; mimeType: string };
-  maskAnchor?: { base64: string; mimeType: string };
 };
 
 type ResultItem = {
@@ -93,6 +93,7 @@ export interface ModelTransferRecord {
   checkpoint: TransferCheckpoint;
   oneClick: boolean;
   sourceModels: UploadedImage[];
+  clothingImages: UploadedImage[];
   targetScenes: UploadedImage[];
   selectedModel: string;
   aspectRatio: AspectRatio;
@@ -100,7 +101,11 @@ export interface ModelTransferRecord {
   outputFormat: OutputImageFormat;
   colorCorrectionMode: ColorCorrectionMode;
   colorCorrectionBlend: number;
-  outfitMode: OutfitMode;
+  whiteBaseOutfit: boolean;
+  boardType: BoardType;
+  cropFraming: CropFramingId;
+  modelHeight: string;
+  outputCount: number;
   extraNotes: string;
   agentAnalysis: AgentAnalysis | null;
   results: ResultItem[];
@@ -112,12 +117,22 @@ export interface ModelTransferRecord {
 const MAX_RECORDS = 20;
 const MODEL_SLOTS = ['正面', '侧面', '微侧'] as const;
 const MAX_MODEL_IMAGES = 3;
+const MAX_CLOTHING_IMAGES = 1;
 const MAX_SCENE_IMAGES = 10;
+
+const SCENE_BOARD_CONFIGS: Record<BoardType, { label: string; description: string; icon: string }> = {
+  main: { label: '副图', description: '电商主副图场景，适合卖点强化与点击转化', icon: '🛒' },
+  aplus: { label: 'A+', description: '详情页横幅场景，适合叙事展示与品牌表达', icon: '✨' },
+  social: { label: '社媒买家秀', description: '真实生活化使用场景，适合种草与社媒传播', icon: '📱' },
+  story: { label: '品牌故事', description: '电影感品牌场景，适合展示人物与空间氛围', icon: '🎬' },
+  asset: { label: '复刻参考', description: '重点复刻目标图的构图、氛围与视觉表达', icon: '🎴' },
+  mobile: { label: '手机比例', description: '适配移动端详情页与竖屏内容发布', icon: '🤳' },
+};
 
 const STEPS: Array<{ id: HDStep; label: string }> = [
   { id: 'input', label: '1. 输入' },
   { id: 'analyzing', label: '2. AI分析' },
-  { id: 'color', label: '3. 遮罩确认' },
+  { id: 'color', label: '3. 方案确认' },
   { id: 'upscaling', label: '4. 光影融合' },
   { id: 'complete', label: '5. 完成' },
 ];
@@ -127,15 +142,6 @@ const MODEL_OPTIONS = [
   { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', desc: '3 Pro' },
   { id: 'gpt-image-2', label: 'GPT Image 2', desc: 'Ultra Quality' },
   { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: 'Qwen Image' },
-];
-
-const ASPECT_OPTIONS: Array<{ id: AspectRatio; label: string; desc: string }> = [
-  { id: AspectRatio.PORTRAIT_2_3, label: '2:3', desc: '电商主图 (默认)' },
-  { id: AspectRatio.PORTRAIT_3_4, label: '3:4', desc: '女装常规' },
-  { id: AspectRatio.SQUARE, label: '1:1', desc: '正方形' },
-  { id: AspectRatio.PORTRAIT_9_16, label: '9:16', desc: '竖屏' },
-  { id: AspectRatio.LANDSCAPE_16_9, label: '16:9', desc: '横屏' },
-  { id: AspectRatio.LANDSCAPE_21_9, label: '21:9', desc: '超宽屏' },
 ];
 
 const getCardAspectRatioClass = (ratio: AspectRatio) => {
@@ -157,12 +163,6 @@ const getCardAspectRatioClass = (ratio: AspectRatio) => {
   }
 };
 
-const OUTFIT_OPTIONS: Array<{ id: OutfitMode; label: string; desc: string }> = [
-  { id: 'auto', label: 'AI 自动识别', desc: '根据补充要求决定' },
-  { id: 'source', label: '迁移源模特服装', desc: '同步衣服、鞋包与配饰' },
-  { id: 'target', label: '保留场景服装', desc: '只替换人物身份与外貌' },
-];
-
 const DATA_URL_PATTERN = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/;
 const getDataUrl = (image: UploadedImage) => `data:${image.mime};base64,${image.base64}`;
 const toApiImage = (image: UploadedImage) => ({ base64: image.base64, mimeType: image.mime });
@@ -171,15 +171,34 @@ const dataUrlToApiImage = (dataUrl: string) => {
   return { base64: match ? match[2] : dataUrl, mimeType: match ? match[1] : 'image/jpeg' };
 };
 
-const detectsSourceOutfitRequest = (notes: string) =>
-  /(源模特|我的模特|模特图).{0,18}(衣服|服装|穿搭|鞋|包|配饰).{0,12}(换|迁移|保留|同步|复制)|把.{0,12}(衣服|服装|穿搭).{0,12}(换|迁移|放|同步).{0,8}(进去|过去|到场景)|transfer.{0,20}(source|model).{0,12}(outfit|clothes|clothing)/i.test(notes);
+const buildTransferDirection = (record: ModelTransferRecord) => {
+  const board = SCENE_BOARD_CONFIGS[record.boardType];
+  const crop = cropFramingById(record.cropFraming);
+  return [
+    `Output scene module: ${board.label}. ${board.description}`,
+    `Model actual height: ${record.modelHeight.trim() || 'Not specified; infer natural proportions from the references.'}`,
+    `Outfit rule: ${record.clothingImages.length ? 'Use the uploaded clothing reference exactly.' : record.whiteBaseOutfit ? 'Plain white T-shirt, plain white shorts, barefoot.' : 'Preserve the target-scene outfit.'}`,
+    crop.promptRule === 'AUTO_DETECT' ? 'Camera framing: infer the most suitable framing from the target scene.' : crop.promptRule,
+    `Additional scene and transfer requirements: ${record.extraNotes.trim() || 'No additional requirements.'}`,
+  ].join('\n');
+};
 
-const fallbackAnalysis = (notes: string): AgentAnalysis => ({
+const getOutfitSource = (record: ModelTransferRecord): 'clothing-reference' | 'white-basics' | 'target-scene' => {
+  if (record.clothingImages.length) return 'clothing-reference';
+  return record.whiteBaseOutfit ? 'white-basics' : 'target-scene';
+};
+
+const getOutfitRuleLabel = (record: ModelTransferRecord) => {
+  if (record.clothingImages.length) return '优先使用服装参考图';
+  return record.whiteBaseOutfit ? '白T恤 · 白短裤 · 赤脚' : '保留目标场景服装';
+};
+
+const fallbackAnalysis = (_notes: string): AgentAnalysis => ({
   identityBrief: 'Lock exact source model face geometry, eyes, nose, lips, jawline, skin tone, hairline, and body frame.',
   lightingBrief: 'Extract key-light direction, ambient contrast, color temperature, and contact shadows from target scene.',
   gazeAndPoseAnalysis: '已精准检测目标场景模特的头部偏转角 (如 3/4 侧脸/侧向视线)，指令将严格复制侧向视线与神情，防止生成僵硬正脸。',
-  transferSourceOutfit: detectsSourceOutfitRequest(notes),
-  outfitReason: detectsSourceOutfitRequest(notes) ? '用户补充要求提到了迁移源模特服装。' : '未明确要求迁移源模特服装，只进行高精度换脸。',
+  transferSourceOutfit: false,
+  outfitReason: '服装由服装参考图、白色基础服装开关和目标场景服装按固定优先级决定。',
   lightingQuality: 'perfect',
   lightingAnalysis: '目标场景光影方向清晰，与源模特感光基调良好匹配，适合直接合成生成。',
   faceQuality: 'excellent',
@@ -188,13 +207,14 @@ const fallbackAnalysis = (notes: string): AgentAnalysis => ({
   generatedPrompt: 'High quality commercial fashion photo, replace face with source model, match lighting and color tone.',
 });
 
-const buildAgentPrompt = (sourceCount: number, notes: string) => `
+const buildAgentPrompt = (sourceCount: number, hasClothingReference: boolean, notes: string) => `
 You are a fashion model transfer director, head pose specialist, and computer vision lighting analyst.
 Analyze source model images 1-${sourceCount} for facial geometry, resolution, angle, and clarity.
+${hasClothingReference ? `Image ${sourceCount + 1} is a CLOTHING REFERENCE. Analyze its garment silhouette, fabric, color, construction, and styling details.` : 'No separate clothing reference was supplied.'}
 Analyze target scene images for:
 1. TARGET HEAD ROTATION & GAZE DIRECTION: (e.g. 3/4 side profile, looking off-camera to the left/right, head tilt, candid gaze, SERIOUS/SMILE expression).
 2. LIGHT SOURCE DIRECTION, softness, and color temperature.
-Determine if source outfit should be transferred based on user notes: "${notes || 'No extra notes'}".
+The outfit source is deterministic and must not be inferred from the source model. User instructions: "${notes || 'No extra notes'}".
 
 Return valid JSON ONLY (no markdown formatting, no backticks):
 {
@@ -252,140 +272,52 @@ const parseAgentAnalysis = (text: string, notes: string, fallbackPrompt: string)
 };
 
 const buildTransferPrompt = (options: {
-  sourceCount: number;
   analysis: AgentAnalysis;
-  transferSourceOutfit: boolean;
-  hasMask: boolean;
+  outfitSource: 'clothing-reference' | 'white-basics' | 'target-scene';
   extraNotes: string;
   sceneNumber: number;
 }) => {
-  const maskText = options.hasMask
-    ? `- INPAINTING FACE SWAP INSTRUCTION: Image 2 is the INPAINTING MASK. The WHITE region in Image 2 covers the target model's face to be replaced. YOU MUST ERASE AND REPLACE ONLY THE FACE inside the WHITE mask region of Image 1 with the source model's face identity from Image 3 & Image 4.`
-    : `- Replace target person's face identity in Image 1 completely with the source model from Image 3.`;
-
-  const outfitRules = options.transferSourceOutfit
-    ? `# SOURCE OUTFIT TRANSFER\n- Transfer the complete outfit from source model images to target pose.`
-    : `# MANDATORY TARGET OUTFIT, BODY POSE & BACKGROUND LOCK (CRITICAL PRIORITY #1)\n- Image 1 is the MANDATORY BASE CANVAS. STRICTLY KEEP Image 1's clothing, green wrap blazer jacket, cut, trousers, body posture, hands, leaning pole, asphalt zebra crossing, and environment 100% UNCHANGED.\n- DO NOT copy or borrow clothing, inner t-shirts, tops, or necklaces from Image 3 or Image 4! Image 3 & Image 4 are strictly for FACE IDENTITY REFERENCE ONLY.`;
+  const hasClothingReference = options.outfitSource === 'clothing-reference';
+  const outfitRules = options.outfitSource === 'clothing-reference'
+    ? `# FIGURE 3 — MANDATORY CLOTHING AND SHOES REFERENCE\n- Replace the clothing and shoes in Figure 1 with the dress/outfit and shoes from Figure 3.\n- Preserve Figure 3's exact garment category, silhouette, cut, fabric texture, color, pattern, seams, closures, trims, logos, footwear, and styling details.\n- Fit them naturally to Figure 1's unchanged body and pose. Figure 3 has ZERO authority over the person, pose, camera, background, composition, or lighting.`
+    : options.outfitSource === 'white-basics'
+      ? `# MANDATORY WHITE BASIC OUTFIT — LOCAL WARDROBE EDIT ONLY\n- Replace only the clothing and footwear region in Figure 1 with a plain solid-white short-sleeve T-shirt and plain solid-white shorts.\n- The person MUST be barefoot: no shoes, socks, sandals, slippers, boots, or other footwear.\n- This wardrobe instruction does NOT authorize a new scene, new pose, new body, studio background, catalog restaging, zoom, crop, or camera change.`
+      : `# MANDATORY FIGURE 1 WARDROBE LOCK\n- Preserve the exact clothing and shoes already worn in Figure 1, including category, silhouette, cut, fabric, colors, patterns, seams, accessories, and styling.\n- Do not copy clothing or shoes from any identity reference. Only replace the face identity.`;
 
   return `
-# COMMERCIAL HIGH-PRECISION FASHION MODEL FACE SWAP
+# IN-PLACE MODEL IDENTITY TRANSFER — FIGURE 1 IS AN IMMUTABLE BASE CANVAS
 
-# INPUT IMAGES REFERENCE:
-- Image 1: TARGET SCENE BASE IMAGE (MANDATORY BASE: Lock 100% of this image's clothing, green wrap jacket style, dark trousers, body posture, leaning pole, zebra crossing background, and lighting environment).
-${options.hasMask ? '- Image 2: FACE INPAINTING MASK (WHITE = target face region to replace; BLACK = 100% keep background & clothing)' : ''}
-- Image 3: SOURCE MODEL FACE IDENTITY ANCHOR (HIGHEST PRIORITY FOR FACE LOOK: Lock facial features, eyes, nose, mouth, skin tone, and hair structure).
-- Image 4+: Additional Source Model Identity References.
+# FIGURE MAPPING — NEVER REORDER OR MIX ROLES
+- Figure 1: TARGET SCENE and immutable base image. The final result must remain visually identical to Figure 1 outside the explicitly edited face${hasClothingReference || options.outfitSource === 'white-basics' ? ', clothing, and footwear' : ''} regions.
+- Figure 2: SOURCE FACE identity reference. Use it only for facial identity: face shape, eyes, eyebrows, nose, lips, cheekbones, jawline, complexion, age, and recognizable likeness.
+${hasClothingReference ? '- Figure 3: CLOTHING AND SHOES reference. Use it only for the requested outfit and footwear.\n- Figure 4+: supplementary source-face identity references only.' : '- Figure 3+: supplementary source-face identity references only.'}
+
+# ABSOLUTE FIGURE 1 SCENE LOCK — HIGHEST PRIORITY
+- This is an in-place image edit, NOT a new photo generation, restaging, or scene recreation.
+- Keep Figure 1's background/location pixel-consistent: architecture, walls, floor, furniture, props, vegetation, sky, horizon, shadows, reflections, texture, and every non-person object must remain in the same position and appearance.
+- Keep Figure 1's exact canvas, framing, crop, camera angle, lens perspective, camera distance, subject scale and placement, pose, joint coordinates, hands, legs, hairstyle, body proportions, expression, gaze direction, and head angle.
+- Keep Figure 1's original lighting direction, exposure, color temperature, contrast, shadow geometry, contact shadows, depth of field, grain, and photographic style.
+- Never replace Figure 1's location with a white/gray studio, seamless backdrop, catalog background, similar-looking scene, or newly invented environment.
+- When any instruction conflicts with preserving Figure 1's scene, composition, pose, or camera, preserve Figure 1.
 
 ${outfitRules}
 
-# HIGHEST PRIORITY RULE: SOURCE MODEL FACE REPLACEMENT
-- The face generated inside the WHITE mask region MUST 100% BE THE SAMPLE MODEL FACE from Image 3!
-- Accurately transfer her exact eyes, eyebrows, nose, lip shape, cheekbones, skin texture, and identity into the target head position on Image 1.
+# FACE REPLACEMENT
+- Replace the model's face in Figure 1 with the face from Figure 2, preserving Figure 2's facial features and recognizable identity while fitting them naturally into Figure 1's unchanged head position.
+- Match Figure 1's exact facial angle, head rotation, expression, gaze, lighting, skin illumination, perspective, scale, focus, and occlusion. Preserve Figure 1's hairstyle and hair placement.
+- Do not copy Figure 2's pose, clothing, hairstyle, background, studio lighting, camera, crop, or composition.
 
-# MANDATORY HEAD POSE, GAZE DIRECTION & EXPRESSION LOCK:
-- DO NOT generate a camera-staring front-facing head if the target scene model in Image 1 is turned sideways or looking away!
-- STRICTLY COPY AND PRESERVE the exact 3/4 profile head rotation angle, tilt, pitch, and eye gaze direction from Image 1 (Target Scene).
-- Lock and replicate the authentic facial expression (lip seal/parting, eyebrow tension, natural gaze) from Image 1.
-
-# LIGHTING & COMPOSITION INTEGRATION
+# NATURAL COMPOSITING
 - ${options.analysis.lightingBrief}
-- Match key light direction, highlight softness, skin tone temperature, and cast shadows to Image 1.
+- Match all edited areas to Figure 1's key light, fill, highlight softness, skin-tone illumination, cast shadows, contact shadows, perspective, focus, grain, and color response.
+- The result must look like Figure 1 with only the requested face${hasClothingReference || options.outfitSource === 'white-basics' ? ' and wardrobe' : ''} replacement applied.
 
 # USER NOTES
 ${options.extraNotes || 'No extra notes.'}
 
-# REJECT
-blended original target face, target face leakage, unreplaced face, mismatched skin tone, red cast, floating face, unrealistic neck seam, distorted face, dual faces, changed clothes when target outfit preservation is requested.
+# FAILURE REJECTION
+different background, white studio, gray studio, seamless backdrop, changed scene, recreated scene, changed camera, changed crop, changed subject placement, changed pose, changed hairstyle, changed body proportions, changed props, missing objects, added objects, source-reference background leakage, catalog restaging, blended original target face, target face leakage, unreplaced face, mismatched skin tone, floating face, unrealistic neck seam, distorted face, duplicate person, collage, split screen.
 `.trim();
-};
-
-type FaceDetectionResult = {
-  centerX: number; // percentage 0 - 100
-  centerY: number; // percentage 0 - 100
-  radiusX: number; // percentage 0 - 100
-  radiusY: number; // percentage 0 - 100
-};
-
-const detectFaceWithAgent = async (apiImage: { base64: string; mimeType: string }): Promise<FaceDetectionResult> => {
-  const prompt = `
-You are a computer vision face detection system for face swapping masks.
-Analyze the image and locate the main person's face and head.
-Output normalized coordinates (0 to 100 percent of image dimensions):
-- "centerX": center X position of the face & head (0=left edge, 100=right edge)
-- "centerY": center Y position of the face & head (0=top edge, 100=bottom edge)
-- "radiusX": half-width of the oval mask covering face and hair (typically 6 to 12)
-- "radiusY": half-height of the oval mask covering forehead to chin (typically 7 to 15)
-
-CRITICAL INSTRUCTIONS:
-- Pay close attention to the person's actual head and face position in the photo.
-- Ignore background roads, asphalt, buildings, or sky.
-
-Return ONLY a raw JSON object with NO markdown formatting, NO backticks:
-{"centerX": 50, "centerY": 15, "radiusX": 8, "radiusY": 10}
-`.trim();
-
-  try {
-    const text = await generateText([apiImage], prompt);
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (
-        typeof parsed.centerX === 'number' &&
-        typeof parsed.centerY === 'number' &&
-        typeof parsed.radiusX === 'number' &&
-        typeof parsed.radiusY === 'number'
-      ) {
-        return {
-          centerX: Math.max(5, Math.min(95, parsed.centerX)),
-          centerY: Math.max(5, Math.min(95, parsed.centerY)),
-          radiusX: Math.max(4, Math.min(25, parsed.radiusX)),
-          radiusY: Math.max(4, Math.min(30, parsed.radiusY)),
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('AI Agent face detection error, falling back to top-center bounds', err);
-  }
-
-  return { centerX: 50, centerY: 16, radiusX: 8, radiusY: 10 };
-};
-
-const detectAndCreateFaceMaskDataUrl = async (
-  image: UploadedImage
-): Promise<string> => {
-  const apiImg = toApiImage(image);
-  const faceCoords = await detectFaceWithAgent(apiImg);
-
-  let targetWidth = 1024;
-  let targetHeight = 1024;
-  try {
-    const img = await loadCanvasImage(getDataUrl(image));
-    targetWidth = img.naturalWidth || img.width || 1024;
-    targetHeight = img.naturalHeight || img.height || 1024;
-  } catch (err) {
-    console.warn('Could not load image dimensions for face mask canvas:', err);
-  }
-
-  const cx = (faceCoords.centerX / 100) * targetWidth;
-  const cy = (faceCoords.centerY / 100) * targetHeight;
-  const rx = (faceCoords.radiusX / 100) * targetWidth;
-  const ry = (faceCoords.radiusY / 100) * targetHeight;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-  ctx.fillStyle = 'white';
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-  ctx.fill();
-
-  return canvas.toDataURL('image/png');
 };
 
 const createRecord = (): ModelTransferRecord => ({
@@ -395,6 +327,7 @@ const createRecord = (): ModelTransferRecord => ({
   checkpoint: 'input',
   oneClick: false,
   sourceModels: [],
+  clothingImages: [],
   targetScenes: [],
   selectedModel: MODEL_OPTIONS[0].id,
   aspectRatio: AspectRatio.PORTRAIT_2_3,
@@ -402,7 +335,11 @@ const createRecord = (): ModelTransferRecord => ({
   outputFormat: 'png',
   colorCorrectionMode: 'match',
   colorCorrectionBlend: 0.55,
-  outfitMode: 'auto',
+  whiteBaseOutfit: false,
+  boardType: 'social',
+  cropFraming: 'full-length',
+  modelHeight: '',
+  outputCount: 1,
   extraNotes: '',
   agentAnalysis: null,
   results: [],
@@ -430,420 +367,21 @@ const WorkflowSteps: React.FC<{ step: HDStep }> = ({ step }) => {
   );
 };
 
-// ==================== Interactive Face Masking Canvas Modal ====================
-
-const FaceMaskModal: React.FC<{
-  image: UploadedImage;
-  initialBrushSize?: number;
-  initialBrushOpacity?: number;
-  onBrushSettingsChange?: (size: number, opacity: number) => void;
-  onSave: (maskDataUrl: string) => void;
-  onClose: () => void;
-}> = ({
-  image,
-  initialBrushSize = 35,
-  initialBrushOpacity = 1.0,
-  onBrushSettingsChange,
-  onSave,
-  onClose,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const cursorRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const isDrawingRef = useRef(false);
-  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
-
-  const [brushSize, setBrushSize] = useState<number>(initialBrushSize);
-  const [brushOpacity, setBrushOpacity] = useState<number>(initialBrushOpacity);
-  const [mode, setMode] = useState<'paint' | 'erase'>('paint');
-  const [history, setHistory] = useState<ImageData[]>([]);
-  const [imgLoaded, setImgLoaded] = useState(false);
-
-  const [isAnalyzingFace, setIsAnalyzingFace] = useState(false);
-
+const SelectionModal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => {
   useEffect(() => {
-    let isMounted = true;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = getDataUrl(image);
-    img.onload = () => {
-      if (!isMounted) return;
-      imgRef.current = img;
-
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        setImgLoaded(true);
-        return;
-      }
-      canvas.width = img.naturalWidth || 1024;
-      canvas.height = img.naturalHeight || 1024;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        setImgLoaded(true);
-        return;
-      }
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (image.maskDataUrl) {
-        const maskImg = new Image();
-        maskImg.src = image.maskDataUrl;
-        maskImg.onload = () => {
-          if (!isMounted) return;
-          ctx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
-          saveState();
-          setImgLoaded(true);
-        };
-        maskImg.onerror = () => {
-          if (isMounted) setImgLoaded(true);
-        };
-      } else {
-        setIsAnalyzingFace(true);
-        detectAndCreateFaceMaskDataUrl(image).then((dataUrl) => {
-          if (!isMounted) return;
-          const maskImg = new Image();
-          maskImg.src = dataUrl;
-          maskImg.onload = () => {
-            if (!isMounted) return;
-            ctx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
-            saveState();
-            setImgLoaded(true);
-            setIsAnalyzingFace(false);
-          };
-          maskImg.onerror = () => {
-            if (isMounted) {
-              setImgLoaded(true);
-              setIsAnalyzingFace(false);
-            }
-          };
-        }).catch(() => {
-          if (isMounted) setIsAnalyzingFace(false);
-        });
-      }
-    };
-
-    return () => {
-      isMounted = false;
-    };
-  }, [image]);
-
-  const saveState = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (canvas && ctx) {
-      setHistory((prev) => [...prev.slice(-10), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
-    }
-  };
-
-  const handleUndo = () => {
-    if (history.length <= 1) return;
-    const newHist = [...history];
-    newHist.pop();
-    const prev = newHist[newHist.length - 1];
-    setHistory(newHist);
-
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (canvas && ctx && prev) {
-      ctx.putImageData(prev, 0, 0);
-    }
-  };
-
-  const handleClear = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (canvas && ctx) {
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      saveState();
-    }
-  };
-
-  const handleAutoFaceMask = async () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx || isAnalyzingFace) return;
-
-    setIsAnalyzingFace(true);
-    try {
-      const dataUrl = await detectAndCreateFaceMaskDataUrl(image);
-      const maskImg = new Image();
-      maskImg.src = dataUrl;
-      maskImg.onload = () => {
-        ctx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
-        saveState();
-      };
-    } finally {
-      setIsAnalyzingFace(false);
-    }
-  };
-
-  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY,
-    };
-  };
-
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
-  const rafIdRef = useRef<number | null>(null);
-
-  const drawStroke = (x1: number, y1: number, x2: number, y2: number) => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-
-    ctx.save();
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.globalAlpha = mode === 'paint' ? brushOpacity : 1.0;
-
-    if (mode === 'paint') {
-      ctx.strokeStyle = 'white';
-      ctx.fillStyle = 'white';
-    } else {
-      ctx.strokeStyle = 'black';
-      ctx.fillStyle = 'black';
-    }
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(x2, y2, brushSize / 2, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.restore();
-  };
-
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    isDrawingRef.current = true;
-    const coords = getCanvasCoords(e);
-    lastPointRef.current = coords;
-    drawStroke(coords.x, coords.y, coords.x, coords.y);
-  };
-
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current) return;
-    const coords = getCanvasCoords(e);
-    if (lastPointRef.current) {
-      drawStroke(lastPointRef.current.x, lastPointRef.current.y, coords.x, coords.y);
-    }
-    lastPointRef.current = coords;
-  };
-
-  const stopDrawing = () => {
-    if (isDrawingRef.current) {
-      isDrawingRef.current = false;
-      lastPointRef.current = null;
-      saveState();
-    }
-  };
-
-  const handleSave = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    onSave(canvas.toDataURL('image/png'));
-    onClose();
-  };
-
-  const handleMouseMoveWrapper = (e: React.MouseEvent<HTMLDivElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const isInside =
-      e.clientX >= rect.left &&
-      e.clientX <= rect.right &&
-      e.clientY >= rect.top &&
-      e.clientY <= rect.bottom;
-
-    if (isInside) {
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = requestAnimationFrame(() => {
-        setCursorPos({ x, y, visible: true });
-      });
-    } else {
-      if (cursorPos.visible) {
-        setCursorPos((prev) => ({ ...prev, visible: false }));
-      }
-    }
-  };
-
-  const canvasRect = canvasRef.current?.getBoundingClientRect();
-  const displayScale = canvasRect && canvasRef.current ? canvasRect.width / canvasRef.current.width : 1;
-  const scaledBrushSize = Math.max(8, brushSize * displayScale);
+    const onKeyDown = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-[#10203a]/80 p-4 backdrop-blur-md" onMouseDown={onClose}>
-      <section
-        className="flex max-h-[95vh] w-[94vw] max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/40 bg-white shadow-2xl dark:bg-[#11151c]"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="flex min-h-16 items-center justify-between border-b border-pastel-border px-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <Paintbrush className="h-6 w-6 text-[#ed6d46]" />
-            <h2 className="text-lg font-black text-[#17243c] dark:text-white">涂抹目标场景人脸遮罩 (Face Masking)</h2>
-          </div>
-          <button type="button" onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-xl bg-pastel-bg text-pastel-muted hover:text-[#17243c]">
-            <X className="h-5 w-5" />
-          </button>
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#10203a]/60 p-3 backdrop-blur-sm" onMouseDown={onClose}>
+      <section className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[1.5rem] border border-white/60 bg-white shadow-2xl dark:border-white/10 dark:bg-[#15191f]" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="flex min-h-16 items-center justify-between border-b border-pastel-border px-5 sm:px-6">
+          <h2 className="text-base font-black">{title}</h2>
+          <button type="button" onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-xl bg-pastel-bg text-pastel-muted" aria-label="关闭"><X className="h-5 w-5" /></button>
         </header>
-
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-pastel-border bg-[#f8fbff] px-6 py-3.5 dark:bg-black/20">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setMode('paint')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition whitespace-nowrap shrink-0 ${
-                mode === 'paint' ? 'bg-[#ed6d46] text-white shadow-sm' : 'bg-white border border-pastel-border text-pastel-muted'
-              }`}
-            >
-              <Paintbrush className="h-4 w-4 shrink-0" /> <span className="whitespace-nowrap">涂抹人脸 (白色遮罩)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('erase')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition whitespace-nowrap shrink-0 ${
-                mode === 'erase' ? 'bg-[#17243c] text-white shadow-sm' : 'bg-white border border-pastel-border text-pastel-muted'
-              }`}
-            >
-              <Eraser className="h-4 w-4 shrink-0" /> <span className="whitespace-nowrap">橡皮擦 (擦除)</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-            <span className="text-sm font-bold text-pastel-muted whitespace-nowrap">粗细: {brushSize}px</span>
-            <input
-              type="range"
-              min="10"
-              max="120"
-              value={brushSize}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                setBrushSize(val);
-                onBrushSettingsChange?.(val, brushOpacity);
-              }}
-              className="w-28 accent-[#ed6d46]"
-            />
-          </div>
-
-          <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
-            <span className="text-sm font-bold text-pastel-muted whitespace-nowrap">透明度: {Math.round(brushOpacity * 100)}%</span>
-            <input
-              type="range"
-              min="0.1"
-              max="1.0"
-              step="0.05"
-              value={brushOpacity}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                setBrushOpacity(val);
-                onBrushSettingsChange?.(brushSize, val);
-              }}
-              className="w-28 accent-[#ed6d46]"
-            />
-          </div>
-
-          <div className="flex items-center gap-2.5 flex-wrap shrink-0">
-            <button
-              type="button"
-              onClick={handleAutoFaceMask}
-              disabled={isAnalyzingFace}
-              className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-[#fff8f3] px-3.5 py-2 text-sm font-bold text-[#d8552e] hover:bg-[#fff0e8] disabled:opacity-60 whitespace-nowrap shrink-0 shadow-2xs"
-            >
-              {isAnalyzingFace ? (
-                <>
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#ed6d46]" />
-                  <span className="whitespace-nowrap">AI Agent 识别精准人脸中...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 shrink-0" />
-                  <span className="whitespace-nowrap">AI Agent 智能圈选人脸</span>
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={history.length <= 1}
-              className="flex items-center gap-1.5 rounded-xl border border-pastel-border bg-white px-3.5 py-2 text-sm font-bold text-pastel-muted hover:bg-pastel-bg disabled:opacity-40 whitespace-nowrap shrink-0"
-            >
-              <Undo className="h-4 w-4 shrink-0" /> <span className="whitespace-nowrap">撤销</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-bold text-red-600 hover:bg-red-100 whitespace-nowrap shrink-0"
-            >
-              <Trash2 className="h-4 w-4 shrink-0" /> <span className="whitespace-nowrap">清空</span>
-            </button>
-          </div>
-        </div>
-
-        <div
-          ref={containerRef}
-          onMouseMove={handleMouseMoveWrapper}
-          onMouseLeave={() => setCursorPos({ x: 0, y: 0, visible: false })}
-          className="relative flex flex-1 items-center justify-center overflow-auto bg-[#eef5fd] p-6 min-h-[500px]"
-        >
-          <div className="relative inline-block border border-pastel-border shadow-xl rounded-xl overflow-hidden max-h-[680px] cursor-none">
-            <img src={getDataUrl(image)} alt="Scene Target" className="block max-h-[680px] max-w-full object-contain pointer-events-none" />
-            <canvas
-              ref={canvasRef}
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              onTouchStart={startDrawing}
-              onTouchMove={draw}
-              onTouchEnd={stopDrawing}
-              style={{ opacity: brushOpacity }}
-              className="absolute inset-0 h-full w-full cursor-none mix-blend-screen"
-            />
-            {cursorPos.visible && (
-              <div
-                className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full z-40 transition-none"
-                style={{
-                  left: `${cursorPos.x}px`,
-                  top: `${cursorPos.y}px`,
-                  width: `${scaledBrushSize}px`,
-                  height: `${scaledBrushSize}px`,
-                  backgroundColor: mode === 'paint' ? 'rgba(237, 109, 70, 0.35)' : 'rgba(23, 36, 60, 0.45)',
-                  border: mode === 'paint' ? '2.5px solid #ed6d46' : '2.5px solid #ffffff',
-                  boxShadow: '0 0 0 1.5px #ffffff, 0 0 12px rgba(0,0,0,0.5)',
-                }}
-              />
-            )}
-          </div>
-        </div>
-
-        <footer className="flex items-center justify-between border-t border-pastel-border px-6 py-4 bg-white dark:bg-[#11151c]">
-          <p className="text-sm text-pastel-muted">
-            💡 <strong>涂抹提示:</strong> 用画笔涂满目标场景图中需要被替换的人脸与头部，白色区域为 AI 替换靶区。
-          </p>
-          <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="rounded-xl border border-pastel-border px-5 py-2.5 text-sm font-bold text-pastel-muted hover:bg-pastel-bg">
-              取消
-            </button>
-            <button type="button" onClick={handleSave} className="flex items-center gap-2 rounded-xl bg-[#17243c] px-6 py-2.5 text-sm font-black text-white hover:bg-[#253858] shadow-sm">
-              <Check className="h-4.5 w-4.5" /> 保存涂抹蒙版
-            </button>
-          </div>
-        </footer>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </section>
     </div>
   );
@@ -860,24 +398,14 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [activeUploadKind, setActiveUploadKind] = useState<UploadKind>('model');
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
-  const [maskEditingImage, setMaskEditingImage] = useState<UploadedImage | null>(null);
-  const [isRatioModalOpen, setIsRatioModalOpen] = useState(false);
+  const [imageCrop, setImageCrop] = useState<{ recordId: string; kind: UploadKind; imageId: string; url: string; file: File } | null>(null);
+  const [selectionModal, setSelectionModal] = useState<'ratio' | 'board' | 'crop' | null>(null);
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
   const [isPromptCopied, setIsPromptCopied] = useState(false);
-  const [uploadingKind, setUploadingKind] = useState<UploadKind | null>(null);
-  const [uploadingProgressText, setUploadingProgressText] = useState<string>('');
-
-  const [maskBrushSize, setMaskBrushSize] = useState<number>(() => {
-    const saved = localStorage.getItem('antigravity_mask_brush_size');
-    return saved ? Number(saved) : 35;
-  });
-  const [maskBrushOpacity, setMaskBrushOpacity] = useState<number>(() => {
-    const saved = localStorage.getItem('antigravity_mask_brush_opacity');
-    return saved ? Number(saved) : 1.0;
-  });
 
   const activeUploadKindRef = useRef<UploadKind>('model');
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const clothingInputRef = useRef<HTMLInputElement>(null);
   const sceneInputRef = useRef<HTMLInputElement>(null);
   const generationControllersRef = useRef(new Map<string, { taskId: number; controller: AbortController }>());
   const generationSequenceRef = useRef(0);
@@ -885,11 +413,6 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const activeRecord = useMemo(
     () => records.find((r) => r.id === activeRecordId) || records[0],
     [records, activeRecordId]
-  );
-
-  const currentAspectItem = useMemo(
-    () => ASPECT_OPTIONS.find((item) => item.id === activeRecord.aspectRatio) || ASPECT_OPTIONS[1],
-    [activeRecord.aspectRatio]
   );
 
   const patchActive = useCallback(
@@ -957,21 +480,18 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
 
   const processFiles = useCallback(async (files: File[], kind: UploadKind) => {
     const valid = files.filter((file) => file.type.startsWith('image/'));
-    const currentCount = kind === 'model' ? activeRecord.sourceModels.length : activeRecord.targetScenes.length;
-    const max = kind === 'model' ? MAX_MODEL_IMAGES : MAX_SCENE_IMAGES;
+    const currentCount = kind === 'model'
+      ? activeRecord.sourceModels.length
+      : kind === 'clothing'
+        ? activeRecord.clothingImages.length
+        : activeRecord.targetScenes.length;
+    const max = kind === 'model' ? MAX_MODEL_IMAGES : kind === 'clothing' ? MAX_CLOTHING_IMAGES : MAX_SCENE_IMAGES;
     const accepted = valid.slice(0, Math.max(0, max - currentCount));
     if (!accepted.length) {
-      if (valid.length) patchActive({ error: `${kind === 'model' ? '模特参考图' : '目标场景图'}最多上传 ${max} 张。` });
+      if (valid.length) patchActive({ error: `${kind === 'model' ? '模特参考图' : kind === 'clothing' ? '服装参考图' : '目标场景图'}最多上传 ${max} 张。` });
       return;
     }
     try {
-      setUploadingKind(kind);
-      setUploadingProgressText(
-        kind === 'model'
-          ? 'Agent 正在解析模特特征...'
-          : 'Agent 正在检测人脸与生成蒙版...'
-      );
-
       const uploaded = await Promise.all(accepted.map(async (file): Promise<UploadedImage> => {
         const compressed = await compressImage(file, 1800, 0.92);
         return {
@@ -984,21 +504,16 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       }));
 
       if (kind === 'model') {
-        patchActive({ sourceModels: [...activeRecord.sourceModels, ...uploaded].slice(0, MAX_MODEL_IMAGES) });
+        patchActive({ sourceModels: [...activeRecord.sourceModels, ...uploaded].slice(0, MAX_MODEL_IMAGES), checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] });
+      } else if (kind === 'clothing') {
+        patchActive({ clothingImages: uploaded.slice(0, MAX_CLOTHING_IMAGES), checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] });
       } else {
-        const scenesWithMasks = await Promise.all(uploaded.map(async (sc) => {
-          const maskDataUrl = await detectAndCreateFaceMaskDataUrl(sc);
-          return { ...sc, maskDataUrl };
-        }));
-        patchActive({ targetScenes: [...activeRecord.targetScenes, ...scenesWithMasks].slice(0, MAX_SCENE_IMAGES) });
+        patchActive({ targetScenes: [...activeRecord.targetScenes, ...uploaded].slice(0, MAX_SCENE_IMAGES), checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] });
       }
 
       patchActive({ error: null });
     } catch (err: any) {
       patchActive({ error: getErrorMessage(err) });
-    } finally {
-      setUploadingKind(null);
-      setUploadingProgressText('');
     }
   }, [activeRecord, patchActive]);
 
@@ -1014,33 +529,57 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
 
   const removeUploadedImage = (kind: UploadKind, id: string) => {
     if (kind === 'model') {
-      patchActive({ sourceModels: activeRecord.sourceModels.filter((m) => m.id !== id) });
+      patchActive({ sourceModels: activeRecord.sourceModels.filter((m) => m.id !== id), checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] });
+    } else if (kind === 'clothing') {
+      patchActive({ clothingImages: activeRecord.clothingImages.filter((image) => image.id !== id), checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] });
     } else {
-      patchActive({ targetScenes: activeRecord.targetScenes.filter((s) => s.id !== id) });
+      patchActive({ targetScenes: activeRecord.targetScenes.filter((s) => s.id !== id), checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] });
     }
   };
 
-  const handleSaveMask = (sceneId: string, maskDataUrl: string) => {
-    patchActive({
-      targetScenes: activeRecord.targetScenes.map((sc) => (sc.id === sceneId ? { ...sc, maskDataUrl } : sc)),
+  const openImageCrop = (kind: UploadKind, image: UploadedImage) => {
+    if (isGenerating) return;
+    setImageCrop({
+      recordId: activeRecord.id,
+      kind,
+      imageId: image.id,
+      url: image.preview || getDataUrl(image),
+      file: new File([], image.name || 'image.png'),
     });
   };
 
-  // Auto-generate missing face masks for target scenes when in active workflow steps
-  useEffect(() => {
-    if (activeRecord.checkpoint !== 'input' && !isGenerating && activeRecord.targetScenes.some((sc) => !sc.maskDataUrl)) {
-      void (async () => {
-        const updated = await Promise.all(
-          activeRecord.targetScenes.map(async (sc) => {
-            if (sc.maskDataUrl) return sc;
-            const maskDataUrl = await detectAndCreateFaceMaskDataUrl(sc);
-            return { ...sc, maskDataUrl };
-          })
-        );
-        patchActive({ targetScenes: updated });
-      })();
+  const applyImageCrop = async (newFile: File, newUrl: string) => {
+    const target = imageCrop;
+    if (!target) {
+      URL.revokeObjectURL(newUrl);
+      return;
     }
-  }, [activeRecord.checkpoint, activeRecord.targetScenes, isGenerating, patchActive]);
+
+    try {
+      const compressed = await compressImage(newFile, 1800, 0.92);
+      setRecords((current) => current.map((record) => {
+        if (record.id !== target.recordId) return record;
+        const updateImage = (image: UploadedImage): UploadedImage => image.id === target.imageId
+          ? { ...image, preview: newUrl, base64: compressed.base64, mime: compressed.mime, name: newFile.name }
+          : image;
+        return {
+          ...record,
+          sourceModels: target.kind === 'model' ? record.sourceModels.map(updateImage) : record.sourceModels,
+          clothingImages: target.kind === 'clothing' ? record.clothingImages.map(updateImage) : record.clothingImages,
+          targetScenes: target.kind === 'scene' ? record.targetScenes.map(updateImage) : record.targetScenes,
+          checkpoint: 'input',
+          step: 'input',
+          agentAnalysis: null,
+          results: [],
+          error: null,
+          statusMessage: '',
+        };
+      }));
+    } catch (error) {
+      patchRecord(target.recordId, { error: `图片裁切保存失败：${getErrorMessage(error)}` });
+      throw error;
+    }
+  };
 
   // ==================== Agent Step-by-Step Handlers ====================
 
@@ -1055,42 +594,30 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     try {
       assertCurrentGenerationTask(recordId, taskId, signal);
       const text = await generateText(
-        [...record.sourceModels.map(toApiImage), ...record.targetScenes.map(toApiImage)],
-        buildAgentPrompt(record.sourceModels.length, record.extraNotes)
+        [...record.sourceModels.map(toApiImage), ...record.clothingImages.map(toApiImage), ...record.targetScenes.map(toApiImage)],
+        buildAgentPrompt(record.sourceModels.length, record.clothingImages.length > 0, buildTransferDirection(record))
       );
       assertCurrentGenerationTask(recordId, taskId, signal);
 
       const defaultTransferPrompt = buildTransferPrompt({
-        sourceCount: record.sourceModels.length,
         analysis: fallbackAnalysis(record.extraNotes),
-        transferSourceOutfit: detectsSourceOutfitRequest(record.extraNotes),
-        hasMask: true,
-        extraNotes: record.extraNotes,
+        outfitSource: getOutfitSource(record),
+        extraNotes: buildTransferDirection(record),
         sceneNumber: 1,
       });
 
       const analysis = parseAgentAnalysis(text, activeRecord.extraNotes, defaultTransferPrompt);
 
-      // Pre-generate face masks for all target scenes if missing
-      const scenesWithMasks = await Promise.all(
-        record.targetScenes.map(async (sc) => {
-          if (sc.maskDataUrl) return sc;
-          const maskDataUrl = await detectAndCreateFaceMaskDataUrl(sc);
-          return { ...sc, maskDataUrl };
-        })
-      );
-
       patchRecord(recordId, {
         agentAnalysis: analysis,
-        targetScenes: scenesWithMasks,
         checkpoint: 'analyzed',
         step: 'analyzing',
       });
-      patchRecord(recordId, { statusMessage: 'Agent 分析完成，请确认人脸涂抹遮罩与光影方案。' });
+      patchRecord(recordId, { statusMessage: 'Agent 分析完成，请确认人物身份与光影融合方案。' });
 
       if (record.oneClick) {
         finishGenerationTask(recordId, taskId);
-        await runStep2_MaskingCheck(recordId, analysis);
+        await runStep2_ConfirmPlan(recordId, analysis);
         return;
       }
     } catch (err: any) {
@@ -1102,8 +629,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     }
   };
 
-  const runStep2_MaskingCheck = async (recordId = activeRecord.id, analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes)) => {
-    patchRecord(recordId, { checkpoint: 'masked', step: 'color', statusMessage: 'Agent 已确认目标场景图人脸涂抹遮罩就绪。' });
+  const runStep2_ConfirmPlan = async (recordId = activeRecord.id, analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes)) => {
+    patchRecord(recordId, { checkpoint: 'confirmed', step: 'color', statusMessage: '人物身份与目标场景融合方案已确认。' });
 
     const record = records.find((item) => item.id === recordId);
     if (record?.oneClick) {
@@ -1116,18 +643,19 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     if (!record) return;
     const sources = [...record.sourceModels];
     const scenes = [...record.targetScenes];
+    const totalOutputCount = scenes.length * record.outputCount;
     const { taskId, signal } = startGenerationTask(recordId);
 
-    patchRecord(recordId, { error: null, step: 'upscaling', isGenerating: true, statusMessage: '正在提取模特身份锚点与目标遮罩图层...' });
+    patchRecord(recordId, { error: null, step: 'upscaling', isGenerating: true, statusMessage: '正在提取模特身份锚点并匹配目标场景光影...' });
     patchRecord(recordId, {
-      results: scenes.map((scene) => ({
-        id: `pending-${scene.id}`,
+      results: scenes.flatMap((scene) => Array.from({ length: record.outputCount }, (_, variantIndex) => ({
+        id: `transfer-${scene.id}-${variantIndex + 1}`,
         sceneId: scene.id,
-        sceneName: scene.name,
+        sceneName: record.outputCount > 1 ? `${scene.name} · 变体 ${variantIndex + 1}` : scene.name,
         imageUrl: null,
-        status: 'pending',
+        status: 'pending' as GenerationStatus,
         prompt: '',
-      })),
+      }))),
     });
 
     try {
@@ -1139,30 +667,39 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
       ]);
       assertCurrentGenerationTask(recordId, taskId, signal);
 
-      patchRecord(recordId, { statusMessage: `已并发提交 ${scenes.length} 个场景的精准人脸迁移与光影重建...` });
+      const generationJobs = preparedScenes.flatMap((prepared, sceneIndex) =>
+        Array.from({ length: record.outputCount }, (_, variantIndex) => ({
+          prepared,
+          sceneIndex,
+          variantIndex,
+          resultId: `transfer-${prepared.scene.id}-${variantIndex + 1}`,
+        }))
+      );
+
+      patchRecord(recordId, { statusMessage: `已提交 ${totalOutputCount} 张精准人物迁移与光影重建任务...` });
 
       const settled = await Promise.allSettled(
-        preparedScenes.map((prepared, sceneIndex) =>
-          generatePreparedScene({ record, recordId, prepared, sceneIndex, sources, identityAnchors, analysis, signal })
+        generationJobs.map(({ prepared, sceneIndex, variantIndex, resultId }) =>
+          generatePreparedScene({ record, recordId, prepared, sceneIndex, variantIndex, resultId, sources, identityAnchors, analysis, signal })
             .then((item) => {
-              if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, prepared.scene.id, item);
+              if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, resultId, item);
               return item;
             })
             .catch((itemError) => {
               if (isAbortError(itemError)) {
-                if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, prepared.scene.id, { status: 'cancelled', error: '已中止' });
+                if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, resultId, { status: 'cancelled', error: '已中止' });
                 throw itemError;
               }
               const failed: ResultItem = {
-                id: `error-${prepared.scene.id}`,
+                id: resultId,
                 sceneId: prepared.scene.id,
-                sceneName: prepared.scene.name,
+                sceneName: record.outputCount > 1 ? `${prepared.scene.name} · 变体 ${variantIndex + 1}` : prepared.scene.name,
                 imageUrl: null,
                 status: 'error',
                 prompt: '',
                 error: getErrorMessage(itemError),
               };
-              if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, prepared.scene.id, failed);
+              if (isCurrentGenerationTask(recordId, taskId)) updateResult(recordId, resultId, failed);
               return failed;
             })
         )
@@ -1174,7 +711,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
         .map((entry) => entry.value);
 
       await saveBatch(record, sources, scenes, analysis, batchResults);
-      patchRecord(recordId, { checkpoint: 'complete', step: 'complete', statusMessage: `批量迁移完成：${batchResults.filter((item) => item.status === 'done').length}/${scenes.length} 张成功` });
+      patchRecord(recordId, { checkpoint: 'complete', step: 'complete', statusMessage: `批量迁移完成：${batchResults.filter((item) => item.status === 'done').length}/${totalOutputCount} 张成功` });
     } catch (generateError) {
       if (!isAbortError(generateError)) patchActive({ error: getErrorMessage(generateError) });
     } finally {
@@ -1187,22 +724,17 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     sources.map(async (source) => dataUrlToApiImage(await createModelHeadIdentityCrop(getDataUrl(source))))
   );
 
-  const prepareScenes = (scenes: UploadedImage[]) => Promise.all(
-    scenes.map(async (scene): Promise<PreparedScene> => {
-      const poseAnchor = dataUrlToApiImage(await extractEdges(getDataUrl(scene)));
-      const maskAnchor = scene.maskDataUrl ? dataUrlToApiImage(scene.maskDataUrl) : undefined;
-      return { scene, poseAnchor, maskAnchor };
-    })
-  );
+  const prepareScenes = (scenes: UploadedImage[]): Promise<PreparedScene[]> =>
+    Promise.resolve(scenes.map((scene) => ({ scene })));
 
-  const updateResult = (recordId: string, sceneId: string, patch: Partial<ResultItem>) => {
+  const updateResult = (recordId: string, resultId: string, patch: Partial<ResultItem>) => {
     setRecords((prev) =>
       prev.map((rec) => {
         if (rec.id !== recordId) return rec;
-        const exists = rec.results.some((item) => item.sceneId === sceneId);
+        const exists = rec.results.some((item) => item.id === resultId);
         const updatedResults: ResultItem[] = exists
-          ? rec.results.map((item) => (item.sceneId === sceneId ? { ...item, ...patch } : item))
-          : [...rec.results, { id: `result-${sceneId}`, sceneId, sceneName: '', imageUrl: null, status: 'pending' as GenerationStatus, prompt: '', ...patch }];
+          ? rec.results.map((item) => (item.id === resultId ? { ...item, ...patch, id: resultId } : item))
+          : [...rec.results, { id: resultId, sceneId: patch.sceneId || '', sceneName: patch.sceneName || '', imageUrl: null, status: 'pending' as GenerationStatus, prompt: '', ...patch }];
         return {
           ...rec,
           results: updatedResults,
@@ -1216,31 +748,27 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     recordId: string;
     prepared: PreparedScene;
     sceneIndex: number;
+    variantIndex: number;
+    resultId: string;
     sources: UploadedImage[];
     identityAnchors: Array<{ base64: string; mimeType: string }>;
     analysis: AgentAnalysis;
     signal: AbortSignal;
   }): Promise<ResultItem> => {
-    const { record, recordId, prepared, sceneIndex, sources, identityAnchors, analysis, signal } = options;
-    const transferSourceOutfit = record.outfitMode === 'source' || (record.outfitMode === 'auto' && analysis.transferSourceOutfit);
+    const { record, recordId, prepared, sceneIndex, variantIndex, resultId, sources, identityAnchors, analysis, signal } = options;
     const prompt = buildTransferPrompt({
-      sourceCount: sources.length,
       analysis,
-      transferSourceOutfit,
-      hasMask: Boolean(prepared.maskAnchor),
-      extraNotes: record.extraNotes,
+      outfitSource: getOutfitSource(record),
+      extraNotes: `${buildTransferDirection(record)}\nGenerate variation ${variantIndex + 1} of ${record.outputCount}; preserve identity and target-scene structure while allowing subtle natural variation.`,
       sceneNumber: sceneIndex + 1,
     });
-    updateResult(recordId, prepared.scene.id, { status: 'submitting', error: undefined, prompt });
+    updateResult(recordId, resultId, { status: 'submitting', error: undefined, prompt });
 
-    const inputImages = [
-      toApiImage(prepared.scene),
-    ];
-    if (prepared.maskAnchor) {
-      inputImages.push(prepared.maskAnchor);
-    }
-    inputImages.push(...identityAnchors);
+    const primaryIdentity = identityAnchors[0] || toApiImage(sources[0]);
+    const inputImages = [toApiImage(prepared.scene), primaryIdentity];
+    inputImages.push(...record.clothingImages.map(toApiImage));
     inputImages.push(...sources.map(toApiImage));
+    inputImages.push(...identityAnchors.slice(1));
 
     const [rawImage] = await generateImageToImage(
       inputImages,
@@ -1252,48 +780,38 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
         workflowHint: 'model-transfer',
         hasModelRef: true,
         signal,
-        onStatus: (status) => updateResult(recordId, prepared.scene.id, { status }),
+        onStatus: (status) => updateResult(recordId, resultId, { status }),
       }
     );
 
     if (!rawImage) throw new Error('模型未返回图片。');
-    updateResult(recordId, prepared.scene.id, { status: 'processing' });
+    updateResult(recordId, resultId, { status: 'processing' });
     const correctedImage = await applyColorCorrection(rawImage, {
       mode: record.colorCorrectionMode,
       reference: record.colorCorrectionMode === 'match' ? getDataUrl(prepared.scene) : undefined,
       blend: record.colorCorrectionBlend,
     });
 
-    let finalBaseImage = correctedImage;
-    if (!transferSourceOutfit) {
-      finalBaseImage = await compositeInpaintedFaceBack(
-        getDataUrl(prepared.scene),
-        correctedImage,
-        prepared.scene.maskDataUrl
-      );
-    }
-
-    const formattedImage = await convertImageDataUrlFormat(finalBaseImage, record.outputFormat);
+    const formattedImage = await convertImageDataUrlFormat(correctedImage, record.outputFormat);
     const finalResult: ResultItem = {
-      id: `result-${prepared.scene.id}`,
+      id: resultId,
       sceneId: prepared.scene.id,
-      sceneName: prepared.scene.name,
+      sceneName: record.outputCount > 1 ? `${prepared.scene.name} · 变体 ${variantIndex + 1}` : prepared.scene.name,
       imageUrl: formattedImage,
       status: 'done',
       prompt,
     };
-    updateResult(recordId, prepared.scene.id, finalResult);
+    updateResult(recordId, resultId, finalResult);
     return finalResult;
   };
 
   const saveBatch = async (record: ModelTransferRecord, sources: UploadedImage[], scenes: UploadedImage[], analysis: AgentAnalysis, batchResults: ResultItem[]) => {
     const successful = batchResults.filter((item) => item.status === 'done' && item.imageUrl);
     if (!successful.length) return;
-    const effectiveOutfitTransfer = record.outfitMode === 'source' || (record.outfitMode === 'auto' && analysis.transferSourceOutfit);
     await saveGeneratedProject({
       type: 'MODEL',
       generated: successful.map((item) => item.imageUrl!),
-      original: [...sources, ...scenes].map(getDataUrl),
+      original: [...sources, ...record.clothingImages, ...scenes].map(getDataUrl),
       prompt: successful[0].prompt,
       params: {
         subType: 'model_transfer_batch',
@@ -1304,9 +822,13 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
         outputFormat: record.outputFormat,
         sourceModelCount: sources.length,
         targetSceneCount: scenes.length,
-        outfitMode: record.outfitMode,
-        transferSourceOutfit: effectiveOutfitTransfer,
-        outfitReason: analysis.outfitReason,
+        outputCount: record.outputCount,
+        boardType: record.boardType,
+        cropFraming: record.cropFraming,
+        modelHeight: record.modelHeight,
+        outfitSource: getOutfitSource(record),
+        whiteBaseOutfit: record.whiteBaseOutfit,
+        clothingReferenceCount: record.clothingImages.length,
         colorCorrectionMode: record.colorCorrectionMode,
         colorCorrectionBlend: record.colorCorrectionBlend,
         extraNotes: record.extraNotes,
@@ -1344,13 +866,6 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     if (item.imageUrl) handleDownload(item.imageUrl, index);
   });
 
-  const effectiveOutfitLabel = useMemo(() => {
-    if (activeRecord.outfitMode === 'source') return '强制迁移源服装';
-    if (activeRecord.outfitMode === 'target') return '强制保留场景服装';
-    if (!activeRecord.agentAnalysis) return '等待 AI 判断';
-    return activeRecord.agentAnalysis.transferSourceOutfit ? 'AI：迁移源服装' : 'AI：保留场景服装';
-  }, [activeRecord]);
-
   const statusLabel = (status: GenerationStatus) => ({
     pending: '等待提交',
     submitting: '正在提交',
@@ -1364,202 +879,171 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   const isWorkingStatus = (status: GenerationStatus) =>
     status === 'pending' || status === 'submitting' || status === 'polling' || status === 'processing';
 
-  // History Panel Component (Matches SceneGenerationTab 1:1)
+  // History Panel Component — visually aligned with SceneGenerationTab.
   const historyPanel = (
-    <aside className="flex h-full min-h-[520px] flex-col rounded-2xl border border-[#d8e3ee] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#11151c]">
+    <aside className="flex h-full flex-col rounded-2xl border border-[#d8e3ee] bg-white p-3 shadow-sm dark:border-white/10 dark:bg-[#11151c]">
       <div className="flex items-center justify-between px-1">
         <div>
-          <h2 className="text-base font-black text-[#17243c] dark:text-white">生成记录</h2>
+          <h2 className="text-base font-black">生成记录</h2>
           <p className="mt-0.5 text-xs text-pastel-muted">当前会话最多20项</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsHistoryOpen(false)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-pastel-border text-pastel-muted hover:bg-pastel-bg"
-          aria-label="收起生成记录"
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </button>
+        <button type="button" onClick={() => setIsHistoryOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-pastel-border text-pastel-muted" aria-label="收起生成记录"><PanelLeftClose className="h-4 w-4" /></button>
       </div>
 
       <button
         type="button"
         onClick={startNewRecord}
-        className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#17243c] text-xs font-black text-white hover:bg-[#253858] disabled:opacity-40 shadow-md"
+        disabled={isGenerating}
+        className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#17243c] text-sm font-black text-white disabled:opacity-40"
       >
         <Plus className="h-4 w-4" /> 新开任务
       </button>
 
-      <div className="mt-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
-        <div className="grid grid-cols-2 gap-2.5">
-          {records.map((rec) => {
-            const isCurrentRec = rec.id === activeRecord.id;
-            const thumbnailImage =
-              rec.results.find((r) => r.imageUrl)?.imageUrl ||
-              (rec.targetScenes[0] ? (rec.targetScenes[0].preview || getDataUrl(rec.targetScenes[0])) : null) ||
-              rec.sourceModels[0]?.preview;
-
-            const doneCount = rec.results.filter((r) => r.status === 'done' && r.imageUrl).length;
-            const statusText = doneCount > 0
-              ? `${doneCount}张已生成`
-              : rec.results.length > 0
-              ? '迁移中'
-              : rec.sourceModels.length || rec.targetScenes.length
-              ? '编辑中'
-              : '空任务';
-
-            const timeText = new Date(rec.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            return (
-              <div
-                key={rec.id}
-                onClick={() => setActiveRecordId(rec.id)}
-                className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border-2 transition-all shadow-2xs ${
-                  isCurrentRec
-                    ? 'border-[#ed6d46] bg-white ring-2 ring-[#ed6d46]/20'
-                    : 'border-[#d8e3ee] bg-white hover:border-[#ed6d46]/60'
-                }`}
-              >
-                {/* Thumbnail Viewport */}
-                <div className="relative aspect-square w-full overflow-hidden bg-slate-900 flex items-center justify-center">
-                  {thumbnailImage ? (
-                    <img
-                      src={thumbnailImage}
-                      alt="Record Thumbnail"
-                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center p-2 text-pastel-muted">
-                      <ImageIcon className="h-6 w-6 stroke-1 opacity-50 text-slate-400" />
-                      <span className="mt-0.5 text-[9px] font-bold">无素材</span>
-                    </div>
-                  )}
-
-                  {/* Top-Right Trash Delete Button */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteRecord(rec.id);
-                    }}
-                    className="absolute top-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-md bg-black/60 text-white hover:bg-red-500 hover:text-white shadow-sm backdrop-blur-md transition-colors"
-                    title="删除记录"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-
-                  {/* Bottom Overlay Dark Bar inside thumbnail */}
-                  <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between bg-[#17243c]/90 px-2 py-1 text-white backdrop-blur-xs">
-                    <span className="truncate text-[10px] font-black text-white">{statusText}</span>
-                    {doneCount > 0 && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                    )}
-                  </div>
-                </div>
-
-                {/* Bottom Footer Info */}
-                <div className="flex items-center justify-between px-2 py-1 text-[0.65rem] font-bold text-pastel-muted bg-white dark:bg-[#11151c]">
-                  <span className="truncate text-slate-700 dark:text-slate-200">
-                    {rec.sourceModels[0]?.name || '默认任务'}
-                  </span>
-                  <span className="shrink-0">{timeText}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <div className="mt-3 flex-1 space-y-2 overflow-y-auto">
+        {records.map((record) => (
+          <button
+            key={record.id}
+            type="button"
+            onClick={() => setActiveRecordId(record.id)}
+            className={`group relative w-full overflow-hidden rounded-xl border p-3 text-left transition ${record.id === activeRecord.id ? 'border-[#ed6d46] bg-[#fff8f3]' : 'border-pastel-border bg-pastel-bg/40 hover:border-[#efb49d]'}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <span className="truncate text-xs font-black">{record.sourceModels[0]?.name || '未命名模特迁移'}</span>
+              <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[0.62rem] font-bold text-pastel-muted">{STEPS.find((item) => item.id === record.step)?.label}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[0.68rem] text-pastel-muted">
+              <span>模特 {record.sourceModels.length}张 · 场景 {record.targetScenes.length}张</span>
+              <span>{new Date(record.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(event) => { event.stopPropagation(); deleteRecord(record.id); }}
+              onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); deleteRecord(record.id); } }}
+              className="absolute bottom-2 right-2 hidden h-8 w-8 items-center justify-center rounded-lg bg-white text-red-400 shadow group-hover:flex"
+              aria-label="删除记录"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </span>
+          </button>
+        ))}
       </div>
     </aside>
   );
 
   const renderUploadArea = (kind: UploadKind) => {
     const isModel = kind === 'model';
-    const images = isModel ? activeRecord.sourceModels : activeRecord.targetScenes;
-    const max = isModel ? MAX_MODEL_IMAGES : MAX_SCENE_IMAGES;
-    const inputRef = isModel ? modelInputRef : sceneInputRef;
+    const isClothing = kind === 'clothing';
+    const images = isModel ? activeRecord.sourceModels : isClothing ? activeRecord.clothingImages : activeRecord.targetScenes;
+    const max = isModel ? MAX_MODEL_IMAGES : isClothing ? MAX_CLOTHING_IMAGES : MAX_SCENE_IMAGES;
+    const inputRef = isModel ? modelInputRef : isClothing ? clothingInputRef : sceneInputRef;
+    const title = isModel ? '我的模特参考图' : isClothing ? '服装参考图（可选）' : '目标场景图';
+    const description = isModel
+      ? '最多 3 张：正面、侧面、微侧，共同锁定同一人物长相与身材；上传后可裁切。'
+      : isClothing
+        ? '最多 1 张。上传后将优先使用这套服装；未上传时默认保留目标场景服装。'
+        : '最多 10 张，作为人物迁移后的动作、构图与光影承载；上传后可裁切。';
 
     return (
       <section
         onMouseEnter={() => activateUploadKind(kind)}
         className={`rounded-2xl border bg-white p-4 shadow-sm sm:p-5 dark:bg-[#11151c] ${
-          activeUploadKind === kind ? 'border-[#ed6d46]/50 ring-1 ring-[#ed6d46]/20' : 'border-pastel-border'
+          activeUploadKind === kind ? 'border-[#9fc5eb] ring-1 ring-[#9fc5eb]/45' : 'border-pastel-border'
         }`}
       >
+        {kind === 'scene' && (
+          <label className={`mb-4 flex items-center justify-between gap-3 rounded-xl border p-3 transition ${activeRecord.whiteBaseOutfit && !activeRecord.clothingImages.length ? 'border-orange-200 bg-[#fff8f3]' : 'border-pastel-border bg-pastel-bg/40'} ${activeRecord.clothingImages.length ? 'cursor-not-allowed opacity-65' : 'cursor-pointer'}`}>
+            <span className="min-w-0">
+              <strong className="block text-xs font-black text-[#17243c] dark:text-white">白色基础服装</strong>
+              <small className="mt-1 block text-[0.68rem] leading-5 text-pastel-muted">
+                {activeRecord.clothingImages.length ? '已上传服装参考图，服装图优先，当前开关不生效。' : '开启后统一穿白色 T 恤、白色短裤并赤脚；默认关闭。'}
+              </small>
+            </span>
+            <span className={`relative h-7 w-12 shrink-0 rounded-full transition ${activeRecord.whiteBaseOutfit && !activeRecord.clothingImages.length ? 'bg-[#ed6d46]' : 'bg-[#d8e2ec]'}`}>
+              <input
+                type="checkbox"
+                checked={activeRecord.whiteBaseOutfit}
+                disabled={isGenerating || activeRecord.clothingImages.length > 0}
+                onChange={(event) => patchActive({ whiteBaseOutfit: event.target.checked, checkpoint: 'input', step: 'input', agentAnalysis: null, results: [] })}
+                className="sr-only"
+              />
+              <i className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${activeRecord.whiteBaseOutfit && !activeRecord.clothingImages.length ? 'translate-x-5' : 'translate-x-0'}`} />
+            </span>
+          </label>
+        )}
+
         <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2">
-            <div className="mt-0.5 text-[#ed6d46]">{isModel ? <UserRound className="h-5 w-5" /> : <ImageIcon className="h-5 w-5" />}</div>
+          <div className="flex min-w-0 items-start gap-3">
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${isModel ? 'bg-[#f0f4ff] text-[#3b82f6]' : isClothing ? 'bg-[#eefbf5] text-emerald-600' : 'bg-[#fff0e8] text-[#ed6d46]'}`}>{isModel ? <UserRound className="h-5 w-5" /> : isClothing ? <Shirt className="h-5 w-5" /> : <ImageIcon className="h-5 w-5" />}</div>
             <div className="min-w-0">
-              <h3 className="text-sm font-black text-[#17243c] dark:text-white">{isModel ? '我的模特参考图' : '目标场景图 (含局部人脸涂抹)'}</h3>
-              <p className="mt-1 text-xs leading-relaxed text-pastel-muted">
-                {isModel ? '最多 3 张：正面、侧面、微侧，共同锁定同一人物长相与身材。' : '最多 10 张，点击“涂抹人脸”可遮罩原脸以达到最自然的光影融入。'}
-              </p>
+              <h3 className="text-sm font-black text-[#17243c] dark:text-white">{title}</h3>
+              <p className="mt-1 text-xs leading-relaxed text-pastel-muted">{description}</p>
             </div>
           </div>
           <span className="shrink-0 rounded-full bg-[#fff0e8] px-2.5 py-1 text-xs font-black text-[#d8552e]">{images.length}/{max}</span>
         </div>
 
-        <div className={`grid grid-cols-1 gap-3 ${isModel ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3' : 'grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 xl:grid-cols-3'}`}>
+        <div className={`grid grid-cols-1 gap-3 ${isModel ? 'sm:grid-cols-2 md:grid-cols-3' : isClothing ? '' : 'xs:grid-cols-2 sm:grid-cols-2 xl:grid-cols-3'}`}>
           {images.map((image, index) => (
-            <div key={image.id} className="relative overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg/30 flex flex-col group transition-all hover:border-[#ed6d46]/40 hover:shadow-sm">
-              <div className="aspect-[4/3] overflow-hidden bg-white relative">
-                <img src={image.preview} alt={isModel ? `模特${MODEL_SLOTS[index]}` : `目标场景${index + 1}`} className="h-full w-full object-contain" />
-                {!isModel && image.maskDataUrl && (
-                  <span className="absolute top-2 left-2 rounded-full bg-[#ed6d46] text-white px-2 py-0.5 text-[0.65rem] font-black flex items-center gap-1 shadow whitespace-nowrap z-10 shrink-0">
-                    <Check className="h-3 w-3 shrink-0" /> <span className="whitespace-nowrap">已含人脸遮罩</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex min-h-11 items-center justify-between gap-1.5 border-t border-pastel-border px-2.5 py-1.5 bg-white dark:bg-[#11151c]">
-                <span className="truncate text-xs font-bold text-pastel-text dark:text-white min-w-0 shrink">
-                  {isModel ? MODEL_SLOTS[index] : `场景 ${index + 1}`}
+            <div key={image.id} className="group relative flex h-full min-h-44 flex-col overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg/30 transition-all hover:border-[#ed6d46]/40 hover:shadow-sm">
+              <div
+                className="relative h-full min-h-44 flex-1 cursor-zoom-in overflow-hidden bg-white"
+              >
+                <img
+                  src={image.preview}
+                  alt={isModel ? `模特${MODEL_SLOTS[index]}` : isClothing ? '服装参考' : `目标场景${index + 1}`}
+                  className="h-full w-full cursor-zoom-in object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedPreview(image.preview || getDataUrl(image))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedPreview(image.preview || getDataUrl(image));
+                    }
+                  }}
+                  aria-label={`放大查看${title}`}
+                />
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openImageCrop(kind, image);
+                  }}
+                  disabled={isGenerating}
+                  className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-white/30 bg-black/45 text-white shadow-sm backdrop-blur-sm transition hover:bg-black/65 disabled:opacity-40"
+                  title="裁切图片"
+                  aria-label="裁切图片"
+                >
+                  <Crop className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeUploadedImage(kind, image.id);
+                  }}
+                  disabled={isGenerating}
+                  className="absolute right-12 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-white/30 bg-black/45 text-white shadow-sm backdrop-blur-sm transition hover:bg-red-500/85 disabled:opacity-40"
+                  aria-label="删除图片"
+                  title="删除图片"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-black/45 px-2 py-1 text-[0.68rem] font-bold text-white backdrop-blur-sm">
+                  {isModel ? MODEL_SLOTS[index] : isClothing ? '服装参考' : `场景 ${index + 1}`}
                 </span>
-
-                <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">
-                  {!isModel && (
-                    <button
-                      type="button"
-                      onClick={() => setMaskEditingImage(image)}
-                      disabled={isGenerating}
-                      className="flex items-center gap-1 rounded-lg border border-orange-200 bg-[#fff8f3] px-2 py-1 text-[0.68rem] font-black text-[#d8552e] hover:bg-[#fff0e8] whitespace-nowrap shrink-0 transition-colors shadow-2xs"
-                      title="涂抹人脸区域"
-                    >
-                      <Paintbrush className="h-3.5 w-3.5 shrink-0 text-[#ed6d46]" />
-                      <span className="whitespace-nowrap">涂抹人脸</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeUploadedImage(kind, image.id)}
-                    disabled={isGenerating}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-pastel-muted hover:bg-red-50 hover:text-red-500 disabled:opacity-40 transition-colors"
-                    aria-label="删除图片"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </button>
-                </div>
               </div>
             </div>
           ))}
 
-          {uploadingKind === kind && (
-            <div className="relative overflow-hidden rounded-xl border-2 border-[#ed6d46] bg-[#fff8f3] p-3 flex flex-col items-center justify-center min-h-36 sm:min-h-44 text-center animate-pulse shadow-md">
-              <div className="relative mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#fff0e8] text-[#ed6d46]">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <span className="absolute inset-0 rounded-full border border-[#ed6d46] animate-ping opacity-75" />
-              </div>
-              <span className="text-xs font-black text-[#d8552e]">Agent 识别上传中...</span>
-              <span className="mt-1 text-[10px] text-pastel-muted">多模态 AI 正在精准定界人脸与处理画质</span>
-            </div>
-          )}
-
-          {images.length < max && uploadingKind !== kind ? (
+          {images.length < max ? (
             <button
               type="button"
               onClick={() => { activateUploadKind(kind); inputRef.current?.click(); }}
               onDragOver={(event) => { event.preventDefault(); activateUploadKind(kind); }}
               onDrop={(event) => { event.preventDefault(); activateUploadKind(kind); void processFiles(Array.from(event.dataTransfer.files), kind); }}
-              className="flex min-h-36 flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#cbd8e8] bg-[#f8fbff] p-4 text-center transition-colors hover:border-[#ed6d46] sm:min-h-44"
+              className={`flex min-h-36 flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#cbd8e8] bg-[#f8fbff] p-4 text-center transition-colors hover:border-[#ed6d46] sm:min-h-44 ${images.length === 0 ? 'col-span-full' : ''}`}
             >
               <Upload className="mb-2 h-7 w-7 text-[#ed6d46]" />
               <span className="text-sm font-black text-[#17243c] dark:text-white">点击或拖入图片</span>
@@ -1567,77 +1051,64 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
             </button>
           ) : null}
         </div>
-        <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => { void processFiles(Array.from(event.target.files || []), kind); event.target.value = ''; }} />
+        <input ref={inputRef} type="file" accept="image/*" multiple={!isClothing} className="hidden" onChange={(event) => { void processFiles(Array.from(event.target.files || []), kind); event.target.value = ''; }} />
       </section>
     );
   };
 
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-[#f4f8fc] p-4 text-[#17243c] dark:bg-[#0b0f14] dark:text-white sm:p-6">
-      <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-6">
-        
-
-        {/* Top Hero Banner (Compact Streamlined Bar) */}
-        <section className="relative overflow-hidden rounded-2xl border border-[#d8e3ee] bg-white px-5 py-3.5 shadow-sm dark:border-white/10 dark:bg-[#11151c]">
-          <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-[#fff0e8]/80 blur-2xl pointer-events-none" />
-          <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#fff0e8] text-[#ed6d46]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-black text-[#17243c] dark:text-white">
-                  高精模特并发迁移与人脸融合
-                </h2>
-                <p className="text-[0.72rem] text-pastel-muted">
-                  锁定模特特征与目标场景，精准遮罩人脸，无缝光影融合换脸。
-                </p>
-              </div>
-            </div>
-
+    <div className="h-full overflow-y-auto bg-[#eef6ff] text-pastel-text dark:bg-[#080a0d]">
+      <div className="mx-auto w-full max-w-[105rem] px-3 py-5 sm:px-5 lg:px-8">
+        {/* Hero shell follows SceneGenerationTab; copy stays specific to model transfer. */}
+        <header className="relative mb-5 overflow-hidden rounded-[1.75rem] border border-[#d9e5f1] bg-white px-4 py-6 shadow-[0_14px_45px_rgba(33,66,104,0.07)] dark:border-white/10 dark:bg-[#11151c] sm:px-7 sm:py-7">
+          <div className="absolute -right-16 -top-24 h-56 w-56 rounded-full border-[2rem] border-[#edf5fd] bg-[#fff2e9] dark:border-white/[0.03] dark:bg-[#ed6d46]/5" />
+          <div className="relative text-center">
+            <div className="inline-flex items-center gap-2 text-xs font-black tracking-[0.14em] text-[#6f8199]"><Sparkles className="h-4 w-4 text-[#ed6d46]" />AI 模特迁移 Agent</div>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-[#142139] dark:text-white sm:text-3xl">高精模特迁移与人脸融合</h1>
+            <p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-pastel-muted">锁定同一模特的身份特征与目标场景光影，通过人物、姿态与构图约束完成自然稳定的商业级迁移。</p>
             <WorkflowSteps step={activeRecord.step} />
           </div>
-        </section>
+        </header>
 
         {/* Floating Bottom-Left Collapsed Record Button (Matches SceneGenerationTab 1:1) */}
         {!isHistoryOpen && (
           <button
             type="button"
             onClick={() => setIsHistoryOpen(true)}
-            className="fixed bottom-5 left-4 z-40 flex min-h-11 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-xs font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] md:left-[16.25rem] lg:left-[17rem] dark:bg-[#11151c] dark:border-white/10 dark:text-white"
+            className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-white px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] md:left-[16.25rem] lg:left-[17rem] dark:bg-[#11151c] dark:border-white/10 dark:text-white"
           >
             <PanelLeftOpen className="h-4 w-4 text-[#ed6d46]" />
             生成记录
-            <span className="rounded-full bg-pastel-bg px-2 py-0.5 text-[0.68rem] text-pastel-muted dark:bg-white/10">{records.length}</span>
+            <span className="rounded-full bg-pastel-bg px-2 py-1 text-xs text-pastel-muted dark:bg-white/10">{records.length}</span>
           </button>
         )}
+        {isHistoryOpen && <button type="button" className="fixed inset-0 z-[69] bg-[#10203a]/35 xl:hidden" onClick={() => setIsHistoryOpen(false)} aria-label="关闭生成记录" />}
 
-        {/* Main 3-Column Grid Layout */}
-        <div className={`grid grid-cols-1 gap-5 lg:grid-cols-12`}>
+        {/* Same responsive workbench grid as SceneGenerationTab. */}
+        <div className={`grid grid-cols-1 gap-5 ${isHistoryOpen ? 'xl:grid-cols-[17rem_minmax(23rem,31rem)_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(23rem,31rem)_minmax(0,1fr)]'}`}>
           
           {/* Left Column: History Panel */}
           {isHistoryOpen && (
-            <div className="col-span-12 lg:col-span-3">
+            <div className="fixed inset-y-3 left-3 z-[70] w-[min(18rem,calc(100vw-1.5rem))] xl:sticky xl:top-4 xl:z-10 xl:h-[calc(100vh-7rem)] xl:w-auto xl:self-start">
               {historyPanel}
             </div>
           )}
 
           {/* Middle Column: Controls Panel */}
-          <div className={`col-span-12 ${isHistoryOpen ? 'lg:col-span-4' : 'lg:col-span-5'} flex flex-col gap-3`}>
-            {renderUploadArea('model')}
-            {renderUploadArea('scene')}
+          <div className="flex min-w-0 flex-col gap-4">
 
             {/* Model & Outfit Strategy Card */}
-            <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c]">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Wand2 className="h-4 w-4 text-[#ed6d46]" />
-                  <h3 className="text-xs font-black text-[#17243c] dark:text-white">生成模型</h3>
+            <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c] sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-black text-[#17243c] dark:text-white">生成模型</h2>
+                  <p className="mt-1 text-xs leading-5 text-pastel-muted">选择负责身份提取、人物融合与场景重绘的图像模型。</p>
                 </div>
+                <span className="rounded-full bg-[#fff0e8] px-2.5 py-1 text-[0.65rem] font-black text-[#d8552e]">推荐</span>
               </div>
 
               {/* Model Options */}
-              <CreativeImageModelSelector value={activeRecord.selectedModel} onChange={(selectedModel) => patchActive({ selectedModel })} disabled={isGenerating} title="" compact className="border-0 bg-transparent p-0 shadow-none" />
+              <CreativeImageModelSelector value={activeRecord.selectedModel} onChange={(selectedModel) => patchActive({ selectedModel })} disabled={isGenerating} title="" compact className="mt-4 border-0 bg-transparent p-0 shadow-none" />
               <div className="hidden">
                 {MODEL_OPTIONS.map((model) => (
                   <button
@@ -1657,91 +1128,60 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                 ))}
               </div>
 
-              {/* Outfit Strategy */}
-              <div className="mt-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-black text-pastel-muted">服装策略</span>
-                  <span className="rounded-full bg-[#fff0e8] px-2 py-0.5 text-[0.68rem] font-black text-[#d8552e]">{effectiveOutfitLabel}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {OUTFIT_OPTIONS.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => patchActive({ outfitMode: item.id })}
-                      disabled={isGenerating}
-                      className={`min-h-11 rounded-xl border px-2 py-1 text-center transition ${
-                        activeRecord.outfitMode === item.id ? 'border-[#ed6d46] bg-[#fff8f3] text-[#d8552e] font-black' : 'border-pastel-border bg-white text-pastel-text'
-                      }`}
-                    >
-                      <span className="block text-xs font-black">{item.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </section>
 
-            {/* Aspect Ratio & Resolution Trigger Card */}
+            {renderUploadArea('model')}
+            {renderUploadArea('clothing')}
+            {renderUploadArea('scene')}
+
+            {/* Scene, framing and output settings — aligned with SceneGenerationTab. */}
             <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff0e8] text-[#ed6d46]">
-                    <Maximize className="h-5 w-5" />
-                  </span>
-                  <div>
-                    <h3 className="text-xs font-black text-[#17243c] dark:text-white">画幅比例与分辨率</h3>
-                    <p className="mt-0.5 text-xs text-pastel-muted">
-                      当前：<strong className="text-[#ed6d46]">{currentAspectItem.label} ({currentAspectItem.desc})</strong> · <span className="font-bold text-[#17243c] dark:text-white">{activeRecord.resolution}</span>
-                    </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button type="button" disabled={isGenerating} onClick={() => setSelectionModal('board')} className="flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]">
+                  <span className="text-[0.68rem] font-bold text-pastel-muted">场景模块</span>
+                  <div className="mt-1 flex items-center justify-between">
+                    <strong className="flex items-center gap-1.5 text-sm font-black text-pastel-text"><span className="text-base">{SCENE_BOARD_CONFIGS[activeRecord.boardType].icon}</span><span>{SCENE_BOARD_CONFIGS[activeRecord.boardType].label}</span></strong>
+                    <ChevronRight className="h-4 w-4 text-pastel-muted" />
                   </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsRatioModalOpen(true)}
-                  disabled={isGenerating}
-                  className="flex items-center gap-1 rounded-xl border border-orange-200 bg-[#fff8f3] px-3 py-2 text-xs font-black text-[#d8552e] hover:bg-[#fff0e8] shrink-0 transition-colors shadow-2xs"
-                >
-                  <span>修改比例与分辨率</span>
-                  <ChevronRight className="h-4 w-4" />
                 </button>
+                <div className="min-h-16 rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left">
+                  <span className="text-[0.68rem] font-bold text-pastel-muted">模特实际身高（选填）</span>
+                  <input value={activeRecord.modelHeight} onChange={(event) => patchActive({ modelHeight: event.target.value })} disabled={isGenerating} className="mt-1 w-full bg-transparent text-sm font-black text-pastel-text outline-none" placeholder="如 168cm" />
+                </div>
+              </div>
+
+              <label className="mt-4 block text-xs font-black text-pastel-muted">
+                一句话描述场景与人物迁移要求（选填）
+                <textarea value={activeRecord.extraNotes} onChange={(event) => patchActive({ extraNotes: event.target.value })} disabled={isGenerating} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" placeholder="例如：都市街拍场景、保留目标服装、自然侧脸视线、黄昏柔光…" />
+              </label>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <button type="button" disabled={isGenerating} onClick={() => setSelectionModal('crop')} className="flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]">
+                  <span className="text-[0.68rem] font-bold text-pastel-muted">截图范围</span>
+                  <div className="mt-1 flex items-center justify-between"><strong className="flex items-center gap-1 text-sm font-black text-[#17243c]"><span>{cropFramingById(activeRecord.cropFraming).icon}</span><span className="truncate">{cropFramingById(activeRecord.cropFraming).shortLabel}</span></strong><ChevronRight className="h-4 w-4 text-pastel-muted" /></div>
+                </button>
+                <button type="button" disabled={isGenerating} onClick={() => setSelectionModal('ratio')} className="flex min-h-16 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#ed6d46]">
+                  <span className="text-[0.68rem] font-bold text-pastel-muted">尺寸比例</span>
+                  <div className="mt-1 flex items-center justify-between"><strong className="text-sm font-black text-pastel-text">{ECOMMERCE_RATIOS.find((ratio) => ratio.id === activeRecord.aspectRatio)?.label || activeRecord.aspectRatio}</strong><ChevronRight className="h-4 w-4 text-pastel-muted" /></div>
+                </button>
+                <label className="min-h-16 rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left">
+                  <span className="text-[0.68rem] font-bold text-pastel-muted">分辨率</span>
+                  <select value={activeRecord.resolution} disabled={isGenerating} onChange={(event) => patchActive({ resolution: event.target.value as ImageResolution })} className="mt-1 min-h-8 w-full bg-transparent text-sm font-black text-pastel-text outline-none"><option value={ImageResolution.RES_1K}>1K</option><option value={ImageResolution.RES_2K}>2K（默认）</option><option value={ImageResolution.RES_4K}>4K</option></select>
+                </label>
+              </div>
+
+              <div className="mt-4">
+                <span className="text-xs font-black text-pastel-muted">生成数量（每个目标场景）</span>
+                <div className="mt-2 grid grid-cols-6 gap-2">
+                  {[1, 2, 3, 4, 5, 6].map((count) => <button key={count} type="button" disabled={isGenerating} onClick={() => patchActive({ outputCount: count })} className={`min-h-11 rounded-xl border text-sm font-black ${activeRecord.outputCount === count ? 'border-[#ed6d46] bg-[#fff2eb] text-[#d8552e]' : 'border-pastel-border bg-white text-pastel-muted'}`}>{count}</button>)}
+                </div>
               </div>
             </section>
 
-            {/* Color Correction Card */}
+            {/* One-Click Toggle Card */}
             <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c]">
-              <div className="mb-3 flex items-center gap-2">
-                <Sun className="h-5 w-5 text-[#ed6d46]" />
-                <h3 className="text-xs font-black text-[#17243c] dark:text-white">色彩修正</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {(['off', 'match', 'autoWhiteBalance', 'redSuppress'] as ColorCorrectionMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => patchActive({ colorCorrectionMode: mode })}
-                    disabled={isGenerating}
-                    className={`min-h-10 rounded-xl border px-2 text-xs font-black ${
-                      activeRecord.colorCorrectionMode === mode ? 'border-[#ed6d46] bg-[#fff0e8] text-[#d8552e]' : 'border-pastel-border text-pastel-muted'
-                    }`}
-                  >
-                    {({ off: '关闭修正', match: '匹配各场景光影', autoWhiteBalance: '自动白平衡', redSuppress: '压红补青' } as Record<ColorCorrectionMode, string>)[mode]}
-                  </button>
-                ))}
-              </div>
-            </section>
 
-            {/* Prompt Notes & One-Click Toggle Card */}
-            <section className="rounded-2xl border border-pastel-border bg-white p-4 shadow-sm dark:bg-[#11151c]">
-              <textarea
-                value={activeRecord.extraNotes}
-                onChange={(event) => patchActive({ extraNotes: event.target.value })}
-                disabled={isGenerating}
-                placeholder="补充要求，例如：保持人脸轮廓光滑，适应黄昏冷暖感光影..."
-                className="min-h-20 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-2.5 text-xs outline-none focus:border-[#ed6d46]"
-              />
-
-              <label className="mt-3 flex cursor-pointer items-center justify-between rounded-xl border border-pastel-border bg-pastel-bg/40 p-3">
+              <label className="flex cursor-pointer items-center justify-between rounded-xl border border-pastel-border bg-pastel-bg/40 p-3">
                 <span>
                   <strong className="block text-xs font-black text-[#17243c] dark:text-white">一键全流程自动迁移</strong>
                   <small className="block text-[0.68rem] text-pastel-muted">跳过 Agent 分步确认，自动完成分析与迁移</small>
@@ -1754,7 +1194,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                     onChange={(event) => patchActive({ oneClick: event.target.checked })}
                     className="sr-only"
                   />
-                  <i className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${activeRecord.oneClick ? 'left-5.5' : 'left-0.5'}`} />
+                  <i className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${activeRecord.oneClick ? 'translate-x-5' : 'translate-x-0'}`} />
                 </span>
               </label>
             </section>
@@ -1770,46 +1210,6 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                 {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5 text-[#ff9b67]" />}
                 {isGenerating ? 'Agent 正在分析中...' : '开始 Agent 分步分析与迁移'}
               </button>
-            )}
-
-            {activeRecord.checkpoint === 'analyzed' && !isGenerating && (
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => void runStep2_MaskingCheck()}
-                  className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition"
-                >
-                  <span>已完成分析，请核对右侧遮罩</span>
-                  <Check className="h-4 w-4 text-emerald-500" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void runStep1_Analyze()}
-                  className="min-h-9 rounded-xl text-xs text-pastel-muted hover:text-pastel-text"
-                >
-                  重新进行 Agent 分析
-                </button>
-              </div>
-            )}
-
-            {activeRecord.checkpoint === 'masked' && !isGenerating && (
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => void runStep3_FinalTransfer()}
-                  className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#17243c] text-sm font-black text-white shadow-[0_14px_28px_rgba(23,36,60,0.18)] transition hover:-translate-y-0.5"
-                >
-                  <Sparkles className="h-5 w-5 text-[#ff9b67]" />
-                  <span>确认蒙版，开始光影融合模特换脸</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => patchActive({ checkpoint: 'analyzed' })}
-                  className="min-h-10 rounded-xl border border-pastel-border text-xs font-black text-pastel-muted hover:bg-pastel-bg"
-                >
-                  返回人脸涂抹检查
-                </button>
-              </div>
             )}
 
             {activeRecord.checkpoint === 'complete' && !isGenerating && (
@@ -1832,7 +1232,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
           </div>
 
           {/* Right Column: Agent Checkpoints & Results Canvas */}
-          <div className={`col-span-12 ${isHistoryOpen ? 'lg:col-span-5' : 'lg:col-span-7'} flex flex-col gap-4`}>
+          <div className="flex min-w-0 flex-col gap-4">
             
             {/* Agent Checkpoint Status Banner & Diagnosis Panel */}
             {!isGenerating && activeRecord.checkpoint !== 'input' && activeRecord.checkpoint !== 'complete' && activeRecord.agentAnalysis && (
@@ -1901,8 +1301,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
 
                 {/* Outfit Strategy */}
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#fff8f3] px-3.5 py-2.5 border border-orange-100">
-                  <span className="text-xs font-black text-[#d8552e]">服装策略：{activeRecord.agentAnalysis.transferSourceOutfit ? '迁移源模特服装' : '保留场景服装'}</span>
-                  <span className="text-xs text-pastel-muted">{activeRecord.agentAnalysis.outfitReason}</span>
+                  <span className="text-xs font-black text-[#d8552e]">服装规则：{getOutfitRuleLabel(activeRecord)}</span>
+                  <span className="text-xs text-pastel-muted">服装参考图优先，其次为白色基础服装开关，最后保留目标场景服装。</span>
                 </div>
 
                 {/* Head Angle & Gaze Alignment Bar */}
@@ -1954,79 +1354,30 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                     </div>
                   )}
                 </div>
-              </section>
-            )}
 
-            {/* Target Scene Mask Verification & Action Gallery (Step 3: 遮罩确认) */}
-            {!isGenerating && (activeRecord.checkpoint === 'analyzed' || activeRecord.checkpoint === 'masked') && !activeRecord.results.length && (
-              <section className="rounded-2xl border border-pastel-border bg-white p-5 shadow-sm dark:bg-[#11151c]">
-                <div className="mb-4 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between border-b border-pastel-border/60 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Paintbrush className="h-5 w-5 text-[#ed6d46]" />
-                    <h3 className="text-base font-black text-[#17243c] dark:text-white">
-                      目标场景人脸遮罩核对与微调 ({activeRecord.targetScenes.length} 个场景)
-                    </h3>
+                {activeRecord.checkpoint === 'analyzed' && (
+                  <div className="mt-4 grid gap-2 border-t border-orange-100 pt-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const analysis = activeRecord.agentAnalysis || fallbackAnalysis(activeRecord.extraNotes);
+                        patchActive({ checkpoint: 'confirmed', step: 'color', statusMessage: '方案已确认，正在开始生成。' });
+                        void runStep3_FinalTransfer(activeRecord.id, analysis);
+                      }}
+                      className="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-[#17243c] px-6 text-sm font-black text-white shadow-[0_12px_24px_rgba(23,36,60,0.18)] transition hover:-translate-y-0.5"
+                    >
+                      <Sparkles className="h-5 w-5 text-[#ff9b67]" />
+                      确认方案，生成 {activeRecord.targetScenes.length * activeRecord.outputCount} 张
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runStep1_Analyze()}
+                      className="min-h-14 rounded-xl border border-pastel-border bg-white px-5 text-xs font-black text-pastel-muted hover:border-[#ed6d46] hover:text-[#d8552e]"
+                    >
+                      重新分析
+                    </button>
                   </div>
-                  <span className="text-xs font-bold text-pastel-muted">
-                    💡 白色半透明区域为 AI 替换靶区
-                  </span>
-                </div>
-
-                {/* Scene Mask Verification Grid */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {activeRecord.targetScenes.map((scene, idx) => (
-                    <div key={scene.id || idx} className="group relative overflow-hidden rounded-2xl border border-pastel-border bg-[#f8fbff] dark:bg-black/20 flex flex-col shadow-sm">
-                      {/* Photo Container showing scene and white face mask */}
-                      <div className={`relative w-full ${getCardAspectRatioClass(activeRecord.aspectRatio)} overflow-hidden bg-slate-900 flex items-center justify-center`}>
-                        <img src={getDataUrl(scene)} alt={`场景 ${idx + 1}`} className="h-full w-full object-contain" />
-                        
-                        {/* Overlay white mask preview if available */}
-                        {scene.maskDataUrl && (
-                          <img src={scene.maskDataUrl} alt="Mask Overlay" className="absolute inset-0 h-full w-full object-contain opacity-40 mix-blend-screen pointer-events-none" />
-                        )}
-
-                        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-[11px] font-black text-white backdrop-blur-md border border-white/20">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                          <span>{scene.maskDataUrl ? 'Agent 精准人脸遮罩' : '默认人脸遮罩'}</span>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setMaskEditingImage(scene)}
-                          className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 rounded-xl bg-[#17243c]/90 px-3.5 py-2 text-xs font-black text-white hover:bg-[#ed6d46] transition-all shadow-lg backdrop-blur-md border border-white/20"
-                        >
-                          <Paintbrush className="h-3.5 w-3.5 text-[#ff9b67]" />
-                          <span>涂抹微调遮罩</span>
-                        </button>
-                      </div>
-
-                      <div className="flex min-h-12 items-center justify-between border-t border-pastel-border px-3.5 bg-white dark:bg-[#11151c]">
-                        <span className="text-xs font-black text-[#17243c] dark:text-white">场景 {idx + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => setMaskEditingImage(scene)}
-                          className="text-xs font-black text-[#d8552e] hover:underline flex items-center gap-1"
-                        >
-                          <Paintbrush className="h-3 w-3" />
-                          <span>打开全屏画布</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Direct Action Confirmation Button */}
-                <div className="mt-5 flex flex-col sm:flex-row gap-3">
-                  <button
-                    type="button"
-                    onClick={() => void runStep3_FinalTransfer()}
-                    className="flex-1 flex min-h-14 items-center justify-center gap-2.5 rounded-2xl bg-[#ed6d46] text-sm font-black text-white shadow-[0_14px_28px_rgba(237,109,70,0.25)] transition hover:-translate-y-0.5 hover:bg-[#e05b33]"
-                  >
-                    <Sparkles className="h-5 w-5" />
-                    <span>确认蒙版无误，开始光影融合模特换脸</span>
-                    <ArrowRight className="h-4.5 w-4.5" />
-                  </button>
-                </div>
+                )}
               </section>
             )}
 
@@ -2036,10 +1387,15 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                 <span className="flex h-20 w-20 items-center justify-center rounded-[1.5rem] bg-[#fff1e8] text-[#ed6d46]">
                   <UserRound className="h-9 w-9" />
                 </span>
-                <h2 className="mt-5 text-xl font-black text-[#17243c]">先上传模特图与场景图，再开始 Agent 迁移</h2>
+                <h2 className="mt-5 text-xl font-black text-[#17243c]">先锁定人物身份，再选择目标场景</h2>
                 <p className="mt-2 max-w-lg text-sm leading-7 text-pastel-muted">
-                  上传 1–3 张模特参考图和 1–10 张目标场景图。可用“涂抹人脸”精准定界，Agent 将把关每步光影与特征融合。
+                  Agent 会从多角度参考图中提取稳定身份特征，并将人物自然融入目标场景；所有上传图片均可先放大裁切。
                 </p>
+                <div className="mt-6 grid w-full max-w-xl gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl bg-white p-3 text-left shadow-sm"><UserRound className="h-4 w-4 text-[#ed6d46]" /><strong className="mt-2 block text-xs">1–3张身份参考</strong></div>
+                  <div className="rounded-xl bg-white p-3 text-left shadow-sm"><Crop className="h-4 w-4 text-[#2d6bb1]" /><strong className="mt-2 block text-xs">图片放大与裁切</strong></div>
+                  <div className="rounded-xl bg-white p-3 text-left shadow-sm"><Sparkles className="h-4 w-4 text-emerald-600" /><strong className="mt-2 block text-xs">光影自然融合</strong></div>
+                </div>
               </section>
             )}
 
@@ -2150,7 +1506,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                   {activeRecord.results.length > 0 && (
                     <div className="no-scrollbar grid w-full grid-cols-1 content-start gap-4 overflow-y-auto p-2 sm:grid-cols-2">
                       {activeRecord.results.map((item, index) => (
-                        <article key={item.sceneId} className={`group relative overflow-hidden rounded-2xl border ${!item.imageUrl && isGenerating ? 'border-2 border-[#ed6d46] animate-pulse-border' : 'border-pastel-border'} bg-white shadow-md`}>
+                        <article key={item.id} className={`group relative overflow-hidden rounded-2xl border ${!item.imageUrl && isGenerating ? 'border-2 border-[#ed6d46] animate-pulse-border' : 'border-pastel-border'} bg-white shadow-md`}>
                           <div className={`relative w-full ${getCardAspectRatioClass(activeRecord.aspectRatio)} overflow-hidden bg-slate-950`}>
                             {item.imageUrl ? (
                               <img src={item.imageUrl} alt={`模特迁移 ${index + 1}`} className="h-full w-full object-contain cursor-zoom-in" onClick={() => setSelectedPreview(item.imageUrl!)} />
@@ -2158,8 +1514,8 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                               <div className="flex h-full w-full items-center justify-center p-5 text-center text-sm font-bold text-red-500">{item.error || statusLabel(item.status)}</div>
                             ) : (
                               <div className="relative h-full w-full overflow-hidden">
-                                {activeRecord.targetScenes[index] && (
-                                  <img src={getDataUrl(activeRecord.targetScenes[index])} alt="Target Scene" className="h-full w-full object-cover opacity-70 filter brightness-95" />
+                                {activeRecord.targetScenes.find((scene) => scene.id === item.sceneId) && (
+                                  <img src={getDataUrl(activeRecord.targetScenes.find((scene) => scene.id === item.sceneId)!)} alt="Target Scene" className="h-full w-full object-cover opacity-70 filter brightness-95" />
                                 )}
 
                                 {/* Glowing Laser Scan Line Animation */}
@@ -2178,7 +1534,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                                 {/* Bottom Integrated Status Bar */}
                                 <div className="absolute bottom-0 inset-x-0 z-30 flex items-center justify-between gap-2 bg-gradient-to-t from-black/90 via-black/75 to-transparent px-4 py-3 text-white border-t border-white/10 backdrop-blur-xs">
                                   <div className="min-w-0">
-                                    <span className="block text-xs font-black text-white truncate">场景 {index + 1}</span>
+                                    <span className="block text-xs font-black text-white truncate">{item.sceneName || `场景 ${index + 1}`}</span>
                                     <span className="block text-[10px] text-orange-300 font-bold truncate">融合光影与完成超清渲染中</span>
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-[#ff9b67]">
@@ -2224,114 +1580,65 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
         </div>
       </div>
 
-      {maskEditingImage && (
-        <FaceMaskModal
-          image={maskEditingImage}
-          initialBrushSize={maskBrushSize}
-          initialBrushOpacity={maskBrushOpacity}
-          onBrushSettingsChange={(size, opacity) => {
-            setMaskBrushSize(size);
-            setMaskBrushOpacity(opacity);
-            localStorage.setItem('antigravity_mask_brush_size', size.toString());
-            localStorage.setItem('antigravity_mask_brush_opacity', opacity.toString());
-          }}
-          onSave={(maskDataUrl) => handleSaveMask(maskEditingImage.id, maskDataUrl)}
-          onClose={() => setMaskEditingImage(null)}
+      {imageCrop && (
+        <ImageCropModal
+          key={`${imageCrop.recordId}-${imageCrop.imageId}-${imageCrop.url}`}
+          target={imageCrop}
+          onClose={() => setImageCrop(null)}
+          onConfirmCrop={applyImageCrop}
         />
       )}
 
-      {/* Aspect Ratio & Resolution Modal Dialog */}
-      {isRatioModalOpen && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#10203a]/70 p-4 backdrop-blur-sm" onMouseDown={() => setIsRatioModalOpen(false)}>
-          <div
-            className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-pastel-border bg-white shadow-2xl dark:bg-[#11151c]"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <header className="flex items-center justify-between border-b border-pastel-border px-5 py-4">
-              <div className="flex items-center gap-2">
-                <Maximize className="h-5 w-5 text-[#ed6d46]" />
-                <h3 className="text-base font-black text-[#17243c] dark:text-white">画幅比例与分辨率设置</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsRatioModalOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-pastel-bg text-pastel-muted hover:text-[#17243c]"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </header>
-
-            <div className="flex flex-col gap-5 p-5">
-              {/* Aspect Ratio */}
-              <div>
-                <label className="mb-2.5 block text-xs font-black text-[#17243c] dark:text-white">
-                  1. 选择画幅比例 (Aspect Ratio)
-                </label>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {ASPECT_OPTIONS.map((item) => {
-                    const active = activeRecord.aspectRatio === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => patchActive({ aspectRatio: item.id })}
-                        className={`flex min-h-16 flex-col items-center justify-center rounded-xl border p-2 text-center transition-all ${
-                          active
-                            ? 'border-[#ed6d46] bg-[#fff0e8] text-[#d8552e] font-black shadow-sm'
-                            : 'border-pastel-border bg-white text-pastel-text hover:border-[#efb49d]'
-                        }`}
-                      >
-                        <span className="text-xs font-black">{item.label}</span>
-                        <span className={`mt-0.5 text-[10px] ${active ? 'text-[#d8552e]' : 'text-pastel-muted'}`}>{item.desc}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Resolution */}
-              <div>
-                <label className="mb-2.5 block text-xs font-black text-[#17243c] dark:text-white">
-                  2. 选择输出分辨率 (Resolution)
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: ImageResolution.RES_1K, label: '1K', desc: '标准画质' },
-                    { id: ImageResolution.RES_2K, label: '2K', desc: '高清推荐' },
-                    { id: ImageResolution.RES_4K, label: '4K', desc: '超清印刷级' },
-                  ].map((res) => {
-                    const active = activeRecord.resolution === res.id;
-                    return (
-                      <button
-                        key={res.id}
-                        type="button"
-                        onClick={() => patchActive({ resolution: res.id as ImageResolution })}
-                        className={`flex min-h-14 flex-col items-center justify-center rounded-xl border p-2 text-center transition-all ${
-                          active
-                            ? 'border-[#ed6d46] bg-[#fff8f3] text-[#d8552e] font-black shadow-sm'
-                            : 'border-pastel-border bg-white text-pastel-text hover:border-[#efb49d]'
-                        }`}
-                      >
-                        <span className="text-xs font-black">{res.label}</span>
-                        <span className={`mt-0.5 text-[10px] ${active ? 'text-[#d8552e]' : 'text-pastel-muted'}`}>{res.desc}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <footer className="flex items-center justify-end border-t border-pastel-border px-5 py-3 bg-pastel-bg/30">
-              <button
-                type="button"
-                onClick={() => setIsRatioModalOpen(false)}
-                className="flex items-center gap-1.5 rounded-xl bg-[#17243c] px-6 py-2 text-xs font-black text-white hover:bg-[#253858] shadow-sm"
-              >
-                <Check className="h-4 w-4" /> 确定
-              </button>
-            </footer>
+      {selectionModal === 'ratio' && (
+        <SelectionModal title="选择尺寸比例" onClose={() => setSelectionModal(null)}>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {ECOMMERCE_RATIOS.map((ratio) => {
+              const [width, height] = String(ratio.id).split(':').map(Number);
+              const scale = 70 / Math.max(width, height);
+              const isSelected = activeRecord.aspectRatio === ratio.id;
+              return (
+                <button key={ratio.id} type="button" onClick={() => { patchActive({ aspectRatio: ratio.id }); setSelectionModal(null); }} className={`relative flex min-h-44 flex-col items-center justify-center rounded-2xl border-2 p-4 transition hover:-translate-y-1 ${isSelected ? 'border-[#17243c] bg-white shadow-lg' : 'border-transparent bg-pastel-bg/60'}`}>
+                  <span className="block rounded border-[3px] border-[#7a8492]" style={{ width: Math.max(24, width * scale), height: Math.max(24, height * scale) }} />
+                  <strong className="mt-4 text-base font-black text-[#17243c]">{ratio.label}</strong>
+                  {isSelected && <CheckCircle2 className="absolute right-3 top-3 h-5 w-5 text-[#17243c]" />}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </SelectionModal>
+      )}
+
+      {selectionModal === 'board' && (
+        <SelectionModal title="选择场景模块" onClose={() => setSelectionModal(null)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(Object.keys(SCENE_BOARD_CONFIGS) as BoardType[]).map((key) => {
+              const board = SCENE_BOARD_CONFIGS[key];
+              const isSelected = activeRecord.boardType === key;
+              return (
+                <button key={key} type="button" onClick={() => { patchActive({ boardType: key }); setSelectionModal(null); }} className={`relative flex min-h-32 flex-col justify-between rounded-2xl border-2 p-4 text-left transition hover:-translate-y-1 ${isSelected ? 'border-[#ed6d46] bg-[#fff8f3] shadow-md' : 'border-transparent bg-pastel-bg/60'}`}>
+                  <div className="flex items-center justify-between"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-xl shadow-sm">{board.icon}</span>{isSelected && <CheckCircle2 className="h-5 w-5 text-[#ed6d46]" />}</div>
+                  <div className="mt-3"><strong className="block text-base font-black text-[#17243c]">{board.label}</strong><small className="mt-1 block text-xs leading-4 text-pastel-muted">{board.description}</small></div>
+                </button>
+              );
+            })}
+          </div>
+        </SelectionModal>
+      )}
+
+      {selectionModal === 'crop' && (
+        <SelectionModal title="选择截图范围" onClose={() => setSelectionModal(null)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {CROP_FRAMING_OPTIONS.map((option) => {
+              const isSelected = activeRecord.cropFraming === option.id;
+              return (
+                <button key={option.id} type="button" onClick={() => { patchActive({ cropFraming: option.id }); setSelectionModal(null); }} className={`relative flex min-h-36 flex-col justify-between rounded-2xl border-2 p-4 text-left transition hover:-translate-y-1 ${isSelected ? 'border-[#ed6d46] bg-[#fff8f3] shadow-md' : 'border-transparent bg-pastel-bg/60'}`}>
+                  <div className="flex items-center justify-between"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-xl shadow-sm">{option.icon}</span>{isSelected && <CheckCircle2 className="h-5 w-5 text-[#ed6d46]" />}</div>
+                  <div className="mt-3"><strong className="block text-base font-black text-[#17243c]">{option.label}</strong><small className="mt-1 block text-xs leading-5 text-pastel-muted">{option.description}</small></div>
+                </button>
+              );
+            })}
+          </div>
+        </SelectionModal>
       )}
 
       {/* Fullscreen Image Preview */}
