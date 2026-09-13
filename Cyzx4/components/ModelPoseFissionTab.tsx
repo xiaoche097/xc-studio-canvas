@@ -367,7 +367,7 @@ const parseSchemes = (value: string, requestedCount: number): FissionScheme[] =>
       id: `fission-scheme-${index + 1}`,
       title: String(item.title || `${requestedCount}张姿态裂变方案 ${index + 1}`),
       summary: String(item.summary || `拆解 ${requestedCount} 种符合电商高点击的单张独立姿势与视角`),
-      strategy: String(item.strategy || '包含全身、侧身、坐姿与面料细节，单图高画质并发生成'),
+      strategy: String(item.strategy || '包含全身、侧身、坐姿与面料细节，单图高画质队列生成'),
       shots,
     };
   });
@@ -1068,8 +1068,8 @@ No extra markdown outside the JSON code block.`
     setCompletedCount(0);
     setFissionImages([]);
     updateTask({ status: 'generating' });
-    setAgentStatus(`高清并发 Agent · 正在并发生成 ${count} 张独立高画质姿态大图 (0/${count})...`);
-    setAgentLog((current) => [...current, `高清并发 Agent 启动！正在最高 ${count} 并发并行生成单图...`]);
+    setAgentStatus(`高清队列 Agent · 正在准备依次生成 ${count} 张独立高画质姿态大图 (0/${count})...`);
+    setAgentLog((current) => [...current, '高清队列 Agent 启动！将逐张提交，避免 Virse 并发限流...']);
 
     try {
       const scheme = selected[0];
@@ -1087,11 +1087,15 @@ No extra markdown outside the JSON code block.`
           ? AspectRatio.SQUARE
           : AspectRatio.LANDSCAPE_16_9;
 
-      let localCompleted = 0;
+      let localProcessed = 0;
       const actionImages = images.filter((img) => img.role === 'action');
+      const completedItems: FissionImageItem[] = [];
+      const failedShots: Array<{ index: number; title: string; message: string }> = [];
 
-      // Concurrent parallel generation for all N shots directly
-      const tasks = scheme.shots.map(async (shot) => {
+      // Virse is sensitive to request bursts. Submit one shot at a time and wait
+      // for it to finish before starting the next one. A failed shot is recorded,
+      // but it must not stop the remaining queue or fail the whole batch early.
+      for (const shot of scheme.shots) {
         const currentActionImg = actionImages[shot.index - 1];
         const targetImages = currentActionImg
           ? [...images.filter((img) => img.role !== 'action'), currentActionImg]
@@ -1106,42 +1110,68 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
 - SCENE LOCK: Replicate studio lighting, background atmosphere, and color grading from reference image(s).
 - SINGLE STANDALONE PHOTO: This must be a clean, standalone, high-resolution single fashion portrait photo (NOT a contact sheet or grid). 8K photorealistic fashion magazine style.`;
 
-        const [generatedUrl] = await generateImageToImage(
-          targetImages.map((img) => ({ base64: img.base64, mimeType: img.mime })),
-          shotPrompt,
-          {
-            aspectRatio: targetRatioEnum,
-            resolution: ImageResolution.RES_2K,
-            modelId: model,
-            workflowHint: 'scene-product-lock',
+        setAgentStatus(`高清队列 Agent · 正在生成第 ${shot.index}/${count} 张：${shot.shotName}`);
+        try {
+          const [generatedUrl] = await generateImageToImage(
+            targetImages.map((img) => ({ base64: img.base64, mimeType: img.mime })),
+            shotPrompt,
+            {
+              aspectRatio: targetRatioEnum,
+              resolution: ImageResolution.RES_2K,
+              modelId: model,
+              workflowHint: 'scene-product-lock',
+            }
+          );
+
+          if (!generatedUrl) throw new Error(`姿态 #${shot.index} 生成失败`);
+
+          const item: FissionImageItem = {
+            index: shot.index,
+            title: shot.shotName,
+            framing: `${shot.framing} · ${shot.cameraAngle}`,
+            pose: shot.poseAction,
+            imageUrl: generatedUrl,
+            prompt: shotPrompt,
+          };
+
+          completedItems.push(item);
+          setFissionImages([...completedItems].sort((a, b) => a.index - b.index));
+          setAgentLog((current) => [...current, `第 ${shot.index}/${count} 张「${shot.shotName}」生成完成`]);
+        } catch (shotError) {
+          const message = getErrorMessage(shotError);
+          failedShots.push({ index: shot.index, title: shot.shotName, message });
+          setAgentLog((current) => [...current, `第 ${shot.index}/${count} 张「${shot.shotName}」未完成，队列继续处理下一张`]);
+        } finally {
+          localProcessed += 1;
+          setCompletedCount(localProcessed);
+          if (localProcessed < count) {
+            setAgentStatus(`高清队列 Agent · 已处理 ${localProcessed}/${count} 张，正在等待下一张...`);
           }
-        );
+        }
+      }
 
-        if (!generatedUrl) throw new Error(`姿态 #${shot.index} 生成失败`);
-
-        const item: FissionImageItem = {
-          index: shot.index,
-          title: shot.shotName,
-          framing: `${shot.framing} · ${shot.cameraAngle}`,
-          pose: shot.poseAction,
-          imageUrl: generatedUrl,
-          prompt: shotPrompt,
-        };
-
-        localCompleted += 1;
-        setCompletedCount(localCompleted);
-        setFissionImages((current) => [...current, item].sort((a, b) => a.index - b.index));
-        setAgentStatus(`高清并发 Agent · 已完成并发生成 (${localCompleted}/${count} 张)...`);
-
-        return item;
-      });
-
-      const items = await Promise.all(tasks);
-
+      const items = [...completedItems].sort((a, b) => a.index - b.index);
       setFissionImages(items);
+
+      if (items.length === 0) {
+        const failureDetails = failedShots.map((item) => `#${item.index} ${item.title}：${item.message}`).join('\n');
+        setError(`队列已全部执行完毕，但 ${count} 张均未生成成功。\n${failureDetails}`);
+        setAgentStatus(`高清队列 Agent · 已处理 ${count}/${count} 张，全部未完成`);
+        setAgentLog((current) => [...current, `队列执行完毕：0/${count} 张成功，请稍后重试`]);
+        updateTask({ status: 'error', fissionImages: [] });
+        return;
+      }
+
       setStage(4);
-      setAgentStatus(`交付 Agent · 全部 ${count} 张单图独立姿姿大图已高画质交付！`);
-      setAgentLog((current) => [...current, `成功并发生成 ${items.length} 张单图高画质姿势大图`]);
+      if (failedShots.length > 0) {
+        const failedIndexes = failedShots.map((item) => `#${item.index}`).join('、');
+        setError(`队列已全部执行完毕：成功 ${items.length}/${count} 张；${failedIndexes} 未完成。已保留成功图片。`);
+        setAgentStatus(`交付 Agent · 队列已完成，成功 ${items.length}/${count} 张`);
+        setAgentLog((current) => [...current, `队列执行完毕：成功 ${items.length}/${count} 张，失败项已记录`]);
+      } else {
+        setAgentStatus(`交付 Agent · 全部 ${count} 张单图独立姿态大图已高画质交付！`);
+        setAgentLog((current) => [...current, `成功依次生成 ${items.length} 张单图高画质姿势大图`]);
+      }
       updateTask({ status: 'done', fissionImages: items });
 
       void saveGeneratedProject({
@@ -1153,7 +1183,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
       });
     } catch (concurrentError) {
       setError(getErrorMessage(concurrentError));
-      setAgentStatus('并发生成终止 · 请检查网络并重试');
+      setAgentStatus('队列执行终止 · 请检查错误信息后重试');
       updateTask({ status: 'error' });
     } finally {
       setBusy(false);
@@ -1161,7 +1191,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
   };
 
   const statusLabel = (status: TaskStatus) =>
-    ({ editing: '编辑中', planning: 'Agent 处理中', ready: '方案已就绪', generating: '并发生成中', done: '已生成大图', error: '需要重试' }[
+    ({ editing: '编辑中', planning: 'Agent 处理中', ready: '方案已就绪', generating: '队列生成中', done: '已生成大图', error: '需要重试' }[
       status
     ]);
 
@@ -1178,10 +1208,10 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
           </p>
           <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">AI 模特姿势裂变</h1>
           <p className="mt-1 text-sm text-pastel-muted">
-            上传模特或服饰原图，支持 1-8 张单图并发直出，结合动作参考图/提示词智能精准识别
+            上传模特或服饰原图，支持 1-8 张单图队列直出，结合动作参考图/提示词智能精准识别
           </p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs font-bold text-pastel-muted sm:gap-4">
-            {(['1. 输入', '2. 姿势解构方案', '3. 并发生成中', '4. 高清姿势图交付'] as const).map((label, index) => {
+            {(['1. 输入', '2. 姿势解构方案', '3. 队列生成中', '4. 高清姿势图交付'] as const).map((label, index) => {
               const step = (index + 1) as Stage;
               const isCurrent = stage === step;
               const canClick =
@@ -1222,7 +1252,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
 
         {error && (
           <div className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-rose-300/70 bg-rose-500/10 p-4 text-xs font-bold text-rose-700 dark:text-rose-300">
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2 whitespace-pre-line">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {error}
             </span>
@@ -1608,7 +1638,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                   onClick={() => setSelectionModal('count')}
                   className="col-span-2 flex min-h-14 flex-col justify-center rounded-xl border border-pastel-border bg-pastel-bg p-3 text-left transition hover:border-[#172238]"
                 >
-                  <span className="text-[0.68rem] font-bold text-pastel-muted">生成张数 (1-8并发)</span>
+                  <span className="text-[0.68rem] font-bold text-pastel-muted">生成张数 (1-8张队列)</span>
                   <span className="mt-0.5 flex items-center justify-between text-xs font-black text-pastel-text">
                     <span>
                       {count} 张单图{' '}
@@ -1617,8 +1647,8 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                         : parsedPromptActions.length > 0
                         ? `(匹配 ${parsedPromptActions.length} 条提示词动作)`
                         : count === 8
-                        ? '(最高 8 并发直出)'
-                        : '(单图并发)'}
+                        ? '(最多 8 张队列直出)'
+                        : '(单图队列)'}
                     </span>
                     <ChevronRight className="h-4 w-4 text-pastel-muted" />
                   </span>
@@ -1650,11 +1680,11 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       : stage === 2
                       ? '姿势解构方案'
                       : stage === 3
-                      ? '单图并发生成中'
+                      ? '单图队列生成中'
                       : `${fissionImages.length || count} 张高清姿势单图交付`}
                   </h2>
                   <p className="mt-1 text-xs text-pastel-muted">
-                    Agent 团队将依次完成姿态动作规划，并直接并发生成 {count} 张独立高清姿态大图
+                    Agent 团队将依次完成姿态动作规划，并逐张生成 {count} 张独立高清姿态大图
                   </p>
                 </div>
 
@@ -1755,7 +1785,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       <Wand2 className="mx-auto h-12 w-12 text-pastel-muted/50" />
                       <h3 className="mt-4 text-base font-black text-pastel-text">请先上传模特与参考图素材</h3>
                       <p className="mt-2 text-xs leading-6 text-pastel-muted">
-                        在左侧上传模特原图、服装产品图或动作参考图，AI 姿态 Agent 将为你规划 {count} 张单图并发姿势大图。
+                        在左侧上传模特原图、服装产品图或动作参考图，AI 姿态 Agent 将为你规划 {count} 张单图队列姿势大图。
                       </p>
                     </div>
                   )}
@@ -1814,22 +1844,22 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       className="flex min-h-12 items-center gap-2 rounded-xl bg-[#172238] px-6 text-sm font-black text-white shadow-md hover:opacity-90 disabled:opacity-40"
                     >
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                      开始并发直出生成 {count} 张高清姿姿大图
+                      开始队列生成 {count} 张高清姿态大图
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* Stage 3 Content: Concurrent Generation Progress */}
+              {/* Stage 3 Content: Sequential Generation Progress */}
               {stage === 3 && (
                 <div className="mt-6 flex flex-1 flex-col items-center justify-center rounded-2xl border-2 border-pastel-border bg-pastel-bg/50 p-8 text-center">
                   <div className="w-full max-w-md space-y-4">
                     <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#172238] text-white shadow-xl">
                       <Zap className="h-8 w-8 animate-pulse text-amber-400" />
                     </div>
-                    <h3 className="text-base font-black text-pastel-text">正在并发并行生成 {count} 张单图姿态大图</h3>
+                    <h3 className="text-base font-black text-pastel-text">正在逐张生成 {count} 张单图姿态大图</h3>
                     <p className="text-xs text-pastel-muted">
-                      最高 {count} 并发并行调用，保留原图面部五官与面料细节，单图高画质独立生成中...
+                      当前采用单任务队列，上一张完成后再提交下一张，避免 Virse 请求过快...
                     </p>
 
                     <div className="mt-4 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
@@ -1839,7 +1869,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       />
                     </div>
                     <span className="text-xs font-black text-pastel-text">
-                      已完成 {completedCount} / {count} 张姿态单图
+                      已处理 {completedCount} / {count} 张姿态单图
                     </span>
                   </div>
 
@@ -1848,7 +1878,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       <div className="mb-4 flex items-center justify-between gap-3 text-left">
                         <div>
                           <h3 className="text-sm font-black text-pastel-text">
-                            已实时返回 {fissionImages.length} 张，剩余任务继续并行生成
+                            已实时返回 {fissionImages.length} 张，剩余任务继续按顺序生成
                           </h3>
                           <p className="mt-1 text-xs text-pastel-muted">每张图片完成后会立即显示，无需等待全部任务结束。</p>
                         </div>
@@ -2229,7 +2259,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
 
       {/* Count Modal (1 to 8) */}
       {selectionModal === 'count' && (
-        <SelectionModal title="选择并发生成张数 (1 - 8 张)" onClose={() => setSelectionModal(null)}>
+        <SelectionModal title="选择队列生成张数 (1 - 8 张)" onClose={() => setSelectionModal(null)}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {COUNT_OPTIONS.map((num) => {
               const isMatched = actionCount === num;
@@ -2250,7 +2280,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 >
                   <span className="text-2xl font-black text-[#172238] dark:text-sky-400">{num} 张</span>
                   <span className="mt-1 text-xs text-pastel-muted">
-                    {isMatched ? '✨ 自动匹配动作图数' : num === 8 ? '推荐最高并发' : '单图并发'}
+                    {isMatched ? '✨ 自动匹配动作图数' : num === 8 ? '最多 8 张队列' : '单图队列'}
                   </span>
                 </button>
               );

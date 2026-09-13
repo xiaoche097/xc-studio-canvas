@@ -1516,12 +1516,13 @@ export const generateImageToImage = async (
 4. Perform an in-place replacement on Image 1. Do not generate a new model or restage the photograph. Product fidelity never overrides Image 1's person, geometry, framing, or scene.`
       : workflowHint === 'model-transfer' && hasModelRef
         ? `[VIRSE MODEL TRANSFER REFERENCE CONTRACT - DO NOT REORDER OR MIX ROLES]
-1. Reference asset / Image 1 is the TARGET SCENE and immutable base canvas. Keep its location, background, every object, composition, crop, camera, subject placement, pose, body proportions, hairstyle, lighting, shadows, colors, texture, depth of field and photographic style visually identical.
-2. Reference asset / Image 2 is the SOURCE FACE identity. Use it only for recognizable facial identity and facial features, fitted into Image 1's exact head angle, gaze, expression, perspective, scale, focus, occlusion and lighting.
+1. Reference asset / Image 1 is the PRIMARY SOURCE MODEL and has the highest identity weight. Preserve the exact recognizable face, facial geometry, hairline, hairstyle, hair color, hair length, hair texture, skin tone, age impression and body frame. If it is a multi-view portrait sheet, every panel is the same person and must be reconciled into one identity.
+2. Reference asset / Image 2 is the TARGET SCENE and composition base. Keep its location, background, every object, composition, crop, camera, subject placement, pose, joint coordinates, head angle, gaze, expression, lighting, shadows, colors, texture, depth of field and photographic style visually identical. Its original person's face and hairstyle have zero identity authority.
 3. If the user prompt explicitly labels Image 3 as a CLOTHING AND SHOES reference, use it only for wardrobe and footwear. It has no authority over the person, pose, scene, camera, crop or lighting.
-4. Remaining references are supplementary face-identity references unless the user prompt explicitly assigns another role.
-5. This is an in-place edit, not a new photo generation. Never repaint or replace Image 1's scene and never create a white/gray studio, seamless backdrop, catalog restaging, similar-looking location, changed camera, changed crop or changed pose.
-6. Outside the explicitly edited face and optional clothing/footwear regions, preserve Image 1. When uncertain, keep Image 1 unchanged.`
+4. Remaining references are supplementary source-model identity and detail references unless the user prompt explicitly assigns another role.
+5. Transfer Image 1's identity AND hairstyle into Image 2. Adapt them naturally to Image 2's exact head angle, expression, gaze, perspective, scale, occlusion and lighting. Never preserve or blend Image 2's original face or hairstyle.
+6. This is an in-place edit, not a new photo generation. Never repaint or replace Image 2's scene and never create a white/gray studio, seamless backdrop, catalog restaging, similar-looking location, changed camera, changed crop or changed pose.
+7. Render natural pores, facial asymmetry, coherent hair roots and strands, ears, jaw, neck and shoulders. Reject generic beauty faces, waxy/plastic skin, CGI, doll-like features, pasted-face seams or floating hair.`
       : workflowHint === 'storyboard-grid' && hasModelRef
         ? `[VIRSE STORYBOARD REFERENCE CONTRACT]
 1. Reference asset / Image 1 is the only source of truth for the recognizable subject, face, hair, body proportions, complete outfit, accessories, location, architecture, lighting, weather, and color palette.
@@ -1738,21 +1739,21 @@ No redesign, mixed SKU, extra product, illegible invented packaging, collage, co
 ${gptRatioHint}
 ${forcedPrompt}`;
         } else if (workflowHint === 'model-transfer') {
-          gptPrompt = `[ROLE: Senior Fashion Face Identity Transfer Director]
-[TASK: Perform a strict in-place edit of Image 1. Replace its face with Image 2's identity and apply Image 3's clothing/shoes only when the user prompt explicitly identifies Image 3 as a clothing reference.]
+          gptPrompt = `[ROLE: Senior Fashion Model Identity Transfer Director]
+[TASK: Place the exact person and hairstyle from Image 1 into Image 2's unchanged scene and pose. Apply Image 3's clothing/shoes only when the user prompt explicitly identifies Image 3 as a clothing reference.]
 [IMAGE MAPPING]
-1. Image 1 is the TARGET SCENE original and immutable base canvas. It has absolute authority over the background/location, every object, composition, camera, crop, subject placement, pose, body proportions, hairstyle, expression, lighting, shadows, colors, and photographic style.
-2. Image 2 is the SOURCE FACE identity reference. It has authority only over recognizable facial identity and facial features.
+1. Image 1 is the PRIMARY SOURCE MODEL and has highest authority over recognizable facial identity, facial geometry, hairline, hairstyle, hair color, length, texture, skin tone, age impression and body frame. Multi-view panels all depict the same person.
+2. Image 2 is the TARGET SCENE original and composition base. It has absolute authority over the background/location, every object, composition, camera, crop, subject placement, pose, joint coordinates, head angle, gaze, expression, lighting, shadows, colors, and photographic style, but no authority over person identity or hairstyle.
 3. When the user prompt labels Image 3 as CLOTHING AND SHOES reference, it has authority only over the requested wardrobe and footwear. Otherwise follow the user prompt's explicit role mapping.
-4. Remaining images are supplementary identity references only unless the user prompt explicitly assigns another role.
+4. Remaining images are supplementary source-model identity and detail references only unless the user prompt explicitly assigns another role.
 
-[IMMUTABLE BASE CANVAS]
-- This is an in-place edit, not a new photo or scene recreation. Keep Image 1 visually identical outside the explicitly edited face and optional wardrobe/footwear regions.
-- Never repaint, replace, simplify, relight, recrop, zoom, rotate, mirror, or restage Image 1's scene. Never substitute a white/gray studio, seamless backdrop, catalog set, or similar-looking environment.
-- Preserve Image 1's exact pose, joint coordinates, body placement, hairstyle, camera perspective, background objects, shadow geometry, contact shadows, exposure, color temperature, depth of field, and grain.
-- Fit Image 2's face into Image 1's exact head angle, gaze, expression, perspective, scale, focus, occlusion and lighting. Do not import Image 2's scene, pose, hairstyle, outfit, or studio lighting.
-- If Image 3 is the clothing reference, transfer its exact garment and shoes while preserving Image 1's body and scene. If no clothing reference is assigned, preserve Image 1's wardrobe unless the user explicitly requests white basics.
-- Reject any output with a changed background, white studio, changed pose, changed camera, changed crop, missing/added objects, scene drift, source-background leakage, duplicate person, collage, or split screen.
+[IDENTITY-FIRST IN-PLACE EDIT]
+- The output person must be immediately recognizable as Image 1, never a generic, beautified, blended or averaged face and never Image 2's original identity.
+- Transfer Image 1's exact hairstyle with the identity: hairline, parting, silhouette, length, color, texture, volume and characteristic strands. Adapt it naturally to Image 2's head angle and gravity; do not preserve or blend Image 2's hair.
+- Keep Image 2 visually identical outside the person and optional wardrobe/footwear regions. Never repaint, replace, simplify, relight, recrop, zoom, rotate, mirror, or restage Image 2's scene.
+- Preserve Image 2's exact pose, joint coordinates, body placement, head angle, gaze, expression, camera perspective, background objects, shadow geometry, contact shadows, exposure, color temperature, depth of field and grain.
+- If Image 3 is the clothing reference, transfer its exact garment and shoes while preserving Image 2's pose and scene. If no clothing reference is assigned, preserve Image 2's wardrobe unless the user explicitly requests white basics.
+- Render natural facial asymmetry, pores, skin texture, coherent hair roots and strands, ears, jaw, neck and shoulders. Reject waxy/plastic skin, beauty-filter smoothing, CGI, doll-like features, pasted-face seams, floating hair, changed background, changed pose, duplicate person, collage or split screen.
 
 [ORIENTATION: Output MUST have aspect ratio ${aspectRatio}.]
 ${gptRatioHint}
@@ -2318,35 +2319,37 @@ ${forcedPrompt}`;
         `
             : workflowHint === 'model-transfer'
               ? `
-        **ROLE**: Senior Fashion Face Identity Transfer Director.
-        **MISSION**: Perform a strict in-place edit of Image 1. Replace its face with Image 2's identity and apply Image 3's clothing/shoes only when the user prompt explicitly identifies Image 3 as a clothing reference.
+        **ROLE**: Senior Fashion Model Identity Transfer Director.
+        **MISSION**: Place the exact person and hairstyle from Image 1 into Image 2's unchanged scene and pose. Apply Image 3's clothing/shoes only when the user prompt explicitly identifies Image 3 as a clothing reference.
 
         **INPUT CONTRACT**:
-        - Image 1 = TARGET SCENE original and immutable base canvas. It has absolute authority over the background/location, every object, composition, crop, camera perspective, subject scale and placement, pose, body proportions, hairstyle, expression, lighting, shadows, colors, texture, depth of field, grain, and photographic style.
-        - Image 2 = SOURCE FACE identity reference. It has authority only over recognizable facial identity: face shape, eyes, eyebrows, nose, lips, cheekbones, jawline, complexion, age, and likeness.
+        - Image 1 = PRIMARY SOURCE MODEL and highest-priority identity reference. It controls recognizable face, facial geometry, eyes, eyebrows, nose, lips, cheekbones, jawline, complexion, age, hairline, hairstyle, hair color, length, texture, and body frame. If it is a multi-view sheet, every panel depicts the same person.
+        - Image 2 = TARGET SCENE original and composition base. It controls background/location, every object, composition, crop, camera perspective, subject scale and placement, pose, joint coordinates, head angle, gaze, expression, lighting, shadows, colors, texture, depth of field, grain, and photographic style, but NOT person identity or hairstyle.
         - If the user prompt labels Image 3 as CLOTHING AND SHOES reference, Image 3 has authority only over the requested outfit and footwear. Otherwise follow the user prompt's explicit role mapping.
-        - Remaining images = supplementary source-face identity references only unless the user prompt explicitly assigns another role.
+        - Remaining images = supplementary source-model identity and detail references only unless the user prompt explicitly assigns another role.
 
-        **ABSOLUTE IMAGE 1 LOCK — HIGHEST PRIORITY**:
+        **ABSOLUTE IMAGE 2 SCENE AND POSE LOCK**:
         - This is an in-place edit, not a new photo generation, scene recreation, restaging, or reinterpretation.
-        - Keep Image 1 visually identical outside the explicitly edited face and optional clothing/footwear regions.
-        - Never repaint, replace, simplify, relight, recrop, zoom, rotate, mirror, or restage Image 1's scene.
+        - Keep Image 2 visually identical outside the person and optional clothing/footwear regions.
+        - Never repaint, replace, simplify, relight, recrop, zoom, rotate, mirror, or restage Image 2's scene.
         - Never substitute a white/gray studio, seamless backdrop, catalog set, or merely similar-looking environment.
-        - Preserve Image 1's exact architecture, walls, floor, furniture, props, vegetation, sky, reflections, negative space, camera angle, lens perspective, crop, subject scale and placement, pose, joint coordinates, hands, legs, hairstyle, expression, gaze, lighting, shadow geometry, contact shadows, exposure, color temperature, contrast, depth of field, grain, and style.
-        - When any instruction conflicts with Image 1's scene, composition, pose, or camera, preserve Image 1.
+        - Preserve Image 2's exact architecture, walls, floor, furniture, props, vegetation, sky, reflections, negative space, camera angle, lens perspective, crop, subject scale and placement, pose, joint coordinates, hands, legs, head angle, expression, gaze, lighting, shadow geometry, contact shadows, exposure, color temperature, contrast, depth of field, grain, and style.
+        - When any instruction conflicts with Image 2's scene, composition, pose, or camera, preserve Image 2. Identity and hairstyle still come from Image 1.
 
-        **FACE REPLACEMENT**:
-        - Replace Image 1's face with Image 2's recognizable face and facial features.
-        - Fit Image 2's identity into Image 1's exact head position, head angle, gaze, expression, perspective, scale, focus, occlusion, skin illumination, highlight and shadow layout.
-        - Preserve Image 1's hairstyle and hair placement. Do not import Image 2's background, studio lighting, camera, crop, pose, clothing, hairstyle, or composition.
+        **SOURCE MODEL IDENTITY AND HAIR LOCK — HIGHEST PRIORITY**:
+        - Replace Image 2's original person identity with Image 1's exact recognizable identity and hairstyle. Never average the two people and never beautify Image 1 into a generic model.
+        - Preserve Image 1's facial asymmetry, eye spacing, eyebrow shape, nose structure, lip shape, cheekbones, jawline, ears, skin tone, age, hairline, parting, hairstyle silhouette, hair color, length, texture, volume and characteristic strands.
+        - Fit Image 1's identity and hair naturally into Image 2's exact head position, head angle, gaze, expression, perspective, scale, focus, occlusion, skin illumination, highlight and shadow layout.
+        - Preserve Image 1's body frame wherever compatible with Image 2's fixed pose and framing. Do not import Image 1's background, studio lighting, camera, crop, pose, clothing, or composition.
+        - Render one coherent photographed person with continuous hair roots, forehead, ears, jaw, neck and shoulders, natural pores, fine skin texture, facial asymmetry, flyaway hairs and camera grain.
 
         **WARDROBE ROUTING**:
-        - If Image 3 is explicitly assigned as clothing/shoes reference, transfer its exact outfit and footwear while preserving Image 1's unchanged body, pose and scene.
+        - If Image 3 is explicitly assigned as clothing/shoes reference, transfer its exact outfit and footwear while preserving Image 2's pose and scene.
         - If the user requests white basics, edit only wardrobe/footwear: plain white short-sleeve T-shirt, plain white shorts and bare feet. Do not create a studio setting.
-        - Otherwise preserve Image 1's exact outfit, shoes and accessories. Never copy wardrobe from source-face references.
+        - Otherwise preserve Image 2's exact outfit, shoes and accessories. Never copy wardrobe from source-model references.
 
         **FAILURE BLOCKLIST**:
-        - No changed background, white studio, gray studio, seamless backdrop, new location, recreated scene, changed camera, changed crop, changed subject placement, changed pose, changed hairstyle, changed body proportions, moved/missing/added objects, source-background leakage, catalog restaging, second person, duplicate person, collage, split screen, face drift, target face retained, plastic skin, pasted cutout, floating subject, or mismatched shadows.
+        - No different or generic identity, blended identity, Image 2 face retained, Image 1 hairstyle lost, Image 2 hairstyle retained, changed hair color/length, waxy or plastic skin, beauty-filter face, CGI person, doll-like features, pasted face, floating hair, mismatched neck, changed background, white studio, gray studio, seamless backdrop, new location, recreated scene, changed camera, changed crop, changed subject placement, changed pose, moved/missing/added objects, source-background leakage, catalog restaging, second person, duplicate person, collage, split screen, floating subject, or mismatched shadows.
 
         **USER PROMPT**: ${forcedPrompt}
         ${negativePromptLine}

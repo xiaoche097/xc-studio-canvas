@@ -14,7 +14,6 @@ import {
   Maximize,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
@@ -194,7 +193,7 @@ const getOutfitRuleLabel = (record: ModelTransferRecord) => {
 };
 
 const fallbackAnalysis = (_notes: string): AgentAnalysis => ({
-  identityBrief: 'Lock exact source model face geometry, eyes, nose, lips, jawline, skin tone, hairline, and body frame.',
+  identityBrief: 'Lock the exact source model identity: facial geometry, eyes, eyebrows, nose, lips, cheekbones, jawline, skin tone, age, hairline, hairstyle, hair color, hair length, hair texture, and body frame.',
   lightingBrief: 'Extract key-light direction, ambient contrast, color temperature, and contact shadows from target scene.',
   gazeAndPoseAnalysis: '已精准检测目标场景模特的头部偏转角 (如 3/4 侧脸/侧向视线)，指令将严格复制侧向视线与神情，防止生成僵硬正脸。',
   transferSourceOutfit: false,
@@ -209,7 +208,7 @@ const fallbackAnalysis = (_notes: string): AgentAnalysis => ({
 
 const buildAgentPrompt = (sourceCount: number, hasClothingReference: boolean, notes: string) => `
 You are a fashion model transfer director, head pose specialist, and computer vision lighting analyst.
-Analyze source model images 1-${sourceCount} for facial geometry, resolution, angle, and clarity.
+Analyze source model images 1-${sourceCount} for recognizable facial geometry, hairline, hairstyle, hair color, hair length, hair texture, age, skin tone, body frame, resolution, angle, and clarity. Treat multiple portraits or panels as views of the same person, never as different identities.
 ${hasClothingReference ? `Image ${sourceCount + 1} is a CLOTHING REFERENCE. Analyze its garment silhouette, fabric, color, construction, and styling details.` : 'No separate clothing reference was supplied.'}
 Analyze target scene images for:
 1. TARGET HEAD ROTATION & GAZE DIRECTION: (e.g. 3/4 side profile, looking off-camera to the left/right, head tilt, candid gaze, SERIOUS/SMILE expression).
@@ -218,7 +217,7 @@ The outfit source is deterministic and must not be inferred from the source mode
 
 Return valid JSON ONLY (no markdown formatting, no backticks):
 {
-  "identityBrief": "concise English facial feature and skin tone lock description",
+  "identityBrief": "concise English identity lock covering exact face, hairline, hairstyle, hair color/length/texture, age, skin tone and body frame",
   "lightingBrief": "concise English scene lighting integration notes",
   "gazeAndPoseAnalysis": "Chinese analysis of target head angle, gaze direction, and expression (e.g. 目标场景模特为 3/4 侧脸且视线看向镜头外侧，已锁定侧脸视角与自然神情，禁止生成正脸看镜头...)",
   "transferSourceOutfit": false,
@@ -279,44 +278,53 @@ const buildTransferPrompt = (options: {
 }) => {
   const hasClothingReference = options.outfitSource === 'clothing-reference';
   const outfitRules = options.outfitSource === 'clothing-reference'
-    ? `# FIGURE 3 — MANDATORY CLOTHING AND SHOES REFERENCE\n- Replace the clothing and shoes in Figure 1 with the dress/outfit and shoes from Figure 3.\n- Preserve Figure 3's exact garment category, silhouette, cut, fabric texture, color, pattern, seams, closures, trims, logos, footwear, and styling details.\n- Fit them naturally to Figure 1's unchanged body and pose. Figure 3 has ZERO authority over the person, pose, camera, background, composition, or lighting.`
+    ? `# FIGURE 3 — MANDATORY CLOTHING AND SHOES REFERENCE\n- Replace the clothing and shoes in Figure 2 with the dress/outfit and shoes from Figure 3.\n- Preserve Figure 3's exact garment category, silhouette, cut, fabric texture, color, pattern, seams, closures, trims, logos, footwear, and styling details.\n- Fit them naturally to Figure 2's unchanged pose. Figure 3 has ZERO authority over identity, face, hair, body shape, pose, camera, background, composition, or lighting.`
     : options.outfitSource === 'white-basics'
-      ? `# MANDATORY WHITE BASIC OUTFIT — LOCAL WARDROBE EDIT ONLY\n- Replace only the clothing and footwear region in Figure 1 with a plain solid-white short-sleeve T-shirt and plain solid-white shorts.\n- The person MUST be barefoot: no shoes, socks, sandals, slippers, boots, or other footwear.\n- This wardrobe instruction does NOT authorize a new scene, new pose, new body, studio background, catalog restaging, zoom, crop, or camera change.`
-      : `# MANDATORY FIGURE 1 WARDROBE LOCK\n- Preserve the exact clothing and shoes already worn in Figure 1, including category, silhouette, cut, fabric, colors, patterns, seams, accessories, and styling.\n- Do not copy clothing or shoes from any identity reference. Only replace the face identity.`;
+      ? `# MANDATORY WHITE BASIC OUTFIT — LOCAL WARDROBE EDIT ONLY\n- Replace only the clothing and footwear region in Figure 2 with a plain solid-white short-sleeve T-shirt and plain solid-white shorts.\n- The person MUST be barefoot: no shoes, socks, sandals, slippers, boots, or other footwear.\n- This wardrobe instruction does NOT authorize a new scene, new pose, studio background, catalog restaging, zoom, crop, or camera change.`
+      : `# MANDATORY FIGURE 2 WARDROBE LOCK\n- Preserve the exact clothing and shoes already worn in Figure 2, including category, silhouette, cut, fabric, colors, patterns, seams, accessories, and styling.\n- Do not copy clothing or shoes from any identity reference.`;
 
   return `
-# IN-PLACE MODEL IDENTITY TRANSFER — FIGURE 1 IS AN IMMUTABLE BASE CANVAS
+# IDENTITY-FIRST MODEL TRANSFER — FIGURE 1 HAS HIGHEST IDENTITY WEIGHT
 
 # FIGURE MAPPING — NEVER REORDER OR MIX ROLES
-- Figure 1: TARGET SCENE and immutable base image. The final result must remain visually identical to Figure 1 outside the explicitly edited face${hasClothingReference || options.outfitSource === 'white-basics' ? ', clothing, and footwear' : ''} regions.
-- Figure 2: SOURCE FACE identity reference. Use it only for facial identity: face shape, eyes, eyebrows, nose, lips, cheekbones, jawline, complexion, age, and recognizable likeness.
-${hasClothingReference ? '- Figure 3: CLOTHING AND SHOES reference. Use it only for the requested outfit and footwear.\n- Figure 4+: supplementary source-face identity references only.' : '- Figure 3+: supplementary source-face identity references only.'}
+- Figure 1: PRIMARY SOURCE MODEL and highest-priority identity reference. It controls recognizable face, facial geometry, hairline, hairstyle, hair color, hair length, hair texture, skin tone, age impression, and body frame. If it is a multi-view portrait sheet, all panels show the same person.
+- Figure 2: TARGET SCENE and composition base. It controls background, objects, framing, camera, subject placement, pose, head angle, gaze, expression, lighting, shadows, and photographic style, but NOT the person's identity or hairstyle.
+${hasClothingReference ? '- Figure 3: CLOTHING AND SHOES reference. Use it only for the requested outfit and footwear.\n- Figure 4+: supplementary source-model identity and detail references only.' : '- Figure 3+: supplementary source-model identity and detail references only.'}
 
-# ABSOLUTE FIGURE 1 SCENE LOCK — HIGHEST PRIORITY
+# SOURCE MODEL IDENTITY LOCK — HIGHEST PRIORITY
+- ${options.analysis.identityBrief}
+- The output person must be immediately recognizable as Figure 1, not as the original person in Figure 2 and not as a blended or averaged identity.
+- Transfer Figure 1's hairstyle together with the identity: exact hairline, parting, silhouette, length, color, texture, volume, and characteristic strands. Adapt it naturally to Figure 2's head angle and gravity; do not preserve or blend Figure 2's hairstyle.
+- Ignore Figure 1's background, clothing, pose, camera, crop, studio layout, and lighting. These have zero authority over the target composition.
+
+# ABSOLUTE FIGURE 2 SCENE AND POSE LOCK
 - This is an in-place image edit, NOT a new photo generation, restaging, or scene recreation.
-- Keep Figure 1's background/location pixel-consistent: architecture, walls, floor, furniture, props, vegetation, sky, horizon, shadows, reflections, texture, and every non-person object must remain in the same position and appearance.
-- Keep Figure 1's exact canvas, framing, crop, camera angle, lens perspective, camera distance, subject scale and placement, pose, joint coordinates, hands, legs, hairstyle, body proportions, expression, gaze direction, and head angle.
-- Keep Figure 1's original lighting direction, exposure, color temperature, contrast, shadow geometry, contact shadows, depth of field, grain, and photographic style.
-- Never replace Figure 1's location with a white/gray studio, seamless backdrop, catalog background, similar-looking scene, or newly invented environment.
-- When any instruction conflicts with preserving Figure 1's scene, composition, pose, or camera, preserve Figure 1.
+- Keep Figure 2's background/location pixel-consistent: architecture, walls, floor, furniture, props, vegetation, sky, horizon, shadows, reflections, texture, and every non-person object must remain in the same position and appearance.
+- Keep Figure 2's exact canvas, framing, crop, camera angle, lens perspective, camera distance, subject scale and placement, pose, joint coordinates, hands, legs, expression, gaze direction, and head angle.
+- Keep Figure 2's original lighting direction, exposure, color temperature, contrast, shadow geometry, contact shadows, depth of field, grain, and photographic style.
+- Never replace Figure 2's location with a white/gray studio, seamless backdrop, catalog background, similar-looking scene, or newly invented environment.
+- When any instruction conflicts with preserving Figure 2's scene, composition, pose, or camera, preserve Figure 2. Identity and hairstyle still come from Figure 1.
 
 ${outfitRules}
 
-# FACE REPLACEMENT
-- Replace the model's face in Figure 1 with the face from Figure 2, preserving Figure 2's facial features and recognizable identity while fitting them naturally into Figure 1's unchanged head position.
-- Match Figure 1's exact facial angle, head rotation, expression, gaze, lighting, skin illumination, perspective, scale, focus, and occlusion. Preserve Figure 1's hairstyle and hair placement.
-- Do not copy Figure 2's pose, clothing, hairstyle, background, studio lighting, camera, crop, or composition.
+# PERSON REPLACEMENT AND GEOMETRY ADAPTATION
+- Replace Figure 2's original person identity with Figure 1's exact identity and hairstyle while preserving Figure 2's pose, joint coordinates, head rotation, expression, gaze, perspective, scale, focus, and occlusion.
+- Preserve Figure 1's natural facial asymmetry, eye spacing, eyebrow shape, nose structure, lip shape, cheekbones, jawline, ears, hairline, age and skin tone. Do not beautify into a generic model.
+- Preserve Figure 1's body frame and proportions wherever visible and compatible with Figure 2's fixed pose and framing.
+- Do not copy Figure 1's pose, clothing, background, studio lighting, camera, crop, or composition.
 
 # NATURAL COMPOSITING
 - ${options.analysis.lightingBrief}
-- Match all edited areas to Figure 1's key light, fill, highlight softness, skin-tone illumination, cast shadows, contact shadows, perspective, focus, grain, and color response.
-- The result must look like Figure 1 with only the requested face${hasClothingReference || options.outfitSource === 'white-basics' ? ' and wardrobe' : ''} replacement applied.
+- Target pose analysis: ${options.analysis.gazeAndPoseAnalysis || 'Match Figure 2 head angle, gaze and expression exactly.'}
+- Match the transferred person to Figure 2's key light, fill, highlight softness, skin illumination, cast shadows, contact shadows, perspective, focus, grain, and color response.
+- Render one coherent photographed person with continuous hair roots, forehead, ears, jaw, neck and shoulders. Preserve pores, fine skin texture, natural asymmetry, flyaway hairs and camera grain; avoid waxy skin, beauty-filter smoothing, CGI, doll-like features, pasted-face seams or floating hair.
+- The result must look like the exact person from Figure 1 was genuinely photographed in Figure 2's scene and pose.
 
 # USER NOTES
 ${options.extraNotes || 'No extra notes.'}
 
 # FAILURE REJECTION
-different background, white studio, gray studio, seamless backdrop, changed scene, recreated scene, changed camera, changed crop, changed subject placement, changed pose, changed hairstyle, changed body proportions, changed props, missing objects, added objects, source-reference background leakage, catalog restaging, blended original target face, target face leakage, unreplaced face, mismatched skin tone, floating face, unrealistic neck seam, distorted face, duplicate person, collage, split screen.
+different identity, generic face, blended identity, original Figure 2 identity retained, source hairstyle lost, Figure 2 hairstyle retained, changed hair color or length, waxy or plastic skin, beauty-filter face, CGI person, pasted face, floating hair, mismatched neck, distorted facial geometry, different background, white studio, gray studio, seamless backdrop, changed scene, recreated scene, changed camera, changed crop, changed subject placement, changed pose, changed props, missing objects, added objects, source-reference background leakage, catalog restaging, duplicate person, collage, split screen.
 `.trim();
 };
 
@@ -459,7 +467,35 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
   };
 
   const startNewRecord = () => {
-    const fresh = createRecord();
+    const runningTask = generationControllersRef.current.get(activeRecord.id);
+    runningTask?.controller.abort();
+    generationControllersRef.current.delete(activeRecord.id);
+
+    // "Restart" keeps the user's expensive input setup and only resets the
+    // workflow/results. A new history record is still created so the previous
+    // generated batch remains available in the left panel.
+    const fresh: ModelTransferRecord = {
+      ...createRecord(),
+      oneClick: activeRecord.oneClick,
+      sourceModels: activeRecord.sourceModels.map((image) => ({ ...image })),
+      clothingImages: activeRecord.clothingImages.map((image) => ({ ...image })),
+      targetScenes: activeRecord.targetScenes.map((image) => ({ ...image })),
+      selectedModel: activeRecord.selectedModel,
+      aspectRatio: activeRecord.aspectRatio,
+      resolution: activeRecord.resolution,
+      outputFormat: activeRecord.outputFormat,
+      colorCorrectionMode: activeRecord.colorCorrectionMode,
+      colorCorrectionBlend: activeRecord.colorCorrectionBlend,
+      whiteBaseOutfit: activeRecord.whiteBaseOutfit,
+      boardType: activeRecord.boardType,
+      cropFraming: activeRecord.cropFraming,
+      modelHeight: activeRecord.modelHeight,
+      outputCount: activeRecord.outputCount,
+      extraNotes: activeRecord.extraNotes,
+      statusMessage: activeRecord.sourceModels.length || activeRecord.targetScenes.length
+        ? '已保留全部参考图和生成参数，可以重新开始迁移。'
+        : '',
+    };
     setRecords((prev) => [fresh, ...prev.slice(0, MAX_RECORDS - 1)]);
     setActiveRecordId(fresh.id);
   };
@@ -720,9 +756,14 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     }
   };
 
-  const prepareIdentityAnchors = (sources: UploadedImage[]) => Promise.all(
-    sources.map(async (source) => dataUrlToApiImage(await createModelHeadIdentityCrop(getDataUrl(source))))
-  );
+  const prepareIdentityAnchors = async (sources: UploadedImage[]) => {
+    const anchors = await Promise.all(sources.map(async (source) => {
+      const fullReference = getDataUrl(source);
+      const croppedReference = await createModelHeadIdentityCrop(fullReference);
+      return croppedReference === fullReference ? null : dataUrlToApiImage(croppedReference);
+    }));
+    return anchors.filter((anchor): anchor is { base64: string; mimeType: string } => Boolean(anchor));
+  };
 
   const prepareScenes = (scenes: UploadedImage[]): Promise<PreparedScene[]> =>
     Promise.resolve(scenes.map((scene) => ({ scene })));
@@ -764,11 +805,13 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     });
     updateResult(recordId, resultId, { status: 'submitting', error: undefined, prompt });
 
-    const primaryIdentity = identityAnchors[0] || toApiImage(sources[0]);
-    const inputImages = [toApiImage(prepared.scene), primaryIdentity];
+    // Put the user's primary model reference first: several image models give
+    // earlier references more influence. The target scene remains the geometry
+    // and composition base through the explicit Figure 2 prompt contract.
+    const inputImages = [toApiImage(sources[0]), toApiImage(prepared.scene)];
     inputImages.push(...record.clothingImages.map(toApiImage));
-    inputImages.push(...sources.map(toApiImage));
-    inputImages.push(...identityAnchors.slice(1));
+    inputImages.push(...sources.slice(1).map(toApiImage));
+    inputImages.push(...identityAnchors);
 
     const [rawImage] = await generateImageToImage(
       inputImages,
@@ -896,7 +939,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
         disabled={isGenerating}
         className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#17243c] text-sm font-black text-white disabled:opacity-40"
       >
-        <Plus className="h-4 w-4" /> 新开任务
+        <RotateCcw className="h-4 w-4" /> 重新开始（保留素材）
       </button>
 
       <div className="mt-3 flex-1 space-y-2 overflow-y-auto">
@@ -939,7 +982,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
     const inputRef = isModel ? modelInputRef : isClothing ? clothingInputRef : sceneInputRef;
     const title = isModel ? '我的模特参考图' : isClothing ? '服装参考图（可选）' : '目标场景图';
     const description = isModel
-      ? '最多 3 张：正面、侧面、微侧，共同锁定同一人物长相与身材；上传后可裁切。'
+      ? '最多 3 张：第 1 张拥有最高身份权重，严格锁定脸型、五官、发际线、发型与发色；第 2、3 张用于补充侧面和微侧细节。'
       : isClothing
         ? '最多 1 张。上传后将优先使用这套服装；未上传时默认保留目标场景服装。'
         : '最多 10 张，作为人物迁移后的动作、构图与光影承载；上传后可裁切。';
@@ -983,7 +1026,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
           <span className="shrink-0 rounded-full bg-[#fff0e8] px-2.5 py-1 text-xs font-black text-[#d8552e]">{images.length}/{max}</span>
         </div>
 
-        <div className={`grid grid-cols-1 gap-3 ${isModel ? 'sm:grid-cols-2 md:grid-cols-3' : isClothing ? '' : 'xs:grid-cols-2 sm:grid-cols-2 xl:grid-cols-3'}`}>
+        <div className={`grid grid-cols-1 gap-3 ${isModel ? 'sm:grid-cols-2 md:grid-cols-3' : 'xs:grid-cols-2 sm:grid-cols-2 xl:grid-cols-3'}`}>
           {images.map((image, index) => (
             <div key={image.id} className="group relative flex h-full min-h-44 flex-col overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg/30 transition-all hover:border-[#ed6d46]/40 hover:shadow-sm">
               <div
@@ -1218,7 +1261,7 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
                 onClick={startNewRecord}
                 className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-pastel-border bg-white text-xs font-black text-[#17243c] hover:border-[#ed6d46] hover:text-[#ed6d46]"
               >
-                <RotateCcw className="h-4 w-4" /> 开始新模特迁移任务
+                <RotateCcw className="h-4 w-4" /> 重新开始（保留全部素材）
               </button>
             )}
 

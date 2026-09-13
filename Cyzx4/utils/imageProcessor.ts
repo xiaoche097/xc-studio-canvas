@@ -224,7 +224,16 @@ export const cropImageRegion = async (
   return canvas.toDataURL(outputMime, quality);
 };
 
-export const createModelHeadIdentityCrop = (source: string): Promise<string> => {
+export const createModelHeadIdentityCrop = async (source: string): Promise<string> => {
+    const image = await loadCanvasImage(source);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+
+    // Square and landscape references are commonly multi-view identity sheets.
+    // A fixed center crop would cut across several faces and create a corrupted
+    // identity anchor, so keep those references intact.
+    if (!width || !height || width / height >= 0.8) return source;
+
     return cropImageRegion(source, {
         x: 0.23,
         y: 0.02,
