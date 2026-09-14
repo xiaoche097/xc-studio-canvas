@@ -30,7 +30,7 @@ import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
 import { AspectRatio, ImageResolution } from '../types';
 import { applyColorCorrection, ColorCorrectionMode, createModelHeadIdentityCrop } from '../utils/imageProcessor';
 import { convertImageDataUrlFormat, getImageDownloadExtension, OutputImageFormat } from '../utils/imageFormat';
-import { downloadImageFile } from '../utils/imageDownload';
+import { downloadImageFile, fetchImageBlob } from '../utils/imageDownload';
 import { saveGeneratedProject } from '../../services/projectHistoryService';
 import { useImagePaste } from '../hooks/useImagePaste';
 import ImageCropModal from './ImageCropModal';
@@ -168,6 +168,20 @@ const toApiImage = (image: UploadedImage) => ({ base64: image.base64, mimeType: 
 const dataUrlToApiImage = (dataUrl: string) => {
   const match = dataUrl.match(DATA_URL_PATTERN);
   return { base64: match ? match[2] : dataUrl, mimeType: match ? match[1] : 'image/jpeg' };
+};
+
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => typeof reader.result === 'string'
+    ? resolve(reader.result)
+    : reject(new Error('生成图片转换失败'));
+  reader.onerror = () => reject(reader.error || new Error('生成图片读取失败'));
+  reader.readAsDataURL(blob);
+});
+
+const makeGeneratedImageCanvasSafe = async (source: string): Promise<string> => {
+  if (!/^https?:\/\//i.test(source)) return source;
+  return blobToDataUrl(await fetchImageBlob(source));
 };
 
 const buildTransferDirection = (record: ModelTransferRecord) => {
@@ -829,13 +843,25 @@ const ModelTransferTab: React.FC<{ isActive?: boolean }> = ({ isActive = true })
 
     if (!rawImage) throw new Error('模型未返回图片。');
     updateResult(recordId, resultId, { status: 'processing' });
-    const correctedImage = await applyColorCorrection(rawImage, {
-      mode: record.colorCorrectionMode,
-      reference: record.colorCorrectionMode === 'match' ? getDataUrl(prepared.scene) : undefined,
-      blend: record.colorCorrectionBlend,
-    });
-
-    const formattedImage = await convertImageDataUrlFormat(correctedImage, record.outputFormat);
+    let formattedImage = rawImage;
+    try {
+      // Virse commonly returns Google Storage URLs without browser CORS headers.
+      // Fetch them through our same-origin proxy before using Canvas so color
+      // correction cannot taint/fail the generated result.
+      const canvasSafeImage = record.colorCorrectionMode === 'off'
+        ? rawImage
+        : await makeGeneratedImageCanvasSafe(rawImage);
+      const correctedImage = await applyColorCorrection(canvasSafeImage, {
+        mode: record.colorCorrectionMode,
+        reference: record.colorCorrectionMode === 'match' ? getDataUrl(prepared.scene) : undefined,
+        blend: record.colorCorrectionBlend,
+      });
+      formattedImage = await convertImageDataUrlFormat(correctedImage, record.outputFormat);
+    } catch (postProcessError) {
+      // The upstream generation succeeded. Keep the original result available
+      // even if proxying, Canvas processing, or format conversion fails.
+      console.warn('Model transfer post-processing failed. Using the original generated image.', postProcessError);
+    }
     const finalResult: ResultItem = {
       id: resultId,
       sceneId: prepared.scene.id,
