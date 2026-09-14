@@ -77,6 +77,8 @@ export interface ActionReferenceAnalysis {
   shootingAngle: string;
   poseDescription: string;
   cropRange: string;
+  frameComposition: string;
+  bodyTilt: string;
   promptBlock: string;
 }
 
@@ -178,27 +180,40 @@ interface ModelPoseFissionTabProps {
 const MAX_IMAGES = 10;
 const COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
-const POSE_REVERSE_PROMPT = `你是一个高准确度的服装模特动作反推助手。请根据这张动作参考图，反推出一条可直接用于图像生成的中文动作提示词。
+const POSE_REVERSE_PROMPT = `你是一个像素级准确的服装模特动作与构图反推助手。请只根据输入图片中真实可见的信息，输出一条可直接用于图像生成的中文提示词。目标不是概括姿态，而是让生成模型复现完全相同的裁切、人物画面占比、人物斜度和肢体关系。
 
-必须严格按照这个顺序组织完整描述：裁图范围 → 身体朝向 → 重心与腿部 → 头部与视线 → 肩颈状态 → 手臂、手腕与手指 → 整体姿态气质。
+【最高优先级：逐边读取画框】
+1. 必须检查画面上、下、左、右四条边界。禁止只写“中景、半身、近景、四分之三身”等模糊景别。
+2. 上边界必须说明：头顶上方留白多少；完整头顶是否可见；若头发或头部被上边缘裁掉，必须明确写“画面上缘裁掉少量头顶/头发，完整头部不可见”。
+3. 下边界必须说明截断的精确身体位置，例如腰部、胯部、大腿根部、大腿上段/中段/下段、膝盖、小腿；并明确写出该位置以下不可见。若左右腿被下边缘截在不同高度，也要分别说明。
+4. 左右边界必须说明手、手肘、肩、衣袖或身体是否贴边、出框或被裁掉。
+5. 不得根据常识补全画外身体。图片未显示膝盖、小腿、脚，就必须明确它们不可见，不能把图片描述成全身图。
 
-要求：
-1. 裁图必须明确从哪里到哪里、哪些部位可见或不可见。
-2. 明确身体是正面、侧面、背面或四分之三角度。
-3. 下半身可见时，明确重心落点、支撑腿以及另一条腿的前伸、后撤或放松关系。
-4. 头部方向与目光方向分开描述。
-5. 明确肩颈状态，以及双臂、手腕、手指的位置和放松程度。
-6. 存在包、球、椅子等关键道具时，准确描述人与道具的接触关系。
-7. 优先描述动作结构，不描述服装款式、颜色、人物五官或背景，不使用空泛的“时尚”“有氛围”等表达。
-8. 只写一种准确判断，不给备选动作；动作提示词必须是一整段自然、清晰、可直接复制的中文语句。
+【人物在画框中的几何关系】
+6. 必须描述人物居中、偏左或偏右，头部与躯干各自在画面中的位置、人物占画面高度和宽度的大致比例，以及上方留白和两侧余量。
+7. 必须测量“人物身体中轴”相对画面竖直线的倾斜：以头部中心到骨盆中心为中轴，使用观看者视角写向画面左侧或右侧倾斜，并给出约多少度；即使无明显倾斜，也必须写“身体中轴基本竖直，倾斜约 0°”。
+8. 人物中轴倾斜、肩线倾斜、胯线倾斜、身体的三分之四转向和相机画面旋转是不同概念，必须分别判断，不能混写。若画框本身端正而人物斜站，要明确是人物倾斜，不是相机旋转。
+
+【动作结构】
+9. 按顺序准确描述：身体朝向与转体角度 → 重心与可见腿部 → 头部方向 → 目光方向 → 肩线与胯线 → 双臂、手腕和手指。观看者的画面左/右与人物自身左/右容易混淆，涉及位置时优先使用“画面左侧/画面右侧”。
+10. 对每只可见手分别写明接触位置、手掌朝向、手指弯曲程度；被遮挡或出框的肢体必须明确说明。
+11. 存在包、球、椅子等关键道具时，准确描述人与道具的接触关系。
+12. 不描述服装款式、颜色、人物五官、背景或空泛气质；只写构图、裁切和动作。只给一种最准确判断，不给备选答案。
+
+【强制输出规则】
+- cropRange 必须同时包含上边界和下边界，且必须出现“可见/不可见/被裁掉”之类的明确结论。
+- frameComposition 必须包含人物位置、画面占比、头顶留白和左右余量。
+- bodyTilt 必须包含身体中轴向画面哪一侧倾斜及近似角度，并补充肩线、胯线或相机是否旋转。
+- poseDescription 只描述身体朝向、重心、头部、视线和四肢的精确关系，不要用模糊形容词代替几何关系。
 
 只返回 JSON，不要 Markdown，不要解释：
 {
-  "shotType": "简短的中文景别名称",
-  "shootingAngle": "简短的中文身体朝向或拍摄角度",
-  "cropRange": "准确的入镜范围",
-  "poseDescription": "完整中文动作提示词",
-  "promptBlock": "与 poseDescription 相同的完整中文动作提示词"
+  "shotType": "精确景别名称",
+  "shootingAngle": "相机视角、身体朝向和转体角度",
+  "cropRange": "上边界如何处理头顶；下边界截到哪个精确部位及哪些部位不可见；左右边界有无肢体被裁",
+  "frameComposition": "人物在框中的位置、画面占比、头顶留白与左右余量",
+  "bodyTilt": "身体中轴向画面左/右倾斜约多少度；肩线和胯线斜度；相机画面是否旋转",
+  "poseDescription": "按规定顺序描述的精确动作结构"
 }`;
 
 const reverseActionReference = async (asset: FissionAsset): Promise<ActionReferenceAnalysis> => {
@@ -207,14 +222,30 @@ const reverseActionReference = async (asset: FissionAsset): Promise<ActionRefere
     POSE_REVERSE_PROMPT
   );
   const parsed = parseJson<Record<string, unknown>>(text);
-  const promptBlock = String(parsed.promptBlock || parsed.poseDescription || '').trim();
-  if (!promptBlock) throw new Error('动作反推未返回有效提示词，请重试');
+  const shootingAngle = String(parsed.shootingAngle || '').trim();
+  const cropRange = String(parsed.cropRange || '').trim();
+  const frameComposition = String(parsed.frameComposition || '').trim();
+  const bodyTilt = String(parsed.bodyTilt || '').trim();
+  const poseDescription = String(parsed.poseDescription || '').trim();
+  if (!cropRange || !frameComposition || !bodyTilt || !poseDescription) {
+    throw new Error('动作反推未完整识别裁图边界、画面占比或人物斜度，请重试');
+  }
+
+  const promptBlock = [
+    `裁图范围：${cropRange}`,
+    `画面构图：${frameComposition}`,
+    `人物斜度：${bodyTilt}`,
+    shootingAngle ? `拍摄与身体朝向：${shootingAngle}` : '',
+    `动作姿态：${poseDescription}`,
+  ].filter(Boolean).join('。');
 
   return {
     shotType: String(parsed.shotType || '参考图景别'),
-    shootingAngle: String(parsed.shootingAngle || '参考图角度'),
-    cropRange: String(parsed.cropRange || '按参考图裁切范围'),
-    poseDescription: String(parsed.poseDescription || promptBlock),
+    shootingAngle: shootingAngle || '参考图角度',
+    cropRange,
+    frameComposition,
+    bodyTilt,
+    poseDescription,
     promptBlock,
   };
 };
@@ -465,11 +496,24 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const actionCount = useMemo(() => images.filter((i) => i.role === 'action').length, [images]);
-
-  const parsedPromptActions = useMemo(
-    () => customActionPrompts.split(/[;\n]/).map((s) => s.trim()).filter(Boolean),
-    [customActionPrompts]
+  const analyzedActionCount = useMemo(
+    () => images.filter((i) => i.role === 'action' && i.poseAnalysis?.promptBlock).length,
+    [images]
   );
+
+  const parsedPromptActions = useMemo(() => {
+    const text = customActionPrompts.trim();
+    if (!text) return [];
+
+    const numberedActions = Array.from(
+      text.matchAll(/(?:^|\n)\s*\d+\s*[.、．]\s*([\s\S]*?)(?=\n\s*\d+\s*[.、．]\s*|$)/g),
+      (match) => match[1].trim()
+    ).filter(Boolean);
+
+    return numberedActions.length > 0
+      ? numberedActions
+      : text.split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+  }, [customActionPrompts]);
 
   const nextStepLabel = actionMode === 'referenceImage'
     ? '下一步：反推动作提示词'
@@ -606,8 +650,8 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
         const next = await Promise.all(
           accepted.map(async (file, index) => {
             const compressed = await compressImage(file, 1920, 0.88);
-            let role: UploadRole = forcedRole || 'model';
-            if (!forcedRole) {
+            let role: UploadRole = forcedRole || (actionMode === 'referenceImage' ? 'action' : 'model');
+            if (!forcedRole && actionMode !== 'referenceImage') {
               if (images.length === 0 && index === 0) role = 'model';
               else if (images.length === 1 && index === 0) role = 'product';
               else role = 'action';
@@ -635,7 +679,7 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
         setError(getErrorMessage(uploadError));
       }
     },
-    [images, updateTask]
+    [actionMode, images, updateTask]
   );
 
   const handleImageDrop = useCallback(
@@ -659,6 +703,39 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
 
   const removeAsset = (id: string) => {
     setImages((current) => current.filter((item) => item.id !== id));
+  };
+
+  const addReversedPromptsToActionText = () => {
+    const reversedPrompts = images
+      .filter((item) => item.role === 'action')
+      .map((item) => item.poseAnalysis?.promptBlock.trim() || '')
+      .filter(Boolean);
+
+    if (!reversedPrompts.length || reversedPrompts.length !== actionCount) {
+      setError('请等待所有动作参考图反推完成后再加入动作提示词');
+      return;
+    }
+
+    const numberedPrompts = reversedPrompts
+      .map((prompt, index) => `${index + 1}. ${prompt}`)
+      .join('\n\n');
+
+    setCustomActionPrompts(numberedPrompts);
+    setImages((current) => current.filter((item) => item.role !== 'action'));
+    setActionMode('promptText');
+    setCount(Math.min(8, Math.max(1, reversedPrompts.length)));
+    setStage(1);
+    setSchemes([]);
+    setSelectedSchemeIds([]);
+    setFissionImages([]);
+    setRoleModalAssetId(null);
+    setPreviewImage(null);
+    setError(null);
+    setAgentStatus(`动作提示词模式 · 已加入 ${reversedPrompts.length} 条动作，请上传需要修改动作的模特原图`);
+    setAgentLog((current) => [
+      ...current,
+      `已将 ${reversedPrompts.length} 条反推结果加入动作提示词，并移除动作反推参考图`,
+    ]);
   };
 
   const downloadSingleImage = useCallback(async (url: string, title: string) => {
@@ -731,7 +808,7 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
         const analyzedAssets = await Promise.all(
           actionAssets.map(async (actionImg) => ({
             id: actionImg.id,
-            analysis: actionImg.poseAnalysis || await reverseActionReference(actionImg),
+            analysis: await reverseActionReference(actionImg),
           }))
         );
         const analysesById = new Map(analyzedAssets.map(({ id, analysis }) => [id, analysis]));
@@ -1423,7 +1500,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 }}
               />
               <div className="mt-3 rounded-xl border border-pastel-border bg-pastel-bg/50 px-3 py-2 text-xs leading-5 text-pastel-muted">
-                提示：第一张图片将作为模特五官与服装锁定的第一参照。将图片标记为「动作反推」后，点击下方「下一步」才会开始反推并输出提示词。
+                提示：选择「反推动作提示词」后，已上传及后续新增的图片都会自动标记为「动作反推」，点击下方「下一步」即可开始反推并输出提示词。
               </div>
             </section>
 
@@ -1457,7 +1534,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 {[
                   { key: 'agent', label: 'Agent智能规划', desc: 'AI总监策划解构', icon: '🤖' },
                   { key: 'random', label: '智能随机动作', desc: '按姿态库抽取', icon: '🎲' },
-                  { key: 'referenceImage', label: '反推动作提示词', desc: '标记图片后输出', icon: '📌' },
+                  { key: 'referenceImage', label: '反推动作提示词', desc: '上传图片自动标记', icon: '📌' },
                   { key: 'promptText', label: '动作提示词', desc: '多条独立动作', icon: '📝' },
                 ].map((m) => {
                   const isSelected = actionMode === m.key;
@@ -1466,7 +1543,15 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       key={m.key}
                       type="button"
                       onClick={() => {
-                        setActionMode(m.key as ActionMode);
+                        const nextMode = m.key as ActionMode;
+                        setActionMode(nextMode);
+                        if (nextMode === 'referenceImage') {
+                          setImages((current) => current.map((item) => ({
+                            ...item,
+                            role: 'action',
+                            poseAnalysis: item.role === 'action' ? item.poseAnalysis : undefined,
+                          })));
+                        }
                       }}
                       className={`flex flex-col items-center justify-center rounded-xl border-2 p-3 text-center transition ${
                         isSelected
@@ -1520,7 +1605,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                   <textarea
                     value={customActionPrompts}
                     onChange={(e) => setCustomActionPrompts(e.target.value)}
-                    rows={3}
+                    rows={Math.min(24, Math.max(4, parsedPromptActions.length * 8))}
                     className="mt-2 w-full resize-y rounded-lg border border-pastel-border bg-white p-2.5 text-xs outline-none focus:border-[#172238] dark:bg-slate-800"
                     placeholder="例如：侧身站立，一手扶腰; 向前走路，回头看镜头; 坐姿，双腿自然交叠"
                   />
@@ -1533,7 +1618,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                   {actionCount > 0 ? (
                     <span>✨ 已标记 {actionCount} 张「动作反推」图片，点击下方「下一步」后，右侧会按图片编号输出高准确动作提示词。</span>
                   ) : (
-                    <span>💡 请点击上方素材图片，在角色弹窗中标记为「动作反推」，系统会立即分析并输出动作提示词。</span>
+                    <span>💡 当前处于反推模式，新上传的图片会自动标记为「动作反推」。</span>
                   )}
                 </div>
               )}
@@ -1760,6 +1845,16 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                               </div>
                             );
                           })}
+                          {actionCount > 0 && analyzedActionCount === actionCount && !busy && (
+                            <button
+                              type="button"
+                              onClick={addReversedPromptsToActionText}
+                              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 text-sm font-black text-white shadow-md transition hover:bg-purple-700"
+                            >
+                              下一步：加入动作提示词（{analyzedActionCount} 条）
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       )}
                       <p className="mt-5 text-xs text-pastel-muted">
