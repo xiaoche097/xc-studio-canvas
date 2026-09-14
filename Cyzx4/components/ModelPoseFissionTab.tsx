@@ -471,6 +471,10 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
     [customActionPrompts]
   );
 
+  const nextStepLabel = actionMode === 'referenceImage'
+    ? '下一步：反推动作提示词'
+    : `下一步：AI 规划 ${count} 姿势动作方案`;
+
   const currentLibraryPoses = useMemo(() => {
     const lib = POSE_LIBRARIES.find((l) => l.key === poseLibrary);
     return lib?.poses || CLOTHING_POSES;
@@ -708,6 +712,50 @@ const ModelPoseFissionTab: React.FC<ModelPoseFissionTabProps> = ({ isActive = tr
 
   const generatePlan = async () => {
     if (!images.length || busy) return;
+
+    if (actionMode === 'referenceImage') {
+      const actionAssets = images.filter((img) => img.role === 'action');
+      if (!actionAssets.length) {
+        setError('请先将至少一张图片标记为「动作反推」');
+        setAgentStatus('动作反推 Agent · 等待动作参考图');
+        return;
+      }
+
+      setBusy(true);
+      setError(null);
+      updateTask({ status: 'planning' });
+      setAgentStatus(`动作反推 Agent · 正在反推 ${actionAssets.length} 张动作参考图...`);
+      setAgentLog((current) => [...current, `动作反推 Agent 开始分析 ${actionAssets.length} 张动作参考图`]);
+
+      try {
+        const analyzedAssets = await Promise.all(
+          actionAssets.map(async (actionImg) => ({
+            id: actionImg.id,
+            analysis: actionImg.poseAnalysis || await reverseActionReference(actionImg),
+          }))
+        );
+        const analysesById = new Map(analyzedAssets.map(({ id, analysis }) => [id, analysis]));
+
+        setImages((current) => current.map((item) => {
+          const analysis = analysesById.get(item.id);
+          return analysis ? { ...item, poseAnalysis: analysis } : item;
+        }));
+        setSchemes([]);
+        setSelectedSchemeIds([]);
+        setStage(1);
+        setAgentStatus(`动作反推 Agent · ${analyzedAssets.length} 张动作提示词反推完成`);
+        setAgentLog((current) => [...current, `动作反推 Agent 已输出 ${analyzedAssets.length} 条可复制动作提示词`]);
+        updateTask({ status: 'editing' });
+      } catch (reverseError) {
+        setError(getErrorMessage(reverseError));
+        setAgentStatus('动作反推 Agent · 反推失败，请重试');
+        updateTask({ status: 'error' });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setBusy(true);
     setError(null);
     updateTask({ status: 'planning' });
@@ -951,97 +999,6 @@ No extra markdown outside the JSON code block.`
             shots,
           },
         ];
-      } else if (actionMode === 'referenceImage') {
-        // 4. 动作参考图：反推参考图中的模特姿态与视角，精准替换提示词
-        const actionAssets = images.filter((img) => img.role === 'action');
-
-        if (actionAssets.length > 0) {
-          setAgentStatus(`📸 正在精准反推 ${actionAssets.length} 张动作参考图的肢体姿态与视角...`);
-          setAgentLog((current) => [...current, `📸 动作参考图反推中：精准提取 ${actionAssets.length} 张动作图的姿势形态、手臂摆放与视角...`]);
-
-          const analyzedPoses = await Promise.all(
-            actionAssets.slice(0, count).map(async (actionImg, idx) => {
-              try {
-                const analysis = actionImg.poseAnalysis || await reverseActionReference(actionImg);
-                if (!actionImg.poseAnalysis) {
-                  setImages((current) => current.map((item) => (
-                    item.id === actionImg.id ? { ...item, poseAnalysis: analysis } : item
-                  )));
-                }
-                return {
-                  shotName: `${analysis.shotType || '反推动作'} #${idx + 1}`,
-                  cameraAngle: analysis.shootingAngle || '参考图视角',
-                  poseAction: analysis.promptBlock,
-                };
-              } catch {
-                return {
-                  shotName: `动作反推 #${idx + 1}`,
-                  cameraAngle: '参考图视角',
-                  poseAction: '严格按照动作参考图还原人物裁图、身体朝向、重心、腿部、头部视线、肩颈与手部姿态',
-                };
-              }
-            })
-          );
-
-          const shots: FissionShot[] = Array.from({ length: count }).map((_, idx) => {
-            if (idx < analyzedPoses.length) {
-              const pose = analyzedPoses[idx];
-              return {
-                index: idx + 1,
-                shotName: pose.shotName,
-                cameraAngle: pose.cameraAngle,
-                framing: selectedCropOption.shortLabel,
-                poseAction: pose.poseAction,
-                prompt: pose.poseAction,
-              };
-            } else {
-              const fallbackPose = currentLibraryPoses[idx % currentLibraryPoses.length];
-              return {
-                index: idx + 1,
-                shotName: fallbackPose.name,
-                cameraAngle: '辅助视角',
-                framing: selectedCropOption.shortLabel,
-                poseAction: fallbackPose.prompt,
-                prompt: fallbackPose.prompt,
-              };
-            }
-          });
-
-          nextSchemes = [
-            {
-              id: 'scheme-ref-1',
-              title: '动作参考图精准反推与替换方案',
-              summary: `根据上传的 ${actionAssets.length} 张动作参考图反推肢体姿态并精准替换`,
-              strategy: '1:1 视觉反推姿姿形态，提示词精准替换为参考图的肢体语言',
-              shots,
-            },
-          ];
-        } else {
-          setAgentStatus('💡 未检测到动作参考图，自动从动作库中随机抽取姿势...');
-          setAgentLog((current) => [...current, '💡 提示：您未上传「动作参考图」，已自动按当前选定动作库抽取姿态']);
-
-          const shuffled = [...currentLibraryPoses].sort(() => 0.5 - Math.random());
-          const selectedPoses = Array.from({ length: count }).map((_, idx) => shuffled[idx % shuffled.length]);
-
-          const shots: FissionShot[] = selectedPoses.map((pose, idx) => ({
-            index: idx + 1,
-            shotName: pose.name,
-            cameraAngle: '标准视角',
-            framing: selectedCropOption.shortLabel,
-            poseAction: pose.prompt,
-            prompt: pose.prompt,
-          }));
-
-          nextSchemes = [
-            {
-              id: 'scheme-ref-fallback-1',
-              title: `动作库抽取方案（未上传参考图自动抽取）`,
-              summary: `未上传动作参考图，已从「${selectedLib.label}」中选出 ${count} 个动作`,
-              strategy: '可上传「动作参考图」实现 1:1 姿态精准反推与替换',
-              shots,
-            },
-          ];
-        }
       }
 
       setSchemes(nextSchemes);
@@ -1381,7 +1338,7 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="font-black">参考图素材管理</h2>
-                  <p className="mt-0.5 text-xs text-pastel-muted">点击素材上的标签调出弹窗，清晰修改角色</p>
+                  <p className="mt-0.5 text-xs text-pastel-muted">点击图片放大查看；点击标签可修改角色</p>
                 </div>
                 <span className="text-xs font-bold text-pastel-muted">{images.length} / {MAX_IMAGES}</span>
               </div>
@@ -1403,11 +1360,28 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                 <div className="mt-4 grid grid-cols-3 gap-2.5">
                   {images.map((img) => (
                     <div key={img.id} className="group relative overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg">
-                      <img src={img.preview} alt="Asset" className="h-24 w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPreviewImage(img.preview)}
+                        className="relative block h-24 w-full cursor-zoom-in overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#172238] dark:focus-visible:ring-white"
+                        title="放大查看素材"
+                        aria-label={`放大查看${ROLE_LABELS[img.role].label}`}
+                      >
+                        <img
+                          src={img.preview}
+                          alt={`${ROLE_LABELS[img.role].label}素材`}
+                          className="h-full w-full object-cover transition duration-200 group-hover:brightness-75"
+                        />
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow-lg">
+                            <Eye className="h-4 w-4" />
+                          </span>
+                        </span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setRoleModalAssetId(img.id)}
-                        className={`absolute left-1.5 top-1.5 rounded-lg px-2 py-0.5 text-[0.65rem] font-black backdrop-blur-md transition hover:scale-105 shadow-sm ${ROLE_LABELS[img.role].bg} ${ROLE_LABELS[img.role].text}`}
+                        className={`absolute left-1.5 top-1.5 z-10 rounded-lg px-2 py-0.5 text-[0.65rem] font-black backdrop-blur-md transition hover:scale-105 shadow-sm ${ROLE_LABELS[img.role].bg} ${ROLE_LABELS[img.role].text}`}
                         title="点击选择角色标记"
                       >
                         {ROLE_LABELS[img.role].label}
@@ -1415,7 +1389,9 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       <button
                         type="button"
                         onClick={() => removeAsset(img.id)}
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition group-hover:opacity-100"
+                        className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 focus:opacity-100 group-hover:opacity-100"
+                        title="删除素材"
+                        aria-label={`删除${ROLE_LABELS[img.role].label}`}
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -1660,11 +1636,11 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
             <button
               type="button"
               onClick={generatePlan}
-              disabled={!images.length || busy}
+              disabled={!images.length || busy || (actionMode === 'referenceImage' && actionCount === 0)}
               className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#172238] px-4 text-base font-black text-white shadow-lg transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy && stage === 1 ? <Loader2 className="h-5 w-5 animate-spin" /> : <Zap className="h-5 w-5" />}
-              下一步：AI 规划 {count} 姿势动作方案
+              {nextStepLabel}
             </button>
           </div>
 
@@ -1684,7 +1660,9 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       : `${fissionImages.length || count} 张高清姿势单图交付`}
                   </h2>
                   <p className="mt-1 text-xs text-pastel-muted">
-                    Agent 团队将依次完成姿态动作规划，并逐张生成 {count} 张独立高清姿态大图
+                    {actionMode === 'referenceImage'
+                      ? '动作反推只输出可复制提示词，完成后停留在当前页面'
+                      : `Agent 团队将依次完成姿态动作规划，并逐张生成 ${count} 张独立高清姿态大图`}
                   </p>
                 </div>
 
@@ -1735,8 +1713,16 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                       <div className="mt-4 grid grid-cols-4 gap-3">
                         {images.map((img) => (
                           <div key={img.id} className="relative overflow-hidden rounded-xl border border-pastel-border bg-white shadow-sm dark:bg-slate-800">
-                            <img src={img.preview} alt="Input" className="h-24 w-full object-cover" />
-                            <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImage(img.preview)}
+                              className="block h-24 w-full cursor-zoom-in overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#172238] dark:focus-visible:ring-white"
+                              title="放大查看素材"
+                              aria-label={`放大查看${ROLE_LABELS[img.role].label}`}
+                            >
+                              <img src={img.preview} alt={`${ROLE_LABELS[img.role].label}素材`} className="h-full w-full object-cover" />
+                            </button>
+                            <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
                               {ROLE_LABELS[img.role].label}
                             </span>
                           </div>
@@ -1777,7 +1763,9 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
                         </div>
                       )}
                       <p className="mt-5 text-xs text-pastel-muted">
-                        点击左侧「下一步：AI 规划 {count} 姿姿动作方案」开始 Agent 规划
+                        {actionMode === 'referenceImage'
+                          ? `点击左侧「${nextStepLabel}」开始反推`
+                          : `点击左侧「${nextStepLabel}」开始 Agent 规划`}
                       </p>
                     </div>
                   ) : (
@@ -2294,12 +2282,17 @@ STRICT MANDATES - ABSOLUTE MODEL & PRODUCT & SCENE FIDELITY:
         <div
           className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
           onClick={() => setPreviewImage(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="素材大图预览"
         >
           <div className="relative max-h-[90vh] max-w-4xl overflow-hidden rounded-3xl bg-black p-2" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => setPreviewImage(null)}
               className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/40"
+              title="关闭预览"
+              aria-label="关闭大图预览"
             >
               <X className="h-5 w-5" />
             </button>
