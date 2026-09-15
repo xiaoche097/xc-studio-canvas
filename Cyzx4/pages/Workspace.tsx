@@ -170,6 +170,7 @@ import {
 import { uploadImage } from "../utils/uploader";
 import { fetchImageBlob } from "../utils/imageDownload";
 import { safeLocalStorageSetItem } from "../utils/safe-storage";
+import { readStoredAgentWorkMode } from "../services/agents/runtime/agent-mode";
 import { createConversationId } from "../utils/conversation";
 import { useImageHostStore } from "../stores/imageHost.store";
 import {
@@ -2017,10 +2018,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
       }
 
       const mapped = STORAGE_ID_TO_PREFERRED_IMAGE_MODEL[first];
-      if (mapped) {
-        setPreferredImageModel(mapped);
-        setAutoModelSelect(false);
-      }
+      setPreferredImageModel(mapped || first);
+      setAutoModelSelect(false);
     } catch {
       setAutoModelSelect(true);
       setPreferredImageModel(DEFAULT_AUTO_IMAGE_MODEL);
@@ -3582,6 +3581,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
       const requestMetadata = {
         topicId: effectiveTopicId,
         conversationId: effectiveConversationId,
+        agentMode: readStoredAgentWorkMode(),
         entrySource: overrideConversationId ? 'home-agent' : 'canvas-agent',
         // A reference explicitly attached in this turn starts a new visual
         // instruction boundary. Previous prompts may inform follow-up edits,

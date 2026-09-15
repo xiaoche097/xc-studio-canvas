@@ -1,7 +1,12 @@
 import { z } from 'zod';
+import {
+  agentWorkModeSchema,
+  resolveAgentWorkMode,
+  type AgentWorkMode,
+} from './agent-mode';
 
-export const harnessAgentModeSchema = z.enum(['default', 'plan']);
-export type HarnessAgentMode = z.infer<typeof harnessAgentModeSchema>;
+export const harnessAgentModeSchema = agentWorkModeSchema;
+export type HarnessAgentMode = AgentWorkMode;
 
 const STORAGE_PREFIX = 'xcai:hermes-session:v1:';
 const MAX_EVENTS = 320;
@@ -86,7 +91,7 @@ export class BrowserHarnessSession {
   constructor(sessionId: string, requestedMode?: HarnessAgentMode) {
     const normalizedId = cleanSessionId(sessionId);
     this.storageKey = `${STORAGE_PREFIX}${normalizedId}`;
-    this.state = this.load(normalizedId, requestedMode ?? 'default');
+    this.state = this.load(normalizedId, requestedMode ?? 'craft');
     if (requestedMode && requestedMode !== this.state.mode) this.setMode(requestedMode);
   }
 
@@ -95,7 +100,11 @@ export class BrowserHarnessSession {
     try {
       const raw = window.localStorage.getItem(this.storageKey);
       if (!raw) return initialState(sessionId, fallbackMode);
-      return persistedStateSchema.parse(JSON.parse(raw));
+      const stored = JSON.parse(raw);
+      return persistedStateSchema.parse({
+        ...stored,
+        mode: resolveAgentWorkMode(stored?.mode) || fallbackMode,
+      });
     } catch {
       return initialState(sessionId, fallbackMode);
     }
@@ -144,7 +153,7 @@ export class BrowserHarnessSession {
   setMode(mode: HarnessAgentMode): void {
     if (mode === this.state.mode) return;
     this.state.mode = mode;
-    this.append('plan/mode', { active: mode === 'plan', mode });
+    this.append('agent/mode', { mode });
   }
 
   updatePlan(input: unknown): DurableHarnessState['plan'] {
@@ -172,8 +181,7 @@ export class BrowserHarnessSession {
 }
 
 export const resolveHarnessMode = (value: unknown): HarnessAgentMode | undefined => {
-  const parsed = harnessAgentModeSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return resolveAgentWorkMode(value);
 };
 
 /** Removes the durable browser event log associated with a deleted conversation. */

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -12,7 +12,24 @@ import { ImageModel, VideoModel, Marker } from '../../../types';
 import { IMAGE_MODEL_OPTIONS } from '../modelOptions';
 import { getReadableAttachmentLabel } from '../../../utils/attachment-label';
 import { safeLocalStorageSetItem } from '../../../utils/safe-storage';
-import type { HarnessAgentMode } from '../../../services/agents/runtime/harness-session';
+import {
+    persistAgentWorkMode,
+    readStoredAgentWorkMode,
+    subscribeAgentWorkMode,
+    type AgentWorkMode,
+} from '../../../services/agents/runtime/agent-mode';
+import CreativeImageModelSelector from '../../../components/image-models/CreativeImageModelSelector';
+
+const AGENT_MODE_OPTIONS: Array<{
+    id: AgentWorkMode;
+    label: string;
+    description: string;
+    icon: React.ElementType;
+}> = [
+    { id: 'craft', label: 'Craft', description: '直接理解并完成任务', icon: Sparkles },
+    { id: 'plan', label: 'Plan', description: '先规划，确认后再制作', icon: Lightbulb },
+    { id: 'ask', label: 'Ask', description: '只交流分析，不执行', icon: MessageSquare },
+];
 
 const VIDEO_RATIOS = [
     { label: '16:9', value: '16:9', icon: 'rectangle-horizontal' },
@@ -197,13 +214,16 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
     const [editingMarkerLabel, setEditingMarkerLabel] = useState('');
     const [isAllInputSelected, setIsAllInputSelected] = useState(false);
-    const [harnessAgentMode, setHarnessAgentMode] = useState<HarnessAgentMode>(() => {
-        if (typeof window === 'undefined') return 'default';
-        const storedMode = window.localStorage.getItem('xcai_agent_mode');
-        if (storedMode === 'plan') return 'plan';
-        safeLocalStorageSetItem('xcai_agent_mode', 'default');
-        return 'default';
-    });
+    const [harnessAgentMode, setHarnessAgentMode] = useState<AgentWorkMode>(readStoredAgentWorkMode);
+    const [showAgentModeMenu, setShowAgentModeMenu] = useState(false);
+    const modelPreferenceButtonRef = useRef<HTMLButtonElement>(null);
+    const modelPreferencePanelRef = useRef<HTMLDivElement>(null);
+    const [modelPreferencePosition, setModelPreferencePosition] = useState<{
+        left: number;
+        bottom: number;
+        width: number;
+        maxHeight: number;
+    } | null>(null);
     const inputBlocks = useAgentStore(s => s.inputBlocks);
     const activeBlockId = useAgentStore(s => s.activeBlockId);
     const videoGenRatio = useAgentStore(s => s.videoGenRatio);
@@ -240,13 +260,47 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const hasInlineComposerTokens = inputBlocks.some((block) => block.type === 'file')
         || pendingAttachments.length > 0
         || Boolean(activeQuickSkill && creationMode === 'agent');
+    const activeAgentModeOption = AGENT_MODE_OPTIONS.find((option) => option.id === harnessAgentMode)
+        || AGENT_MODE_OPTIONS[0];
 
-    const toggleHarnessAgentMode = () => {
-        setHarnessAgentMode((current) => {
-            const next: HarnessAgentMode = current === 'default' ? 'plan' : 'default';
-            safeLocalStorageSetItem('xcai_agent_mode', next);
-            return next;
-        });
+    useLayoutEffect(() => {
+        if (!showModelPreference) {
+            setModelPreferencePosition(null);
+            return;
+        }
+
+        const updatePosition = () => {
+            const anchor = modelPreferenceButtonRef.current;
+            if (!anchor) return;
+            const rect = anchor.getBoundingClientRect();
+            const viewportPadding = 16;
+            const gap = 10;
+            const width = Math.min(340, window.innerWidth - viewportPadding * 2);
+            const left = Math.min(
+                Math.max(viewportPadding, rect.right - width),
+                window.innerWidth - width - viewportPadding,
+            );
+            setModelPreferencePosition({
+                left,
+                bottom: Math.max(viewportPadding, window.innerHeight - rect.top + gap),
+                width,
+                maxHeight: Math.max(180, rect.top - gap - viewportPadding),
+            });
+        };
+
+        updatePosition();
+        window.addEventListener('resize', updatePosition);
+        window.addEventListener('scroll', updatePosition, true);
+        return () => {
+            window.removeEventListener('resize', updatePosition);
+            window.removeEventListener('scroll', updatePosition, true);
+        };
+    }, [showModelPreference]);
+
+    const selectHarnessAgentMode = (mode: AgentWorkMode) => {
+        setHarnessAgentMode(mode);
+        persistAgentWorkMode(mode);
+        setShowAgentModeMenu(false);
     };
 
     const getObjectUrl = (file?: File | null) => {
@@ -257,6 +311,10 @@ export const InputArea: React.FC<InputAreaProps> = ({
         objectUrlMapRef.current.set(file, next);
         return next;
     };
+
+    useEffect(() => {
+        return subscribeAgentWorkMode(setHarnessAgentMode);
+    }, []);
 
     useEffect(() => {
         return () => {
@@ -837,7 +895,15 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                 const isLastTextBlock = textBlocks[textBlocks.length - 1]?.id === block.id;
                                 const hasText = (block.text || '').trim().length > 0;
                                 const placeholder = isLastTextBlock && textBlocks.length <= 1 && !hasInlineComposerTokens
-                                    ? (creationMode === 'agent' ? "请输入你的设计需求" : creationMode === 'chat' ? "聊聊灵感、方向、文案、风格..." : "今天我们要创作什么")
+                                    ? (creationMode === 'agent'
+                                        ? harnessAgentMode === 'plan'
+                                            ? '描述目标，我会先规划并等待你确认'
+                                            : harnessAgentMode === 'ask'
+                                                ? '聊聊灵感、方向、文案或设计问题...'
+                                                : '描述你的需求，我会直接开始制作'
+                                        : creationMode === 'chat'
+                                            ? '聊聊灵感、方向、文案、风格...'
+                                            : '今天我们要创作什么')
                                     : "";
                                 const compactTextCaret = hasInlineComposerTokens && !hasText;
                                 const textFlex = compactTextCaret ? '0 0 2px' : '1 1 100%';
@@ -1044,7 +1110,6 @@ export const InputArea: React.FC<InputAreaProps> = ({
                             {showModeSelector && (
                                 <div className="absolute bottom-full left-0 mb-3 w-[160px] bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 overflow-hidden">
                                     <button onClick={() => { setCreationMode('agent'); setShowModeSelector(false); setIsAgentMode(true); }} className={`w-full px-4 py-2.5 flex items-center justify-between text-sm font-medium hover:bg-gray-50 transition ${creationMode === 'agent' ? 'text-blue-500' : 'text-gray-600'}`}><div className="flex items-center gap-2.5"><Sparkles size={14} className={creationMode === 'agent' ? 'text-blue-500' : 'text-gray-400'} /> Agent</div>{creationMode === 'agent' && <Check size={14} strokeWidth={2.5} />}</button>
-                                    <button onClick={() => { setCreationMode('chat'); setShowModeSelector(false); setIsAgentMode(false); }} className={`w-full px-4 py-2.5 flex items-center justify-between text-sm font-medium hover:bg-gray-50 transition ${creationMode === 'chat' ? 'text-blue-500' : 'text-gray-600'}`}><div className="flex items-center gap-2.5"><MessageSquare size={14} className={creationMode === 'chat' ? 'text-blue-500' : 'text-gray-400'} /> Chat 对话</div>{creationMode === 'chat' && <Check size={14} strokeWidth={2.5} />}</button>
                                     <button onClick={() => { setCreationMode('image'); setShowModeSelector(false); setIsAgentMode(false); }} className={`w-full px-4 py-2.5 flex items-center justify-between text-sm font-medium hover:bg-gray-50 transition ${creationMode === 'image' ? 'text-blue-500' : 'text-gray-600'}`}><div className="flex items-center gap-2.5"><ImageIcon size={14} className={creationMode === 'image' ? 'text-blue-500' : 'text-gray-400'} /> 图像生成器</div>{creationMode === 'image' && <Check size={14} strokeWidth={2.5} />}</button>
                                     <button onClick={() => { setCreationMode('video'); setShowModeSelector(false); setIsAgentMode(false); }} className={`w-full px-4 py-2.5 flex items-center justify-between text-sm font-medium hover:bg-gray-50 transition ${creationMode === 'video' ? 'text-blue-500' : 'text-gray-600'}`}><div className="flex items-center gap-2.5"><Video size={14} className={creationMode === 'video' ? 'text-blue-500' : 'text-gray-400'} /> 视频生成器</div>{creationMode === 'video' && <Check size={14} strokeWidth={2.5} />}</button>
                                 </div>
@@ -1245,23 +1310,52 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         {(creationMode === 'agent' || creationMode === 'chat') && (
                             <>
                                 {creationMode === 'agent' ? (
-                                    <button
-                                        type="button"
-                                        onClick={toggleHarnessAgentMode}
-                                        aria-label={harnessAgentMode === 'plan' ? '切换到执行模式' : '切换到规划模式'}
-                                        aria-pressed={harnessAgentMode === 'plan'}
-                                        title={harnessAgentMode === 'plan' ? '规划模式：只分析并输出计划' : '执行模式：自主调用工具完成任务'}
-                                        className="group flex h-11 shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-                                    >
-                                        <span className={`flex h-8 items-center gap-1 rounded-full px-2.5 text-[0.7rem] font-semibold transition-colors ${
-                                            harnessAgentMode === 'plan'
-                                                ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
-                                                : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
-                                        }`}>
-                                            <Sparkles size={12} />
-                                            <span>{harnessAgentMode === 'plan' ? '规划' : '执行'}</span>
-                                        </span>
-                                    </button>
+                                    <div className="relative">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAgentModeMenu((visible) => !visible)}
+                                            aria-label={`当前为 ${activeAgentModeOption.label} 模式`}
+                                            aria-haspopup="menu"
+                                            aria-expanded={showAgentModeMenu}
+                                            title={activeAgentModeOption.description}
+                                            className="group flex h-11 shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                                        >
+                                            <span className={`flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[0.7rem] font-semibold transition-colors ${
+                                                harnessAgentMode === 'plan'
+                                                    ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                                                    : harnessAgentMode === 'ask'
+                                                        ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'
+                                                        : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                                            }`}>
+                                                {React.createElement(activeAgentModeOption.icon, { size: 12 })}
+                                                <span>{activeAgentModeOption.label}</span>
+                                                <ChevronDown size={11} />
+                                            </span>
+                                        </button>
+                                        {showAgentModeMenu && (
+                                            <div role="menu" className="absolute bottom-full right-0 z-[110] mb-3 w-[230px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 shadow-xl">
+                                                {AGENT_MODE_OPTIONS.map((option) => (
+                                                    <button
+                                                        key={option.id}
+                                                        type="button"
+                                                        role="menuitemradio"
+                                                        aria-checked={harnessAgentMode === option.id}
+                                                        onClick={() => selectHarnessAgentMode(option.id)}
+                                                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${harnessAgentMode === option.id ? 'bg-slate-100 text-slate-950' : 'text-slate-600 hover:bg-slate-50'}`}
+                                                    >
+                                                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
+                                                            {React.createElement(option.icon, { size: 14 })}
+                                                        </span>
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-xs font-bold">{option.label}</span>
+                                                            <span className="block truncate text-[10px] text-slate-400">{option.description}</span>
+                                                        </span>
+                                                        {harnessAgentMode === option.id && <Check size={14} className="text-blue-500" />}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 ) : (
                                     <div className="flex h-10 items-center gap-0.5 rounded-full bg-slate-100 p-1">
                                         <button aria-label="深度思考" onClick={() => handleModeSwitch('thinking')} className={`flex h-8 w-8 items-center justify-center rounded-full transition ${modelMode === 'thinking' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-700'}`}><Lightbulb size={14} /></button>
@@ -1270,9 +1364,13 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                 )}
                                 <button aria-label="联网搜索" onClick={() => setWebEnabled(!webEnabled)} className="group grid h-11 w-11 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"><span className={`grid h-8 w-8 place-items-center rounded-full transition-colors ${webEnabled ? 'bg-blue-50 text-blue-500' : 'text-slate-500 group-hover:bg-slate-100'}`}><Globe size={14} /></span></button>
                                 <div className="relative">
-                                    <button aria-label="模型偏好" onClick={() => setShowModelPreference(!showModelPreference)} className="group grid h-11 w-11 place-items-center rounded-full text-slate-500 outline-none focus-visible:ring-2 focus-visible:ring-slate-950"><span className="grid h-8 w-8 place-items-center rounded-full transition-colors group-hover:bg-slate-100"><Box size={14} /></span></button>
-                                    {showModelPreference && (
-                                        <div className="absolute bottom-full -right-5 mb-4 w-[min(350px,calc(100vw-16px))] max-h-[min(70vh,620px)] overflow-y-auto bg-white rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.15)] border border-gray-100 z-50 p-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
+                                    <button ref={modelPreferenceButtonRef} aria-label="模型偏好" onClick={() => setShowModelPreference(!showModelPreference)} className="group grid h-11 w-11 place-items-center rounded-full text-slate-500 outline-none focus-visible:ring-2 focus-visible:ring-slate-950"><span className="grid h-8 w-8 place-items-center rounded-full transition-colors group-hover:bg-slate-100"><Box size={14} /></span></button>
+                                    {showModelPreference && modelPreferencePosition && ReactDOM.createPortal(
+                                        <div
+                                            ref={modelPreferencePanelRef}
+                                            style={modelPreferencePosition}
+                                            className="fixed z-[200] overflow-y-auto rounded-2xl border border-gray-100 bg-white p-4 shadow-[0_18px_55px_rgba(15,23,42,0.2)] animate-in fade-in slide-in-from-bottom-2 duration-150"
+                                        >
                                             {/* Header */}
                                             <div className="flex items-center justify-between mb-6">
                                                 <h3 className="text-[17px] font-bold tracking-tight text-gray-900 font-display">模型偏好</h3>
@@ -1287,6 +1385,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                                             className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
                                                             transition={{ type: "spring", stiffness: 500, damping: 30 }}
                                                         />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowModelPreference(false)}
+                                                        className="grid h-9 w-9 place-items-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-900"
+                                                        aria-label="关闭模型偏好"
+                                                    >
+                                                        <X size={16} />
                                                     </button>
                                                 </div>
                                             </div>
@@ -1305,6 +1411,20 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                             </div>
 
                                             {/* Model Input */}
+                                            {modelPreferenceTab === 'image' ? (
+                                                <CreativeImageModelSelector
+                                                    value={preferredImageModel}
+                                                    onChange={(modelId) => setPreferredImageModel(modelId)}
+                                                    onUserSelect={(modelId) => {
+                                                        setPreferredImageModel(modelId);
+                                                        setAutoModelSelect(false);
+                                                    }}
+                                                    title=""
+                                                    description="Virse 开启时展示并使用 Virse 通道实时支持的图像模型"
+                                                    layout="list"
+                                                    className="border-0 bg-transparent p-0 shadow-none"
+                                                />
+                                            ) : (
                                             <div className="space-y-4 px-1 pb-2">
                                                 <div className="text-[11px] font-bold text-gray-600 uppercase">
                                                     {modelPreferenceTab === 'image' ? '图像' : modelPreferenceTab === 'video' ? '视频' : '3D'} 生成调度模型
@@ -1329,8 +1449,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                                 
                                                 {/* Preset List */}
                                                 <div className="flex flex-col gap-1.5 mt-2 max-h-[220px] overflow-y-auto pr-2 select-none custom-scrollbar border-b border-gray-100 pb-4">
-                                                    {(modelPreferenceTab === 'video' ? MODEL_OPTIONS.video : 
-                                                      modelPreferenceTab === 'image' ? MODEL_OPTIONS.image : MODEL_OPTIONS['3d']).map(preset => {
+                                                    {(modelPreferenceTab === 'video' ? MODEL_OPTIONS.video : MODEL_OPTIONS['3d']).map(preset => {
                                                         const isSelected = (modelPreferenceTab === 'video' && preferredVideoModel === preset.id) || 
                                                                            (modelPreferenceTab === 'image' && preferredImageModel === preset.id) ||
                                                                            (modelPreferenceTab === '3d' && preferred3DModel === preset.id);
@@ -1396,7 +1515,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                                     若在特定任务中由于未找到模型导致失败，重试前请核对模型标识符。
                                                 </p>
                                             </div>
-                                        </div>
+                                            )}
+                                        </div>,
+                                        document.body
                                     )}
                                 </div>
                             </>

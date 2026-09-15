@@ -34,6 +34,7 @@ import {
 } from "./runtime/harness-response";
 import { buildHarnessSystemPrompt } from "./runtime/harness-system-prompt";
 import { buildDurableAgentContext } from "./runtime/context-builder";
+import { persistAgentWorkMode } from "./runtime/agent-mode";
 import {
   FASHION_REPLICA_ROLE_PROMPT,
   SCENE_FISSION_ROLE_PROMPT,
@@ -935,10 +936,9 @@ export abstract class EnhancedBaseAgent {
         : '',
     });
 
-    const model = getProviderConfig().model || "";
-    const visionFiles = model.toLowerCase().includes("vision")
-      ? attachments.filter(isLikelyImageFile).slice(0, 6)
-      : [];
+    // DeepSeek 4.1 Flash natively understands images. Always attach image
+    // content and let the runtime router select Flash for multimodal turns.
+    const visionFiles = attachments.filter(isLikelyImageFile).slice(0, 6);
     if (visionFiles.length === 0) return contextText;
 
     const content: Exclude<DeepSeekContent, string> = [{ type: "text", text: contextText }];
@@ -977,8 +977,8 @@ export abstract class EnhancedBaseAgent {
     const harnessSession = new BrowserHarnessSession(sessionId, requestedMode);
     const planCommand = task.input.message.trim().match(/^\/plan(?:\s+(off))?(?:\s+([\s\S]+))?$/i);
     if (planCommand?.[1]?.toLowerCase() === 'off') {
-      harnessSession.setMode('default');
-      if (typeof window !== 'undefined') window.localStorage.setItem('xcai_agent_mode', 'default');
+      harnessSession.setMode('craft');
+      persistAgentWorkMode('craft');
       return {
         ...task,
         status: 'completed',
@@ -990,8 +990,8 @@ export abstract class EnhancedBaseAgent {
             type: 'deepseek-harness',
             version: 2,
             provider: 'deepseek',
-            model: getProviderConfig().model,
-            mode: 'default',
+            model: '智能调度',
+            mode: 'craft',
             steps: 0,
             stopReason: 'completed',
             events: [],
@@ -1003,13 +1003,21 @@ export abstract class EnhancedBaseAgent {
     }
     if (planCommand) {
       harnessSession.setMode('plan');
-      if (typeof window !== 'undefined') window.localStorage.setItem('xcai_agent_mode', 'plan');
+      persistAgentWorkMode('plan');
+    }
+    const directModeCommand = task.input.message.trim().match(/^\/(craft|ask)(?:\s+[\s\S]+)?$/i);
+    if (directModeCommand) {
+      const directMode = directModeCommand[1].toLowerCase() as 'craft' | 'ask';
+      harnessSession.setMode(directMode);
+      persistAgentWorkMode(directMode);
     }
     const harnessMode: HarnessAgentMode = this.agentInfo.id === 'prompt-optimizer'
-      ? 'default'
+      ? 'craft'
       : harnessSession.mode;
     const selectedCapabilities = this.getSelectedCreativeCapabilities(task.input.metadata);
-    const toolsDisabled = task.input.metadata?.disableTools === true || this.agentInfo.id === 'prompt-optimizer';
+    const toolsDisabled = task.input.metadata?.disableTools === true
+      || this.agentInfo.id === 'prompt-optimizer'
+      || harnessMode === 'ask';
     const coreTools = toolsDisabled ? [] : [
       "updatePlan",
       "generateImage",
@@ -1045,20 +1053,34 @@ export abstract class EnhancedBaseAgent {
           || capability?.primaryTool
         )),
         toolAccess: toolsDisabled ? 'none' : 'enabled',
+        noToolReason: harnessMode === 'ask' ? 'conversation' : 'prompt-optimizer',
       }),
       toolsDisabled ? '' : "工具参数中的 ATTACHMENT_n 是本轮附件引用。",
       harnessMode === 'plan'
         ? [
-            '你现在处于规划模式。',
+            '你现在处于 Plan 规划模式。',
             '- 只调查、分析、澄清并形成可执行计划，不调用任何会产生图片、视频或编辑结果的工具。',
             '- 对多步骤任务使用 updatePlan 维护计划状态。',
             '- 最终回答必须给出完整计划，并明确等待用户确认；不要声称已经执行。',
-            '- 用户可发送 /plan off 返回默认执行模式。',
+            '- 用户确认“开始做、帮我做、按这个方案执行”后，系统会切换到 Craft 并继续执行。',
           ].join('\n')
-        : [
-            '你处于默认执行模式。对明确任务应持续工作到交付结果；多步骤任务使用 updatePlan 维护进度。',
-            '不要只描述可以怎样做：需要媒体结果时必须调用对应工具。',
-          ].join('\n'),
+        : harnessMode === 'ask'
+          ? [
+              '你现在处于 Ask 对话模式。',
+              '- 只交流、分析、解释和提出建议，不生成、编辑或保存任何成品。',
+              '- 充分使用专业知识、项目记忆、当前附件与会话历史，保持讨论连续。',
+              '- 当用户明确表示开始制作时，下一轮会由系统切换到 Craft；本轮不要自行假装执行。',
+            ].join('\n')
+          : [
+              '你现在处于 Craft 执行模式。对明确任务应持续工作到交付结果；多步骤任务使用 updatePlan 维护进度。',
+              '不要只描述可以怎样做：需要媒体结果时必须调用对应工具。',
+              task.input.metadata?.agentModeTransition
+                ? '用户刚刚明确批准开始执行。直接继承前文讨论与已保存计划，不要要求用户重复描述或再次确认。'
+                : '',
+              harnessSession.plan
+                ? `已保存并获准执行的计划：${harnessSession.plan.title}\n${harnessSession.plan.items.map((item, index) => `${index + 1}. ${item.text}`).join('\n')}`
+                : '',
+            ].filter(Boolean).join('\n'),
       harnessSession.summary
         ? `较早会话的压缩摘要：\n${harnessSession.summary}`
         : '',
@@ -1191,7 +1213,7 @@ export abstract class EnhancedBaseAgent {
           type: "deepseek-harness",
           version: 2,
           provider: "deepseek",
-          model: getProviderConfig().model,
+          model: loop.model,
           mode: loop.mode,
           steps: loop.steps,
           stopReason: loop.stopReason,
@@ -1222,13 +1244,14 @@ export abstract class EnhancedBaseAgent {
   private async executeInternal(task: AgentTask): Promise<AgentTask> {
     const { message, context } = task.input;
     const store = useAgentStore.getState();
+    const workMode = resolveHarnessMode(task.input.metadata?.agentMode) || 'craft';
     const skillData = task.input.metadata?.skillData as
       | { id?: string; config?: Record<string, any> }
       | undefined;
     const sceneFissionWorkflow = task.input.metadata?.sceneFissionWorkflow as
       | SceneFissionWorkflowState
       | undefined;
-    const forceImageToolCall = this.shouldForceImageToolCall(
+    const forceImageToolCall = workMode === 'craft' && this.shouldForceImageToolCall(
       message,
       task.input.metadata,
       !!task.input.attachments?.some((file) => file.type?.startsWith('image/')),
@@ -1253,7 +1276,7 @@ export abstract class EnhancedBaseAgent {
       totalSteps: 4,
     });
 
-    if (skillData?.id === "xcai-oneclick") {
+    if (workMode === 'craft' && skillData?.id === "xcai-oneclick") {
       store.actions.setCurrentTask({
         ...task,
         status: "executing",
@@ -1542,6 +1565,54 @@ export abstract class EnhancedBaseAgent {
           throw error;
         }
       }
+    }
+
+    // Plan and Ask are non-executing modes across every provider. Even if a
+    // legacy model returns skill calls, stop here before any tool can run.
+    if (workMode !== 'craft') {
+      const sessionId = String(context.conversationId || task.id).trim();
+      const modeSession = new BrowserHarnessSession(sessionId, workMode);
+      let savedPlan = modeSession.plan;
+      if (workMode === 'plan') {
+        const proposedSteps = [
+          ...(Array.isArray(plan?.proposals)
+            ? plan.proposals.map((proposal: any) => proposal?.title || proposal?.description)
+            : []),
+          ...(Array.isArray(plan?.suggestions) ? plan.suggestions : []),
+        ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+        const uniqueSteps = Array.from(new Set(proposedSteps)).slice(0, 12);
+        savedPlan = modeSession.updatePlan({
+          title: String(plan?.title || '当前任务执行计划').slice(0, 200),
+          items: (uniqueSteps.length > 0 ? uniqueSteps : [String(plan?.message || message)])
+            .map((text) => ({ text: text.slice(0, 500), status: 'pending' as const })),
+        });
+      }
+
+      return {
+        ...task,
+        status: 'completed',
+        output: {
+          message: String(
+            plan?.message
+            || plan?.analysis
+            || (workMode === 'plan'
+              ? '计划已经整理完成。确认后告诉我“开始做”，我会切换到 Craft 执行。'
+              : '我们可以继续讨论和完善这个想法；Ask 模式不会执行生成或编辑。'),
+          ),
+          analysis: plan?.analysis,
+          proposals: [],
+          assets: [],
+          suggestions: Array.isArray(plan?.suggestions) ? plan.suggestions : [],
+          workflowState: {
+            type: 'agent-work-mode',
+            version: 1,
+            provider: getProviderConfig().id,
+            mode: workMode,
+            plan: savedPlan,
+          },
+        },
+        updatedAt: Date.now(),
+      };
     }
 
     // 修复顶层和 proposals 内部的字段名
@@ -2043,7 +2114,8 @@ export abstract class EnhancedBaseAgent {
     metadata?: Record<string, any>,
   ): Promise<any> {
     try {
-      const forceImageToolCall = this.shouldForceImageToolCall(
+      const workMode = resolveHarnessMode(metadata?.agentMode) || 'craft';
+      const forceImageToolCall = workMode === 'craft' && this.shouldForceImageToolCall(
         message,
         metadata,
         !!attachments?.some((file) => file.type?.startsWith('image/')),
@@ -2259,9 +2331,39 @@ ${index + 1}. ${capability.title || capability.id}
             ? SCENE_FISSION_ROLE_PROMPT
           : "";
 
+      const approvedPlan = workMode === 'craft' && context.conversationId
+        ? new BrowserHarnessSession(String(context.conversationId), 'craft').plan
+        : undefined;
+      const interactionModeSection = workMode === 'plan'
+        ? `
+【Plan 模式——只规划】
+- 本轮只分析并给出完整、可执行的计划，绝对不能执行任何技能。
+- skillCalls 和 proposals 必须返回空数组；把执行步骤放入 suggestions。
+- 最后明确告诉用户：确认后说“开始做”，系统会切换到 Craft 执行。
+`
+        : workMode === 'ask'
+          ? `
+【Ask 模式——只交流】
+- 本轮只讨论、解释、分析附件和提供专业建议，绝对不能执行任何技能。
+- skillCalls 和 proposals 必须返回空数组；不得声称已经生成、编辑或保存成品。
+- 保持与项目记忆和对话历史连续。如果用户想开始制作，请让他明确说“开始做”。
+`
+          : approvedPlan
+            ? `
+【Craft 模式——执行已确认计划】
+- 用户已经确认开始制作，不要重复询问或重新规划。
+- 继承并执行以下已保存计划：${approvedPlan.title}
+${approvedPlan.items.map((item, index) => `${index + 1}. ${item.text}`).join('\n')}
+`
+            : `
+【Craft 模式——直接执行】
+- 对明确任务直接调用所需技能并交付结果，不要只描述做法。
+`;
+
       const fullPrompt = `${this.systemPrompt}
 
 ${specializedRoleSection}
+${interactionModeSection}
 
 【语言要求】你必须用中文回复所有内容（analysis、message、title、description 等字段全部用中文）。只有 prompt 字段用英文（因为图片生成模型需要英文 prompt）。
 

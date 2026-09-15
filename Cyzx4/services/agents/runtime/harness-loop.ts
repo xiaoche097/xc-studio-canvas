@@ -45,6 +45,7 @@ export interface HarnessLoopResult {
   toolExecutions: HarnessToolExecution[];
   mode: HarnessAgentMode;
   sessionEvents: number;
+  model: string;
 }
 
 const stringifyToolResult = (execution: HarnessToolExecution): string => {
@@ -86,6 +87,7 @@ export const runHarnessLoop = async (options: {
   const maxRequestRetries = Math.max(0, Math.min(options.maxRequestRetries ?? 2, 4));
   let finalText = '';
   let allReasoning = '';
+  let routedModel = 'auto';
   const runtimeId = beginRuntimeActivity({
     kind: 'agent',
     tone: 'working',
@@ -176,6 +178,7 @@ export const runHarnessLoop = async (options: {
         }
       }
       if (!turn) throw new Error('Model request completed without a response.');
+      routedModel = turn.model;
       finalText = turn.content || finalText;
       allReasoning += turn.reasoningContent;
       if (streamedReasoning || turn.reasoningContent) {
@@ -202,7 +205,7 @@ export const runHarnessLoop = async (options: {
           title: 'Agent 已完成',
           detail: `共完成 ${step} 个执行步骤。`,
         });
-        return { text: finalText, reasoning: allReasoning, steps: step, stopReason: 'completed', events, toolExecutions, mode: session.mode, sessionEvents: session.events.length };
+        return { text: finalText, reasoning: allReasoning, steps: step, stopReason: 'completed', events, toolExecutions, mode: session.mode, sessionEvents: session.events.length, model: routedModel };
       }
 
       const prepared: Array<{ call: DeepSeekToolCall; args: Record<string, unknown> }> = [];
@@ -277,6 +280,7 @@ export const runHarnessLoop = async (options: {
       toolExecutions,
       mode: session.mode,
       sessionEvents: session.events.length,
+      model: routedModel,
     };
   } catch (error) {
     const aborted = options.signal?.aborted || (error as any)?.name === 'AbortError';

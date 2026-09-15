@@ -20,7 +20,7 @@ test('separates images from the creative task while preserving order', () => {
   assert.match(result.taskText, /Return ONLY JSON/);
 });
 
-test('sends vision summary and original task to DeepSeek as text-only JSON request', async () => {
+test('sends images directly to DeepSeek 4.1 Flash for native visual understanding', async () => {
   const originalFetch = globalThis.fetch;
   let requestBody: any;
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
@@ -38,7 +38,9 @@ test('sends vision summary and original task to DeepSeek as text-only JSON reque
       model: 'deepseek-v4-flash',
       reasoningEffort: 'high',
       maxTokens: 1024,
-    }, async () => 'IMAGE 1：黑色连衣裙，正面展示。');
+    }, async () => {
+      throw new Error('legacy vision proxy should not be called');
+    });
     const result = await client.models.generateContent({
       contents: { parts: [
         { inlineData: { mimeType: 'image/png', data: 'base64-image' } },
@@ -47,11 +49,10 @@ test('sends vision summary and original task to DeepSeek as text-only JSON reque
     });
 
     assert.equal(result.text, '{"ok":true}');
-    assert.equal(requestBody.request.model, 'deepseek-v4-flash');
+    assert.equal(requestBody.request.model, 'deepseek-flash');
     assert.deepEqual(requestBody.request.response_format, { type: 'json_object' });
-    assert.match(requestBody.request.messages[0].content, /视觉代理识别结果/);
-    assert.match(requestBody.request.messages[0].content, /Return ONLY JSON/);
-    assert.doesNotMatch(JSON.stringify(requestBody.request), /base64-image/);
+    assert.match(JSON.stringify(requestBody.request.messages[0].content), /Return ONLY JSON/);
+    assert.match(JSON.stringify(requestBody.request.messages[0].content), /base64-image/);
   } finally {
     globalThis.fetch = originalFetch;
   }

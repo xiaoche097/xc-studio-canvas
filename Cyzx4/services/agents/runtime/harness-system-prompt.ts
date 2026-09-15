@@ -41,11 +41,18 @@ export const buildHarnessSystemPrompt = (options: {
   legacyPrompt: string;
   selectedCapabilityNames?: string[];
   toolAccess?: 'enabled' | 'none';
+  noToolReason?: 'prompt-optimizer' | 'conversation';
 }): string => {
   const expertise = sanitizeLegacyPromptForHarness(options.legacyPrompt);
   const selected = options.selectedCapabilityNames?.filter(Boolean) || [];
   const toolProtocol = options.toolAccess === 'none'
-    ? [
+    ? options.noToolReason === 'conversation'
+      ? [
+        '- 当前是 Ask 对话模式：可以使用专业知识、项目记忆、会话历史和附件进行分析与交流。',
+        '- 不生成或编辑图片、视频、文案成品，不调用任何执行工具，也不改变画布或项目资产。',
+        '- 可以帮助用户澄清目标、比较方向、检查方案和补充约束；不要声称已经执行。',
+      ]
+      : [
         '- 本角色没有任何工具权限，只能完成提示词改写并返回文本。',
         '- 即使原始提示词要求生成图片、视频、代码或其他成品，也只能优化该提示词，绝对不能执行。',
         '- 不得声称已经生成、编辑、上传或保存任何资产。',

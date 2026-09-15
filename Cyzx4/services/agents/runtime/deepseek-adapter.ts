@@ -1,10 +1,15 @@
 import { z } from 'zod';
 import {
   DEFAULT_DEEPSEEK_BASE_URL,
-  DEFAULT_DEEPSEEK_MODEL,
   getProviderConfig,
 } from '../../provider-config';
 import type { HarnessToolDefinition } from './tool-catalog';
+import {
+  DEEPSEEK_AUTO_MODEL,
+  DEEPSEEK_FLASH_MODEL,
+  selectDeepSeekModel,
+  type DeepSeekRouteReason,
+} from '../../deepseek-model-router';
 
 const runtimeConfigSchema = z.object({
   baseUrl: z.string().url(),
@@ -43,6 +48,7 @@ export const deepSeekToolCallSchema = z.object({
 export type DeepSeekToolCall = z.infer<typeof deepSeekToolCallSchema>;
 
 export type DeepSeekStreamEvent =
+  | { type: 'model-route'; model: string; reason: DeepSeekRouteReason }
   | { type: 'reasoning-delta'; text: string }
   | { type: 'text-delta'; text: string }
   | { type: 'tool-call-delta'; index: number; name?: string; argumentsDelta: string }
@@ -55,6 +61,8 @@ export interface DeepSeekAssistantTurn {
   toolCalls: DeepSeekToolCall[];
   finishReason: string;
   usage?: Extract<DeepSeekStreamEvent, { type: 'usage' }>;
+  model: string;
+  routeReason: DeepSeekRouteReason;
 }
 
 const normalizeBaseUrl = (value: string): string => (
@@ -66,7 +74,7 @@ export const getDeepSeekRuntimeConfig = (): DeepSeekRuntimeConfig => {
   const raw = {
     baseUrl: normalizeBaseUrl(provider.baseUrl || DEFAULT_DEEPSEEK_BASE_URL),
     apiKey: provider.apiKey || '',
-    model: provider.model || localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL,
+    model: DEEPSEEK_AUTO_MODEL,
     reasoningEffort: localStorage.getItem('deepseek_reasoning_effort') || 'high',
     maxTokens: Number.parseInt(localStorage.getItem('deepseek_max_tokens') || '32768', 10),
     firstByteTimeoutMs: Number.parseInt(localStorage.getItem('deepseek_first_byte_timeout_ms') || '45000', 10),
@@ -149,9 +157,24 @@ export const streamDeepSeekTurn = async (options: {
   onEvent?: (event: DeepSeekStreamEvent) => void;
 }): Promise<DeepSeekAssistantTurn> => {
   const config = getDeepSeekRuntimeConfig();
+  const hasImages = options.messages.some((message) => (
+    Array.isArray(message.content)
+    && message.content.some((part) => part.type === 'image_url')
+  ));
+  const routingText = options.messages.filter((message) => message.role === 'user').map((message) => (
+    typeof message.content === 'string'
+      ? message.content
+      : (message.content || []).filter((part) => part.type === 'text').map((part) => part.text).join('\n')
+  )).join('\n');
+  const route = selectDeepSeekModel({
+    hasImages,
+    hasTools: options.tools.length > 0,
+    text: routingText,
+  });
+  options.onEvent?.({ type: 'model-route', model: route.model, reason: route.reason });
   const watchdog = createIdleSignal(options.signal, config.firstByteTimeoutMs, config.idleTimeoutMs);
   const request: Record<string, unknown> = {
-    model: config.model,
+    model: route.model,
     messages: options.messages,
     stream: true,
     stream_options: { include_usage: true },
@@ -269,17 +292,25 @@ export const streamDeepSeekTurn = async (options: {
   if (!content && !reasoningContent && parsedToolCalls.length === 0) {
     throw new Error('DeepSeek returned an empty response.');
   }
-  return { content, reasoningContent, toolCalls: parsedToolCalls, finishReason, usage };
+  return {
+    content,
+    reasoningContent,
+    toolCalls: parsedToolCalls,
+    finishReason,
+    usage,
+    model: route.model,
+    routeReason: route.reason,
+  };
 };
 
 export const testDeepSeekConnection = async (input: {
   baseUrl: string;
   apiKey: string;
-  model: string;
 }): Promise<string> => {
   const config = runtimeConfigSchema.parse({
     ...input,
     baseUrl: normalizeBaseUrl(input.baseUrl || DEFAULT_DEEPSEEK_BASE_URL),
+    model: DEEPSEEK_FLASH_MODEL,
     reasoningEffort: 'off',
     maxTokens: 32,
     firstByteTimeoutMs: 30_000,
@@ -292,7 +323,7 @@ export const testDeepSeekConnection = async (input: {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
       request: {
-        model: config.model,
+        model: DEEPSEEK_FLASH_MODEL,
         messages: [{ role: 'user', content: 'Reply with OK only.' }],
         stream: false,
         max_tokens: 32,

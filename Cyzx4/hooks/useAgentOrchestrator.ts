@@ -26,6 +26,11 @@ import { useProjectStore } from '../stores/project.store';
 import { buildVisualRagContext, type VisualRagDiagnostics } from '../services/visual-rag';
 import { getProviderConfig } from '../services/provider-config';
 import { classifyInstructionMemory } from '../services/memory-policy';
+import {
+  persistAgentWorkMode,
+  readStoredAgentWorkMode,
+  resolveTurnAgentMode,
+} from '../services/agents/runtime/agent-mode';
 
 const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any>) => {
   const lower = String(message || '').toLowerCase();
@@ -183,6 +188,17 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
     // Workspace uses `forceToolCall` (e.g. marker edits) while agents gate execution via `forceSkills`.
     // Keep them aligned to avoid "should force" paths diverging.
     const normalizedMetadata: Record<string, any> = { ...(metadata || {}) };
+    const requestedAgentMode = normalizedMetadata.agentMode ?? readStoredAgentWorkMode();
+    const turnAgentMode = resolveTurnAgentMode(requestedAgentMode, message);
+    normalizedMetadata.agentMode = turnAgentMode.mode;
+    if (turnAgentMode.transitionedFrom) {
+      normalizedMetadata.agentModeTransition = {
+        from: turnAgentMode.transitionedFrom,
+        to: 'craft',
+        reason: 'explicit-user-execution-intent',
+      };
+      persistAgentWorkMode('craft');
+    }
     if (normalizedMetadata.forceToolCall === true && normalizedMetadata.forceSkills !== true) {
       normalizedMetadata.forceSkills = true;
     }
@@ -395,7 +411,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       // Pipeline detection
       // 用户显式选择创作 Skill 时，交给它自己的 capability 合同执行，避免关键词流水线抢走任务。
-      const pipelineId = !useOptimizeThenExecute && !normalizedMetadata?.skillData?.capabilities?.length
+      const pipelineId = normalizedMetadata.agentMode === 'craft'
+        && !useOptimizeThenExecute && !normalizedMetadata?.skillData?.capabilities?.length
         ? detectPipeline(messageForExecution)
         : null;
       if (pipelineId && PIPELINES[pipelineId]) {

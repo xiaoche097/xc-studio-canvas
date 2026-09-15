@@ -53,9 +53,13 @@ import {
 } from '../Cyzx4/utils/xiaocheModels';
 import {
   DEFAULT_DEEPSEEK_BASE_URL,
-  DEFAULT_DEEPSEEK_MODEL,
 } from '../Cyzx4/services/provider-config';
 import { testDeepSeekConnection } from '../Cyzx4/services/agents/runtime/deepseek-adapter';
+import {
+  DEEPSEEK_AUTO_MODEL,
+  DEEPSEEK_FLASH_MODEL,
+  DEEPSEEK_PRO_MODEL,
+} from '../Cyzx4/services/deepseek-model-router';
 
 interface UnifiedSettingsModalProps {
   isOpen: boolean;
@@ -84,12 +88,6 @@ const NO1_IMAGE_NODES = [
   { name: '美国阿什本OVH线路', url: 'https://us-2.rcouyi.com' },
 ];
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
-const DEEPSEEK_MODELS = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: '低延迟 Agent 与日常任务' },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: '复杂规划、推理与工具调用' },
-  { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek V4 Flash Vision Exp', description: '原生视觉实验模型' },
-];
-
 const AVAILABLE_MODELS = [
   { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash', description: '快速响应模型', badge: '推荐', type: 'text' },
   { id: 'gpt-5.5', name: 'GPT-5.5 Global', description: '顶尖逻辑推理模型', badge: 'New', type: 'text' },
@@ -193,7 +191,6 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
   const [deepSeekApiKey, setDeepSeekApiKey] = useState('');
   const [deepSeekBaseUrl, setDeepSeekBaseUrl] = useState(DEFAULT_DEEPSEEK_BASE_URL);
-  const [deepSeekModel, setDeepSeekModel] = useState(DEFAULT_DEEPSEEK_MODEL);
   const [deepSeekReasoning, setDeepSeekReasoning] = useState<'off' | 'low' | 'high' | 'max'>('high');
   const [isDeepSeekKeyVisible, setIsDeepSeekKeyVisible] = useState(false);
   const [deepSeekEnabled, setDeepSeekEnabled] = useState(false);
@@ -354,7 +351,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
     setDeepSeekApiKey(localStorage.getItem('deepseek_api_key') || '');
     setDeepSeekBaseUrl(localStorage.getItem('deepseek_base_url') || DEFAULT_DEEPSEEK_BASE_URL);
-    setDeepSeekModel(localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL);
+    localStorage.setItem('deepseek_model', DEEPSEEK_AUTO_MODEL);
     const savedDeepSeekReasoning = localStorage.getItem('deepseek_reasoning_effort');
     setDeepSeekReasoning(
       savedDeepSeekReasoning === 'off'
@@ -510,7 +507,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
 
     localStorage.setItem('deepseek_api_key', deepSeekApiKey.trim());
     localStorage.setItem('deepseek_base_url', deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL);
-    localStorage.setItem('deepseek_model', deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL);
+    localStorage.setItem('deepseek_model', DEEPSEEK_AUTO_MODEL);
     localStorage.setItem('deepseek_reasoning_effort', deepSeekReasoning);
     localStorage.setItem('deepseek_enabled', String(deepSeekEnabled));
     localStorage.setItem('deepseek_harness_enabled', 'true');
@@ -583,7 +580,6 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
       const response = await testDeepSeekConnection({
         baseUrl: deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL,
         apiKey: key,
-        model: deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL,
       });
       setDeepSeekTestStatus('success');
       setDeepSeekTestMessage(response ? `连接成功：${response}` : '连接成功');
@@ -1290,21 +1286,25 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
                     {deepSeekEnabled && (
                       <div className="space-y-5 animate-in fade-in slide-in-from-top-2">
                         <div className="space-y-2">
-                          <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Cpu className="w-4 h-4" /> 模型选择</label>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            {DEEPSEEK_MODELS.map(model => (
-                              <button
-                                key={model.id}
-                                type="button"
-                                onClick={() => setDeepSeekModel(model.id)}
-                                aria-pressed={deepSeekModel === model.id}
-                                className={`min-h-16 rounded-xl border px-3 py-3 text-left transition-colors ${deepSeekModel === model.id ? 'border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-200 dark:border-white/10 dark:bg-white/5 dark:text-gray-300'}`}
-                              >
-                                <span className="block text-sm font-black">{model.name}</span>
-                                <span className="mt-1 block text-[10px] leading-4 opacity-70">{model.description}</span>
-                              </button>
-                            ))}
+                          <div className="flex items-center justify-between gap-3">
+                            <label className="text-sm font-bold text-gray-500 flex items-center gap-2"><Cpu className="w-4 h-4" /> 智能模型调度</label>
+                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">AUTO</span>
                           </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="min-h-16 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+                              <span className="block text-sm font-black text-blue-900 dark:text-blue-200">日常响应</span>
+                              <span className="mt-1 block font-mono text-[10px] leading-4 text-blue-600 dark:text-blue-300">{DEEPSEEK_FLASH_MODEL}</span>
+                            </div>
+                            <div className="min-h-16 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+                              <span className="block text-sm font-black text-blue-900 dark:text-blue-200">图片理解</span>
+                              <span className="mt-1 block text-[10px] leading-4 text-blue-600 dark:text-blue-300">4.1 Flash 原生视觉</span>
+                            </div>
+                            <div className="min-h-16 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+                              <span className="block text-sm font-black text-blue-900 dark:text-blue-200">复杂任务与工具</span>
+                              <span className="mt-1 block font-mono text-[10px] leading-4 text-blue-600 dark:text-blue-300">{DEEPSEEK_PRO_MODEL}</span>
+                            </div>
+                          </div>
+                          <p className="text-[11px] leading-5 text-gray-400">无需手动选择，Agent 会根据图片、任务复杂度和工具调用自动路由。</p>
                         </div>
 
                         <div className="space-y-2">

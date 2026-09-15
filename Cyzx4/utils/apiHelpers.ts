@@ -10,6 +10,7 @@ import {
     DEFAULT_DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_MODEL,
 } from "../services/provider-config";
+import { DEEPSEEK_FLASH_MODEL } from "../services/deepseek-model-router";
 import {
     createDeepSeekCreativeClient,
     type CreativeVisionInput,
@@ -142,7 +143,7 @@ export const resolveRuntimeModelId = (
     modelId: string,
     config?: RuntimeModelConfig
 ): string => {
-    if (config?.isDeepSeek) return config.model || DEFAULT_DEEPSEEK_MODEL;
+    if (config?.isDeepSeek) return DEEPSEEK_FLASH_MODEL;
     const runtimeConfig = config || {
         isXiaoche:
             Boolean(localStorage.getItem("xiaoche_api_key")) &&
@@ -287,7 +288,7 @@ export async function generateContentWithAnalysisFallback<TClient extends {
     const runtimeConfig = options.config || getApiConfig();
     const requestedModel = request.model || DEFAULT_TEXT_MODEL;
     const candidateModels = runtimeConfig.isDeepSeek
-        ? [runtimeConfig.model || DEFAULT_DEEPSEEK_MODEL]
+        ? [DEEPSEEK_FLASH_MODEL]
         : getOrderedTextModels(requestedModel);
 
     let lastError: any = null;

@@ -17,11 +17,18 @@ const harnessStateSchema = z.object({
   version: z.number().optional(),
   provider: z.literal('deepseek'),
   model: z.string().optional(),
-  mode: z.enum(['default', 'plan']).optional(),
+  mode: z.enum(['craft', 'plan', 'ask']).optional(),
   sessionEvents: z.number().int().nonnegative().optional(),
   steps: z.number().int().nonnegative(),
   stopReason: z.enum(['completed', 'max-steps']).optional(),
   events: z.array(harnessEventSchema),
+  plan: z.object({
+    title: z.string(),
+    items: z.array(z.object({
+      text: z.string(),
+      status: z.enum(['pending', 'in_progress', 'completed']),
+    })),
+  }).optional(),
 }).passthrough();
 
 interface DeepSeekHarnessTraceProps {
@@ -37,6 +44,18 @@ const TOOL_LABELS: Record<string, string> = {
   extractText: '识别文字',
   analyzeRegion: '分析画面',
   touchEdit: '局部编辑',
+};
+
+const MODE_LABELS = {
+  craft: 'Craft 执行',
+  plan: 'Plan 规划',
+  ask: 'Ask 对话',
+} as const;
+
+const MODEL_LABELS: Record<string, string> = {
+  auto: '智能调度',
+  'deepseek-flash': 'DeepSeek 4.1 Flash',
+  'deepseek-v4-pro': 'DeepSeek V4 Pro',
 };
 
 /** Projects persisted Harness lifecycle events into a compact conversation trace. */
@@ -77,7 +96,7 @@ export const DeepSeekHarnessTrace: React.FC<DeepSeekHarnessTraceProps> = ({ work
           <div className="min-w-0">
             <p className="truncate text-[12px] font-bold text-gray-900">XcAI</p>
             <p className="truncate font-mono text-[9px] text-gray-400">
-              {state.model || 'deepseek'} · {state.mode === 'plan' ? '规划模式' : '执行模式'}
+              {MODEL_LABELS[state.model || ''] || state.model || '智能调度'} · {state.mode ? MODE_LABELS[state.mode] : 'Craft 执行'}
               {typeof state.sessionEvents === 'number' ? ` · ${state.sessionEvents} events` : ''}
             </p>
           </div>
@@ -86,6 +105,22 @@ export const DeepSeekHarnessTrace: React.FC<DeepSeekHarnessTraceProps> = ({ work
           {completed ? `${state.steps} 步完成` : `${state.steps} 步后停止`}
         </span>
       </div>
+
+      {state.plan && (
+        <div className="border-b border-slate-200 bg-blue-50/50 px-3 py-3">
+          <p className="mb-2 text-[11px] font-bold text-slate-800">{state.plan.title}</p>
+          <div className="space-y-1.5">
+            {state.plan.items.map((item, index) => (
+              <div key={`${index}-${item.text}`} className="flex items-start gap-2 text-[10px] leading-4 text-slate-600">
+                {item.status === 'completed'
+                  ? <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-emerald-500" />
+                  : <Circle size={10} className="mt-0.5 shrink-0 text-blue-400" />}
+                <span>{item.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-1.5 p-2">
         {steps.map((item) => (

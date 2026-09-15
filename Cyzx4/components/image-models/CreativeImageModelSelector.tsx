@@ -36,6 +36,23 @@ const readCachedModels = (channel: ImageGenerationChannel): VirseImageModel[] =>
 
 const IMAGE_MODEL_PATTERN = /image|imagen|banana|gemini.*(?:flash|pro).*image|gpt[-_. ]?image|midjourney|(?:^|[-_. ])mj(?:[-_. ]|$)|flux|seedream|doubao|qwen|ideogram/i;
 
+const modelSearchText = (model: { id: string; name?: string; providerLabel?: string }) =>
+  `${model.id} ${model.name || ''} ${model.providerLabel || ''}`.toLowerCase();
+
+const isNanoBanana2Model = (model: { id: string; name?: string; providerLabel?: string }) => {
+  const text = modelSearchText(model);
+  return /nano[\s_.-]*banana[\s_.-]*2|banana[\s_.-]*2|gemini[\s_.-]*3\.1[\s_.-]*flash[\s_.-]*image/.test(text);
+};
+
+const getQuickListPriority = (model: { id: string; name?: string; providerLabel?: string }) => {
+  const text = modelSearchText(model);
+  if (/gpt[\s_.-]*image|openai/.test(text)) return 0;
+  if (isNanoBanana2Model(model)) return 1;
+  if (/nano[\s_.-]*banana|banana/.test(text)) return 2;
+  if (/gemini/.test(text)) return 3;
+  return 10;
+};
+
 const listChannelImageModels = async (channel: ImageGenerationChannel): Promise<VirseImageModel[]> => {
   if (!channel.apiKey) throw new Error(`${channel.label}尚未配置 API Key`);
   if (channel.id === 'virse') {
@@ -82,10 +99,12 @@ const listChannelImageModels = async (channel: ImageGenerationChannel): Promise<
 interface CreativeImageModelSelectorProps {
   value: string;
   onChange: (modelId: string) => void;
+  onUserSelect?: (modelId: string) => void;
   disabled?: boolean;
   title?: string;
   description?: string;
   compact?: boolean;
+  layout?: 'providers' | 'list';
   className?: string;
   allowedProviders?: ImageModelProviderId[];
 }
@@ -93,10 +112,12 @@ interface CreativeImageModelSelectorProps {
 const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
   value,
   onChange,
+  onUserSelect,
   disabled = false,
   title = '图像生成模型',
   description = '先选择模型厂商，再选择当前图片通道支持的具体型号',
   compact = false,
+  layout = 'providers',
   className = '',
   allowedProviders,
 }) => {
@@ -111,7 +132,11 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
   const syncedChannel = useRef<string>('');
 
   const models = useMemo(() => buildCreativeImageModels(remoteModels, channel.id), [remoteModels, channel.id]);
-  const visibleModels = useMemo(() => models.filter((model) => !allowedProviders || allowedProviders.includes(model.provider)), [allowedProviders, models]);
+  const visibleModels = useMemo(() => models
+    .filter((model) => !allowedProviders || allowedProviders.includes(model.provider))
+    .map((model, index) => ({ model, index }))
+    .sort((left, right) => getQuickListPriority(left.model) - getQuickListPriority(right.model) || left.index - right.index)
+    .map(({ model }) => model), [allowedProviders, models]);
   const selectedModel = getCreativeImageModel(value, visibleModels);
   const preferredModel = getCreativeImageModel(preferredModelId, visibleModels);
   const providers = useMemo(() => IMAGE_MODEL_PROVIDERS.filter((provider) => visibleModels.some((model) => model.provider === provider.id)), [visibleModels]);
@@ -143,6 +168,11 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
   }, [activeProvider, channel.id]);
 
   useEffect(() => {
+    if (layout !== 'list' || syncedChannel.current === channel.id) return;
+    void syncChannelModels();
+  }, [channel.id, layout]);
+
+  useEffect(() => {
     const handleSettingsUpdate = () => {
       const nextChannel = resolveActiveImageGenerationChannel();
       setChannel(nextChannel);
@@ -165,7 +195,9 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
     const currentSupported = visibleModels.some((model) => model.id === value || (value === 'nanobananapro' && model.id === 'gemini-3-pro-image-preview'));
     if (currentSupported) return;
     const preferred = getPreferredCreativeImageModelId(channel.id);
-    const next = visibleModels.find((model) => model.id === preferred) || visibleModels[0];
+    const next = visibleModels.find((model) => model.id === preferred)
+      || visibleModels.find(isNanoBanana2Model)
+      || visibleModels[0];
     if (next && next.id !== value) onChange(next.id);
   }, [channel.id, onChange, value, visibleModels]);
 
@@ -188,8 +220,56 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-950"><Cpu className="h-4 w-4" /></span>
           <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-black text-pastel-text">{title}</h2><span className="rounded-full border border-pastel-border px-2 py-0.5 text-[0.65rem] font-bold text-pastel-muted">当前通道：{channel.label}</span></div>{!compact && <p className="mt-0.5 text-xs text-pastel-muted">{description}</p>}</div>
         </div>}
-        {!title && <div className="mb-2 text-[0.68rem] font-bold text-pastel-muted">当前通道：{channel.label}</div>}
-        <div className={`${title ? 'mt-3' : ''} grid gap-2 ${compact ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-5'}`}>
+        {!title && layout === 'providers' && <div className="mb-2 text-[0.68rem] font-bold text-pastel-muted">当前通道：{channel.label}</div>}
+        {layout === 'list' ? (
+          <div className={title ? 'mt-3' : ''}>
+            <div className="mb-1.5 flex items-center justify-between gap-2 px-2 text-[0.68rem] font-semibold text-slate-500">
+              <span>Image</span>
+              <span className="truncate">Virse 通道 · {channel.label}</span>
+            </div>
+            <div className="max-h-[17rem] space-y-0.5 overflow-y-auto pr-1 custom-scrollbar">
+              {loading && remoteModels.length === 0 && (
+                <div className="flex min-h-24 items-center justify-center gap-2 text-xs text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />正在同步模型…
+                </div>
+              )}
+              {visibleModels.map((model) => {
+                const selected = model.id === value || (value === 'nanobananapro' && model.id === 'gemini-3-pro-image-preview');
+                const selectModel = () => {
+                  onChange(model.id);
+                  onUserSelect?.(model.id);
+                  if (channel.id === 'virse') localStorage.setItem('virse_model', model.id);
+                };
+                return (
+                  <button
+                    key={`${channel.id}-${model.id}`}
+                    type="button"
+                    disabled={disabled}
+                    onClick={selectModel}
+                    className={`group flex min-h-[4.25rem] w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${selected ? 'bg-slate-100 text-slate-950' : 'text-slate-800 hover:bg-slate-50'}`}
+                  >
+                    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border ${selected ? 'border-slate-300 bg-white text-slate-950' : 'border-slate-200 text-slate-600'}`}>
+                      <Cpu size={13} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-sm font-semibold">{model.name}</strong>
+                      <small className="mt-0.5 block line-clamp-2 text-[0.7rem] leading-4 text-slate-500">
+                        {model.description} · Virse
+                      </small>
+                    </span>
+                    {selected ? <Check className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />}
+                  </button>
+                );
+              })}
+              {!loading && visibleModels.length === 0 && (
+                <p className="py-8 text-center text-xs text-slate-500">当前通道没有可用的图像模型</p>
+              )}
+              {loadError && (
+                <p role="alert" className="mx-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{loadError}</p>
+              )}
+            </div>
+          </div>
+        ) : <div className={`${title ? 'mt-3' : ''} grid gap-2 ${compact ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-5'}`}>
           {providers.map((provider) => {
             const providerModels = visibleModels.filter((model) => model.provider === provider.id);
             const selected = selectedModel.provider === provider.id;
@@ -199,7 +279,7 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
               <ChevronRight className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-45" />
             </button>;
           })}
-        </div>
+        </div>}
       </section>
 
       {activeProvider && <div className="fixed inset-0 z-[240] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label="选择图像生成模型" onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveProvider(null); }}>
@@ -216,7 +296,7 @@ const CreativeImageModelSelector: React.FC<CreativeImageModelSelectorProps> = ({
               const preferred = model.id === preferredModelId;
               const supportsQuality = channel.id === 'virse' && supportsVirseImageQuality(model.id);
               const quality = imageQualities[model.id] || getVirseImageQuality(model.id);
-              const selectModel = () => { onChange(model.id); if (channel.id === 'virse') localStorage.setItem('virse_model', model.id); setActiveProvider(null); };
+              const selectModel = () => { onChange(model.id); onUserSelect?.(model.id); if (channel.id === 'virse') localStorage.setItem('virse_model', model.id); setActiveProvider(null); };
               const makeDefault = () => { setPreferredModelId(model.id); if (channel.id === 'virse') localStorage.setItem('virse_model', model.id); setPreferredCreativeImageModelId(channel.id, model.id); };
               return <div key={`${channel.id}-${model.id}`} className={`rounded-2xl border p-2 transition-colors ${selected ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950' : 'border-slate-200 hover:border-slate-400 dark:border-white/10 dark:hover:border-white/30'}`}>
                 <div className="flex min-h-12 items-center gap-2">

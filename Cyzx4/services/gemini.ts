@@ -446,7 +446,7 @@ export const getBestModelId = (type: 'text' | 'image' | 'video' | 'thinking' = '
     const isProxy = config.id !== 'gemini' || (config.baseUrl && !config.baseUrl.includes('googleapis.com'));
     const getHomepageTextModel = (): string => {
         if (config.id === 'deepseek') {
-            return config.model || 'deepseek-v4-flash';
+            return 'deepseek-flash';
         }
         const selected = getOrderedTextModels()[0] || FLASH_MODEL;
         return resolveRuntimeModelId(selected, {

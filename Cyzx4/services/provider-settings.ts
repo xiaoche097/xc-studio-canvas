@@ -74,7 +74,7 @@ export const getDefaultProviders = (): ApiProviderConfig[] => {
       name: 'DeepSeek 原生 API',
       baseUrl: 'https://api.deepseek.com',
       apiKey: '',
-      defaultModel: 'deepseek-v4-flash',
+      defaultModel: 'auto',
       textOnly: true,
     },
     { id: 'yunwu', name: '云雾 (OpenAI)', baseUrl: 'https://yunwu.ai', apiKey: '' },
@@ -193,15 +193,9 @@ export const saveProviderSettings = (settings: LoadedProviderSettings): void => 
   safeLocalStorageSetItem('api_provider', settings.activeProviderId);
   const activeProvider = settings.providers.find(provider => provider.id === settings.activeProviderId);
   if (activeProvider?.id === 'deepseek') {
-    const selectedDeepSeekModel = settings.selectedScriptModels.find(model =>
-      model.toLowerCase().includes('deepseek')
-    );
     safeLocalStorageSetItem('deepseek_api_key', activeProvider.apiKey.trim());
     safeLocalStorageSetItem('deepseek_base_url', activeProvider.baseUrl.trim() || 'https://api.deepseek.com');
-    safeLocalStorageSetItem(
-      'deepseek_model',
-      selectedDeepSeekModel || activeProvider.defaultModel?.trim() || 'deepseek-v4-flash',
-    );
+    safeLocalStorageSetItem('deepseek_model', 'auto');
     safeLocalStorageSetItem('deepseek_enabled', 'true');
     safeLocalStorageSetItem('text_api_provider', 'deepseek');
   } else if (['yunwu', 'plato', 'gemini'].includes(activeProvider?.id || '')) {
@@ -222,7 +216,10 @@ export const saveProviderSettings = (settings: LoadedProviderSettings): void => 
   safeLocalStorageSetItem('replicate_api_key', settings.replicateKey.trim());
   safeLocalStorageSetItem('kling_api_key', settings.klingKey.trim());
 
-  safeLocalStorageSetItem('setting_script_models', JSON.stringify(settings.selectedScriptModels));
+  const scriptModels = activeProvider?.id === 'deepseek'
+    ? settings.selectedScriptModels.filter(model => !model.toLowerCase().includes('deepseek'))
+    : settings.selectedScriptModels;
+  safeLocalStorageSetItem('setting_script_models', JSON.stringify(scriptModels));
   safeLocalStorageSetItem('setting_image_models', JSON.stringify(settings.selectedImageModels));
   safeLocalStorageSetItem('setting_video_models', JSON.stringify(normalizeVideoModels(settings.selectedVideoModels)));
 
@@ -277,7 +274,7 @@ export const refreshProviderModels = async (
   if (keys.length === 0) return [];
   const models = await fetchAvailableModels(providerId, keys, provider.baseUrl);
   const resolvedModels = providerId === 'deepseek' && models.length === 0
-    ? ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']
+    ? ['deepseek-flash', 'deepseek-v4-pro']
     : models;
   return formatModels(resolvedModels, provider.name);
 };

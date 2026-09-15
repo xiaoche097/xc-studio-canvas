@@ -15,7 +15,7 @@ const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_YUNWU_BASE_URL = 'https://yunwu.ai';
 const GOOGLE_BASE_URL = 'https://generativelanguage.googleapis.com';
 export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
-export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
+export const DEFAULT_DEEPSEEK_MODEL = 'auto';
 
 const normalizeDeepSeekBaseUrl = (value: string): string => (
   (value || DEFAULT_DEEPSEEK_BASE_URL).trim().replace(/\/+$/, '')

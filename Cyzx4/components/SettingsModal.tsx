@@ -199,9 +199,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const handleSave = () => {
         setIsSaving(true);
         setTimeout(() => {
-            const deepSeekModel = selectedScriptModels.find(model => model.toLowerCase().includes('deepseek'));
             const providersToSave = providers.map(provider => provider.id === 'deepseek'
-                ? { ...provider, defaultModel: deepSeekModel || provider.defaultModel || 'deepseek-v4-flash' }
+                ? { ...provider, defaultModel: 'auto' }
                 : provider);
             saveProviderSettings({
                 providers: providersToSave,
@@ -350,7 +349,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     {tabs.find(t => t.id === activeTab)?.label}
                                     {activeTab === 'mapping' && (
                                         <span className="text-xs bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-bold">
-                                            配置: {selectedScriptModels.length + selectedImageModels.length + selectedVideoModels.length}/06
+                                            {activeProvider?.id === 'deepseek'
+                                                ? '智能调度'
+                                                : `配置: ${selectedScriptModels.length + selectedImageModels.length + selectedVideoModels.length}/06`}
                                         </span>
                                     )}
                                 </h3>
@@ -485,7 +486,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     </div>
                                 )}
 
-                                {activeTab === 'mapping' && (
+                                {activeTab === 'mapping' && (activeProvider?.id === 'deepseek' ? (
+                                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                        <div className="rounded-[2rem] border border-cyan-100 bg-white p-8 shadow-sm">
+                                            <div className="flex items-start gap-5">
+                                                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-cyan-100 text-cyan-700">
+                                                    <Bot size={24} />
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-lg font-black text-gray-900">DeepSeek 智能模型调度</h4>
+                                                    <p className="mt-2 text-sm leading-6 text-gray-500">无需在模型映射中单独勾选。系统会根据当前任务自动选择模型，并在执行记录中显示实际使用的型号。</p>
+                                                </div>
+                                            </div>
+                                            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                                                <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black text-gray-900">日常对话</p><p className="mt-1 text-[11px] text-gray-500">DeepSeek 4.1 Flash</p></div>
+                                                <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black text-gray-900">图片理解</p><p className="mt-1 text-[11px] text-gray-500">4.1 Flash 原生视觉</p></div>
+                                                <div className="rounded-2xl bg-gray-50 p-4"><p className="text-xs font-black text-gray-900">复杂任务</p><p className="mt-1 text-[11px] text-gray-500">DeepSeek V4 Pro</p></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
                                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                         <div className="grid grid-cols-1 gap-6">
                                             {(['script', 'image', 'video'] as const).map(cat => (
@@ -629,7 +649,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                             ))}
                                         </div>
                                     </div>
-                                )}
+                                ))}
 
                                 {activeTab === 'hosting' && (
                                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -906,15 +926,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                             </div>
 
                                             {editingProvider.id === 'deepseek' && (
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest pl-1">默认 Agent 模型</label>
-                                                    <input
-                                                        value={editingProvider.defaultModel || 'deepseek-v4-flash'}
-                                                        onChange={e => setEditingProvider({ ...editingProvider, defaultModel: e.target.value })}
-                                                        placeholder="deepseek-v4-flash"
-                                                        className="w-full min-h-11 px-5 py-3 bg-white/5 border border-white/5 rounded-xl outline-none focus:border-blue-500/50 transition-all font-mono text-xs"
-                                                    />
-                                                    <p className="text-[10px] leading-relaxed text-white/25 pl-1">DeepSeek 负责 Harness 规划与工具调用；图片、视频模型仍使用原有映射。</p>
+                                                <div className="rounded-2xl border border-cyan-400/15 bg-cyan-400/10 p-4">
+                                                    <p className="text-xs font-black text-cyan-200">智能模型调度已启用</p>
+                                                    <p className="mt-1 text-[10px] leading-relaxed text-white/45">4.1 Flash 负责日常响应和原生图片理解；Pro 负责复杂规划、推理与工具调用，无需单独选择模型。</p>
                                                 </div>
                                             )}
 

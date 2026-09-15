@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { selectDeepSeekModel } from '../services/deepseek-model-router.ts';
 
 export const deepSeekCreativeConfigSchema = z.object({
   apiKey: z.string().min(1),
@@ -73,25 +74,30 @@ const parseProxyError = async (response: Response): Promise<Error> => {
 
 export const createDeepSeekCreativeClient = (
   rawConfig: DeepSeekCreativeConfig,
-  describeImages: VisionProxy,
+  _describeImages?: VisionProxy,
 ) => {
   const config = deepSeekCreativeConfigSchema.parse(rawConfig);
   return {
     models: {
       generateContent: async (request: any) => {
         const input = splitCreativeAnalysisParts(request);
-        const visualContext = input.images.length > 0
-          ? await describeImages(input)
-          : '';
-        const userContent = [
-          visualContext
-            ? `【视觉代理识别结果】\n${visualContext}\n\n注意：视觉代理只负责读取图片；你仍是本次创作分析和规划的主模型。`
-            : '',
-          `【原始创作任务】\n${input.taskText || '请根据已有上下文完成创作分析。'}`,
-        ].filter(Boolean).join('\n\n');
+        const taskText = `【原始创作任务】\n${input.taskText || '请根据已有上下文完成创作分析。'}`;
+        const userContent = input.images.length > 0
+          ? [
+              { type: 'text', text: taskText },
+              ...input.images.map((image) => ({
+                type: 'image_url',
+                image_url: { url: `data:${image.mimeType};base64,${image.base64}` },
+              })),
+            ]
+          : taskText;
+        const route = selectDeepSeekModel({
+          hasImages: input.images.length > 0,
+          text: input.taskText,
+        });
 
         const body: Record<string, unknown> = {
-          model: config.model,
+          model: route.model,
           messages: [{ role: 'user', content: userContent }],
           stream: false,
           max_tokens: config.maxTokens,

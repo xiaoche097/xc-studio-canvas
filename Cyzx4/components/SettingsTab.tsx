@@ -24,6 +24,11 @@ import {
 } from 'lucide-react';
 import { resolveRuntimeModelId } from '../utils/apiHelpers';
 import { testDeepSeekConnection } from '../services/agents/runtime/deepseek-adapter';
+import {
+  DEEPSEEK_AUTO_MODEL,
+  DEEPSEEK_FLASH_MODEL,
+  DEEPSEEK_PRO_MODEL,
+} from '../services/deepseek-model-router';
 
 // ==================== 配置常量 ====================
 const DEFAULT_BASE_URL = 'https://yunwu.ai';
@@ -31,7 +36,6 @@ const YUNWU_OVERSEAS_BASE_URL = 'https://api.openlux.ai';
 const DEFAULT_PLATO_BASE_URL = 'https://api.apilio.ai';
 const DEFAULT_MODEL = 'gemini-3-pro-preview';
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
-const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 const AVAILABLE_MODELS = [
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', description: '前沿级 Flash 多模态模型', badge: '最新首选', type: 'text' },
@@ -149,7 +153,6 @@ const SettingsTab: React.FC = () => {
   // ========== DeepSeek 原生 Harness 配置 ==========
   const [deepSeekApiKey, setDeepSeekApiKey] = useState('');
   const [deepSeekBaseUrl, setDeepSeekBaseUrl] = useState(DEFAULT_DEEPSEEK_BASE_URL);
-  const [deepSeekModel, setDeepSeekModel] = useState(DEFAULT_DEEPSEEK_MODEL);
   const [deepSeekReasoning, setDeepSeekReasoning] = useState<'off' | 'low' | 'high' | 'max'>('high');
   const [deepSeekEnabled, setDeepSeekEnabled] = useState(false);
   const [isDeepSeekKeyVisible, setIsDeepSeekKeyVisible] = useState(false);
@@ -203,7 +206,7 @@ const SettingsTab: React.FC = () => {
     const savedDeepSeekKey = localStorage.getItem('deepseek_api_key') || '';
     setDeepSeekApiKey(savedDeepSeekKey);
     setDeepSeekBaseUrl(localStorage.getItem('deepseek_base_url') || DEFAULT_DEEPSEEK_BASE_URL);
-    setDeepSeekModel(localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL);
+    localStorage.setItem('deepseek_model', DEEPSEEK_AUTO_MODEL);
     setDeepSeekReasoning((localStorage.getItem('deepseek_reasoning_effort') as any) || 'high');
     setDeepSeekEnabled(localStorage.getItem('deepseek_enabled') === 'true');
     setDeepSeekStatus(savedDeepSeekKey ? 'success' : 'empty');
@@ -241,7 +244,7 @@ const SettingsTab: React.FC = () => {
     }
     localStorage.setItem('deepseek_api_key', deepSeekApiKey.trim());
     localStorage.setItem('deepseek_base_url', deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL);
-    localStorage.setItem('deepseek_model', deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL);
+    localStorage.setItem('deepseek_model', DEEPSEEK_AUTO_MODEL);
     localStorage.setItem('deepseek_reasoning_effort', deepSeekReasoning);
     localStorage.setItem('deepseek_enabled', String(deepSeekEnabled));
     localStorage.setItem('deepseek_harness_enabled', 'true');
@@ -262,7 +265,6 @@ const SettingsTab: React.FC = () => {
       const reply = await testDeepSeekConnection({
         baseUrl: deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL,
         apiKey: firstKey,
-        model: deepSeekModel.trim() || DEFAULT_DEEPSEEK_MODEL,
       });
       setDeepSeekTestStatus('success');
       setDeepSeekTestMessage(`✅ 连接成功${reply ? `：${reply}` : ''}`);
@@ -601,14 +603,23 @@ const SettingsTab: React.FC = () => {
                         className="w-full min-h-11 bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none font-mono text-sm"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-pastel-text">Agent 模型</label>
-                      <input
-                        value={deepSeekModel}
-                        onChange={event => setDeepSeekModel(event.target.value)}
-                        placeholder={DEFAULT_DEEPSEEK_MODEL}
-                        className="w-full min-h-11 bg-pastel-input border border-pastel-border rounded-xl py-3 px-4 text-pastel-text focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none font-mono text-sm"
-                      />
+                    <div className="space-y-2 sm:col-span-2">
+                      <label className="text-sm font-semibold text-pastel-text">智能模型调度</label>
+                      <div className="grid gap-2 rounded-xl border border-cyan-100 bg-cyan-50/50 p-3 sm:grid-cols-3">
+                        <div className="rounded-lg bg-white px-3 py-2.5 ring-1 ring-cyan-100">
+                          <p className="text-xs font-bold text-cyan-900">日常响应</p>
+                          <p className="mt-1 font-mono text-[10px] text-cyan-700">{DEEPSEEK_FLASH_MODEL}</p>
+                        </div>
+                        <div className="rounded-lg bg-white px-3 py-2.5 ring-1 ring-cyan-100">
+                          <p className="text-xs font-bold text-cyan-900">复杂规划与工具</p>
+                          <p className="mt-1 font-mono text-[10px] text-cyan-700">{DEEPSEEK_PRO_MODEL}</p>
+                        </div>
+                        <div className="rounded-lg bg-white px-3 py-2.5 ring-1 ring-cyan-100">
+                          <p className="text-xs font-bold text-cyan-900">图片理解</p>
+                          <p className="mt-1 text-[10px] text-cyan-700">4.1 Flash 原生视觉</p>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-pastel-muted">无需手动选择，Agent 会根据图片、任务复杂度和工具调用自动路由。</p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-pastel-text">推理强度</label>

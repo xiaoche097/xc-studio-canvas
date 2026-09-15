@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import ReactDOM from "react-dom";
 import {
   Sparkles,
   Plus,
@@ -24,6 +25,7 @@ import {
   Trash2,
   FolderOpen,
   AlertTriangle,
+  MessageSquare,
 } from "lucide-react";
 import PinterestGallery from "../components/PinterestGallery";
 import MaterialLibrary from "./Home/components/MaterialLibrary";
@@ -42,7 +44,6 @@ import {
 } from "../services/skills/creative-capabilities";
 import {
   DEFAULT_AUTO_IMAGE_MODEL,
-  IMAGE_MODEL_OPTIONS,
   PREFERRED_IMAGE_MODEL_TO_STORAGE_ID,
   STORAGE_ID_TO_PREFERRED_IMAGE_MODEL,
 } from "./Workspace/modelOptions";
@@ -52,12 +53,29 @@ import {
   type CreativeFeature,
   type FeatureCategory,
 } from "../featureRegistry";
-import type { HarnessAgentMode } from "../services/agents/runtime/harness-session";
 import { deleteBrowserHarnessSession } from "../services/agents/runtime/harness-session";
+import {
+  persistAgentWorkMode,
+  readStoredAgentWorkMode,
+  subscribeAgentWorkMode,
+  type AgentWorkMode,
+} from "../services/agents/runtime/agent-mode";
 import { deleteTopicMemory } from "../services/topic-memory";
 import { getMemoryKey } from "../services/topicMemory/key";
+import CreativeImageModelSelector from "../components/image-models/CreativeImageModelSelector";
 
 type TopTabType = "skill" | "pinterest" | "brand" | "clipper";
+
+const HOME_AGENT_MODE_OPTIONS: Array<{
+  id: AgentWorkMode;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+}> = [
+  { id: 'craft', label: 'Craft', description: '直接理解并完成任务', icon: Sparkles },
+  { id: 'plan', label: 'Plan', description: '先规划，确认后再制作', icon: Lightbulb },
+  { id: 'ask', label: 'Ask', description: '只交流分析，不执行', icon: MessageSquare },
+];
 
 const isClipperDeepLink = (hash: string) =>
   /^#\/?clipper(?:-installed)?(?:[/?]|$)/i.test(hash.trim());
@@ -225,19 +243,27 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
   const fileInputRef = useRef<HTMLInputElement>(null);
   const richTextEditorRef = useRef<HTMLDivElement>(null);
   const modelPreferenceRef = useRef<HTMLDivElement>(null);
+  const modelPreferenceButtonRef = useRef<HTMLButtonElement>(null);
+  const modelPreferencePanelRef = useRef<HTMLElement>(null);
   const [showModelPreference, setShowModelPreference] = useState(false);
+  const [modelPreferencePosition, setModelPreferencePosition] = useState<{
+    left: number;
+    bottom: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const [autoModelSelect, setAutoModelSelect] = useState(true);
   const [preferredImageModel, setPreferredImageModel] =
     useState<ImageModel>(DEFAULT_AUTO_IMAGE_MODEL);
-  const [agentMode, setAgentMode] = useState<HarnessAgentMode>(() => {
-    if (typeof window === 'undefined') return 'default';
-    const storedMode = window.localStorage.getItem('xcai_agent_mode');
-    if (storedMode === 'plan') return 'plan';
-    safeLocalStorageSetItem('xcai_agent_mode', 'default');
-    return 'default';
-  });
+  const [agentMode, setAgentMode] = useState<AgentWorkMode>(readStoredAgentWorkMode);
+  const [showAgentModeMenu, setShowAgentModeMenu] = useState(false);
+  const activeAgentModeOption = HOME_AGENT_MODE_OPTIONS.find((option) => option.id === agentMode)
+    || HOME_AGENT_MODE_OPTIONS[0];
+
+  useEffect(() => subscribeAgentWorkMode(setAgentMode), []);
 
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
+  const [areRetainedProjectsCollapsed, setAreRetainedProjectsCollapsed] = useState(true);
   const [projectPendingDelete, setProjectPendingDelete] = useState<Project | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [projectDeleteError, setProjectDeleteError] = useState('');
@@ -396,10 +422,8 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
         return;
       }
       const mapped = STORAGE_ID_TO_PREFERRED_IMAGE_MODEL[first];
-      if (mapped) {
-        setAutoModelSelect(false);
-        setPreferredImageModel(mapped);
-      }
+      setAutoModelSelect(false);
+      setPreferredImageModel(mapped || first);
     } catch {
       setAutoModelSelect(true);
       setPreferredImageModel(DEFAULT_AUTO_IMAGE_MODEL);
@@ -409,7 +433,11 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
   useEffect(() => {
     if (!showModelPreference) return;
     const handlePointerDown = (event: PointerEvent) => {
-      if (!modelPreferenceRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !modelPreferenceRef.current?.contains(target)
+        && !modelPreferencePanelRef.current?.contains(target)
+      ) {
         setShowModelPreference(false);
       }
     };
@@ -421,6 +449,40 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showModelPreference]);
+
+  useLayoutEffect(() => {
+    if (!showModelPreference) {
+      setModelPreferencePosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const anchor = modelPreferenceButtonRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const viewportPadding = 16;
+      const gap = 10;
+      const width = Math.min(340, window.innerWidth - viewportPadding * 2);
+      const left = Math.min(
+        Math.max(viewportPadding, rect.right - width),
+        window.innerWidth - width - viewportPadding,
+      );
+      setModelPreferencePosition({
+        left,
+        bottom: Math.max(viewportPadding, window.innerHeight - rect.top + gap),
+        width,
+        maxHeight: Math.max(180, rect.top - gap - viewportPadding),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
     };
   }, [showModelPreference]);
 
@@ -444,15 +506,12 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
         PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[model] || model,
       ]),
     );
-    setShowModelPreference(false);
   };
 
-  const toggleAgentMode = () => {
-    setAgentMode((current) => {
-      const next: HarnessAgentMode = current === 'default' ? 'plan' : 'default';
-      safeLocalStorageSetItem('xcai_agent_mode', next);
-      return next;
-    });
+  const selectAgentMode = (mode: AgentWorkMode) => {
+    setAgentMode(mode);
+    persistAgentWorkMode(mode);
+    setShowAgentModeMenu(false);
   };
 
   const handleSendDesign = async () => {
@@ -971,7 +1030,8 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
         <aside
           className="relative min-h-[34rem] max-h-[65vh] w-full shrink-0 overflow-y-auto border-b border-slate-200/80 bg-[#FCFCFB] p-5 sm:p-7 lg:min-h-0 lg:max-h-none lg:w-[30rem] lg:border-b-0 lg:border-r xl:w-[34rem]"
         >
-          <div className="mx-auto flex min-h-full w-full max-w-[30rem] flex-col justify-center py-4 lg:py-8">
+          <div className="mx-auto flex min-h-full w-full max-w-[30rem] flex-col justify-start py-4 lg:py-8">
+            <div className="flex flex-1 flex-col justify-center">
             <div className="mb-7 text-center">
               <h2 className="text-xl font-medium tracking-[-0.025em] text-slate-950">
                 你想设计什么？
@@ -1204,22 +1264,53 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                 />
 
                 <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={toggleAgentMode}
-                    aria-label={agentMode === 'plan' ? '切换到执行模式' : '切换到规划模式'}
-                    title={agentMode === 'plan' ? '规划模式：只分析并输出计划' : '执行模式：自主调用工具完成任务'}
-                    className="group flex h-11 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-                  >
-                    <span className={`flex h-8 items-center gap-1 rounded-full px-2.5 text-[0.7rem] font-semibold transition-colors ${
-                      agentMode === 'plan'
-                        ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
-                        : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
-                    }`}>
-                      <Sparkles size={12} />
-                      <span>{agentMode === 'plan' ? '规划' : '执行'}</span>
-                    </span>
-                  </button>
+                  <div className="relative">
+                    <button
+                      ref={modelPreferenceButtonRef}
+                      type="button"
+                      onClick={() => setShowAgentModeMenu((visible) => !visible)}
+                      aria-label={`当前为 ${activeAgentModeOption.label} 模式`}
+                      aria-haspopup="menu"
+                      aria-expanded={showAgentModeMenu}
+                      title={activeAgentModeOption.description}
+                      className="group flex h-11 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                    >
+                      <span className={`flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[0.7rem] font-semibold transition-colors ${
+                        agentMode === 'plan'
+                          ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+                          : agentMode === 'ask'
+                            ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'
+                            : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                      }`}>
+                        {React.createElement(activeAgentModeOption.icon, { size: 12 })}
+                        <span>{activeAgentModeOption.label}</span>
+                        <ChevronDown size={11} />
+                      </span>
+                    </button>
+                    {showAgentModeMenu && (
+                      <div role="menu" className="absolute bottom-full right-0 z-[110] mb-3 w-[230px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 shadow-xl">
+                        {HOME_AGENT_MODE_OPTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={agentMode === option.id}
+                            onClick={() => selectAgentMode(option.id)}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${agentMode === option.id ? 'bg-slate-100 text-slate-950' : 'text-slate-600 hover:bg-slate-50'}`}
+                          >
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white shadow-sm ring-1 ring-slate-100">
+                              {React.createElement(option.icon, { size: 14 })}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-xs font-bold">{option.label}</span>
+                              <span className="block truncate text-[10px] text-slate-400">{option.description}</span>
+                            </span>
+                            {agentMode === option.id && <Check size={14} className="text-blue-500" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div ref={modelPreferenceRef} className="relative">
                     <button
                       type="button"
@@ -1238,11 +1329,13 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                       </span>
                     </button>
 
-                    {showModelPreference && (
+                    {showModelPreference && modelPreferencePosition && ReactDOM.createPortal(
                       <section
+                        ref={modelPreferencePanelRef}
                         role="dialog"
                         aria-label="模型偏好"
-                        className="absolute bottom-full right-0 z-50 mb-3 w-[min(21rem,calc(100vw-2rem))] rounded-[10px] border border-[#E5E5E5] bg-white p-4 text-left shadow-[0_8px_24px_rgba(0,0,0,0.10)]"
+                        style={modelPreferencePosition}
+                        className="fixed z-[200] overflow-y-auto rounded-2xl border border-[#E5E5E5] bg-white p-4 text-left shadow-[0_18px_55px_rgba(15,23,42,0.2)] animate-in fade-in slide-in-from-bottom-2 duration-150"
                       >
                         <header className="flex items-center justify-between gap-4">
                           <div>
@@ -1266,39 +1359,28 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                                 }`}
                               />
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowModelPreference(false)}
+                              className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+                              aria-label="关闭模型偏好"
+                            >
+                              <X size={16} />
+                            </button>
                           </div>
                         </header>
 
-                        <div className="mt-4 max-h-64 space-y-1 overflow-y-auto pr-1">
-                          {IMAGE_MODEL_OPTIONS.map((model) => {
-                            const selected = preferredImageModel === model.id;
-                            return (
-                              <button
-                                key={model.id}
-                                type="button"
-                                onClick={() => selectPreferredImageModel(model.id)}
-                                className={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-slate-950 ${
-                                  selected
-                                    ? "bg-slate-100 text-slate-950"
-                                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
-                                }`}
-                              >
-                                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border text-xs font-semibold ${selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"}`}>AI</span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="flex items-center gap-2 text-xs font-semibold">
-                                    {model.name}
-                                    {autoModelSelect && model.id === DEFAULT_AUTO_IMAGE_MODEL && (
-                                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[0.6rem] text-blue-600">自动默认</span>
-                                    )}
-                                  </span>
-                                  <span className="mt-0.5 block truncate text-[0.68rem] text-slate-400">{model.desc} · {model.time}</span>
-                                </span>
-                                {selected && <Check className="h-4 w-4 shrink-0" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </section>
+                        <CreativeImageModelSelector
+                          value={preferredImageModel}
+                          onChange={(modelId) => setPreferredImageModel(modelId)}
+                          onUserSelect={(modelId) => selectPreferredImageModel(modelId)}
+                          title=""
+                          description="Virse 开启时展示并使用 Virse 通道实时支持的图像模型"
+                          layout="list"
+                          className="mt-3 border-0 bg-transparent p-0 shadow-none"
+                        />
+                      </section>,
+                      document.body
                     )}
                   </div>
                   <button
@@ -1349,9 +1431,10 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                 <span>使用我的 Pinterest 参考图</span>
               </button>
             </div>
+            </div>
 
-            <section className="mt-6 border-t border-slate-200/80 pt-4" aria-labelledby="retained-projects-title">
-              <div className="mb-3 flex items-center justify-between gap-3">
+            <section className="mt-auto border-t border-slate-200/80 pt-4" aria-labelledby="retained-projects-title">
+              <div className={`flex items-center justify-between gap-3 ${areRetainedProjectsCollapsed ? '' : 'mb-3'}`}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 id="retained-projects-title" className="text-sm font-semibold text-slate-950">保留项目</h3>
@@ -1359,37 +1442,56 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                       {recentProjects.length}/{MAX_RETAINED_PROJECTS}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-600">自动保存，点击即可继续创作</p>
+                  {!areRetainedProjectsCollapsed && (
+                    <p className="mt-0.5 text-xs text-slate-600">自动保存，点击即可继续创作</p>
+                  )}
                 </div>
-                {recentProjects.length > 1 && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => scrollProjectRail(-1)}
-                      aria-label="查看上一个保留项目"
-                      className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => scrollProjectRail(1)}
-                      aria-label="查看下一个保留项目"
-                      className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                )}
+                <div className="flex shrink-0 items-center gap-1">
+                  {!areRetainedProjectsCollapsed && recentProjects.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => scrollProjectRail(-1)}
+                        aria-label="查看上一个保留项目"
+                        className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => scrollProjectRail(1)}
+                        aria-label="查看下一个保留项目"
+                        className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAreRetainedProjectsCollapsed((collapsed) => !collapsed)}
+                    aria-expanded={!areRetainedProjectsCollapsed}
+                    aria-controls="retained-projects-content"
+                    aria-label={areRetainedProjectsCollapsed ? '展开保留项目' : '收起保留项目'}
+                    className="grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                  >
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform duration-200 ${areRetainedProjectsCollapsed ? '' : 'rotate-180'}`}
+                    />
+                  </button>
+                </div>
               </div>
 
-              {recentProjects.length > 0 ? (
-                <div
-                  ref={projectRailRef}
-                  tabIndex={-1}
-                  className="flex max-w-full gap-3 overflow-x-hidden px-0.5 py-2 scroll-smooth outline-none"
-                  aria-label="保留项目列表，请使用左右箭头切换"
-                >
+              {!areRetainedProjectsCollapsed && (
+                <div id="retained-projects-content">
+                  {recentProjects.length > 0 ? (
+                    <div
+                      ref={projectRailRef}
+                      tabIndex={-1}
+                      className="flex max-w-full gap-3 overflow-x-hidden px-0.5 py-2 scroll-smooth outline-none"
+                      aria-label="保留项目列表，请使用左右箭头切换"
+                    >
                   {recentProjects.map((project) => (
                     <div
                       key={project.id}
@@ -1444,16 +1546,18 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                       </div>
                     </div>
                   ))}
-                </div>
-              ) : (
-                <div className="flex min-h-28 items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-white/70 px-4 py-4 text-left">
-                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500">
-                    <FolderOpen size={19} />
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">还没有保留项目</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">开始创作后，画布和对话会自动保存在这里。</p>
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-28 items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-white/70 px-4 py-4 text-left">
+                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500">
+                        <FolderOpen size={19} />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">还没有保留项目</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">开始创作后，画布和对话会自动保存在这里。</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <p className="sr-only" aria-live="polite">{projectAnnouncement}</p>
