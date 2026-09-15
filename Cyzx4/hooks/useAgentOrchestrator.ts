@@ -7,7 +7,13 @@ import { useAgentStore } from '../stores/agent.store';
 import { uploadImage } from '../utils/uploader';
 import { useImageHostStore } from '../stores/imageHost.store';
 import { isEditRequest, localPreRoute } from '../services/agents/local-router';
-import { addTopicMemoryItem, extractConstraintHints, mergeUniqueStrings, upsertTopicSnapshot } from '../services/topic-memory';
+import {
+  addTopicMemoryItem,
+  extractConstraintHints,
+  mergeUniqueStrings,
+  rememberCandidateAsset,
+  upsertTopicSnapshot,
+} from '../services/topic-memory';
 import { summarizeReferenceSet } from '../services/topic-memory';
 import { getMemoryKey } from '../services/topicMemory/key';
 import {
@@ -17,9 +23,9 @@ import {
 } from '../services/agents/prompt-optimizer/intent';
 import { optimizeUserText } from '../services/agents/prompt-optimizer/service';
 import { useProjectStore } from '../stores/project.store';
-import { rememberApprovedAsset } from '../services/topic-memory';
 import { buildVisualRagContext, type VisualRagDiagnostics } from '../services/visual-rag';
 import { getProviderConfig } from '../services/provider-config';
+import { classifyInstructionMemory } from '../services/memory-policy';
 
 const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any>) => {
   const lower = String(message || '').toLowerCase();
@@ -31,7 +37,7 @@ const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any
   return 'generate' as const;
 };
 
-const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 6;
+const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 16;
 
 const getAgentExecutionTimeoutMs = (): number => {
   if (typeof window !== 'undefined' && window.localStorage.getItem('text_api_provider') === 'deepseek') {
@@ -295,6 +301,10 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       let visualRagDiagnostics: VisualRagDiagnostics | undefined;
       const projectActions = useProjectStore.getState().actions;
       const inferredTaskMode = inferTaskModeFromRequest(message, normalizedMetadata);
+      const instructionMemory = classifyInstructionMemory(message);
+      const durableConstraintHints = instructionMemory.persist
+        ? extractConstraintHints(message)
+        : [];
       projectActions.setTaskMode(inferredTaskMode);
 
       if (topicId && !isolateVisualTaskContext) {
@@ -308,21 +318,24 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
           topicPinnedRefs = retrieved.refs;
           visualRagDiagnostics = retrieved.diagnostics;
 
-          const hints = extractConstraintHints(message);
-          if (hints.length > 0) {
+          if (durableConstraintHints.length > 0) {
             await upsertTopicSnapshot(topicId, {
               pinned: {
-                constraints: hints,
+                constraints: durableConstraintHints,
                 decisions: [],
               },
             });
           }
 
-          if (message.trim()) {
+          if (instructionMemory.persist && message.trim()) {
             await addTopicMemoryItem({
               topicId,
               type: 'instruction',
               text: message.trim(),
+              scope: instructionMemory.scope,
+              status: 'active',
+              confidence: instructionMemory.confidence,
+              sourceTurnId: userMessageId,
             });
           }
         } catch {
@@ -607,7 +620,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
        };
 
       const existingDesignSession = projectContext.designSession;
-      const sessionConstraints = extractConstraintHints(message);
+      const sessionConstraints = durableConstraintHints;
       projectActions.updateDesignSession({
         taskMode: inferredTaskMode,
         referenceSummary: taskMetadata.multimodalContext.referenceSummary,
@@ -721,35 +734,20 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         addAssetsToCanvas(result.output.assets);
       }
 
-      const approvedUrls = [
+      const candidateUrls = [
         ...(result.output?.imageUrls || []),
         ...((result.output?.assets || [])
           .filter((asset) => asset?.type === 'image' && typeof asset.url === 'string')
           .map((asset) => asset.url)),
       ].filter((url, index, arr) => !!url && arr.indexOf(url) === index);
 
-      if (topicId && approvedUrls.length > 0) {
-        const approvedAssetIds = mergeUniqueStrings(
-          useProjectStore.getState().designSession.approvedAssetIds || [],
-          approvedUrls,
-          12,
-        );
-        projectActions.updateDesignSession({
-          approvedAssetIds,
-          subjectAnchors: mergeUniqueStrings(
-            useProjectStore.getState().designSession.subjectAnchors || [],
-            approvedUrls,
-            8,
-          ),
-          referenceSummary: summarizeReferenceSet(approvedUrls),
-        });
-
-        for (const url of approvedUrls.slice(0, 4)) {
-          await rememberApprovedAsset(topicId, {
+      if (topicId && candidateUrls.length > 0) {
+        for (const url of candidateUrls.slice(0, 4)) {
+          await rememberCandidateAsset(topicId, {
             url,
             role: 'result',
-            summary: summarizeReferenceSet([url]),
-            decision: `Agent 输出已采用为后续设计锚点: ${decision.targetAgent}`,
+            summary: `Agent 候选输出，等待用户确认: ${decision.targetAgent}`,
+            sourceTurnId: result.id,
           });
         }
       }
@@ -875,7 +873,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         addAssetsToCanvas(result.output.assets);
       }
 
-      const proposalApprovedUrls = [
+      const proposalCandidateUrls = [
         ...(result.output?.imageUrls || []),
         ...((result.output?.assets || [])
           .filter((asset) => asset?.type === 'image' && typeof asset.url === 'string')
@@ -883,27 +881,13 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       ].filter((url, index, arr) => !!url && arr.indexOf(url) === index);
 
       const proposalTopicId = curTask.input.metadata?.topicId as string | undefined;
-      if (proposalTopicId && proposalApprovedUrls.length > 0) {
-        projectActions.updateDesignSession({
-          approvedAssetIds: mergeUniqueStrings(
-            useProjectStore.getState().designSession.approvedAssetIds || [],
-            proposalApprovedUrls,
-            12,
-          ),
-          subjectAnchors: mergeUniqueStrings(
-            useProjectStore.getState().designSession.subjectAnchors || [],
-            proposalApprovedUrls,
-            8,
-          ),
-          referenceSummary: summarizeReferenceSet(proposalApprovedUrls),
-        });
-
-        for (const url of proposalApprovedUrls.slice(0, 4)) {
-          await rememberApprovedAsset(proposalTopicId, {
+      if (proposalTopicId && proposalCandidateUrls.length > 0) {
+        for (const url of proposalCandidateUrls.slice(0, 4)) {
+          await rememberCandidateAsset(proposalTopicId, {
             url,
             role: 'result',
-            summary: summarizeReferenceSet([url]),
-            decision: `方案执行结果已采用: ${proposal.title}`,
+            summary: `方案候选输出，等待用户确认: ${proposal.title}`,
+            sourceTurnId: result.id,
           });
         }
       }

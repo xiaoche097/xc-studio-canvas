@@ -190,6 +190,22 @@ const MaskPaintEditor: React.FC<MaskPaintEditorProps> = ({
     if (lastCursorClientPointRef.current) renderCursorAt(lastCursorClientPointRef.current);
   }, [renderCursorAt]);
 
+  useEffect(() => {
+    const canvas = maskCanvasRef.current;
+    if (!canvas) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (activeTool === 'zoom' || event.altKey) {
+        setZoomLevel((value) => Math.max(0.5, Math.min(4, Number((value + (event.deltaY < 0 ? 0.25 : -0.25)).toFixed(2)))));
+      } else {
+        applyBrushSize(brushSizeRef.current + (event.deltaY < 0 ? 5 : -5));
+      }
+    };
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [activeTool, applyBrushSize]);
+
   const drawSegment = useCallback((from: Point, to: Point) => {
     const canvas = maskCanvasRef.current;
     const context = canvas?.getContext('2d');
@@ -433,14 +449,6 @@ const MaskPaintEditor: React.FC<MaskPaintEditorProps> = ({
               onPointerLeave={(event) => {
                 if (!isDrawing && !isPanning && cursorRef.current) cursorRef.current.style.opacity = '0';
                 if (event.buttons === 0) finishPointerAction();
-              }}
-              onWheel={(event) => {
-                event.preventDefault();
-                if (activeTool === 'zoom' || event.altKey) {
-                  setZoomLevel((value) => Math.max(0.5, Math.min(4, Number((value + (event.deltaY < 0 ? 0.25 : -0.25)).toFixed(2)))));
-                } else {
-                  applyBrushSize(brushSizeRef.current + (event.deltaY < 0 ? 5 : -5));
-                }
               }}
             />
             {!isSpacePressed && activeTool !== 'zoom' && (

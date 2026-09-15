@@ -18,6 +18,7 @@ interface MessageListProps {
     onClothingPickModelCandidate?: (url: string) => void;
     onClothingInsertToCanvas?: (url: string, label?: string) => void;
     onClothingRetryFailed?: () => void;
+    onMessageFeedback?: (message: ChatMessage, feedback: 'approved' | 'rejected') => void | Promise<void>;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -29,6 +30,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     onClothingPickModelCandidate,
     onClothingInsertToCanvas,
     onClothingRetryFailed,
+    onMessageFeedback,
 }) => {
     const messages = useAgentStore(s => s.messages);
     const isTyping = useAgentStore(s => s.isTyping);
@@ -91,6 +93,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                             onClothingPickModelCandidate={onClothingPickModelCandidate}
                             onClothingInsertToCanvas={onClothingInsertToCanvas}
                             onClothingRetryFailed={onClothingRetryFailed}
+                            onFeedback={onMessageFeedback}
                         />
                     )}
                 </motion.div>

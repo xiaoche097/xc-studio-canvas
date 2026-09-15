@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findVirseWorkspace, generateVirseImage, getVirseWorkspaceDiagnostic, isVirseCanvasAvailable, listVirseWorkspaces } from './virseService.ts';
+import { findVirseWorkspace, generateVirseImage, getVirseWorkspaceDiagnostic, isVirseCanvasAvailable, listVirseWorkspaces, prepareVirseReferenceForUpload } from './virseService.ts';
+
+test('small Virse references remain lossless and data URL metadata is normalized', async () => {
+  assert.deepEqual(
+    await prepareVirseReferenceForUpload('data:image/png;base64,YWJj\n', 'image/jpeg', true),
+    { mimeType: 'image/png', base64: 'YWJj' },
+  );
+});
 
 for (const status of [429, 502, 401]) {
   test(`polling handles HTTP ${status} without resubmitting generation`, async (t) => {

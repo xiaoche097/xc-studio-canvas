@@ -316,6 +316,7 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
   const colorRefInputRef = useRef<HTMLInputElement>(null);
   const structureRefInputRef = useRef<HTMLInputElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const canvasViewportRef = useRef<HTMLDivElement>(null);
   const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -902,12 +903,19 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
   }, [hasMask, syncMaskPreview]);
 
   // 鼠标滚轮实时调节画笔 / 橡皮擦大小
-  const handleCanvasWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+  const handleCanvasWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const delta = e.deltaY < 0 ? 3 : -3;
     setBrushSize((prev) => Math.max(5, Math.min(150, prev + delta)));
   }, []);
+
+  useEffect(() => {
+    const viewport = canvasViewportRef.current;
+    if (!viewport) return;
+    viewport.addEventListener('wheel', handleCanvasWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleCanvasWheel);
+  }, [handleCanvasWheel, showCanvasModal]);
 
   const clearMask = () => {
     const canvas = maskCanvasRef.current;
@@ -2950,8 +2958,8 @@ const InpaintingTab: React.FC<InpaintingTabProps> = ({ isActive = true }) => {
 
             {/* 大图画板容器 */}
             <div
+              ref={canvasViewportRef}
               className="flex-1 overflow-hidden p-3 sm:p-5 bg-slate-950 flex items-center justify-center min-h-[520px] max-h-[78vh] select-none relative"
-              onWheel={handleCanvasWheel}
             >
               <div
                 ref={canvasContainerRef}

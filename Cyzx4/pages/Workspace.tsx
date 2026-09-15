@@ -184,6 +184,8 @@ import {
   extractConstraintHints,
   saveTopicAsset,
   rememberApprovedAsset,
+  rememberRejectedAsset,
+  supersedeTopicMemoryForTurn,
   syncAmazonListingTopicMemory,
   syncClothingTopicMemory,
   upsertTopicSnapshot,
@@ -4676,6 +4678,91 @@ const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
+  const handleAgentMessageFeedback = async (
+    message: ChatMessage,
+    feedback: "approved" | "rejected",
+  ) => {
+    useAgentStore.getState().actions.updateMessage(message.id, { feedback });
+    const topicId = getCurrentTopicId();
+    if (!topicId) return;
+
+    const agentData = message.agentData || {};
+    const urls = Array.from(new Set([
+      ...(Array.isArray(agentData.imageUrls) ? agentData.imageUrls : []),
+      ...(Array.isArray(agentData.assets)
+        ? agentData.assets
+            .filter((asset: any) => asset?.type === "image" && typeof asset.url === "string")
+            .map((asset: any) => asset.url)
+        : []),
+    ].filter((url): url is string => typeof url === "string" && !!url)));
+
+    await supersedeTopicMemoryForTurn(topicId, message.id);
+
+    if (feedback === "approved") {
+      if (urls.length > 0) {
+        projectActions.updateDesignSession({
+          approvedAssetIds: mergeUniqueStrings(
+            useProjectStore.getState().designSession.approvedAssetIds || [],
+            urls,
+            12,
+          ),
+          subjectAnchors: mergeUniqueStrings(
+            useProjectStore.getState().designSession.subjectAnchors || [],
+            urls,
+            8,
+          ),
+          referenceSummary: summarizeReferenceSet(urls),
+        });
+        for (const url of urls.slice(0, 4)) {
+          await rememberApprovedAsset(topicId, {
+            url,
+            role: "result",
+            summary: summarizeReferenceSet([url]),
+            decision: "用户明确采纳了本次 Agent 视觉结果。",
+            sourceTurnId: message.id,
+          });
+        }
+      } else {
+        await addTopicMemoryItem({
+          topicId,
+          type: "analysis",
+          text: "用户明确认可了本次 Agent 回复。",
+          scope: "project",
+          status: "approved",
+          confidence: 1,
+          sourceTurnId: message.id,
+        });
+      }
+      return;
+    }
+
+    if (urls.length > 0) {
+      const currentSession = useProjectStore.getState().designSession;
+      const rejected = new Set(urls);
+      projectActions.updateDesignSession({
+        approvedAssetIds: (currentSession.approvedAssetIds || []).filter((id) => !rejected.has(id)),
+        subjectAnchors: (currentSession.subjectAnchors || []).filter((url) => !rejected.has(url)),
+      });
+      for (const url of urls.slice(0, 4)) {
+        await rememberRejectedAsset(topicId, {
+          url,
+          reason: "用户拒绝了本次 Agent 视觉结果；不得将此稿作为后续正向参考。",
+          sourceTurnId: message.id,
+        });
+      }
+    } else {
+      await addTopicMemoryItem({
+        topicId,
+        type: "issue",
+        text: "用户拒绝了本次 Agent 回复，后续不得将其作为已确认决策。",
+        scope: "project",
+        status: "rejected",
+        confidence: 1,
+        sourceTurnId: message.id,
+      });
+    }
+  };
+
   const setElementGeneratingState = (
     elementId: string,
     isGenerating: boolean,
@@ -8708,6 +8795,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
                   background: "transparent",
                   cursor: "none",
                   borderRadius: "12px",
+                  touchAction: "none",
                 }}
                 onPointerEnter={updateEraserCursor}
                 onPointerDown={handleEraserPointerDown}
@@ -10647,6 +10735,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
             onClothingPickModelCandidate={handleClothingPickModel}
             onClothingInsertToCanvas={insertResultToCanvas}
             onClothingRetryFailed={handleClothingRetryFailed}
+            onMessageFeedback={handleAgentMessageFeedback}
           />
       </AnimatePresence>
 

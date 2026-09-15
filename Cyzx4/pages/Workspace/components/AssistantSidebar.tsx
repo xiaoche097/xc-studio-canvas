@@ -11,7 +11,7 @@ import { getMemoryKey } from '../../../services/topicMemory/key';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 
-import { ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
+import { ChatMessage, ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
 import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
 import { createConversationId } from '../../../utils/conversation';
 
@@ -70,6 +70,7 @@ interface AssistantSidebarProps {
     onClothingPickModelCandidate?: (url: string) => void;
     onClothingInsertToCanvas?: (url: string, label?: string) => void;
     onClothingRetryFailed?: () => void;
+    onMessageFeedback?: (message: ChatMessage, feedback: 'approved' | 'rejected') => void | Promise<void>;
 }
 
 export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
@@ -99,6 +100,7 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
     onClothingPickModelCandidate,
     onClothingInsertToCanvas,
     onClothingRetryFailed,
+    onMessageFeedback,
 }) => {
     const messages = useAgentStore(s => s.messages);
     const inputBlocks = useAgentStore(s => s.inputBlocks);
@@ -494,6 +496,7 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                         onClothingPickModelCandidate={onClothingPickModelCandidate}
                         onClothingInsertToCanvas={onClothingInsertToCanvas}
                         onClothingRetryFailed={onClothingRetryFailed}
+                        onMessageFeedback={onMessageFeedback}
                     />
                 )}
             </div>

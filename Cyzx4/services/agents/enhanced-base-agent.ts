@@ -33,6 +33,7 @@ import {
   sanitizeHarnessHistoryText,
 } from "./runtime/harness-response";
 import { buildHarnessSystemPrompt } from "./runtime/harness-system-prompt";
+import { buildDurableAgentContext } from "./runtime/context-builder";
 import {
   FASHION_REPLICA_ROLE_PROMPT,
   SCENE_FISSION_ROLE_PROMPT,
@@ -866,30 +867,31 @@ export abstract class EnhancedBaseAgent {
   }
 
   private buildHarnessHistory(context: ProjectContext): DeepSeekMessage[] {
-    return (context.conversationHistory || [])
+    const candidates = (context.conversationHistory || [])
       .filter((item) => item?.role === "user" || item?.role === "assistant" || item?.role === "model")
-      .slice(-8)
-      .map((item) => {
-        const isUser = item.role === "user";
-        const generatedUrls = isUser
-          ? []
-          : ((item as any)?.agentData?.imageUrls || [])
-              .filter((url: unknown): url is string => typeof url === "string" && /^https?:\/\//i.test(url))
-              .slice(0, 2);
-        const assetNote = generatedUrls.length > 0
-          ? `\n[该轮生成资产：${generatedUrls.join(", ")}]`
-          : "";
-        return {
-          role: isUser ? "user" as const : "assistant" as const,
-          content: isUser
-            ? truncateText(item.text || item.content, 2400)
-            : truncateText(
-                `${sanitizeHarnessHistoryText(item.text || item.content)}${assetNote}`,
-                2400,
-              ),
-        };
-      })
-      .filter((item) => Boolean(item.content));
+      .slice(-12);
+    const messages: DeepSeekMessage[] = [];
+    let remainingChars = 18_000;
+    for (const item of [...candidates].reverse()) {
+      const isUser = item.role === "user";
+      const generatedUrls = isUser
+        ? []
+        : ((item as any)?.agentData?.imageUrls || [])
+            .filter((url: unknown): url is string => typeof url === "string" && /^https?:\/\//i.test(url))
+            .slice(0, 2);
+      const assetNote = generatedUrls.length > 0
+        ? `\n[该轮生成资产：${generatedUrls.join(", ")}]`
+        : "";
+      const raw = isUser
+        ? String(item.text || item.content || '')
+        : `${sanitizeHarnessHistoryText(item.text || item.content)}${assetNote}`;
+      const content = truncateText(raw, Math.min(2400, remainingChars));
+      if (!content) continue;
+      messages.unshift({ role: isUser ? "user" : "assistant", content });
+      remainingChars -= content.length;
+      if (remainingChars <= 0) break;
+    }
+    return messages;
   }
 
   private async buildHarnessUserContent(task: AgentTask): Promise<DeepSeekContent> {
@@ -907,30 +909,31 @@ export abstract class EnhancedBaseAgent {
           previousAssetUrl?: string;
         }
       | undefined;
-    const contextText = [
-      `当前项目：${task.input.context.projectTitle || task.input.context.projectId}`,
-      `用户本轮请求：${task.input.message}`,
-      task.input.metadata?.preferredAspectRatio
-        ? `输出画布比例（执行工具时必须严格使用）：${task.input.metadata.preferredAspectRatio}；来源：${task.input.metadata.preferredAspectRatioSource || "任务设置"}`
-        : "",
-      `附件索引（调用工具时必须使用这些 ATTACHMENT_n 引用）：\n${attachmentManifest}`,
-      selectedCapabilities.length > 0
-        ? `用户选择的能力契约：${compactJson(selectedCapabilities, 2400)}`
+    const continuationInstruction = continuationContext?.isRevision
+      ? continuationContext.inheritedPreviousResult
+        ? "这是对上一轮实际生成图的续编。ATTACHMENT_0 就是上一轮结果；必须把它作为主参考图，只修改本轮明确要求的内容，禁止重新创造无关人物、服装、场景或构图。"
+        : continuationContext.previousAssetUrl
+          ? `这是对上一轮实际生成图的续编。上一轮资产 URL：${continuationContext.previousAssetUrl}。必须把它作为主参考图，只修改本轮明确要求的内容，禁止另起新概念。`
+          : "这是对上一轮结果的继续修改。必须延续上一轮主体与设计约束，禁止另起新概念。"
+      : "";
+    const contextText = buildDurableAgentContext({
+      currentRequest: task.input.message,
+      projectLabel: task.input.context.projectTitle || task.input.context.projectId,
+      preferredAspectRatio: task.input.metadata?.preferredAspectRatio,
+      preferredAspectRatioSource: task.input.metadata?.preferredAspectRatioSource,
+      attachmentManifest: `调用工具时必须使用这些 ATTACHMENT_n 引用：\n${attachmentManifest}`,
+      capabilityContract: selectedCapabilities.length > 0
+        ? compactJson(selectedCapabilities, 2400)
         : "用户未锁定单一能力，可自主选择合适工具。",
-      continuationContext?.isRevision
-        ? continuationContext.inheritedPreviousResult
-          ? "这是对上一轮实际生成图的续编。ATTACHMENT_0 就是上一轮结果；必须把它作为主参考图，只修改本轮明确要求的内容，禁止重新创造无关人物、服装、场景或构图。"
-          : continuationContext.previousAssetUrl
-            ? `这是对上一轮实际生成图的续编。上一轮资产 URL：${continuationContext.previousAssetUrl}。必须把它作为主参考图，只修改本轮明确要求的内容，禁止另起新概念。`
-            : "这是对上一轮结果的继续修改。必须延续上一轮主体与设计约束，禁止另起新概念。"
+      continuationInstruction,
+      brandContext: task.input.context.brandInfo
+        ? compactJson(task.input.context.brandInfo, 1000)
         : "",
-      task.input.context.brandInfo
-        ? `品牌信息：${compactJson(task.input.context.brandInfo, 1000)}`
-        : "",
-      task.input.context.designSession
-        ? `设计连续性约束：${compactJson(task.input.context.designSession, 1800)}`
-        : "",
-    ].filter(Boolean).join("\n\n");
+      designSession: task.input.context.designSession,
+      retrievedMemory: typeof task.input.metadata?.topicPinnedContext === 'string'
+        ? task.input.metadata.topicPinnedContext
+        : '',
+    });
 
     const model = getProviderConfig().model || "";
     const visionFiles = model.toLowerCase().includes("vision")

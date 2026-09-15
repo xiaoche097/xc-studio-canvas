@@ -25,6 +25,11 @@ export const VIRSE_IMAGE_QUALITY_OPTIONS: ReadonlyArray<{ value: VirseImageQuali
 ];
 
 const VIRSE_IMAGE_QUALITY_STORAGE_KEY = 'virse_image_quality_by_model';
+// Vercel rejects function request bodies above 4.5 MB before /api/virse can
+// handle them. Keep the Base64 field comfortably below that limit after JSON
+// encoding while retaining enough resolution for image-to-image generation.
+const VIRSE_UPLOAD_MAX_BASE64_CHARS = 3_200_000;
+const VIRSE_UPLOAD_MAX_DIMENSION = 2048;
 const VIRSE_IMAGE_QUALITY_MODELS = new Set([
   'gpt-image-2',
   'gpt-image-2.5-flare',
@@ -224,6 +229,72 @@ const getVirseReferenceCanvasSize = (base64: string, mimeType: string): Promise<
   })
 );
 
+const parseImageDataUrl = (value: string, fallbackMimeType: string) => {
+  const match = value.match(/^data:([^;,]+);base64,(.+)$/s);
+  return match
+    ? { mimeType: match[1], base64: match[2].replace(/\s/g, '') }
+    : { mimeType: fallbackMimeType, base64: value.replace(/\s/g, '') };
+};
+
+const loadVirseReferenceImage = (dataUrl: string): Promise<HTMLImageElement> => (
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Virse 无法压缩过大的参考图'));
+    image.src = dataUrl;
+  })
+);
+
+export const prepareVirseReferenceForUpload = async (
+  base64: string,
+  mimeType: string,
+  preserveLossless = false,
+): Promise<{ base64: string; mimeType: string }> => {
+  const input = parseImageDataUrl(base64, mimeType || 'image/png');
+  if (input.base64.length <= VIRSE_UPLOAD_MAX_BASE64_CHARS) return input;
+
+  if (typeof document === 'undefined' || typeof Image === 'undefined') {
+    throw new Error('Virse 参考图超过上传上限，且当前环境无法压缩图片');
+  }
+
+  const image = await loadVirseReferenceImage(`data:${input.mimeType};base64,${input.base64}`);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) throw new Error('Virse 无法读取过大的参考图尺寸');
+
+  const canvas = document.createElement('canvas');
+  const outputMimeType = preserveLossless ? 'image/png' : 'image/webp';
+  let maxDimension = Math.min(VIRSE_UPLOAD_MAX_DIMENSION, Math.max(sourceWidth, sourceHeight));
+  let quality = 0.9;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Virse 无法创建参考图压缩画布');
+    context.imageSmoothingEnabled = !preserveLossless;
+    context.imageSmoothingQuality = 'high';
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const output = parseImageDataUrl(
+      canvas.toDataURL(outputMimeType, preserveLossless ? undefined : quality),
+      outputMimeType,
+    );
+    if (output.base64.length <= VIRSE_UPLOAD_MAX_BASE64_CHARS) return output;
+
+    if (!preserveLossless && quality > 0.7) {
+      quality = Math.max(0.7, quality - 0.1);
+    } else {
+      maxDimension = Math.max(640, Math.floor(maxDimension * 0.8));
+      quality = preserveLossless ? quality : 0.82;
+    }
+  }
+
+  throw new Error('Virse 参考图压缩后仍超过上传上限，请换用尺寸更小的图片');
+};
+
 export const uploadVirseReference = async (options: {
   apiKey: string;
   baseUrl: string;
@@ -235,8 +306,14 @@ export const uploadVirseReference = async (options: {
   imageHostProvider?: string;
   imgbbApiKey?: string;
   freeimageApiKey?: string;
+  preserveLossless?: boolean;
 }): Promise<string> => {
-  const canvasSize = await getVirseReferenceCanvasSize(options.base64, options.mimeType);
+  const prepared = await prepareVirseReferenceForUpload(
+    options.base64,
+    options.mimeType,
+    options.preserveLossless,
+  );
+  const canvasSize = await getVirseReferenceCanvasSize(prepared.base64, prepared.mimeType);
   const response = await fetch('/api/virse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -246,12 +323,12 @@ export const uploadVirseReference = async (options: {
       baseUrl: options.baseUrl,
       spaceId: options.spaceId,
       canvasId: options.canvasId,
-      base64: options.base64,
-      mimeType: options.mimeType,
+      base64: prepared.base64,
+      mimeType: prepared.mimeType,
       imageHostProvider: options.imageHostProvider || '',
       imgbbApiKey: options.imgbbApiKey || '',
       freeimageApiKey: options.freeimageApiKey || '',
-      filename: `reference-${options.index + 1}.${options.mimeType.includes('jpeg') ? 'jpg' : options.mimeType.includes('webp') ? 'webp' : 'png'}`,
+      filename: `reference-${options.index + 1}.${prepared.mimeType.includes('jpeg') ? 'jpg' : prepared.mimeType.includes('webp') ? 'webp' : 'png'}`,
       positionX: options.index * 540,
       positionY: 0,
       sizeWidth: canvasSize.width,
@@ -259,6 +336,9 @@ export const uploadVirseReference = async (options: {
     }),
   });
   const payload = await response.json().catch(() => ({}));
+  if (response.status === 413) {
+    throw new Error('Virse 参考图请求仍然过大，已超过部署端上传上限');
+  }
   if (!response.ok) throw new Error(payload?.error || `Virse 参考图上传失败（HTTP ${response.status}）`);
   const assetId = findStringField(payload?.data, ['asset_id', 'assetId', 'image_asset_id', 'id']);
   if (!assetId) throw new Error(`Virse 已接收参考图，但返回中没有 asset_id：${JSON.stringify(payload?.data).slice(0, 500)}`);

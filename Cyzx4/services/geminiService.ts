@@ -1500,6 +1500,7 @@ export const generateImageToImage = async (
           imageHostProvider,
           imgbbApiKey,
           freeimageApiKey,
+          preserveLossless: workflowHint === 'inpainting' && index === 1,
         }));
       }
     } catch (error: any) {

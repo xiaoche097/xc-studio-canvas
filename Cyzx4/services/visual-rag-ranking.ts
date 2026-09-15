@@ -13,6 +13,8 @@ export type VisualMemoryItem = {
   tags?: string[];
   refs?: Array<{ url?: string }>;
   createdAt: number;
+  status?: 'candidate' | 'active' | 'approved' | 'rejected' | 'superseded';
+  expiresAt?: number;
 };
 
 export type VisualRagMatch = {
@@ -61,9 +63,10 @@ const tokenize = (value: string): Set<string> => {
   return tokens;
 };
 
-const collectRefs = (item: VisualMemoryItem): string[] => (
-  dedupe((item.refs || []).map((ref) => ref.url || '').filter(Boolean))
-);
+const collectRefs = (item: VisualMemoryItem): string[] => {
+  if (item.status === 'candidate' || item.status === 'rejected' || item.status === 'superseded') return [];
+  return dedupe((item.refs || []).map((ref) => ref.url || '').filter(Boolean));
+};
 
 export function rankVisualMemoryItems(
   items: VisualMemoryItem[],
@@ -78,6 +81,8 @@ export function rankVisualMemoryItems(
 
   return items
     .map((item): VisualRagMatch | null => {
+      if (item.status === 'candidate' || item.status === 'superseded') return null;
+      if (item.expiresAt && item.expiresAt <= now) return null;
       const itemTokens = tokenize(`${item.text} ${(item.tags || []).join(' ')}`);
       if (itemTokens.size === 0) return null;
 

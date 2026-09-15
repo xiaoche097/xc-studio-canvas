@@ -21,6 +21,7 @@ interface AgentMessageProps {
     onClothingPickModelCandidate?: (url: string) => void;
     onClothingInsertToCanvas?: (url: string, label?: string) => void;
     onClothingRetryFailed?: () => void;
+    onFeedback?: (message: ChatMessage, feedback: 'approved' | 'rejected') => void | Promise<void>;
 }
 
 export const AgentMessage: React.FC<AgentMessageProps> = ({
@@ -33,9 +34,11 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
     onClothingPickModelCandidate,
     onClothingInsertToCanvas,
     onClothingRetryFailed,
+    onFeedback,
 }) => {
     const [isAnalysisExpanded, setIsAnalysisExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [feedbackBusy, setFeedbackBusy] = useState(false);
     const isDeepSeekHarness = (message.agentData as any)?.workflowState?.type === 'deepseek-harness';
     const visibleMessageText = useMemo(() => (
         isDeepSeekHarness
@@ -47,6 +50,18 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
         navigator.clipboard.writeText(visibleMessageText);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleFeedback = async (feedback: 'approved' | 'rejected') => {
+        if (!onFeedback || feedbackBusy) return;
+        setFeedbackBusy(true);
+        try {
+            await onFeedback(message, feedback);
+        } catch (error) {
+            console.error('[AgentMessage] Failed to save feedback:', error);
+        } finally {
+            setFeedbackBusy(false);
+        }
     };
 
     const normalizeEscapedNewlines = (value: string): string =>
@@ -391,10 +406,24 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
 
                 {/* 7. 操作栏 */}
                 <div className="flex items-center gap-0.5 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="p-1 text-gray-300 hover:text-gray-500 transition-colors">
+                    <button
+                        type="button"
+                        disabled={feedbackBusy}
+                        title="采纳本次结果并加入项目记忆"
+                        aria-label="采纳本次结果"
+                        onClick={() => void handleFeedback('approved')}
+                        className={`p-1 transition-colors disabled:opacity-40 ${message.feedback === 'approved' ? 'text-green-600' : 'text-gray-300 hover:text-gray-500'}`}
+                    >
                         <ThumbsUp size={12} />
                     </button>
-                    <button className="p-1 text-gray-300 hover:text-gray-500 transition-colors">
+                    <button
+                        type="button"
+                        disabled={feedbackBusy}
+                        title="拒绝本次结果，避免作为后续视觉锚点"
+                        aria-label="拒绝本次结果"
+                        onClick={() => void handleFeedback('rejected')}
+                        className={`p-1 transition-colors disabled:opacity-40 ${message.feedback === 'rejected' ? 'text-red-500' : 'text-gray-300 hover:text-gray-500'}`}
+                    >
                         <ThumbsDown size={12} />
                     </button>
                     <button 

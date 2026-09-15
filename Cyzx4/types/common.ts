@@ -143,6 +143,7 @@ export interface ChatMessage {
   relatedMarkerId?: string;
   agentData?: any;
   skillData?: any;
+  feedback?: 'approved' | 'rejected';
 }
 
 export interface Template {

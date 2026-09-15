@@ -1,5 +1,6 @@
 import { openWorkspaceDB, TOPIC_ASSET_STORE, TOPIC_MEMORY_ITEM_STORE, TOPIC_SNAPSHOT_STORE } from './storage';
 import { parseMemoryKey } from './topicMemory/key';
+import type { MemoryScope, MemoryStatus } from './memory-policy';
 
 export type TopicAssetRole =
   | 'product'
@@ -14,6 +15,8 @@ export type AssetRef = {
   role: TopicAssetRole;
   url?: string;
   createdAt: number;
+  status?: MemoryStatus;
+  sourceTurnId?: string;
 };
 
 type TopicSnapshot = {
@@ -74,6 +77,12 @@ export type TopicMemoryItem = {
   tags?: string[];
   refs?: AssetRef[];
   createdAt: number;
+  scope?: MemoryScope;
+  status?: MemoryStatus;
+  confidence?: number;
+  sourceTurnId?: string;
+  supersedes?: string[];
+  expiresAt?: number;
 };
 
 type TopicAsset = {
@@ -87,6 +96,8 @@ type TopicAsset = {
   width?: number;
   height?: number;
   createdAt: number;
+  status?: MemoryStatus;
+  sourceTurnId?: string;
 };
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -272,7 +283,27 @@ export async function loadTopicMemoryItems(topicId: string, limit = 250): Promis
     .slice(0, Math.max(1, limit));
 }
 
-export async function saveTopicAsset(topicId: string, role: TopicAssetRole, data: { url?: string; blob?: Blob; mime?: string }): Promise<AssetRef | null> {
+export async function supersedeTopicMemoryForTurn(topicId: string, sourceTurnId: string): Promise<void> {
+  if (!topicId || !sourceTurnId) return;
+  const matches = (await loadTopicMemoryItems(topicId, 500))
+    .filter((item) => item.sourceTurnId === sourceTurnId && item.status !== 'superseded');
+  if (matches.length === 0) return;
+  const db = await openWorkspaceDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(TOPIC_MEMORY_ITEM_STORE, 'readwrite');
+    const store = tx.objectStore(TOPIC_MEMORY_ITEM_STORE);
+    for (const item of matches) store.put({ ...item, status: 'superseded' });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export async function saveTopicAsset(
+  topicId: string,
+  role: TopicAssetRole,
+  data: { url?: string; blob?: Blob; mime?: string; status?: MemoryStatus; sourceTurnId?: string },
+): Promise<AssetRef | null> {
   if (!topicId) return null;
   if (!data.url && !data.blob) return null;
   const assetId = makeId('asset');
@@ -287,6 +318,8 @@ export async function saveTopicAsset(topicId: string, role: TopicAssetRole, data
     url: data.url,
     blob: data.blob,
     createdAt: Date.now(),
+    status: data.status,
+    sourceTurnId: data.sourceTurnId,
   };
 
   const db = await openWorkspaceDB();
@@ -297,18 +330,52 @@ export async function saveTopicAsset(topicId: string, role: TopicAssetRole, data
     req.onerror = () => reject(req.error);
   });
 
-  return { assetId, role, url: data.url, createdAt: asset.createdAt };
+  return {
+    assetId,
+    role,
+    url: data.url,
+    createdAt: asset.createdAt,
+    status: asset.status,
+    sourceTurnId: asset.sourceTurnId,
+  };
+}
+
+export async function rememberCandidateAsset(
+  topicId: string,
+  data: { url: string; role?: TopicAssetRole; summary?: string; sourceTurnId?: string },
+): Promise<AssetRef | null> {
+  if (!topicId || !data.url) return null;
+  const ref = await saveTopicAsset(topicId, data.role || 'result', {
+    url: data.url,
+    mime: 'image/png',
+    status: 'candidate',
+    sourceTurnId: data.sourceTurnId,
+  });
+  if (!ref) return null;
+  await addTopicMemoryItem({
+    topicId,
+    type: 'asset_tag',
+    text: data.summary || `候选视觉资产 ${ref.assetId}`,
+    refs: [ref],
+    scope: 'asset',
+    status: 'candidate',
+    confidence: 1,
+    sourceTurnId: data.sourceTurnId,
+  });
+  return ref;
 }
 
 export async function rememberApprovedAsset(
   topicId: string,
-  data: { url: string; role?: TopicAssetRole; summary?: string; decision?: string },
+  data: { url: string; role?: TopicAssetRole; summary?: string; decision?: string; sourceTurnId?: string },
 ): Promise<AssetRef | null> {
   if (!topicId || !data.url) return null;
 
   const ref = await saveTopicAsset(topicId, data.role || 'result', {
     url: data.url,
     mime: 'image/png',
+    status: 'approved',
+    sourceTurnId: data.sourceTurnId,
   });
 
   if (!ref) return null;
@@ -318,6 +385,10 @@ export async function rememberApprovedAsset(
     type: 'asset_tag',
     text: data.decision || `approved_asset:${ref.assetId}`,
     refs: [ref],
+    scope: 'project',
+    status: 'approved',
+    confidence: 1,
+    sourceTurnId: data.sourceTurnId,
   });
 
   await upsertTopicSnapshot(topicId, {
@@ -328,6 +399,31 @@ export async function rememberApprovedAsset(
     },
   });
 
+  return ref;
+}
+
+export async function rememberRejectedAsset(
+  topicId: string,
+  data: { url: string; reason?: string; sourceTurnId?: string },
+): Promise<AssetRef | null> {
+  if (!topicId || !data.url) return null;
+  const ref = await saveTopicAsset(topicId, 'result', {
+    url: data.url,
+    mime: 'image/png',
+    status: 'rejected',
+    sourceTurnId: data.sourceTurnId,
+  });
+  if (!ref) return null;
+  await addTopicMemoryItem({
+    topicId,
+    type: 'issue',
+    text: data.reason || '用户拒绝了该视觉方向，后续不得将此稿作为正向视觉锚点。',
+    refs: [ref],
+    scope: 'asset',
+    status: 'rejected',
+    confidence: 1,
+    sourceTurnId: data.sourceTurnId,
+  });
   return ref;
 }
 
@@ -378,9 +474,16 @@ export function extractConstraintHints(text: string): string[] {
   const t = text || '';
   const list: string[] = [];
   if (/纯白|白底|#ffffff/i.test(t)) list.push('背景必须纯白 #FFFFFF');
-  if (/2k/i.test(t)) list.push('清晰度固定 2K');
-  if (/禁止|不要改|不能改|forbidden/i.test(t)) list.push('保留既定锚点与禁止变更项');
-  if (/比例|aspect|\d+:\d+/i.test(t)) list.push('按用户指定画幅比例生成');
+  const resolution = t.match(/(?:^|\D)(1K|2K|4K)(?=\D|$)/i)?.[1]?.toUpperCase();
+  if (resolution) list.push(`清晰度固定 ${resolution}`);
+  const ratio = t.match(/(?:^|\D)(\d{1,2})\s*[:：]\s*(\d{1,2})(?=\D|$)/);
+  if (ratio) list.push(`画幅比例固定 ${ratio[1]}:${ratio[2]}`);
+  const explicitRestrictions = t
+    .split(/[。！？!?；;\n]/)
+    .map((part) => part.trim())
+    .filter((part) => /禁止|不要改|不能改|不得|forbidden/i.test(part))
+    .map((part) => part.slice(0, 240));
+  list.push(...explicitRestrictions);
   return dedupe(list);
 }
 

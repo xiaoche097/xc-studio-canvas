@@ -217,6 +217,7 @@ export interface ChatMessage {
   kind?: string;
   workflowUi?: any;
   error?: boolean | string;
+  feedback?: 'approved' | 'rejected';
 }
 
 export interface ConversationSession {
