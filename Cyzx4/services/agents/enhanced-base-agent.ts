@@ -35,6 +35,7 @@ import {
 import { buildHarnessSystemPrompt } from "./runtime/harness-system-prompt";
 import { buildDurableAgentContext } from "./runtime/context-builder";
 import { persistAgentWorkMode } from "./runtime/agent-mode";
+import type { AgentContext } from "./context/buildAgentContext";
 import {
   FASHION_REPLICA_ROLE_PROMPT,
   SCENE_FISSION_ROLE_PROMPT,
@@ -359,6 +360,40 @@ const compactJson = (value: unknown, maxChars: number): string => {
   } catch {
     return "{}";
   }
+};
+
+const buildWorkspaceSystemContext = (context?: AgentContext): string => {
+  if (!context) return "";
+  const payload = {
+    workspace: context.workspace,
+    productAnalysis: context.product.analysis,
+    generationPlan: context.generation,
+    assets: context.assets.items.map((asset) => ({
+      id: asset.id,
+      role: asset.role,
+      type: asset.type,
+      name: asset.name,
+      url: asset.url,
+      analysis: asset.analysis,
+    })),
+    previousResult: context.previousResult,
+    activeTask: context.activeTask,
+    canvas: context.canvas,
+  };
+
+  return `
+【WORKSPACE SHARED CONTEXT — 必须继承】
+${compactJson(payload, 16_000)}
+
+【省略表达理解规则】
+- “生成吧 / 生成 / 开始生成 / 就这个 / 可以 / 继续”表示执行 generationPlan，不是创建新任务。
+- “再来一张 / 换一个 / 重新生成”表示沿用当前计划和 referenceImageIds 重新生成。
+- “改一下 / 场景更日常一点 / 颜色亮一点”表示更新当前计划，只修改用户明确指出的部分。
+- “这个 / 这张 / 上一版 / 刚才的”必须结合 previousResult、assets 和 canvas 理解指代对象。
+- generationPlan.referenceImageIds 指向的素材是当前计划的正式参考图，不得因为本轮没有重新上传图片而丢失。
+- 当前用户明确要求始终高于历史上下文；未被本轮修改的产品属性、人物身份、服装、场景和构图必须继续保持。
+- 禁止把省略表达当成无上下文的新任务。
+`.trim();
 };
 
 export abstract class EnhancedBaseAgent {
@@ -1055,6 +1090,7 @@ export abstract class EnhancedBaseAgent {
         toolAccess: toolsDisabled ? 'none' : 'enabled',
         noToolReason: harnessMode === 'ask' ? 'conversation' : 'prompt-optimizer',
       }),
+      buildWorkspaceSystemContext(task.input.context.agentContext),
       toolsDisabled ? '' : "工具参数中的 ATTACHMENT_n 是本轮附件引用。",
       harnessMode === 'plan'
         ? [
@@ -2360,7 +2396,10 @@ ${approvedPlan.items.map((item, index) => `${index + 1}. ${item.text}`).join('\n
 - 对明确任务直接调用所需技能并交付结果，不要只描述做法。
 `;
 
+      const systemContext = buildWorkspaceSystemContext(context.agentContext);
       const fullPrompt = `${this.systemPrompt}
+
+${systemContext}
 
 ${specializedRoleSection}
 ${interactionModeSection}

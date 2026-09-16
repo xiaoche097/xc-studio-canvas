@@ -6,6 +6,7 @@ import { safeLocalStorageSetItem } from '../utils/safe-storage';
 import { getApiKey, getMediaProviderConfig, getProviderConfig } from './provider-config';
 import { normalizeReferenceToDataUrl } from './image-reference-resolver';
 import { getAiClient, getOrderedTextModels, resolveRuntimeModelId } from '../utils/apiHelpers';
+import { buildDeepSeekProxyPayload } from './deepseek-proxy-payload';
 
 const isNetworkFetchError = (error: unknown): boolean => {
     const msg = ((error as any)?.message || '').toLowerCase();
@@ -107,7 +108,7 @@ const fetchOpenAIJsonWithFallback = async <T>(
         const response = await fetch('/api/deepseek/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ baseUrl, apiKey, request: body }),
+            body: JSON.stringify(buildDeepSeekProxyPayload(body, { apiKey, baseUrl })),
         });
         if (!response.ok) {
             const raw = await response.text().catch(() => '');

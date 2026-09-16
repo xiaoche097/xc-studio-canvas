@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/deepseek/chat",
+      "destination": "/api/deepseek/chat.js"
+    },
+    {
+      "source": "/api/image-proxy",
+      "destination": "/api/image-download.js"
+    },
+    {
       "source": "/api/image-download",
       "destination": "/api/image-download.js"
     },

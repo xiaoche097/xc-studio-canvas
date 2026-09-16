@@ -1477,7 +1477,7 @@ export const Home: React.FC<HomeProps> = ({ onExit, onStartWorkspace, onOpenProj
                   >
                     <ChevronDown
                       size={16}
-                      className={`transition-transform duration-200 ${areRetainedProjectsCollapsed ? '' : 'rotate-180'}`}
+                      className={`transition-transform duration-200 ${areRetainedProjectsCollapsed ? 'rotate-180' : ''}`}
                     />
                   </button>
                 </div>

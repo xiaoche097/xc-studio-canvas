@@ -16,6 +16,7 @@ const DEFAULT_YUNWU_BASE_URL = 'https://yunwu.ai';
 const GOOGLE_BASE_URL = 'https://generativelanguage.googleapis.com';
 export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 export const DEFAULT_DEEPSEEK_MODEL = 'auto';
+export const DEEPSEEK_SERVER_MANAGED = import.meta.env.VITE_DEEPSEEK_SERVER_MANAGED !== 'false';
 
 const normalizeDeepSeekBaseUrl = (value: string): string => (
   (value || DEFAULT_DEEPSEEK_BASE_URL).trim().replace(/\/+$/, '')
@@ -35,7 +36,9 @@ const readHomepageProvider = (provider: Exclude<HomepageTextProvider, 'auto'>): 
       id: 'deepseek',
       name: 'DeepSeek 原生 API',
       baseUrl: normalizeDeepSeekBaseUrl(localStorage.getItem('deepseek_base_url') || ''),
-      apiKey: localStorage.getItem('deepseek_api_key') || '',
+      apiKey: DEEPSEEK_SERVER_MANAGED
+        ? '__server_managed__'
+        : localStorage.getItem('deepseek_api_key') || '',
       model: localStorage.getItem('deepseek_model') || DEFAULT_DEEPSEEK_MODEL,
     };
   }

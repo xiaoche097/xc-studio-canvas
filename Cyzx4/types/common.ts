@@ -1,3 +1,5 @@
+import type { AgentContext } from '../services/agents/context/buildAgentContext';
+
 export type ImageModel = string;
 export type VideoModel = string;
 
@@ -179,6 +181,7 @@ export interface ProjectContext {
   designSession?: DesignSessionState;
   existingAssets: CanvasElement[];
   conversationHistory: ChatMessage[];
+  agentContext?: AgentContext;
 }
 
 import type { WorkflowUiMessage } from './workflow.types';

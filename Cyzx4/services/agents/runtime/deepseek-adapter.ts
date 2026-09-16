@@ -1,8 +1,4 @@
 import { z } from 'zod';
-import {
-  DEFAULT_DEEPSEEK_BASE_URL,
-  getProviderConfig,
-} from '../../provider-config';
 import type { HarnessToolDefinition } from './tool-catalog';
 import {
   DEEPSEEK_AUTO_MODEL,
@@ -10,10 +6,9 @@ import {
   selectDeepSeekModel,
   type DeepSeekRouteReason,
 } from '../../deepseek-model-router';
+import { buildDeepSeekProxyPayload } from '../../deepseek-proxy-payload';
 
 const runtimeConfigSchema = z.object({
-  baseUrl: z.string().url(),
-  apiKey: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: z.enum(['off', 'low', 'high', 'max']).default('high'),
   maxTokens: z.number().int().positive().max(262_144).default(32_768),
@@ -65,15 +60,8 @@ export interface DeepSeekAssistantTurn {
   routeReason: DeepSeekRouteReason;
 }
 
-const normalizeBaseUrl = (value: string): string => (
-  value.trim().replace(/\/+$/, '')
-);
-
 export const getDeepSeekRuntimeConfig = (): DeepSeekRuntimeConfig => {
-  const provider = getProviderConfig();
   const raw = {
-    baseUrl: normalizeBaseUrl(provider.baseUrl || DEFAULT_DEEPSEEK_BASE_URL),
-    apiKey: provider.apiKey || '',
     model: DEEPSEEK_AUTO_MODEL,
     reasoningEffort: localStorage.getItem('deepseek_reasoning_effort') || 'high',
     maxTokens: Number.parseInt(localStorage.getItem('deepseek_max_tokens') || '32768', 10),
@@ -195,7 +183,7 @@ export const streamDeepSeekTurn = async (options: {
     response = await fetch('/api/deepseek/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl: config.baseUrl, apiKey: config.apiKey, request }),
+      body: JSON.stringify(buildDeepSeekProxyPayload(request)),
       signal: watchdog.signal,
     });
   } catch (error) {
@@ -303,13 +291,11 @@ export const streamDeepSeekTurn = async (options: {
   };
 };
 
-export const testDeepSeekConnection = async (input: {
-  baseUrl: string;
-  apiKey: string;
+export const testDeepSeekConnection = async (input?: {
+  baseUrl?: string;
+  apiKey?: string;
 }): Promise<string> => {
   const config = runtimeConfigSchema.parse({
-    ...input,
-    baseUrl: normalizeBaseUrl(input.baseUrl || DEFAULT_DEEPSEEK_BASE_URL),
     model: DEEPSEEK_FLASH_MODEL,
     reasoningEffort: 'off',
     maxTokens: 32,
@@ -319,17 +305,13 @@ export const testDeepSeekConnection = async (input: {
   const response = await fetch('/api/deepseek/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      baseUrl: config.baseUrl,
-      apiKey: config.apiKey,
-      request: {
+    body: JSON.stringify(buildDeepSeekProxyPayload({
         model: DEEPSEEK_FLASH_MODEL,
         messages: [{ role: 'user', content: 'Reply with OK only.' }],
         stream: false,
         max_tokens: 32,
         thinking: { type: 'disabled' },
-      },
-    }),
+      }, input)),
   });
   if (!response.ok) throw await parseProxyError(response);
   const data = await response.json();

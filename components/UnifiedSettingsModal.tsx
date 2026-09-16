@@ -53,6 +53,7 @@ import {
 } from '../Cyzx4/utils/xiaocheModels';
 import {
   DEFAULT_DEEPSEEK_BASE_URL,
+  DEEPSEEK_SERVER_MANAGED,
 } from '../Cyzx4/services/provider-config';
 import { testDeepSeekConnection } from '../Cyzx4/services/agents/runtime/deepseek-adapter';
 import {
@@ -568,7 +569,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
   // --- Test Connection Handlers ---
   const handleTestDeepSeek = async () => {
     const key = deepSeekApiKey.split(/[,\n]/).map(item => item.trim()).find(Boolean);
-    if (!key) {
+    if (!DEEPSEEK_SERVER_MANAGED && !key) {
       setDeepSeekTestStatus('error');
       setDeepSeekTestMessage('请输入 DeepSeek API Key');
       return;
@@ -579,7 +580,7 @@ export const UnifiedSettingsModal: React.FC<UnifiedSettingsModalProps> = ({ isOp
     try {
       const response = await testDeepSeekConnection({
         baseUrl: deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL,
-        apiKey: key,
+        apiKey: key || '',
       });
       setDeepSeekTestStatus('success');
       setDeepSeekTestMessage(response ? `连接成功：${response}` : '连接成功');

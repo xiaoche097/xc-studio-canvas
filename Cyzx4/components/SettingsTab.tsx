@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { resolveRuntimeModelId } from '../utils/apiHelpers';
 import { testDeepSeekConnection } from '../services/agents/runtime/deepseek-adapter';
+import { DEEPSEEK_SERVER_MANAGED } from '../services/provider-config';
 import {
   DEEPSEEK_AUTO_MODEL,
   DEEPSEEK_FLASH_MODEL,
@@ -238,7 +239,7 @@ const SettingsTab: React.FC = () => {
   };
 
   const handleSaveDeepSeekConfig = () => {
-    if (!deepSeekApiKey.trim()) {
+    if (!DEEPSEEK_SERVER_MANAGED && !deepSeekApiKey.trim()) {
       setDeepSeekStatus('empty');
       return;
     }
@@ -254,7 +255,7 @@ const SettingsTab: React.FC = () => {
 
   const handleTestDeepSeekConnection = async () => {
     const firstKey = deepSeekApiKey.split(/[,\n]/).map(key => key.trim()).find(Boolean);
-    if (!firstKey) {
+    if (!DEEPSEEK_SERVER_MANAGED && !firstKey) {
       setDeepSeekTestStatus('error');
       setDeepSeekTestMessage('请先输入 API Key');
       return;
@@ -264,7 +265,7 @@ const SettingsTab: React.FC = () => {
     try {
       const reply = await testDeepSeekConnection({
         baseUrl: deepSeekBaseUrl.trim() || DEFAULT_DEEPSEEK_BASE_URL,
-        apiKey: firstKey,
+        apiKey: firstKey || '',
       });
       setDeepSeekTestStatus('success');
       setDeepSeekTestMessage(`✅ 连接成功${reply ? `：${reply}` : ''}`);

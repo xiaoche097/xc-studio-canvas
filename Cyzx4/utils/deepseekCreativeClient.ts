@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { selectDeepSeekModel } from '../services/deepseek-model-router.ts';
+import { buildDeepSeekProxyPayload } from '../services/deepseek-proxy-payload.ts';
 
 export const deepSeekCreativeConfigSchema = z.object({
-  apiKey: z.string().min(1),
+  apiKey: z.string().optional().default(''),
   baseUrl: z.string().url(),
   model: z.string().min(1),
   reasoningEffort: z.enum(['off', 'low', 'high', 'max']).default('high'),
@@ -112,11 +113,7 @@ export const createDeepSeekCreativeClient = (
         const response = await fetch('/api/deepseek/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            baseUrl: config.baseUrl.replace(/\/+$/, ''),
-            apiKey: config.apiKey,
-            request: body,
-          }),
+          body: JSON.stringify(buildDeepSeekProxyPayload(body, config)),
         });
         if (!response.ok) throw await parseProxyError(response);
         const parsed = deepSeekResponseSchema.parse(await response.json());

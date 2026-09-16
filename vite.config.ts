@@ -124,9 +124,16 @@ const deepSeekDevProxy = () => ({
         const chunks: Buffer[] = [];
         for await (const chunk of req) chunks.push(Buffer.from(chunk));
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        const apiKey = typeof payload.apiKey === 'string' ? payload.apiKey.trim() : '';
+        const apiKey = String(
+          process.env.DEEPSEEK_API_KEY
+          || (typeof payload.apiKey === 'string' ? payload.apiKey : ''),
+        ).trim();
         const request = payload.request;
-        const rawBaseUrl = String(payload.baseUrl || 'https://api.deepseek.com')
+        const rawBaseUrl = String(
+          process.env.DEEPSEEK_BASE_URL
+          || (typeof payload.baseUrl === 'string' ? payload.baseUrl : '')
+          || 'https://api.deepseek.com',
+        )
           .trim()
           .replace(/\/+$/, '');
         const parsedBaseUrl = new URL(rawBaseUrl);
@@ -227,6 +234,12 @@ export default defineConfig(({ mode }) => {
     }
     if (env.FREEIMAGE_API_KEY) {
       process.env.FREEIMAGE_API_KEY = env.FREEIMAGE_API_KEY;
+    }
+    if (env.DEEPSEEK_API_KEY) {
+      process.env.DEEPSEEK_API_KEY = env.DEEPSEEK_API_KEY;
+    }
+    if (env.DEEPSEEK_BASE_URL) {
+      process.env.DEEPSEEK_BASE_URL = env.DEEPSEEK_BASE_URL;
     }
     return {
       base: './',

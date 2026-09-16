@@ -31,6 +31,16 @@ import {
   readStoredAgentWorkMode,
   resolveTurnAgentMode,
 } from '../services/agents/runtime/agent-mode';
+import {
+  useAgentContextStore,
+  type AgentContextMessage,
+} from '../stores/useAgentContextStore';
+import {
+  buildAgentContext,
+} from '../services/agents/context/buildAgentContext';
+import { detectFollowUpIntent } from '../services/agents/context/agent-intent';
+
+export { detectFollowUpIntent } from '../services/agents/context/agent-intent';
 
 const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any>) => {
   const lower = String(message || '').toLowerCase();
@@ -41,8 +51,6 @@ const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any
   if (/修改|替换|编辑|改成|换成|edit|replace|remove/i.test(lower)) return 'edit' as const;
   return 'generate' as const;
 };
-
-const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 16;
 
 const getAgentExecutionTimeoutMs = (): number => {
   if (typeof window !== 'undefined' && window.localStorage.getItem('text_api_provider') === 'deepseek') {
@@ -176,6 +184,80 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
     }
   }, [canvasState, onElementsUpdate, onHistorySave, autoAddToCanvas]);
 
+  const persistAgentResult = useCallback((result: AgentTask) => {
+    const contextState = useAgentContextStore.getState();
+    const generatedAssets = result.output?.assets || [];
+    for (const asset of generatedAssets) {
+      contextState.addAsset({
+        id: asset.id,
+        role: 'result',
+        type: asset.type,
+        name: asset.id,
+        url: asset.url,
+        analysis: asset.metadata,
+        createdAt: Date.now(),
+      });
+    }
+
+    const productAnalysisCall = result.output?.skillCalls?.find((call) => (
+      call.skillName === 'analyzeListingProduct'
+      || call.skillName === 'analyzeClothingProduct'
+    ));
+    if (productAnalysisCall?.result && typeof productAnalysisCall.result === 'object') {
+      contextState.setProductAnalysis({ raw: productAnalysisCall.result });
+    }
+
+    const generationCall = result.output?.skillCalls?.find(
+      (call) => call.skillName === 'generateImage',
+    );
+    const previousPlan = contextState.generationPlan;
+    if (generationCall?.params?.prompt) {
+      contextState.setGenerationPlan({
+        prompt: String(generationCall.params.prompt),
+        negativePrompt: generationCall.params.negativePrompt,
+        agentId: result.agentId,
+        model: generationCall.params.model,
+        aspectRatio: generationCall.params.aspectRatio,
+        imageSize: generationCall.params.imageSize,
+        count: previousPlan?.count || 1,
+        referenceImageIds: previousPlan?.referenceImageIds || [],
+        status: result.status === 'completed' ? 'completed' : 'approved',
+        updatedAt: Date.now(),
+      });
+    } else if (previousPlan && generatedAssets.length > 0) {
+      contextState.setGenerationPlan({
+        ...previousPlan,
+        agentId: result.agentId,
+        status: result.status === 'completed' ? 'completed' : previousPlan.status,
+        updatedAt: Date.now(),
+      });
+    }
+
+    const imageUrls = Array.from(new Set([
+      ...(result.output?.imageUrls || []),
+      ...generatedAssets
+        .filter((asset) => asset.type === 'image')
+        .map((asset) => asset.url),
+    ]));
+    contextState.setLastAgentResult({
+      taskId: result.id,
+      agentId: result.agentId,
+      status: result.status,
+      message: result.output?.message || '',
+      assetIds: generatedAssets.map((asset) => asset.id),
+      imageUrls,
+      updatedAt: Date.now(),
+    });
+    contextState.addMessage({
+      id: result.id,
+      role: 'assistant',
+      content: result.output?.message || '',
+      timestamp: Date.now(),
+      assetIds: generatedAssets.map((asset) => asset.id),
+    });
+    contextState.setActiveTask(null);
+  }, []);
+
   const processMessage = useCallback(async (
     message: string,
     attachments?: File[],
@@ -225,6 +307,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       // 图片上传逻辑
       let uploadedUrls: string[] = [];
+      const uploadedAssetIds: string[] = [];
       if (attachments && attachments.length > 0) {
         const hostProvider = useImageHostStore.getState().selectedProvider;
         if (hostProvider !== 'none') {
@@ -283,6 +366,52 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
             console.log('[useAgentOrchestrator] Upload success:', uploadedUrls);
 
+            uploadedUrls.forEach((url, index) => {
+              const file = attachments?.[index];
+              if (!file) return;
+              const fileAny = file as any;
+              const assetId = String(
+                fileAny._attachmentId
+                || fileAny._agentContextAssetId
+                || `asset-upload-${Date.now()}-${index}`,
+              );
+              fileAny._agentContextAssetId = assetId;
+              uploadedAssetIds.push(assetId);
+              useAgentContextStore.getState().addAsset({
+                id: assetId,
+                role: index === 0 ? 'product' : 'reference',
+                type: file.type?.startsWith('video/') ? 'video' : 'image',
+                name: file.name || `attachment-${index + 1}`,
+                url,
+                analysis: {
+                  width: fileAny.detectedImageWidth,
+                  height: fileAny.detectedImageHeight,
+                  aspectRatio: fileAny.detectedAspectRatio,
+                  markerInfo: fileAny.markerInfo,
+                },
+                createdAt: Date.now(),
+              });
+            });
+
+            if (uploadedAssetIds.length > 0) {
+              const contextState = useAgentContextStore.getState();
+              contextState.setGenerationPlan({
+                prompt: contextState.generationPlan?.prompt || message,
+                negativePrompt: contextState.generationPlan?.negativePrompt,
+                agentId: contextState.generationPlan?.agentId,
+                model: contextState.generationPlan?.model,
+                aspectRatio: contextState.generationPlan?.aspectRatio,
+                imageSize: contextState.generationPlan?.imageSize,
+                count: contextState.generationPlan?.count || 1,
+                referenceImageIds: Array.from(new Set([
+                  ...(contextState.generationPlan?.referenceImageIds || []),
+                  ...uploadedAssetIds,
+                ])),
+                status: 'draft',
+                updatedAt: Date.now(),
+              });
+            }
+
             // 上传成功后回填为真实公网 URL，避免后续上下文使用 blob: 占位链接
             if (userMessageId) {
               useAgentStore.getState().actions.updateMessageAttachments(userMessageId, uploadedUrls);
@@ -298,13 +427,128 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const requestedConversationId = String(normalizedMetadata.conversationId || '').trim();
       const isolateVisualTaskContext =
         normalizedMetadata.isolateVisualTaskContext === true;
+      const workspaceId = projectContext.projectId || 'workspace-default';
+      let agentContextState = useAgentContextStore.getState();
+      if (agentContextState.workspaceId !== workspaceId) {
+        agentContextState.setWorkspaceId(workspaceId);
+      }
+
+      const uiMessages = useAgentStore.getState().messages;
+      const contextMessages: AgentContextMessage[] = uiMessages.map((item) => ({
+        id: item.id,
+        role: item.role,
+        content: String(item.text || item.content || ''),
+        timestamp: item.timestamp,
+      }));
+      useAgentContextStore.getState().setMessages(contextMessages);
+
+      for (const element of projectContext.existingAssets) {
+        const url = element.url || element.originalUrl;
+        if (!url) continue;
+        useAgentContextStore.getState().addAsset({
+          id: element.id,
+          role: 'reference',
+          type: element.type === 'video' || element.type === 'gen-video' ? 'video' : 'image',
+          name: element.id,
+          url,
+          analysis: {
+            prompt: element.genPrompt,
+            source: 'canvas',
+          },
+          createdAt: Date.now(),
+        });
+      }
+
+      agentContextState = useAgentContextStore.getState();
+      let sharedAgentContext = buildAgentContext({
+        workspaceId,
+        messages: agentContextState.messages,
+        assets: agentContextState.assets,
+        productAnalysis: agentContextState.productAnalysis,
+        generationPlan: agentContextState.generationPlan,
+        activeTask: agentContextState.activeTask,
+        lastAgentResult: agentContextState.lastAgentResult,
+        canvasElements: projectContext.existingAssets,
+      });
+      const agentIntent = detectFollowUpIntent(message, sharedAgentContext);
+
+      if (agentIntent === 'UPDATE_CURRENT_PLAN' && agentContextState.generationPlan) {
+        const updatedPlan = {
+          ...agentContextState.generationPlan,
+          prompt: `${agentContextState.generationPlan.prompt}\n\n用户本轮修改要求：${message}`,
+          status: 'draft' as const,
+          updatedAt: Date.now(),
+        };
+        useAgentContextStore.getState().setGenerationPlan(updatedPlan);
+        sharedAgentContext = buildAgentContext({
+          workspaceId,
+          messages: agentContextState.messages,
+          assets: agentContextState.assets,
+          productAnalysis: agentContextState.productAnalysis,
+          generationPlan: updatedPlan,
+          activeTask: agentContextState.activeTask,
+          lastAgentResult: agentContextState.lastAgentResult,
+          canvasElements: projectContext.existingAssets,
+        });
+      }
+
       const updatedContext = {
         ...projectContext,
         conversationId: requestedConversationId || projectContext.conversationId,
         conversationHistory: isolateVisualTaskContext
           ? []
-          : useAgentStore.getState().messages.slice(-MAX_ORCHESTRATOR_HISTORY_MESSAGES)
+          : uiMessages.slice(-20),
+        agentContext: sharedAgentContext,
       };
+
+      normalizedMetadata.agentIntent = agentIntent;
+      const storedReferenceUrls = agentIntent === 'NEW_TASK'
+        ? []
+        : sharedAgentContext.generation.referenceAssets
+            .map((asset) => asset.url)
+            .filter((url) => /^https?:\/\//i.test(url));
+      normalizedMetadata.multimodalContext = {
+        ...(normalizedMetadata.multimodalContext || {}),
+        referenceImageUrls: Array.from(new Set([
+          ...storedReferenceUrls,
+          ...((normalizedMetadata.multimodalContext?.referenceImageUrls as string[]) || []),
+        ])),
+      };
+
+      if (
+        (agentIntent === 'EXECUTE_CURRENT_PLAN' || agentIntent === 'REGENERATE')
+        && sharedAgentContext.generation.prompt
+      ) {
+        const generation = sharedAgentContext.generation;
+        normalizedMetadata.forceSkills = true;
+        normalizedMetadata.forceGenerateImage = true;
+        normalizedMetadata.workflowMode = 'fast';
+        normalizedMetadata.preferredAgent = generation.agentId
+          || sharedAgentContext.activeTask?.agentId
+          || sharedAgentContext.previousResult?.agentId
+          || 'poster';
+        normalizedMetadata.selectedSkillCalls = [{
+          skillName: 'generateImage',
+          params: {
+            prompt: agentIntent === 'REGENERATE'
+              ? `${generation.prompt}\nCreate a meaningful visual variation while preserving the product identity and all hard constraints.`
+              : generation.prompt,
+            negativePrompt: generation.negativePrompt,
+            model: generation.model || 'nanobanana2',
+            aspectRatio: generation.aspectRatio || normalizedMetadata.preferredAspectRatio || '1:1',
+            imageSize: generation.imageSize || '2K',
+            referenceImages: storedReferenceUrls,
+            referenceImage: storedReferenceUrls[0],
+            referencePriority: 'first',
+            referenceStrength: 0.95,
+          },
+        }];
+      } else if (agentIntent === 'UPDATE_CURRENT_PLAN') {
+        normalizedMetadata.preferredAgent = sharedAgentContext.generation.agentId
+          || sharedAgentContext.activeTask?.agentId
+          || sharedAgentContext.previousResult?.agentId;
+        normalizedMetadata.currentGenerationPlan = sharedAgentContext.generation;
+      }
 
       const activeConversationId = String(updatedContext.conversationId || '').trim();
       const topicId = String(
@@ -411,7 +655,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       // Pipeline detection
       // 用户显式选择创作 Skill 时，交给它自己的 capability 合同执行，避免关键词流水线抢走任务。
-      const pipelineId = normalizedMetadata.agentMode === 'craft'
+      const pipelineId = agentIntent === 'NEW_TASK'
+        && normalizedMetadata.agentMode === 'craft'
         && !useOptimizeThenExecute && !normalizedMetadata?.skillData?.capabilities?.length
         ? detectPipeline(messageForExecution)
         : null;
@@ -449,6 +694,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         }
         setCurrentTask(lastStep || null);
 
+        if (lastStep) persistAgentResult(lastStep);
+
         // Messages are managed by Workspace via addMessage — no need to push here
 
         return lastStep || null;
@@ -476,8 +723,22 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const validSkillAgents: AgentType[] = ['coco', 'vireo', 'cameron', 'poster', 'package', 'motion', 'campaign', 'prompt-optimizer'];
       const continuationPreferredAgent = normalizedMetadata?.continuationContext
         ?.previousAgent as AgentType | undefined;
+      const contextualPreferredAgent = normalizedMetadata.preferredAgent as AgentType | undefined;
       let decision;
-      if (pinnedAgent) {
+      if (
+        agentIntent !== 'NEW_TASK'
+        && contextualPreferredAgent
+        && validSkillAgents.includes(contextualPreferredAgent)
+      ) {
+        decision = {
+          action: 'route' as const,
+          targetAgent: contextualPreferredAgent,
+          taskType: agentIntent.toLowerCase(),
+          complexity: 'simple' as const,
+          handoffMessage: `继续当前 Workspace 计划: ${messageForExecution}`,
+          confidence: 1,
+        };
+      } else if (pinnedAgent) {
         decision = {
           targetAgent: pinnedAgent,
           taskType: 'optimized-routed',
@@ -600,6 +861,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
           updatedAt: Date.now(),
         };
         setCurrentTask(responseTask);
+        persistAgentResult(responseTask);
         return responseTask;
       }
 
@@ -614,11 +876,12 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
          optimizedMessage: optimizedMessageForTrace,
          optimizerUsed,
          optimizerStatus,
-         allReferenceImageUrls: [...uploadedUrls],
+         allReferenceImageUrls: Array.from(new Set([...storedReferenceUrls, ...uploadedUrls])),
          injectedReferenceImageUrls: [] as string[],
          multimodalContext: {
            ...(normalizedMetadata?.multimodalContext || {}),
            referenceImageUrls: [
+             ...storedReferenceUrls,
              ...topicPinnedRefs,
              ...((normalizedMetadata?.multimodalContext?.referenceImageUrls as string[]) || []),
              ...uploadedUrls,
@@ -706,6 +969,25 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         updatedAt: Date.now()
       };
 
+      const activeTask = {
+        id: task.id,
+        agentId: task.agentId,
+        intent: agentIntent,
+        message,
+        status: 'pending' as const,
+        updatedAt: Date.now(),
+      };
+      useAgentContextStore.getState().setActiveTask(activeTask);
+      if (task.input.context.agentContext) {
+        task.input.context = {
+          ...task.input.context,
+          agentContext: {
+            ...task.input.context.agentContext,
+            activeTask,
+          },
+        };
+      }
+
       const passthroughAttachmentCount = task.input.attachments?.length || 0;
       const passthroughUploadedCount = task.input.uploadedAttachments?.length || 0;
       if (
@@ -745,6 +1027,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         executingTimer = null;
       }
       console.log('[useAgentOrchestrator] Task result:', result.status);
+
+      persistAgentResult(result);
 
       if (result.output?.assets && result.output.assets.length > 0) {
         console.log('[useAgentOrchestrator] Auto-adding assets to canvas...');
@@ -808,6 +1092,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         updatedAt: Date.now()
       };
       setCurrentTask(errorTask);
+      persistAgentResult(errorTask);
       return errorTask;
     } finally {
       if (executingTimer) {
@@ -827,7 +1112,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         });
       }
     }
-  }, [projectContext, addAssetsToCanvas]);
+  }, [projectContext, addAssetsToCanvas, persistAgentResult]);
 
   const cancelAgent = useCallback(() => {
     messageQueue.current = [];
@@ -876,6 +1161,25 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         updatedAt: Date.now()
       };
 
+      const activeTask = {
+        id: task.id,
+        agentId: task.agentId,
+        intent: 'EXECUTE_CURRENT_PLAN' as const,
+        message: task.input.message,
+        status: 'executing' as const,
+        updatedAt: Date.now(),
+      };
+      useAgentContextStore.getState().setActiveTask(activeTask);
+      if (task.input.context.agentContext) {
+        task.input.context = {
+          ...task.input.context,
+          agentContext: {
+            ...task.input.context.agentContext,
+            activeTask,
+          },
+        };
+      }
+
       console.log('[useAgentOrchestrator] Proposal request start', { proposalId });
       const result = await withTimeout(
         executeAgentTask(task),
@@ -884,6 +1188,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       );
       console.log('[useAgentOrchestrator] Proposal request done', { status: result.status });
       console.log('[useAgentOrchestrator] Proposal execution result:', result.status);
+      persistAgentResult(result);
 
       if (result.output?.assets && result.output.assets.length > 0) {
         console.log('[useAgentOrchestrator] Auto-adding proposal assets to canvas...');
@@ -913,6 +1218,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
     } catch (error) {
       console.error('Agent Pipeline Failure', { stage: 'executeProposal', error });
       console.error('[useAgentOrchestrator] Proposal execution error:', error);
+      useAgentContextStore.getState().setActiveTask(null);
       const cur = useAgentStore.getState().currentTask;
       if (cur) {
         setCurrentTask({
@@ -927,11 +1233,12 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       }
       return;
     }
-  }, [projectContext, addAssetsToCanvas]);
+  }, [projectContext, addAssetsToCanvas, persistAgentResult]);
 
   const resetAgent = useCallback(() => {
     setCurrentTask(null);
     useAgentStore.getState().actions.clearMessages();
+    useAgentContextStore.getState().resetContext();
   }, []);
 
   return {
