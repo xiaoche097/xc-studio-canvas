@@ -7,6 +7,7 @@
 import { AgentType } from '../../types/agent.types';
 import { detectOptimizeOnlyIntent } from './prompt-optimizer/intent';
 import { AGENT_ROUTE_RULES, CHAT_PATTERNS, EDIT_KEYWORDS, VAGUE_PATTERNS } from './routing-rules';
+import { isFashionTransferRequest } from './routing-signals';
 
 /**
  * 检测是否为修改/编辑类请求
@@ -25,6 +26,10 @@ export function localPreRoute(message: string): AgentType | null {
   if (detectOptimizeOnlyIntent(message)) {
     return 'prompt-optimizer';
   }
+
+  // Virtual try-on / model transfer is a high-confidence fashion workflow.
+  // Resolve it before the generic edit guard and poster keywords.
+  if (isFashionTransferRequest(message)) return 'campaign';
 
   // 修改/编辑类请求需要更精确的意图分析，不走本地路由
   if (isEditRequest(message)) {

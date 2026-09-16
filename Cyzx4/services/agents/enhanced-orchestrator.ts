@@ -14,14 +14,26 @@ import { z } from 'zod';
 
 
 /** Zod schema for AI routing response validation */
+const routableAgentSchema = z.enum([
+    'coco',
+    'vireo',
+    'cameron',
+    'poster',
+    'package',
+    'motion',
+    'campaign',
+    'prompt-optimizer',
+]);
+
 const routingResponseSchema = z.object({
     action: z.enum(['route', 'clarify', 'respond']).default('route'),
-    targetAgent: z.string().min(1).optional(),
+    targetAgent: routableAgentSchema.optional(),
+    workMode: z.enum(['craft', 'plan', 'ask']).optional(),
     taskType: z.string().default('general'),
     complexity: z.enum(['simple', 'complex']).default('simple'),
     handoffMessage: z.string().default('正在处理您的请求...'),
     confidence: z.number().min(0).max(1).default(0),
-    fallbackOptions: z.array(z.string()).default([]),
+    fallbackOptions: z.array(routableAgentSchema).default([]),
     estimatedDuration: z.number().default(30),
     requiredSkills: z.array(z.string()).default([]),
     message: z.string().optional(),
@@ -146,30 +158,19 @@ export async function routeToAgent(
             console.log('[EnhancedOrchestrator] Circuit breaker half-open, attempting request');
         }
 
-        // 缓存快速路径：相似消息直接返回缓存的高置信度路由结果
-        const cacheKey = routingCache.normalizeKey(message);
+        // Cache by semantic context, not the isolated message. The same phrase
+        // can mean a different task when the preceding assets or turns differ.
+        const recentContextKey = context.conversationHistory
+            .slice(-6)
+            .map((item) => `${item.role}:${String(item.text || '').slice(0, 500)}`)
+            .join('\n');
+        const cacheKey = routingCache.normalizeKey(
+            `${context.projectId || context.projectTitle || 'workspace'}\n${recentContextKey}\nCURRENT:${message}`,
+        );
         const cached = routingCache.get(cacheKey);
         if (cached) {
             console.log('[EnhancedOrchestrator] Cache hit:', cached.targetAgent);
             return cached;
-        }
-
-        // 快速路径：本地关键词预路由（0延迟，不依赖API）
-        const localAgent = localPreRoute(message);
-        if (localAgent) {
-            console.log('[EnhancedOrchestrator] Local pre-route hit:', localAgent);
-            return {
-                action: 'route',
-                targetAgent: localAgent,
-                taskType: 'local-routed',
-                taskMode: inferTaskMode(message, context),
-                complexity: 'simple',
-                handoffMessage: `用户请求: ${message}`,
-                confidence: 0.75,
-                fallbackOptions: [],
-                estimatedDuration: 15,
-                requiredSkills: ['generateImage']
-            };
         }
 
         // 检查API密钥
@@ -195,21 +196,31 @@ export async function routeToAgent(
         // [XC-STUDIO] 修复 413 负载过大：清洗品牌信息和会话上下文中的 Base64 数据
         const cleanBrandInfo = sanitizeObject(context.brandInfo || {}, 512);
         const cleanDesignSession = sanitizeObject(context.designSession || {}, 512);
+        const cleanAgentContext = sanitizeObject(context.agentContext || {}, 3000);
 
         const prompt = `${COCO_SYSTEM_PROMPT}
 
 Current Project: ${context.projectTitle}
 Brand Info: ${JSON.stringify(cleanBrandInfo)}
 Design Session: ${JSON.stringify(cleanDesignSession)}
+Workspace Agent Context (assets, current plan, previous result):
+${JSON.stringify(cleanAgentContext)}
 Conversation History:
 ${historyText}
 
 User Message: ${message}
 
-Analyze and route to appropriate agent. Return JSON with:
+Analyze the user's actual communicative goal using the complete context above.
+- Do not route from isolated keywords. Resolve references such as "这个产品", "上一张", and "这个模特" from conversation and workspace assets.
+- Decide workMode semantically: craft when the user wants an action performed or an artifact created/edited; plan when the user explicitly wants a plan without execution; ask for questions, analysis, discussion, or confirmation only.
+- A detailed natural-language production request is craft even without a stock command such as "开始生成".
+- Choose the specialist by intended outcome and workflow, not merely by a noun in the message. Use Coco when the task spans domains or benefits from autonomous tool orchestration.
+
+Return JSON with:
 {
   "action": "route",
   "targetAgent": "<agent_id>",
+  "workMode": "craft|plan|ask",
   "taskType": "<task_type>",
   "complexity": "simple|complex",
   "handoffMessage": "<message>",
@@ -285,6 +296,7 @@ Analyze and route to appropriate agent. Return JSON with:
         const decision: EnhancedRoutingDecision = {
             action: parsed.action,
             targetAgent: (parsed.targetAgent || finalConfig.fallbackAgent).toLowerCase() as AgentType,
+            workMode: parsed.workMode,
             taskType: parsed.taskType,
             taskMode: inferTaskMode(message, context),
             complexity: parsed.complexity,
@@ -300,6 +312,7 @@ Analyze and route to appropriate agent. Return JSON with:
 
         if (decision.action === 'clarify' || decision.action === 'respond') {
             decision.targetAgent = 'coco';
+            decision.workMode = 'ask';
             decision.taskType = decision.action;
             decision.taskMode = decision.action;
             decision.complexity = 'simple';
@@ -344,7 +357,7 @@ function createFallbackDecision(
 ): EnhancedRoutingDecision {
     return {
         action: 'route',
-        targetAgent: fallbackAgent,
+        targetAgent: localPreRoute(message) || fallbackAgent,
         taskType: 'general',
         taskMode: 'generate',
         complexity: 'simple',

@@ -23,6 +23,7 @@ export interface AgentInfo {
 export interface AgentRoutingDecision {
   action?: 'route' | 'clarify' | 'respond';
   targetAgent: AgentType;
+  workMode?: 'craft' | 'plan' | 'ask';
   taskType: string;
   complexity: 'simple' | 'complex';
   handoffMessage: string;

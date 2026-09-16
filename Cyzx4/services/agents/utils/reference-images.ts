@@ -24,6 +24,14 @@ export function collectReferenceCandidates(
     candidates.push(v);
   };
 
+  // Context-aware workflows may declare a semantic order (for example,
+  // product anchor first and model identity second). Honor it before any
+  // tool-generated aliases or current-turn attachment fallbacks.
+  const priorityUrls = input.metadata?.referencePriorityUrls || [];
+  if (Array.isArray(priorityUrls)) {
+    priorityUrls.forEach(pushCandidate);
+  }
+
   if (Array.isArray(params.referenceImages)) {
     params.referenceImages.forEach(pushCandidate);
   }

@@ -57,6 +57,18 @@ export const hasExplicitCraftIntent = (message: string): boolean => {
   const normalized = String(message || '').trim();
   if (!normalized || /(?:吗|么|呢|如何|怎么|是否|能不能|可不可以)[？?]?$/u.test(normalized)) return false;
 
+  // A detailed imperative is just as explicit as a short "开始做" approval.
+  // Keep informational requests in Ask, but allow natural production briefs
+  // such as "帮我把这个产品换到这个模特上" to enter Craft directly.
+  const directProductionRequest = [
+    /(?:请|帮我|替我|给我|我要|我想(?:让你)?).{0,60}(?:做图|出图|画图|生成|制作|设计|执行|换到|穿到|套到|试穿|换装|换衣|替换|合成)/u,
+    /^(?:请)?(?:把|将).{1,80}(?:换到|穿到|套到|放到|替换|合成|生成|制作|改成|换成)/u,
+    /^(?:please\s+)?(?:create|generate|make|design|execute|replace|put|dress|apply)\b/i,
+  ].some((pattern) => pattern.test(normalized));
+
+  const consultationRequest = /(?:解释|教程|建议|思路|方案|告诉我|分析一下).{0,24}(?:怎么|如何|是否|能不能|可不可以)/u.test(normalized);
+  if (directProductionRequest && !consultationRequest) return true;
+
   return [
     /(?:我觉得)?(?:已经)?(?:没问题|确认(?:没问题)?)[了，,。!！\s]*(?:可以)?(?:开始)?(?:做|制作|生成|执行)(?:了|吧)?/u,
     /^(?:好|好的|行|可以|没问题|确认)?[，,。!！\s]*(?:开始|开做)(?:执行|制作|生成|做)?(?:吧|了)?[。!！\s]*$/u,

@@ -13,10 +13,25 @@ test('migrates legacy agent modes', () => {
 });
 
 test('recognizes explicit approval without treating questions as execution', () => {
-  for (const message of ['帮我做', '没问题可以做', '聊得差不多了，我觉得没问题可以做了', '按这个方案执行', '开始生成', 'go ahead']) {
+  for (const message of [
+    '帮我做',
+    '没问题可以做',
+    '聊得差不多了，我觉得没问题可以做了',
+    '按这个方案执行',
+    '开始生成',
+    '我想你帮我将我的这个产品换到这个模特上，比例保持2：3',
+    '把背景换成蓝色',
+    'go ahead',
+  ]) {
     assert.equal(hasExplicitCraftIntent(message), true, message);
   }
-  for (const message of ['可以怎么做？', '这个方案好吗？', '继续聊聊', '能不能开始做？']) {
+  for (const message of [
+    '可以怎么做？',
+    '这个方案好吗？',
+    '继续聊聊',
+    '能不能开始做？',
+    '告诉我如何把产品换到模特上',
+  ]) {
     assert.equal(hasExplicitCraftIntent(message), false, message);
   }
 });
@@ -27,6 +42,10 @@ test('automatically transitions Plan and Ask to Craft on approval', () => {
     transitionedFrom: 'plan',
   });
   assert.deepEqual(resolveTurnAgentMode('ask', '按这个方向制作吧'), {
+    mode: 'craft',
+    transitionedFrom: 'ask',
+  });
+  assert.deepEqual(resolveTurnAgentMode('ask', '我想你帮我将我的这个产品换到这个模特上，比例保持2：3'), {
     mode: 'craft',
     transitionedFrom: 'ask',
   });

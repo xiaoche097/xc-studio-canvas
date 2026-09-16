@@ -445,7 +445,7 @@ export abstract class EnhancedBaseAgent {
         message,
       );
     const attachedImageEditIntent = hasImageAttachment &&
-      /(换成|改成|改为|替换|修改|调整|变成|增加|添加|加上|再加|多一个|旁边|左边|右边|身后|前面|放入|放一个|站一个|换色|改色|换背景|去背景|抠图|套装|服装|穿搭|试穿|改比例|调整比例|比例.{0,12}(?:错|不对|改|调整)|尺寸.{0,12}(?:错|不对|改|调整)|replace|recolor|edit|change|add)/i.test(message);
+      /(换成|换到|穿到|套到|改成|改为|替换|修改|调整|变成|增加|添加|加上|再加|多一个|旁边|左边|右边|身后|前面|放入|放一个|站一个|换色|改色|换背景|去背景|抠图|套装|服装|穿搭|试穿|模特|上身|改比例|调整比例|比例.{0,12}(?:错|不对|改|调整)|尺寸.{0,12}(?:错|不对|改|调整)|replace|recolor|edit|change|add|virtual\s*try.?on)/i.test(message);
 
     // 排除纯咨询或文案类场景
     const consultOnly =

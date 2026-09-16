@@ -6,7 +6,7 @@ import { assetsToCanvasElementsAtCenter } from '../utils/canvas-helpers';
 import { useAgentStore } from '../stores/agent.store';
 import { uploadImage } from '../utils/uploader';
 import { useImageHostStore } from '../stores/imageHost.store';
-import { isEditRequest, localPreRoute } from '../services/agents/local-router';
+import { localPreRoute } from '../services/agents/local-router';
 import {
   addTopicMemoryItem,
   extractConstraintHints,
@@ -24,7 +24,6 @@ import {
 import { optimizeUserText } from '../services/agents/prompt-optimizer/service';
 import { useProjectStore } from '../stores/project.store';
 import { buildVisualRagContext, type VisualRagDiagnostics } from '../services/visual-rag';
-import { getProviderConfig } from '../services/provider-config';
 import { classifyInstructionMemory } from '../services/memory-policy';
 import {
   persistAgentWorkMode,
@@ -38,7 +37,11 @@ import {
 import {
   buildAgentContext,
 } from '../services/agents/context/buildAgentContext';
-import { detectFollowUpIntent } from '../services/agents/context/agent-intent';
+import {
+  detectFollowUpIntent,
+  referencesExistingWorkspaceContext,
+} from '../services/agents/context/agent-intent';
+import { isFashionTransferRequest } from '../services/agents/routing-signals';
 
 export { detectFollowUpIntent } from '../services/agents/context/agent-intent';
 
@@ -366,6 +369,10 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
             console.log('[useAgentOrchestrator] Upload success:', uploadedUrls);
 
+            const isFashionTransfer = isFashionTransferRequest(message);
+            const hasStoredProduct = useAgentContextStore.getState().assets.some(
+              (asset) => asset.role === 'product',
+            );
             uploadedUrls.forEach((url, index) => {
               const file = attachments?.[index];
               if (!file) return;
@@ -377,9 +384,14 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
               );
               fileAny._agentContextAssetId = assetId;
               uploadedAssetIds.push(assetId);
+              const role = isFashionTransfer
+                ? attachments.length > 1
+                  ? index === 0 ? 'product' : index === 1 ? 'model' : 'reference'
+                  : hasStoredProduct ? 'model' : 'product'
+                : index === 0 ? 'product' : 'reference';
               useAgentContextStore.getState().addAsset({
                 id: assetId,
-                role: index === 0 ? 'product' : 'reference',
+                role,
                 type: file.type?.startsWith('video/') ? 'video' : 'image',
                 name: file.name || `attachment-${index + 1}`,
                 url,
@@ -396,7 +408,9 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
             if (uploadedAssetIds.length > 0) {
               const contextState = useAgentContextStore.getState();
               contextState.setGenerationPlan({
-                prompt: contextState.generationPlan?.prompt || message,
+                // Uploading a reference (including a simple "can you see it?"
+                // turn) stores the asset, but must not fabricate a plan.
+                prompt: contextState.generationPlan?.prompt || '',
                 negativePrompt: contextState.generationPlan?.negativePrompt,
                 agentId: contextState.generationPlan?.agentId,
                 model: contextState.generationPlan?.model,
@@ -425,7 +439,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       // Read conversation history from store (single source of truth)
       const hostProvider = useImageHostStore.getState().selectedProvider;
       const requestedConversationId = String(normalizedMetadata.conversationId || '').trim();
-      const isolateVisualTaskContext =
+      const requestedVisualTaskIsolation =
         normalizedMetadata.isolateVisualTaskContext === true;
       const workspaceId = projectContext.projectId || 'workspace-default';
       let agentContextState = useAgentContextStore.getState();
@@ -471,6 +485,10 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         canvasElements: projectContext.existingAssets,
       });
       const agentIntent = detectFollowUpIntent(message, sharedAgentContext);
+      const referencesWorkspaceContext = referencesExistingWorkspaceContext(message);
+      const isolateVisualTaskContext =
+        requestedVisualTaskIsolation && !referencesWorkspaceContext;
+      normalizedMetadata.isolateVisualTaskContext = isolateVisualTaskContext;
 
       if (agentIntent === 'UPDATE_CURRENT_PLAN' && agentContextState.generationPlan) {
         const updatedPlan = {
@@ -502,7 +520,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       };
 
       normalizedMetadata.agentIntent = agentIntent;
-      const storedReferenceUrls = agentIntent === 'NEW_TASK'
+      const storedReferenceUrls = agentIntent === 'NEW_TASK' && !referencesWorkspaceContext
         ? []
         : sharedAgentContext.generation.referenceAssets
             .map((asset) => asset.url)
@@ -701,24 +719,11 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         return lastStep || null;
       }
 
-      // Single agent routing — try local keyword match first to skip API call
+      // Single-agent routing. Explicit user pins and selected capabilities stay
+      // deterministic; ordinary requests are classified semantically with the
+      // complete conversation and workspace context.
       console.log('[useAgentOrchestrator] Routing to agent...');
-      const hasImageReference = !!attachments?.some((file) =>
-        file.type?.startsWith('image/'),
-      ) || normalizedMetadata?.multimodalContext?.referenceImageUrls?.length > 0;
-      const isFashionEdit =
-        isEditRequest(messageForExecution) &&
-        /(衣服|服装|上衣|裤子|裙子|裙装|套装|穿搭|模特|面料|领口|袖子|衣摆|outfit|garment|clothing|dress)/i.test(
-          messageForExecution,
-        );
-      const deterministicEditAgent: AgentType | null =
-        isEditRequest(messageForExecution) && hasImageReference
-          ? isFashionEdit
-            ? 'campaign'
-            : 'poster'
-          : null;
-      const localAgent =
-        deterministicEditAgent || localPreRoute(messageForExecution);
+      const fallbackLocalAgent = localPreRoute(messageForExecution);
       const skillPreferredAgent = normalizedMetadata?.skillData?.config?.preferredAgent as AgentType | undefined;
       const validSkillAgents: AgentType[] = ['coco', 'vireo', 'cameron', 'poster', 'package', 'motion', 'campaign', 'prompt-optimizer'];
       const continuationPreferredAgent = normalizedMetadata?.continuationContext
@@ -726,13 +731,14 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const contextualPreferredAgent = normalizedMetadata.preferredAgent as AgentType | undefined;
       let decision;
       if (
-        agentIntent !== 'NEW_TASK'
+        (agentIntent === 'EXECUTE_CURRENT_PLAN' || agentIntent === 'REGENERATE')
         && contextualPreferredAgent
         && validSkillAgents.includes(contextualPreferredAgent)
       ) {
         decision = {
           action: 'route' as const,
           targetAgent: contextualPreferredAgent,
+          workMode: normalizedMetadata.agentMode,
           taskType: agentIntent.toLowerCase(),
           complexity: 'simple' as const,
           handoffMessage: `继续当前 Workspace 计划: ${messageForExecution}`,
@@ -741,6 +747,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       } else if (pinnedAgent) {
         decision = {
           targetAgent: pinnedAgent,
+          workMode: 'craft' as const,
           taskType: 'optimized-routed',
           complexity: 'simple' as const,
           handoffMessage: `用户请求(已优化): ${messageForExecution}`,
@@ -750,6 +757,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         decision = {
           action: 'route' as const,
           targetAgent: skillPreferredAgent,
+          workMode: 'craft' as const,
           taskType: 'creative-skill-routed',
           complexity: 'simple' as const,
           handoffMessage: `按用户选择的创作 Skill 执行: ${messageForExecution}`,
@@ -763,39 +771,18 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         decision = {
           action: 'route' as const,
           targetAgent: continuationPreferredAgent,
+          workMode: 'craft' as const,
           taskType: 'visual-continuation',
           complexity: 'simple' as const,
           handoffMessage: `继续由上一轮 Agent 修改最新成品: ${messageForExecution}`,
           confidence: 1,
         };
-      } else if (localAgent) {
-        console.log('[useAgentOrchestrator] Local pre-route hit:', localAgent);
-        decision = {
-          action: 'route' as const,
-          targetAgent: localAgent,
-          taskType: 'local-routed',
-          complexity: 'simple' as const,
-          handoffMessage: `用户请求: ${messageForExecution}`,
-          confidence: 0.75
-        };
-      } else if (getProviderConfig().id === 'deepseek') {
-        // DeepSeek performs the real multi-step planning inside the Harness.
-        // Keep routing local so the same request is not spent on a separate
-        // legacy planner call before the Harness turn starts.
-        decision = {
-          action: 'route' as const,
-          targetAgent: normalizedMetadata?.creationMode === 'video' ? 'motion' : 'coco',
-          taskType: 'deepseek-harness-local-route',
-          complexity: 'complex' as const,
-          handoffMessage: `交给 XcAI 自主执行: ${messageForExecution}`,
-          confidence: 0.85,
-        };
       } else {
-        console.log('[useAgentOrchestrator] 发起路由请求...');
+        console.log('[useAgentOrchestrator] 发起上下文语义路由请求...');
         try {
           decision = await withTimeout(
             routeToAgent(messageForExecution, updatedContext),
-            8000,
+            12000,
             '路由请求超时，请稍后重试'
           );
           console.log('[useAgentOrchestrator] 路由请求返回:', decision?.targetAgent);
@@ -810,9 +797,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
             targetAgent:
               normalizedMetadata?.creationMode === 'video'
                 ? 'motion'
-                : hasImageReference && isFashionEdit
-                  ? 'campaign'
-                  : 'poster',
+                : fallbackLocalAgent || 'coco',
+            workMode: normalizedMetadata.agentMode,
             taskType: 'routing-timeout-fallback',
             complexity: 'simple' as const,
             handoffMessage: `远程路由不可用，按本地规则执行: ${messageForExecution}`,
@@ -822,15 +808,31 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       }
 
       if (!decision) {
-        console.warn('[useAgentOrchestrator] All routing failed, using poster fallback');
+        console.warn('[useAgentOrchestrator] All routing failed, using autonomous Coco fallback');
         decision = {
           action: 'route' as const,
-          targetAgent: 'poster' as AgentType,
+          targetAgent: fallbackLocalAgent || 'coco' as AgentType,
+          workMode: normalizedMetadata.agentMode,
           taskType: 'fallback',
           complexity: 'simple' as const,
           handoffMessage: `用户请求: ${messageForExecution}`,
           confidence: 0.4
         };
+      }
+
+      const semanticWorkMode = decision.workMode;
+      if (
+        semanticWorkMode
+        && ['craft', 'plan', 'ask'].includes(semanticWorkMode)
+        && semanticWorkMode !== normalizedMetadata.agentMode
+      ) {
+        normalizedMetadata.agentModeTransition = {
+          from: normalizedMetadata.agentMode,
+          to: semanticWorkMode,
+          reason: 'semantic-turn-intent',
+        };
+        normalizedMetadata.agentMode = semanticWorkMode;
+        persistAgentWorkMode(semanticWorkMode);
       }
 
       console.log('[useAgentOrchestrator] Routed to:', decision.targetAgent);
@@ -850,7 +852,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
             attachments,
             uploadedAttachments: uploadedUrls.length > 0 ? uploadedUrls : undefined,
             context: updatedContext,
-            metadata,
+            metadata: normalizedMetadata,
           },
           output: {
             message: `${decision.message || decision.handoffMessage || '我先帮你梳理一下需求。'}${guidanceText}`,
@@ -877,6 +879,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
          optimizerUsed,
          optimizerStatus,
          allReferenceImageUrls: Array.from(new Set([...storedReferenceUrls, ...uploadedUrls])),
+         referencePriorityUrls: referencesWorkspaceContext ? storedReferenceUrls : [],
          injectedReferenceImageUrls: [] as string[],
          multimodalContext: {
            ...(normalizedMetadata?.multimodalContext || {}),

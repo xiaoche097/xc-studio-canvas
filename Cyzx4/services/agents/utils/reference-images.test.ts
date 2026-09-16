@@ -47,3 +47,25 @@ test('falls back to ATTACHMENT_N when uploaded urls are absent', () => {
   assert.equal(result.sourceCount, 2);
   assert.equal(result.truncated, false);
 });
+
+test('honors semantic reference priority before current-turn aliases', () => {
+  const result = collectReferenceCandidates(
+    { referenceImages: ['ATTACHMENT_0'] },
+    {
+      uploadedAttachments: ['https://example.com/model.png'],
+      attachments: [{ type: 'image/png' }],
+      metadata: {
+        referencePriorityUrls: [
+          'https://example.com/product.png',
+          'https://example.com/model.png',
+        ],
+      },
+    },
+    8,
+  );
+
+  assert.deepEqual(result.limitedCandidates.slice(0, 2), [
+    'https://example.com/product.png',
+    'https://example.com/model.png',
+  ]);
+});
