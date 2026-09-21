@@ -41,7 +41,8 @@ const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const AVAILABLE_MODELS = [
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', description: '前沿级 Flash 多模态模型', badge: '最新首选', type: 'text' },
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: '高性能生产级 Flash 模型', badge: '热门', type: 'text' },
-  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', description: '经济高效极速模型', badge: '极速', type: 'text' },
+  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', description: '新一代快速响应模型', badge: '极速', type: 'text' },
+  { id: 'gemini-3.8-flash-thinking-high', name: 'Gemini 3.8 Flash Thinking High', description: '高强度推理模型', badge: '深度思考', type: 'text' },
   { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', description: '轻量快速分析模型', badge: '基础', type: 'text' },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: '最新最强的Pro模型', badge: '强力', type: 'text' },
   { id: 'gemini-3.1-flash-image-preview', name: 'Banana 2 (3.1 Flash)', description: '最新快速图像生成模型', badge: '推荐', type: 'image' },

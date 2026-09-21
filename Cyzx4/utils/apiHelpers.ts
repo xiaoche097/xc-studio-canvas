@@ -43,12 +43,13 @@ export type TextModelPowerMode = 'low-power' | 'deep-thinking';
  * model selection deliberately stays independent from this preference.
  */
 export const DEEP_THINKING_TEXT_MODELS = [
+    'gemini-3.8-flash-thinking-high',
     'gemini-3.6-flash',
     'gpt-5.6-sol',
 ] as const;
 
 export const LOW_POWER_TEXT_MODELS = [
-    'gemini-3.5-flash-lite',
+    'gemini-3.8-flash',
     'gemini-3.1-flash-lite-preview',
     'gpt-5.6-luna',
 ] as const;
