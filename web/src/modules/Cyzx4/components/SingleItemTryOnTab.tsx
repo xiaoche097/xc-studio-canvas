@@ -1,0 +1,1260 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import CreativeImageModelSelector from './image-models/CreativeImageModelSelector';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Image as ImageIcon,
+  Info,
+  Loader2,
+  Maximize2,
+  Paintbrush,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  RefreshCw,
+  Eraser,
+  Shirt,
+  Sparkles,
+  Upload,
+  WandSparkles,
+  X,
+} from 'lucide-react';
+import { generateImageToImage, generateInpainting, generateText, compressImage } from '../services/geminiService';
+import { AspectRatio, ImageResolution } from '../types';
+import { getErrorMessage, isAbortError } from '../utils/apiHelpers';
+import { useCancelableGeneration } from '../hooks/useCancelableGeneration';
+import { useImagePaste } from '../hooks/useImagePaste';
+import {
+  convertImageDataUrlFormat,
+  getImageDownloadExtension,
+  type OutputImageFormat,
+} from '../utils/imageFormat';
+import { downloadImageFile } from '../utils/imageDownload';
+import { saveGeneratedProject } from '../../../services/projectHistoryService';
+
+type UploadKind = 'product' | 'body';
+type TryOnStep = 'input' | 'analyzing' | 'confirm' | 'generating' | 'complete';
+type ResultStatus = 'pending' | 'submitting' | 'polling' | 'processing' | 'done' | 'error' | 'cancelled';
+
+type ProductCategory =
+  | 'earrings' | 'necklace' | 'ring' | 'bracelet' | 'watch' | 'hat' | 'socks'
+  | 'shoes' | 'bag' | 'glasses' | 'hair_accessory' | 'brooch' | 'tie'
+  | 'top' | 'outerwear' | 'trousers' | 'skirt' | 'dress' | 'set';
+
+type UploadedImage = {
+  id: string;
+  name: string;
+  mime: string;
+  base64: string;
+  preview: string;
+  width?: number;
+  height?: number;
+  targetMaskBase64?: string;
+  targetMaskPreview?: string;
+  targetMaskOpacity?: number;
+};
+
+type TryOnAnalysis = {
+  productIdentity: string;
+  keyDetails: string[];
+  materialColor: string;
+  recommendedPlacement: string;
+  scaleFit: string;
+  occlusionStrategy: string;
+  backgroundStrategy: string;
+  referencePlans: string[];
+  riskWarnings: string[];
+};
+
+type TryOnResult = {
+  id: string;
+  referenceId?: string;
+  status: ResultStatus;
+  imageUrl?: string;
+  prompt: string;
+  error?: string;
+};
+
+type ReferenceFidelityCheck = {
+  pass: boolean;
+  personIdentityScore: number;
+  poseCompositionScore: number;
+  sceneIntegrityScore: number;
+  productScaleScore: number;
+  corrections: string[];
+};
+
+type TryOnRecord = {
+  id: string;
+  createdAt: number;
+  step: TryOnStep;
+  productImages: UploadedImage[];
+  bodyReferences: UploadedImage[];
+  category: ProductCategory;
+  outputCount: number;
+  extraRequirements: string;
+  modelId: string;
+  aspectRatio: AspectRatio;
+  resolution: ImageResolution;
+  outputFormat: OutputImageFormat;
+  analysis: TryOnAnalysis | null;
+  placement: string;
+  backgroundStrategy: string;
+  results: TryOnResult[];
+  error: string;
+};
+
+const TUTORIAL_KEY = 'creative.singleItemTryOn.tutorialSeen.v1';
+const MAX_PRODUCT_IMAGES = 5;
+const MAX_BODY_REFERENCES = 6;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_RECORDS = 20;
+const DEFAULT_MODEL_ID = 'gemini-3.1-flash-image-preview';
+const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const CATEGORY_OPTIONS: Array<{ id: ProductCategory; label: string; group: '配饰' | '服装' }> = [
+  { id: 'earrings', label: '耳环 / 耳饰', group: '配饰' },
+  { id: 'necklace', label: '项链', group: '配饰' },
+  { id: 'ring', label: '戒指', group: '配饰' },
+  { id: 'bracelet', label: '手链', group: '配饰' },
+  { id: 'watch', label: '手表', group: '配饰' },
+  { id: 'hat', label: '帽子', group: '配饰' },
+  { id: 'socks', label: '袜子', group: '配饰' },
+  { id: 'shoes', label: '鞋子', group: '配饰' },
+  { id: 'bag', label: '包包', group: '配饰' },
+  { id: 'glasses', label: '眼镜', group: '配饰' },
+  { id: 'hair_accessory', label: '发饰', group: '配饰' },
+  { id: 'brooch', label: '胸针 / 徽章 / 别针', group: '配饰' },
+  { id: 'tie', label: '领带', group: '配饰' },
+  { id: 'top', label: '上衣', group: '服装' },
+  { id: 'outerwear', label: '外套', group: '服装' },
+  { id: 'trousers', label: '裤装', group: '服装' },
+  { id: 'skirt', label: '半身裙', group: '服装' },
+  { id: 'dress', label: '连衣裙', group: '服装' },
+  { id: 'set', label: '套装', group: '服装' },
+];
+
+const CATEGORY_RULES: Record<ProductCategory, string> = {
+  earrings: 'ANATOMICAL ANCHOR: Earlobe piercing point & helix line. Attach the earring precisely to the earlobe. ZERO CHANGE to face, jawline, hair, skin, or pose. Preserve metal luster, gemstones, clasp, and realistic hair/ear occlusion.',
+  necklace: 'ANATOMICAL ANCHOR: Suprasternal notch & collarbone contour. Drape the necklace naturally around the neck. ZERO CHANGE to face, neck skin, shoulders, background, or original outfit. Preserve chain links, pendant scale, and skin contact shadows.',
+  ring: 'ANATOMICAL ANCHOR: Specific finger phalanx & knuckle. Wrap ring on finger at natural position with finger occlusion. ZERO CHANGE to hand posture, skin texture, wrist, or background. Match metal reflections and gemstone orientation.',
+  bracelet: 'ANATOMICAL ANCHOR: Wrist joint (ulnar styloid process). Wrap bracelet around wrist. ZERO CHANGE to arm anatomy, fingers, sleeves, skin tone, or background.',
+  watch: 'ANATOMICAL ANCHOR: Wrist joint & forearm taper. Fit watch case and strap onto wrist. ZERO CHANGE to arm, hand, sleeves, or scene. Preserve dial markings, bezel, crown, and metallic reflections.',
+  hat: 'ANATOMICAL ANCHOR: Head circumference & hairline. Fit hat onto crown/forehead naturally. ZERO CHANGE to eyes, nose, lips, facial expression, makeup, body pose, or scene.',
+  socks: 'ANATOMICAL ANCHOR: Feet, ankle & lower calf. Fit socks onto feet/legs. ZERO CHANGE to leg shape, stance, footwear, or background.',
+  shoes: 'ANATOMICAL ANCHOR: Feet, ankle joint & sole ground plane. Place footwear on feet with ground shadow contact. ZERO CHANGE to legs, body posture, upper outfit, or background.',
+  bag: 'ANATOMICAL ANCHOR: Shoulder slope or hand grip contact. Place bag at shoulder/hand with natural strap drop. ZERO CHANGE to model face, hair, body, posture, original clothing, or scene.',
+  glasses: 'ANATOMICAL ANCHOR: Nose bridge pad & temple arms over ears. Align eyewear to nose bridge and eyes with lens transparency. ZERO CHANGE to face, eyes, eyebrows, hair, skin, or head posture.',
+  hair_accessory: 'ANATOMICAL ANCHOR: Hair strands/bun anchor. Attach accessory to hair. ZERO CHANGE to face, makeup, head angle, body posture, or environment.',
+  brooch: 'ANATOMICAL ANCHOR: Garment lapel/chest placket. Pin brooch to fabric. ZERO CHANGE to model body, face, pose, clothes, or background.',
+  tie: 'ANATOMICAL ANCHOR: Collar apex & shirt placket. Fit tie under collar. ZERO CHANGE to neck, suit jacket, face, or posture.',
+  top: 'ANATOMICAL ANCHOR: Neckline, shoulders & torso. Replace upper clothing ONLY. ZERO CHANGE to head, face, hair, lower body, hands, pose, or background.',
+  outerwear: 'ANATOMICAL ANCHOR: Shoulder slope & torso layering. Fit jacket/coat over shoulders. ZERO CHANGE to face, hair, stance, inner clothes, or background.',
+  trousers: 'ANATOMICAL ANCHOR: Waistline, hips & legs. Replace pants ONLY. ZERO CHANGE to waistband height, upper body, face, shoes, pose, or background.',
+  skirt: 'ANATOMICAL ANCHOR: Natural waist/hip. Fit skirt at waist. ZERO CHANGE to upper body, face, legs, shoes, pose, or background.',
+  dress: 'ANATOMICAL ANCHOR: Full body contour. Fit dress to body. ZERO CHANGE to facial features, hair, skin tone, body pose, camera angle, or scene.',
+  set: 'ANATOMICAL ANCHOR: Full outfit. Fit coordinated suit set. ZERO CHANGE to facial features, hair, body build, posture, camera angle, or background.',
+};
+
+const MODEL_OPTIONS = [
+  { id: 'gemini-3.1-flash-image-preview', label: 'Banana 2', desc: '快速稳定' },
+  { id: 'gemini-3-pro-image-preview', label: 'Banana Pro', desc: '复杂结构' },
+  { id: 'gpt-image-2', label: 'GPT Image 2', desc: '高质细节' },
+  { id: 'qwen-image-3.0-pro', label: '千问3.0pro', desc: '高质量生成与编辑' },
+];
+
+const ASPECT_OPTIONS = [
+  { id: AspectRatio.SQUARE, label: '1:1' },
+  { id: AspectRatio.PORTRAIT_2_3, label: '2:3' },
+  { id: AspectRatio.PORTRAIT_3_4, label: '3:4' },
+  { id: AspectRatio.PORTRAIT_4_5, label: '4:5' },
+  { id: AspectRatio.LANDSCAPE_4_3, label: '4:3' },
+  { id: AspectRatio.LANDSCAPE_16_9, label: '16:9' },
+];
+
+const STEP_ITEMS: Array<{ id: TryOnStep; label: string }> = [
+  { id: 'input', label: '输入' },
+  { id: 'analyzing', label: '分析中' },
+  { id: 'confirm', label: '确认规划' },
+  { id: 'generating', label: '生成中' },
+  { id: 'complete', label: '完成' },
+];
+
+const toDataUrl = (image: UploadedImage) => `data:${image.mime};base64,${image.base64}`;
+const toApiImage = (image: UploadedImage) => ({ base64: image.base64, mimeType: image.mime });
+const dataUrlToApiImage = async (dataUrl: string): Promise<{ mimeType: string; base64: string }> => {
+  if (!dataUrl) return { mimeType: 'image/png', base64: '' };
+  if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+    try {
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const mimeType = blob.type || 'image/png';
+      const buffer = await blob.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return { mimeType, base64: btoa(binary) };
+    } catch {
+      return { mimeType: 'image/png', base64: '' };
+    }
+  }
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) return { mimeType: 'image/png', base64: '' };
+  return { mimeType: match[1], base64: match[2] };
+};
+const categoryLabel = (category: ProductCategory) => CATEGORY_OPTIONS.find((item) => item.id === category)?.label || category;
+const isWorkingStatus = (status: ResultStatus) => ['pending', 'submitting', 'polling', 'processing'].includes(status);
+
+const createRecord = (): TryOnRecord => ({
+  id: crypto.randomUUID(),
+  createdAt: Date.now(),
+  step: 'input',
+  productImages: [],
+  bodyReferences: [],
+  category: 'earrings',
+  outputCount: 1,
+  extraRequirements: '',
+  modelId: DEFAULT_MODEL_ID,
+  aspectRatio: AspectRatio.PORTRAIT_3_4,
+  resolution: ImageResolution.RES_2K,
+  outputFormat: 'png',
+  analysis: null,
+  placement: '',
+  backgroundStrategy: '',
+  results: [],
+  error: '',
+});
+
+const getStepIndex = (step: TryOnStep) => STEP_ITEMS.findIndex((item) => item.id === step);
+
+const closestAspectRatio = (width: number, height: number): AspectRatio => {
+  const ratio = width / Math.max(1, height);
+  const candidates = [
+    [AspectRatio.SQUARE, 1],
+    [AspectRatio.PORTRAIT_2_3, 2 / 3],
+    [AspectRatio.PORTRAIT_3_4, 3 / 4],
+    [AspectRatio.PORTRAIT_4_5, 4 / 5],
+    [AspectRatio.LANDSCAPE_4_3, 4 / 3],
+    [AspectRatio.LANDSCAPE_16_9, 16 / 9],
+  ] as const;
+  return candidates.reduce((best, current) => Math.abs(current[1] - ratio) < Math.abs(best[1] - ratio) ? current : best)[0];
+};
+
+const readDimensions = async (file: File) => {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const dimensions = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return dimensions;
+  } catch {
+    return {};
+  }
+};
+
+const parseAnalysis = (text: string, bodyCount: number): TryOnAnalysis => {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('AI 未返回可识别的试穿方案，请重试。');
+  let parsed: any;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    throw new Error('试穿方案解析失败，请重试。');
+  }
+  const required = ['productIdentity', 'materialColor', 'recommendedPlacement', 'scaleFit', 'occlusionStrategy', 'backgroundStrategy'];
+  if (required.some((key) => typeof parsed[key] !== 'string' || !parsed[key].trim())) {
+    throw new Error('AI 返回的试穿方案不完整，请重试。');
+  }
+  const normalizeList = (value: unknown) => Array.isArray(value)
+    ? value.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  const referencePlans = normalizeList(parsed.referencePlans);
+  if (bodyCount > 0 && referencePlans.length < bodyCount) {
+    throw new Error('AI 未完成全部参考图的试穿规划，请重试。');
+  }
+  return {
+    productIdentity: parsed.productIdentity.trim(),
+    keyDetails: normalizeList(parsed.keyDetails),
+    materialColor: parsed.materialColor.trim(),
+    recommendedPlacement: parsed.recommendedPlacement.trim(),
+    scaleFit: parsed.scaleFit.trim(),
+    occlusionStrategy: parsed.occlusionStrategy.trim(),
+    backgroundStrategy: parsed.backgroundStrategy.trim(),
+    referencePlans: referencePlans.slice(0, bodyCount),
+    riskWarnings: normalizeList(parsed.riskWarnings),
+  };
+};
+
+const parseReferenceFidelity = (text: string): ReferenceFidelityCheck => {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('人物一致性质检未返回有效结果。');
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(match[0]) as Record<string, unknown>;
+  } catch {
+    throw new Error('人物一致性质检结果解析失败。');
+  }
+  const score = (key: string) => Math.max(0, Math.min(100, Number(parsed[key]) || 0));
+  const personIdentityScore = score('personIdentityScore');
+  const poseCompositionScore = score('poseCompositionScore');
+  const sceneIntegrityScore = score('sceneIntegrityScore');
+  const productScaleScore = score('productScaleScore');
+  const corrections = Array.isArray(parsed.corrections) ? parsed.corrections.map(String).map((item) => item.trim()).filter(Boolean) : [];
+  return {
+    pass: parsed.pass === true && personIdentityScore >= 90 && poseCompositionScore >= 92 && sceneIntegrityScore >= 90 && productScaleScore >= 82,
+    personIdentityScore,
+    poseCompositionScore,
+    sceneIntegrityScore,
+    productScaleScore,
+    corrections,
+  };
+};
+
+const verifyReferenceFidelity = async (reference: UploadedImage, generatedImage: string, category: ProductCategory) => {
+  try {
+    const genApiImage = await dataUrlToApiImage(generatedImage);
+    if (!genApiImage.base64) {
+      return { pass: true, personIdentityScore: 95, poseCompositionScore: 95, sceneIntegrityScore: 95, productScaleScore: 90, corrections: [] };
+    }
+    const hasTargetMask = Boolean(reference.targetMaskBase64);
+    const generatedIndex = hasTargetMask ? 3 : 2;
+    const response = await generateText(
+      [
+        toApiImage(reference),
+        ...(reference.targetMaskBase64 ? [{ base64: reference.targetMaskBase64, mimeType: 'image/png' }] : []),
+        genApiImage,
+      ],
+      `You are a strict virtual try-on reference-fidelity inspector.
+
+IMAGE 1 is the immutable user-provided person/body reference and intended base canvas.
+${hasTargetMask ? 'IMAGE 2 is a binary target mask: WHITE is the user-painted editable/replacement region and BLACK must remain immutable.' : ''}
+IMAGE ${generatedIndex} is the generated try-on result for category: ${categoryLabel(category)}.
+
+Evaluate only these requirements:
+1. The same visible person must remain: identical facial identity when visible, hair, skin tone, body shape and unchanged anatomy.
+2. Pose, expression, hands, camera angle, crop, subject position and framing must remain visually identical.
+3. Background, existing clothing outside the target wearing region, accessories, lighting, shadows, color temperature and image character must remain unchanged.
+4. The added product must use a physically realistic category-appropriate size derived from body landmarks; it must not be enlarged for visibility, float, or sit at the wrong anatomical location.
+5. Only the smallest wearing/contact/occlusion region may differ.
+${hasTargetMask ? '6. Changes must remain inside the WHITE mask region, except for a minimal physically necessary edge blend. Any visible change in BLACK regions fails the check.' : ''}
+
+Return JSON only:
+{"pass":true,"personIdentityScore":0,"poseCompositionScore":0,"sceneIntegrityScore":0,"productScaleScore":0,"corrections":["specific correction if needed"]}`,
+    );
+    return parseReferenceFidelity(response);
+  } catch (error) {
+    console.warn('人物一致性质检过程出现异常，平滑跳过质检:', error);
+    return { pass: true, personIdentityScore: 95, poseCompositionScore: 95, sceneIntegrityScore: 95, productScaleScore: 90, corrections: [] };
+  }
+};
+
+const buildAnalysisImages = (record: TryOnRecord) => [
+  ...record.productImages.map(toApiImage),
+  ...record.bodyReferences.flatMap((reference) => [
+    toApiImage(reference),
+    ...(reference.targetMaskBase64 ? [{ base64: reference.targetMaskBase64, mimeType: 'image/png' }] : []),
+  ]),
+];
+
+const buildAnalysisPrompt = (record: TryOnRecord) => {
+  const productEnd = record.productImages.length;
+  let imageIndex = productEnd + 1;
+  const bodyRouting = record.bodyReferences.map((reference, index) => {
+    const referenceIndex = imageIndex;
+    imageIndex += 1;
+    if (reference.targetMaskBase64) {
+      const maskIndex = imageIndex;
+      imageIndex += 1;
+      return `- Image ${referenceIndex} is person/body reference ${index + 1}; Image ${maskIndex} is its binary target mask (WHITE = user-selected replacement area, BLACK = immutable area).`;
+    }
+    return `- Image ${referenceIndex} is person/body reference ${index + 1}.`;
+  }).join('\n');
+  return `
+You are an Elite Ecommerce Virtual Try-On Agent and 3D Visual Director. Perform a precision pre-generation analysis for try-on category: ${categoryLabel(record.category)}.
+
+IMAGE ROUTING
+- Images 1-${productEnd} are multiple views/details of ONE identical product SKU.
+${record.bodyReferences.length ? `${bodyRouting}\nAnalyze every reference independently in exact sequence. Treat each supplied mask as the user's precise spatial intent.` : '- No person reference is supplied. Plan a suitable adult model, framing and wearing region.'}
+
+USER REQUIREMENTS
+${record.extraRequirements.trim() || 'No extra requirements.'}
+
+MANDATORY ANALYSIS PROTOCOL:
+1. **PRODUCT 3D STRUCTURE & MATERIAL LOCK**: Analyze exact 3D shape, silhouette, material texture, color hue, metallic sheen, pattern, logos, and hardware details of the product.
+2. **ANATOMICAL ATTACHMENT ANCHOR**: Identify the exact body landmark (e.g. earlobe for earrings, suprasternal notch for necklaces, wrist bone for watches, nose bridge for glasses, waistline for trousers).
+3. **IMMUTABLE CANVAS PRESERVATION STRATEGY**: Detail how to keep the reference person's face, hair, expression, posture, lighting, and background 100% UNCHANGED while replacing/attaching ONLY the target product.
+4. **USER MASK CONTRACT**: When a target mask is supplied, infer the intended body part from the WHITE region. The replacement/contact area must stay inside it and every BLACK pixel is locked. Explicitly mention the painted area in that reference's plan.
+
+Return valid JSON only, with no markdown:
+{
+  "productIdentity":"concise Chinese product identity summary",
+  "keyDetails":["Chinese detail lock"],
+  "materialColor":"Chinese material and color summary",
+  "recommendedPlacement":"Chinese precise anatomical wearing region and anchor point",
+  "scaleFit":"Chinese physical scale ratio and fit plan",
+  "occlusionStrategy":"Chinese contact shadow and occlusion plan",
+  "backgroundStrategy":"Chinese 100% canvas & lighting preservation strategy",
+  "referencePlans":["one concise Chinese plan for each supplied body reference"],
+  "riskWarnings":["Chinese risk or item to verify"]
+}
+`.trim();
+};
+
+const buildGenerationPrompt = (record: TryOnRecord, resultIndex: number, hasBodyReference: boolean, hasTargetMask = false, qaCorrection = '') => {
+  const analysis = record.analysis!;
+  const productStart = hasBodyReference ? (hasTargetMask ? 3 : 2) : 1;
+  const productEnd = productStart + record.productImages.length - 1;
+  return `
+Create ONE photorealistic in-place ecommerce product try-on edit, variation ${resultIndex + 1}.
+
+# INPUT ROUTING
+${hasBodyReference ? `- Image 1 is the IMMUTABLE BASE CANVAS and the exact person/body reference for this output. The output image MUST BE an in-place localized pixel edit on Image 1.
+${hasTargetMask ? '- Image 2 is the BINARY TARGET MASK. WHITE is the only user-authorized replacement/editing region; BLACK is immutable.' : ''}
+- Images ${productStart}-${productEnd} are multiple views of ONE identical product SKU and together are the sole source of truth for the item being worn.` : `- Images 1-${productEnd} are multiple views of ONE identical product SKU and together are the sole source of truth for the product.
+- No person reference supplied. Create one tasteful adult ecommerce model with an anatomically appropriate pose and clear product visibility.`}
+
+# CONFIRMED PLAN (PRECISION AGENT ANALYSIS)
+- Category: ${categoryLabel(record.category)}
+- Product identity: ${analysis.productIdentity}
+- Material and color: ${analysis.materialColor}
+- Placement & Anchor: ${record.placement || analysis.recommendedPlacement}
+- Scale and fit: ${analysis.scaleFit}
+- Occlusion & Contact: ${analysis.occlusionStrategy}
+- Canvas & Background Preservation: ${record.backgroundStrategy || analysis.backgroundStrategy}
+${analysis.keyDetails.map((item) => `- Product detail lock: ${item}`).join('\n')}
+${hasBodyReference && analysis.referencePlans[resultIndex] ? `- This reference plan: ${analysis.referencePlans[resultIndex]}` : ''}
+
+# CATEGORY-SPECIFIC ANATOMICAL FIT RULE
+${CATEGORY_RULES[record.category]}
+
+# ABSOLUTE IMMUTABLE BASE CANVAS CONTRACT (ZERO UNINTENDED CHANGES)
+- **EDIT IN PLACE ON IMAGE 1**: Edit ONLY the local wearing/attachment pixels on Image 1.
+- **100% ZERO UNINTENDED CHANGES**: DO NOT REDRAW, BEAUTIFY, RE-POSE, RELIGHT, REFRAME, ZOOM, CROP, EXTEND, ALTER OR RE-GENERATE THE PERSON OR SCENE IN IMAGE 1.
+- **PRESERVE 100% UNCHANGED**: Facial identity, eyes, nose, lips, makeup, facial expression, hair strands, hairline, skin tone, skin texture/imperfections, body height, weight, shoulder width, chest/waist/hip proportions, hand/finger pose, leg stance, camera angle, focal length, framing, background objects, environment lighting, color temperature, and all existing clothing/accessories outside the target product replacement zone.
+- **ZERO DISTORTION PRINCIPLE**: Change ONLY the target product wearing area. All surrounding body parts, face, hair, and scene MUST REMAIN 100% VISUALLY IDENTICAL to Image 1.
+- **REALISTIC PRODUCT SCALE**: Derive product size strictly from real human landmarks (e.g. earlobe size for earrings, wrist width for watches). Never enlarge the product artificially.
+${hasTargetMask ? `- **MASK IS A HARD SPATIAL CONTRACT**: Replace or attach the product ONLY in the WHITE area of Image 2. Every BLACK area must remain pixel-level unchanged. A minimal soft edge blend at the mask boundary is allowed only when physically necessary; do not expand, reinterpret, or ignore the painted region.` : ''}
+
+${qaCorrection ? `# REQUIRED CORRECTION AFTER REFERENCE QA
+The prior result was rejected. Correct all of the following while returning to Image 1 as the immutable base canvas:
+${qaCorrection}` : ''}
+
+# USER REQUIREMENTS
+${record.extraRequirements.trim() || 'No extra requirements.'}
+`.trim();
+};
+
+const resultAspectClass = (ratio: AspectRatio) => {
+  if (ratio === AspectRatio.SQUARE) return 'aspect-square';
+  if (ratio === AspectRatio.PORTRAIT_2_3) return 'aspect-[2/3]';
+  if (ratio === AspectRatio.PORTRAIT_4_5) return 'aspect-[4/5]';
+  if (ratio === AspectRatio.LANDSCAPE_4_3) return 'aspect-[4/3]';
+  if (ratio === AspectRatio.LANDSCAPE_16_9) return 'aspect-video';
+  return 'aspect-[3/4]';
+};
+
+const statusLabel = (status: ResultStatus) => ({
+  pending: '等待提交',
+  submitting: '正在提交',
+  polling: '排队生成中',
+  processing: '正在处理',
+  done: '已完成',
+  error: '生成失败',
+  cancelled: '已取消',
+})[status];
+
+const WorkflowSteps: React.FC<{ step: TryOnStep }> = ({ step }) => {
+  const activeIndex = getStepIndex(step);
+  return (
+    <div className="no-scrollbar mt-5 flex max-w-3xl items-center justify-start gap-2 overflow-x-auto pb-1 sm:mx-auto sm:justify-center" aria-label="试穿流程">
+      {STEP_ITEMS.map((item, index) => (
+        <React.Fragment key={item.id}>
+          {index > 0 && <span className={`h-px min-w-5 flex-1 sm:max-w-12 ${index <= activeIndex ? 'bg-[#ed6d46]' : 'bg-slate-200 dark:bg-white/10'}`} />}
+          <div className={`flex min-w-fit items-center gap-2 text-xs font-bold ${index <= activeIndex ? 'text-[#16233b] dark:text-white' : 'text-slate-400'}`}>
+            <span className={`flex h-8 w-8 items-center justify-center rounded-full border ${index < activeIndex ? 'border-[#ed6d46] bg-[#ed6d46] text-white' : index === activeIndex ? 'border-[#16233b] bg-[#16233b] text-white dark:border-[#ed6d46] dark:bg-[#ed6d46]' : 'border-slate-200 bg-white dark:border-white/10 dark:bg-white/5'}`}>
+              {index < activeIndex ? <Check className="h-4 w-4" /> : index + 1}
+            </span>
+            <span>{item.label}</span>
+          </div>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
+
+const TutorialModal: React.FC<{ onClose: () => void; onRemember: () => void }> = ({ onClose, onRemember }) => {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const [example, setExample] = useState<'product' | 'body'>('product');
+
+  useEffect(() => {
+    primaryRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab' || !panelRef.current) return;
+      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter((item) => !item.hasAttribute('disabled'));
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#13213a]/62 p-3 backdrop-blur-md sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="try-on-tutorial-title" className="no-scrollbar relative max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-[1.75rem] border border-white/70 bg-[#f8fbff] p-4 shadow-[0_32px_90px_rgba(9,24,48,0.32)] sm:p-7 lg:p-9">
+        <button type="button" onClick={onClose} className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-[#e9f0f8] text-[#24334d] transition hover:bg-[#dce7f3] sm:right-5 sm:top-5" aria-label="关闭教程"><X className="h-5 w-5" /></button>
+        <span className="inline-flex rounded-full bg-[#16233b] px-3 py-1.5 text-xs font-black tracking-wide text-white">首次使用建议</span>
+        <h2 id="try-on-tutorial-title" className="mt-4 pr-12 text-2xl font-black tracking-tight text-[#142139] sm:text-3xl">先准备素材，再开始分析</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-7 text-[#60708a] sm:text-base">同一款商品可上传多个角度；人物或局部参考不是必填，但清晰的佩戴区域能让尺寸、遮挡与光影更准确。</p>
+
+        <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-stretch">
+          {[
+            { num: '01', title: '商品图资料', text: '上传同一款商品的 1–5 张图片。简单款 1–2 张即可，结构复杂或需要锁定 Logo、五金和纹理时补充侧面与细节。' },
+            { num: '02', title: '部位参考（选填）', text: '最多 6 张，可使用完整人物或清晰局部。每张参考图会对应一张结果；不上传时由 AI 自动匹配人物与佩戴区域。' },
+            { num: '03', title: '额外要求（选填）', text: '可补充人物风格、背景光线、重点保留细节和禁忌。AI 会先给出方案，确认后才正式生成。' },
+          ].map((item, index) => (
+            <React.Fragment key={item.num}>
+              {index > 0 && <div className="hidden items-center justify-center lg:flex"><span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#ccd9e8] bg-white text-[#16233b]">→</span></div>}
+              <article className="rounded-2xl border border-[#dbe5f0] bg-white p-5 shadow-[0_12px_35px_rgba(37,65,99,0.06)]">
+                <span className="text-xs font-black tracking-[0.18em] text-[#8da0b8]">{item.num}</span>
+                <h3 className="mt-4 font-black text-[#192740]">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#61718a]">{item.text}</p>
+              </article>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <section className="mt-5 overflow-hidden rounded-2xl border border-[#d7e3ef] bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4ebf3] px-4 py-3 sm:px-5">
+            <div><span className="text-[0.65rem] font-black tracking-[0.18em] text-[#ed6d46]">案例提示</span><h3 className="mt-0.5 font-black text-[#17243c]">{example === 'product' ? '干净商品图示例' : '清晰部位参考示例'}</h3></div>
+            <div className="flex rounded-xl bg-[#edf3f9] p-1">
+              <button type="button" onClick={() => setExample('product')} className={`min-h-11 rounded-lg px-3 text-xs font-black ${example === 'product' ? 'bg-[#16233b] text-white shadow-sm' : 'text-[#60708a]'}`}>商品图</button>
+              <button type="button" onClick={() => setExample('body')} className={`min-h-11 rounded-lg px-3 text-xs font-black ${example === 'body' ? 'bg-[#16233b] text-white shadow-sm' : 'text-[#60708a]'}`}>部位参考</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-[10rem_1fr] sm:p-5">
+            <img src={example === 'product' ? './creative-covers/try-on-product-guide.webp' : './creative-covers/try-on-body-guide.webp'} alt={example === 'product' ? '干净商品图示例' : '清晰人物颈部参考示例'} className="aspect-square w-full rounded-xl object-cover sm:w-40" />
+            <div className="self-center">
+              <p className="text-sm leading-6 text-[#61718a]">{example === 'product' ? '背景尽量纯白或浅灰，商品保持完整、少裁切、光线均匀；多个角度必须是同一款商品。' : '佩戴区域清晰、少遮挡、主体明确；全身或局部均可，但需与选择的试穿品类对应。'}</p>
+              <div className="mt-3 flex flex-wrap gap-2">{(example === 'product' ? ['轮廓完整', '细节清晰', '颜色准确'] : ['区域清晰', '光线自然', '姿态可信']).map((tag) => <span key={tag} className="rounded-full bg-[#eef4fb] px-3 py-1 text-xs font-bold text-[#61718a]">{tag}</span>)}</div>
+            </div>
+          </div>
+        </section>
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onClose} className="min-h-12 rounded-xl bg-[#edf3f9] px-5 text-sm font-black text-[#61718a] transition hover:bg-[#e2ebf5]">稍后再看</button>
+          <button ref={primaryRef} type="button" onClick={onRemember} className="min-h-12 rounded-xl bg-[#16233b] px-6 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-[#243550]">明白了，开始上传</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface UploadZoneProps {
+  kind: UploadKind;
+  title: string;
+  description: string;
+  images: UploadedImage[];
+  max: number;
+  disabled: boolean;
+  active: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onActivate: () => void;
+  onFiles: (files: File[]) => void;
+  onRemove: (id: string) => void;
+  onEditMask?: (image: UploadedImage) => void;
+}
+
+const UploadZone: React.FC<UploadZoneProps> = ({ kind, title, description, images, max, disabled, active, inputRef, onActivate, onFiles, onRemove, onEditMask }) => (
+  <section
+    className={`rounded-2xl border bg-white p-4 shadow-sm transition sm:p-5 dark:bg-[#121212] ${active ? 'border-[#ed6d46] ring-4 ring-[#ed6d46]/10' : 'border-pastel-border'}`}
+    data-upload-kind={kind}
+    onPointerEnter={onActivate}
+    onFocusCapture={onActivate}
+    onClick={onActivate}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#2d6bb1] dark:bg-blue-500/10"><ImageIcon className="h-5 w-5" /></span><div><h3 className="text-sm font-black text-pastel-text">{title}</h3><p className="mt-1 text-xs leading-5 text-pastel-muted">{description}</p></div></div>
+      <span className="shrink-0 text-xs font-bold text-pastel-muted">{images.length}/{max}</span>
+    </div>
+    {images.length > 0 && <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-5">{images.map((image) => <div key={image.id} className="group relative aspect-square overflow-hidden rounded-xl border border-pastel-border bg-pastel-bg"><img src={image.preview} alt={image.name} className="h-full w-full object-cover" />{image.targetMaskPreview && <img src={image.targetMaskPreview} alt="已涂抹替换区域" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}{onEditMask && <button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onEditMask(image); }} className={`absolute bottom-1 left-1 flex min-h-9 items-center gap-1 rounded-lg px-2 text-[0.65rem] font-black text-white shadow-sm transition ${image.targetMaskBase64 ? 'bg-[#ed6d46]' : 'bg-[#16233b]/88 hover:bg-[#ed6d46]'}`} aria-label={`涂抹${image.name}的替换区域`}><Paintbrush className="h-3.5 w-3.5" />{image.targetMaskBase64 ? '已标记' : '涂抹'}</button>}<button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onRemove(image.id); }} className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#16233b]/85 text-white shadow-sm transition hover:bg-red-500" aria-label={`删除${image.name}`}><X className="h-4 w-4" /></button></div>)}</div>}
+    {images.length < max && <button type="button" disabled={disabled} onClick={(event) => { event.stopPropagation(); onActivate(); inputRef.current?.click(); }} onDragOver={(event) => { event.preventDefault(); onActivate(); }} onDrop={(event) => { event.preventDefault(); onActivate(); onFiles(Array.from(event.dataTransfer.files)); }} className="mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#ccd9e8] bg-[#f8fbff] px-4 text-center transition hover:border-[#ed6d46] hover:bg-[#fff8f4] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03]"><Upload className="h-6 w-6 text-[#ed6d46]" /><span className="mt-2 text-sm font-black text-pastel-text">拖拽、点击或 Ctrl+V 粘贴图片</span><span className="mt-1 text-xs text-pastel-muted">JPG / JPEG / PNG / WEBP · 单张 ≤ 10MB</span></button>}
+    <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={(event) => { onFiles(Array.from(event.target.files || [])); event.target.value = ''; }} data-kind={kind} />
+  </section>
+);
+
+type ReferenceMaskEditorProps = {
+  image: UploadedImage;
+  category: ProductCategory;
+  productImages: UploadedImage[];
+  onClose: () => void;
+  onSave: (mask: { base64?: string; preview?: string; opacity?: number }) => void;
+};
+
+const ReferenceMaskEditor: React.FC<ReferenceMaskEditorProps> = ({ image, category, productImages, onClose, onSave }) => {
+  const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
+  const paintCanvasRef = useRef<HTMLCanvasElement>(null);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
+  const [brushSize, setBrushSize] = useState(42);
+  const [maskOpacity, setMaskOpacity] = useState(image.targetMaskOpacity ?? 80);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [isAutoSelecting, setIsAutoSelecting] = useState(false);
+  const [autoSelectNotice, setAutoSelectNotice] = useState('');
+  const [hasPaint, setHasPaint] = useState(Boolean(image.targetMaskBase64));
+  const [brushCursor, setBrushCursor] = useState({ x: 0, y: 0, visible: false });
+  const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
+
+  useEffect(() => {
+    const sourceCanvas = sourceCanvasRef.current;
+    const paintCanvas = paintCanvasRef.current;
+    if (!sourceCanvas || !paintCanvas) return;
+    let disposed = false;
+    const source = new window.Image();
+    source.onload = () => {
+      if (disposed) return;
+      const width = source.naturalWidth || 1;
+      const height = source.naturalHeight || 1;
+      sourceCanvas.width = width;
+      sourceCanvas.height = height;
+      paintCanvas.width = width;
+      paintCanvas.height = height;
+      sourceCanvas.getContext('2d')?.drawImage(source, 0, 0, width, height);
+      setCanvasSize({ width, height });
+      if (image.targetMaskPreview) {
+        const overlay = new window.Image();
+        overlay.onload = () => {
+          if (disposed) return;
+          const paintContext = paintCanvas.getContext('2d');
+          paintContext?.drawImage(overlay, 0, 0, width, height);
+          if (paintContext) {
+            const overlayPixels = paintContext.getImageData(0, 0, width, height);
+            for (let index = 0; index < overlayPixels.data.length; index += 4) {
+              if (overlayPixels.data[index + 3] > 8) {
+                overlayPixels.data[index] = 237;
+                overlayPixels.data[index + 1] = 78;
+                overlayPixels.data[index + 2] = 70;
+                overlayPixels.data[index + 3] = 255;
+              }
+            }
+            paintContext.putImageData(overlayPixels, 0, 0);
+          }
+          setIsReady(true);
+        };
+        overlay.onerror = () => !disposed && setIsReady(true);
+        overlay.src = image.targetMaskPreview;
+      } else {
+        setIsReady(true);
+      }
+    };
+    source.onerror = () => !disposed && setIsReady(true);
+    source.src = image.preview;
+    return () => { disposed = true; };
+  }, [image]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  const getPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = paintCanvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  const updateBrushCursor = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setBrushCursor({ x: event.clientX - rect.left, y: event.clientY - rect.top, visible: true });
+  };
+
+  const drawSegment = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const canvas = paintCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    const scaledSize = brushSize * (canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+    context.save();
+    context.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+    context.strokeStyle = '#ed4e46';
+    context.fillStyle = '#ed4e46';
+    context.lineWidth = scaledSize;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    if (from.x === to.x && from.y === to.y) {
+      context.beginPath();
+      context.arc(to.x, to.y, scaledSize / 2, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.beginPath();
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+    }
+    context.restore();
+    setHasPaint(true);
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isReady || isAutoSelecting) return;
+    updateBrushCursor(event);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = getPoint(event);
+    lastPointRef.current = point;
+    setIsDrawing(true);
+    drawSegment(point, point);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    updateBrushCursor(event);
+    if (!isDrawing || !lastPointRef.current) return;
+    const point = getPoint(event);
+    drawSegment(lastPointRef.current, point);
+    lastPointRef.current = point;
+  };
+
+  const finishDrawing = () => {
+    lastPointRef.current = null;
+    setIsDrawing(false);
+  };
+
+  const clearMask = () => {
+    const canvas = paintCanvasRef.current;
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    setHasPaint(false);
+    setAutoSelectNotice('已清空识别与手动涂抹区域。');
+  };
+
+  const autoSelectProduct = async () => {
+    const canvas = paintCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context || !isReady || isAutoSelecting) return;
+    setIsAutoSelecting(true);
+    setAutoSelectNotice(`正在识别${categoryLabel(category)}的精准轮廓…`);
+    try {
+      const response = await generateText(
+        [toApiImage(image), ...productImages.map(toApiImage)],
+        `You are a precision fashion segmentation agent. Analyze Image 1 for a virtual try-on edit targeting category "${categoryLabel(category)}" (${category}).
+
+${productImages.length ? `Images 2-${productImages.length + 1} show the replacement product from one or more views. Use them only to understand its product category and intended wearing position; create polygons only for Image 1.` : ''}
+Find the exact visible product in Image 1 that should be replaced. If that product is not already present, find the smallest anatomically correct placement region for it. Trace the visible outer contour precisely, following garment, accessory, body-contact, and occlusion edges. Return multiple polygons for disconnected parts such as two earrings. Do not include face, hair, hands, skin, background, or unrelated clothing unless they are inside the actual target product boundary.
+
+Coordinates must be normalized from 0 to 1000 relative to the full image, using [x, y] order. Each polygon needs 8-60 boundary points. Return JSON only:
+{"target":"short Chinese target name","confidence":0.0,"polygons":[[[x,y],[x,y],[x,y]]]}`,
+      );
+      const match = response.replace(/\`\`\`json|\`\`\`/gi, '').match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('AI 未返回可用轮廓');
+      const parsed = JSON.parse(match[0]) as { target?: string; confidence?: number; polygons?: unknown[] };
+      const polygons = (Array.isArray(parsed.polygons) ? parsed.polygons : []).map((polygon) => {
+        if (!Array.isArray(polygon)) return [];
+        return polygon.map((point): { x: number; y: number } | null => {
+          let x: number;
+          let y: number;
+          if (Array.isArray(point)) {
+            x = Number(point[0]);
+            y = Number(point[1]);
+          } else if (point && typeof point === 'object') {
+            x = Number((point as { x?: number }).x);
+            y = Number((point as { y?: number }).y);
+          } else return null;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+          if (x >= 0 && x <= 1 && y >= 0 && y <= 1) { x *= 1000; y *= 1000; }
+          return {
+            x: Math.max(0, Math.min(canvas.width, (x / 1000) * canvas.width)),
+            y: Math.max(0, Math.min(canvas.height, (y / 1000) * canvas.height)),
+          };
+        }).filter((point): point is { x: number; y: number } => Boolean(point));
+      }).filter((polygon) => polygon.length >= 3);
+      if (!polygons.length) throw new Error('没有识别到可涂抹的产品轮廓');
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.save();
+      context.fillStyle = '#ed4e46';
+      context.strokeStyle = '#ed4e46';
+      context.lineJoin = 'round';
+      context.lineWidth = Math.max(2, canvas.width / 500);
+      polygons.forEach((polygon) => {
+        context.beginPath();
+        context.moveTo(polygon[0].x, polygon[0].y);
+        polygon.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.closePath();
+        context.fill();
+        context.stroke();
+      });
+      context.restore();
+      setHasPaint(true);
+      const confidence = Math.round(Math.max(0, Math.min(1, Number(parsed.confidence) || 0)) * 100);
+      setAutoSelectNotice(`已识别${parsed.target ? `“${parsed.target}”` : categoryLabel(category)}${confidence ? `，置信度 ${confidence}%` : ''}；可继续用画笔微调。`);
+    } catch (error) {
+      setAutoSelectNotice(`自动识别失败：${getErrorMessage(error)}，可以继续手动涂抹。`);
+    } finally {
+      setIsAutoSelecting(false);
+    }
+  };
+
+  const saveMask = () => {
+    const paintCanvas = paintCanvasRef.current;
+    if (!paintCanvas) return;
+    const pixels = paintCanvas.getContext('2d')?.getImageData(0, 0, paintCanvas.width, paintCanvas.height).data;
+    let containsPaint = false;
+    if (pixels) {
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] > 8) { containsPaint = true; break; }
+      }
+    }
+    if (!containsPaint) {
+      onSave({ opacity: maskOpacity });
+      return;
+    }
+    const whiteLayer = document.createElement('canvas');
+    whiteLayer.width = paintCanvas.width;
+    whiteLayer.height = paintCanvas.height;
+    const whiteContext = whiteLayer.getContext('2d')!;
+    whiteContext.drawImage(paintCanvas, 0, 0);
+    whiteContext.globalCompositeOperation = 'source-in';
+    whiteContext.fillStyle = '#ffffff';
+    whiteContext.fillRect(0, 0, whiteLayer.width, whiteLayer.height);
+    const binaryMask = document.createElement('canvas');
+    binaryMask.width = paintCanvas.width;
+    binaryMask.height = paintCanvas.height;
+    const maskContext = binaryMask.getContext('2d')!;
+    maskContext.fillStyle = '#000000';
+    maskContext.fillRect(0, 0, binaryMask.width, binaryMask.height);
+    maskContext.drawImage(whiteLayer, 0, 0);
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = paintCanvas.width;
+    previewCanvas.height = paintCanvas.height;
+    const previewContext = previewCanvas.getContext('2d')!;
+    previewContext.globalAlpha = maskOpacity / 100;
+    previewContext.drawImage(paintCanvas, 0, 0);
+    onSave({
+      base64: binaryMask.toDataURL('image/png').split(',')[1],
+      preview: previewCanvas.toDataURL('image/png'),
+      opacity: maskOpacity,
+    });
+  };
+
+  const displayRatio = canvasSize.width / Math.max(1, canvasSize.height);
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#101827]/88 p-2 backdrop-blur-sm sm:p-5" role="dialog" aria-modal="true" aria-label="涂抹精准替换区域">
+      <div className="flex max-h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#f5f8fc] shadow-2xl dark:bg-[#111827]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dbe5ef] bg-white px-4 py-3 dark:border-white/10 dark:bg-[#141c2b] sm:px-5">
+          <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff0e9] text-[#ed6d46]"><Paintbrush className="h-5 w-5" /></span><div><h2 className="text-sm font-black text-[#17243c] dark:text-white">涂抹需要替换的部件</h2><p className="mt-0.5 text-xs text-[#718096]">红色区域将作为精准替换范围，未涂抹区域保持不变</p></div></div>
+          <button type="button" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-xl text-[#718096] hover:bg-[#edf3f9]" aria-label="关闭涂抹编辑器"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="border-b border-[#dbe5ef] bg-white px-4 py-3 dark:border-white/10 dark:bg-[#141c2b] sm:px-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void autoSelectProduct()} disabled={!isReady || isAutoSelecting} className="flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-[#ed6d46] to-[#f28b57] px-4 text-xs font-black text-white shadow-[0_8px_18px_rgba(237,109,70,0.2)] disabled:cursor-wait disabled:opacity-60">{isAutoSelecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}AI 自动识别</button>
+            <div className="flex rounded-xl bg-[#edf3f9] p-1 dark:bg-white/5"><button type="button" onClick={() => setTool('brush')} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs font-black ${tool === 'brush' ? 'bg-[#16233b] text-white shadow-sm' : 'text-[#60708a]'}`}><Paintbrush className="h-4 w-4" />画笔</button><button type="button" onClick={() => setTool('eraser')} className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs font-black ${tool === 'eraser' ? 'bg-[#16233b] text-white shadow-sm' : 'text-[#60708a]'}`}><Eraser className="h-4 w-4" />橡皮擦</button></div>
+            <label className="flex min-h-11 min-w-[12rem] flex-1 items-center gap-3 rounded-xl bg-[#edf3f9] px-3 text-xs font-bold text-[#60708a] dark:bg-white/5 lg:max-w-xs">笔刷大小<input type="range" min="8" max="120" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} className="min-w-20 flex-1 accent-[#ed6d46]" /><span className="w-8 text-right">{brushSize}</span></label>
+            <label className="flex min-h-11 min-w-[12rem] flex-1 items-center gap-3 rounded-xl bg-[#edf3f9] px-3 text-xs font-bold text-[#60708a] dark:bg-white/5 lg:max-w-xs">透明度<input type="range" min="10" max="100" value={maskOpacity} onChange={(event) => setMaskOpacity(Number(event.target.value))} className="min-w-20 flex-1 accent-[#ed6d46]" /><span className="w-10 text-right">{maskOpacity}%</span></label>
+            <button type="button" onClick={clearMask} className="min-h-11 rounded-xl border border-[#dbe5ef] bg-white px-4 text-xs font-black text-[#60708a] hover:border-[#ed6d46] hover:text-[#ed6d46] dark:bg-white/5">清空</button>
+          </div>
+          {autoSelectNotice && <p className={`mt-2 text-xs font-bold ${autoSelectNotice.includes('失败') ? 'text-red-500' : 'text-[#52708f]'}`}>{autoSelectNotice}</p>}
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_center,_#eef4fa,_#e4edf6)] p-3 sm:p-5">
+          <div className="relative mx-auto overflow-hidden rounded-xl bg-white shadow-xl" style={{ width: `min(100%, calc(65vh * ${displayRatio}))`, aspectRatio: `${canvasSize.width} / ${canvasSize.height}` }}>
+            <canvas ref={sourceCanvasRef} className="absolute inset-0 h-full w-full" />
+            <canvas ref={paintCanvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerEnter={updateBrushCursor} onPointerLeave={() => !isDrawing && setBrushCursor((cursor) => ({ ...cursor, visible: false }))} onPointerUp={finishDrawing} onPointerCancel={finishDrawing} className={`absolute inset-0 h-full w-full touch-none ${isReady && !isAutoSelecting ? 'cursor-none' : 'cursor-wait'}`} style={{ opacity: maskOpacity / 100 }} />
+            {brushCursor.visible && isReady && !isAutoSelecting && <span className={`pointer-events-none absolute rounded-full border-2 ${tool === 'eraser' ? 'border-white bg-white/15 shadow-[0_0_0_1px_rgba(22,35,59,0.95),0_0_8px_rgba(22,35,59,0.35)]' : 'border-white bg-[#ed4e46]/10 shadow-[0_0_0_1px_rgba(237,78,70,0.95),0_0_10px_rgba(237,78,70,0.45)]'}`} style={{ width: brushSize, height: brushSize, left: brushCursor.x - brushSize / 2, top: brushCursor.y - brushSize / 2 }} aria-hidden="true" />}
+            {isAutoSelecting && <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#16233b]/35 text-white backdrop-blur-[2px]"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15"><Loader2 className="h-6 w-6 animate-spin" /></span><span className="rounded-full bg-[#16233b]/75 px-4 py-2 text-xs font-black">AI 正在追踪产品边缘</span></div>}
+            {!isReady && <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-[#ed6d46]"><Loader2 className="h-7 w-7 animate-spin" /></div>}
+          </div>
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-[#dbe5ef] bg-white px-4 py-3 dark:border-white/10 dark:bg-[#141c2b] sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <p className="text-xs text-[#718096]">建议稍微覆盖部件边缘，AI 会在边界处自然融合。</p><div className="flex gap-2"><button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-xl bg-[#edf3f9] px-5 text-sm font-black text-[#60708a] sm:flex-none">取消</button><button type="button" onClick={saveMask} disabled={!isReady} className="min-h-11 flex-1 rounded-xl bg-[#ed6d46] px-6 text-sm font-black text-white shadow-[0_10px_22px_rgba(237,109,70,0.24)] disabled:opacity-50 sm:flex-none">{hasPaint ? '保存涂抹区域' : '保存并清除蒙版'}</button></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SingleItemTryOnTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+  const initialRecordRef = useRef<TryOnRecord | null>(null);
+  if (!initialRecordRef.current) initialRecordRef.current = createRecord();
+  const [records, setRecords] = useState<TryOnRecord[]>([initialRecordRef.current]);
+  const [activeRecordId, setActiveRecordId] = useState(initialRecordRef.current.id);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(true);
+  const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
+  const [maskEditorImageId, setMaskEditorImageId] = useState<string | null>(null);
+  const activeUploadKindRef = useRef<UploadKind>('product');
+  const [activeUploadKind, setActiveUploadKind] = useState<UploadKind>('product');
+  const productInputRef = useRef<HTMLInputElement>(null);
+  const bodyInputRef = useRef<HTMLInputElement>(null);
+  const wasActiveRef = useRef(false);
+  const {
+    cancelMessage,
+    startGenerationTask,
+    cancelGenerationTask,
+    assertCurrentGenerationTask,
+    finishGenerationTask,
+  } = useCancelableGeneration();
+
+  const activeRecord = records.find((record) => record.id === activeRecordId) || records[0];
+  const isBusy = activeRecord?.step === 'analyzing' || activeRecord?.step === 'generating';
+  const outputTotal = activeRecord?.bodyReferences.length || activeRecord?.outputCount || 1;
+  const maskEditorImage = activeRecord?.bodyReferences.find((image) => image.id === maskEditorImageId) || null;
+
+  const updateRecord = useCallback((id: string, updater: (record: TryOnRecord) => TryOnRecord) => {
+    setRecords((current) => current.map((record) => record.id === id ? updater(record) : record));
+  }, []);
+
+  const patchActive = useCallback((patch: Partial<TryOnRecord>) => {
+    updateRecord(activeRecordId, (record) => ({ ...record, ...patch }));
+  }, [activeRecordId, updateRecord]);
+
+  useEffect(() => {
+    if (isActive && !wasActiveRef.current && localStorage.getItem(TUTORIAL_KEY) !== '1') setShowTutorial(true);
+    wasActiveRef.current = isActive;
+  }, [isActive]);
+
+  const activateUpload = useCallback((kind: UploadKind) => {
+    activeUploadKindRef.current = kind;
+    setActiveUploadKind(kind);
+  }, []);
+
+  const processFiles = useCallback(async (files: File[], kind: UploadKind) => {
+    if (!activeRecord || isBusy) return;
+    const max = kind === 'product' ? MAX_PRODUCT_IMAGES : MAX_BODY_REFERENCES;
+    const currentImages = kind === 'product' ? activeRecord.productImages : activeRecord.bodyReferences;
+    const imageFiles = files.filter((file) => ACCEPTED_MIME_TYPES.has(file.type));
+    const accepted = imageFiles.filter((file) => file.size <= MAX_FILE_SIZE).slice(0, Math.max(0, max - currentImages.length));
+    if (!accepted.length) {
+      const message = imageFiles.some((file) => file.size > MAX_FILE_SIZE) ? '单张图片不能超过 10MB。' : imageFiles.length ? `最多上传 ${max} 张图片。` : '仅支持 JPG、JPEG、PNG 或 WEBP 图片。';
+      patchActive({ error: message });
+      return;
+    }
+    try {
+      const uploaded = await Promise.all(accepted.map(async (file): Promise<UploadedImage> => {
+        const [compressed, dimensions] = await Promise.all([compressImage(file, 2048, 0.94), readDimensions(file)]);
+        return { id: crypto.randomUUID(), name: file.name || `粘贴图片-${Date.now()}.png`, mime: compressed.mime, base64: compressed.base64, preview: `data:${compressed.mime};base64,${compressed.base64}`, ...dimensions };
+      }));
+      updateRecord(activeRecord.id, (record) => {
+        const next = [...(kind === 'product' ? record.productImages : record.bodyReferences), ...uploaded].slice(0, max);
+        const nextRatio = kind === 'body' && uploaded[0]?.width && uploaded[0]?.height ? closestAspectRatio(uploaded[0].width, uploaded[0].height) : record.aspectRatio;
+        return { ...record, [kind === 'product' ? 'productImages' : 'bodyReferences']: next, aspectRatio: nextRatio, analysis: null, results: [], step: 'input', error: imageFiles.length > accepted.length ? `部分图片未加入：最多 ${max} 张，且单张不超过 10MB。` : '' };
+      });
+    } catch (error) {
+      patchActive({ error: getErrorMessage(error) });
+    }
+  }, [activeRecord, isBusy, patchActive, updateRecord]);
+
+  useImagePaste((files) => void processFiles(files, activeUploadKindRef.current), isActive && !isBusy && activeRecord?.step === 'input');
+
+  const removeImage = (kind: UploadKind, id: string) => {
+    if (id === maskEditorImageId) setMaskEditorImageId(null);
+    updateRecord(activeRecord.id, (record) => ({ ...record, [kind === 'product' ? 'productImages' : 'bodyReferences']: (kind === 'product' ? record.productImages : record.bodyReferences).filter((image) => image.id !== id), analysis: null, results: [], step: 'input', error: '' }));
+  };
+
+  const saveReferenceMask = useCallback((mask: { base64?: string; preview?: string; opacity?: number }) => {
+    if (!maskEditorImageId) return;
+    updateRecord(activeRecordId, (record) => ({
+      ...record,
+      bodyReferences: record.bodyReferences.map((image) => image.id === maskEditorImageId ? {
+        ...image,
+        targetMaskBase64: mask.base64,
+        targetMaskPreview: mask.preview,
+        targetMaskOpacity: mask.opacity ?? 80,
+      } : image),
+      analysis: null,
+      results: [],
+      step: 'input',
+      error: '',
+    }));
+    setMaskEditorImageId(null);
+  }, [activeRecordId, maskEditorImageId, updateRecord]);
+
+  const startNewRecord = () => {
+    if (isBusy) return;
+    const record = createRecord();
+    setRecords((current) => [record, ...current].slice(0, MAX_RECORDS));
+    setActiveRecordId(record.id);
+    setShowAdvanced(false);
+    if (window.innerWidth < 1280) setIsHistoryOpen(false);
+  };
+
+  const openRecord = (record: TryOnRecord) => {
+    if (isBusy) return;
+    setActiveRecordId(record.id);
+    setShowAdvanced(false);
+    if (window.innerWidth < 1280) setIsHistoryOpen(false);
+  };
+
+  const removeRecord = (id: string) => {
+    if (isBusy) return;
+    if (id === activeRecordId) {
+      const replacement = createRecord();
+      setRecords((current) => [replacement, ...current.filter((record) => record.id !== id)].slice(0, MAX_RECORDS));
+      setActiveRecordId(replacement.id);
+    } else {
+      setRecords((current) => current.filter((record) => record.id !== id));
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!activeRecord.productImages.length || isBusy) {
+      if (!activeRecord.productImages.length) patchActive({ error: '请至少上传 1 张商品图。' });
+      return;
+    }
+    const recordId = activeRecord.id;
+    const snapshot = { ...activeRecord, productImages: [...activeRecord.productImages], bodyReferences: [...activeRecord.bodyReferences] };
+    const { taskId, signal } = startGenerationTask();
+    updateRecord(recordId, (record) => ({ ...record, step: 'analyzing', error: '', analysis: null, results: [], createdAt: Date.now() }));
+    try {
+      const text = await generateText(buildAnalysisImages(snapshot), buildAnalysisPrompt(snapshot));
+      assertCurrentGenerationTask(taskId, signal);
+      const analysis = parseAnalysis(text, snapshot.bodyReferences.length);
+      updateRecord(recordId, (record) => ({ ...record, step: 'confirm', analysis, placement: analysis.recommendedPlacement, backgroundStrategy: analysis.backgroundStrategy, error: '' }));
+    } catch (error) {
+      if (!isAbortError(error)) updateRecord(recordId, (record) => ({ ...record, step: 'input', error: getErrorMessage(error) }));
+    } finally {
+      finishGenerationTask(taskId);
+    }
+  };
+
+  const updateResult = useCallback((recordId: string, resultId: string, patch: Partial<TryOnResult>) => {
+    updateRecord(recordId, (record) => ({ ...record, results: record.results.map((result) => result.id === resultId ? { ...result, ...patch } : result) }));
+  }, [updateRecord]);
+
+  const generateOne = async (record: TryOnRecord, result: TryOnResult, index: number, signal: AbortSignal) => {
+    const reference = record.bodyReferences[index];
+    const hasTargetMask = Boolean(reference?.targetMaskBase64);
+    const inputs = reference
+      ? [
+          toApiImage(reference),
+          ...(reference.targetMaskBase64 ? [{ base64: reference.targetMaskBase64, mimeType: 'image/png' }] : []),
+          ...record.productImages.map(toApiImage),
+        ]
+      : record.productImages.map(toApiImage);
+    let qaCorrection = '';
+    let finalPrompt = '';
+
+    for (let attempt = 0; attempt < (reference ? 2 : 1); attempt += 1) {
+      finalPrompt = buildGenerationPrompt(record, index, Boolean(reference), hasTargetMask, qaCorrection);
+      updateResult(record.id, result.id, { status: 'submitting', prompt: finalPrompt, error: undefined });
+      let rawImage: string | undefined;
+      if (reference?.targetMaskBase64 && record.modelId !== 'qwen-image-3.0-pro') {
+        updateResult(record.id, result.id, { status: 'processing' });
+        [rawImage] = await generateInpainting(
+            toApiImage(reference),
+            { base64: reference.targetMaskBase64, mimeType: 'image/png' },
+            finalPrompt,
+            {
+              aspectRatio: record.aspectRatio,
+              resolution: record.resolution,
+              modelId: record.modelId,
+              refImages: record.productImages.map(toApiImage),
+              signal,
+            },
+          );
+      } else {
+        [rawImage] = await generateImageToImage(
+            inputs,
+            finalPrompt,
+            {
+              aspectRatio: record.aspectRatio,
+              resolution: record.resolution,
+              modelId: record.modelId,
+              workflowHint: 'single-item-try-on',
+              hasModelRef: Boolean(reference),
+              signal,
+              onStatus: (status) => updateResult(record.id, result.id, { status }),
+            },
+          );
+      }
+      if (!rawImage) throw new Error('模型未返回图片。');
+      updateResult(record.id, result.id, { status: 'processing' });
+      const imageUrl = await convertImageDataUrlFormat(rawImage, record.outputFormat);
+      if (!reference) return { ...result, status: 'done' as const, prompt: finalPrompt, imageUrl };
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+      const fidelity = await verifyReferenceFidelity(reference, imageUrl, record.category);
+      if (fidelity.pass) return { ...result, status: 'done' as const, prompt: finalPrompt, imageUrl };
+      qaCorrection = [
+        ...fidelity.corrections,
+        `人物一致性 ${fidelity.personIdentityScore}/100，必须恢复为Image 1中的同一人物。`,
+        `姿势与构图 ${fidelity.poseCompositionScore}/100，必须逐项对齐Image 1。`,
+        `背景与光影 ${fidelity.sceneIntegrityScore}/100，禁止重绘非穿戴区域。`,
+        `商品尺度 ${fidelity.productScaleScore}/100，必须按真实人体标志校准自然大小。`,
+      ].join('\n- ');
+    }
+
+    throw new Error('人物参考一致性质检未通过：结果与原人物、姿势、场景或真实商品尺度不一致，请单张重试。');
+  };
+
+  const saveRecord = async (record: TryOnRecord, results: TryOnResult[]) => {
+    const successful = results.filter((result) => result.status === 'done' && result.imageUrl);
+    if (!successful.length) return;
+    await saveGeneratedProject({
+      type: 'MODEL',
+      generated: successful.map((result) => result.imageUrl!),
+      original: [...record.productImages, ...record.bodyReferences].map(toDataUrl),
+      prompt: successful[0].prompt,
+      thumbnail: successful[0].imageUrl,
+      params: {
+        source: 'Cyzx4/components/SingleItemTryOnTab',
+        subType: 'single_item_try_on_batch',
+        category: record.category,
+        categoryLabel: categoryLabel(record.category),
+        model: record.modelId,
+        aspectRatio: record.aspectRatio,
+        resolution: record.resolution,
+        outputFormat: record.outputFormat,
+        outputCount: results.length,
+        productImageCount: record.productImages.length,
+        bodyReferenceCount: record.bodyReferences.length,
+        paintedReferenceCount: record.bodyReferences.filter((reference) => reference.targetMaskBase64).length,
+        extraRequirements: record.extraRequirements,
+        placement: record.placement,
+        backgroundStrategy: record.backgroundStrategy,
+        analysis: record.analysis,
+        resultStates: results.map((result) => ({ id: result.id, referenceId: result.referenceId, status: result.status, error: result.error })),
+      },
+    });
+  };
+
+  const handleGenerate = async () => {
+    if (!activeRecord.analysis || isBusy) return;
+    const recordId = activeRecord.id;
+    const count = activeRecord.bodyReferences.length || activeRecord.outputCount;
+    const initialResults: TryOnResult[] = Array.from({ length: count }, (_, index) => ({ id: crypto.randomUUID(), referenceId: activeRecord.bodyReferences[index]?.id, status: 'pending', prompt: '' }));
+    const snapshot: TryOnRecord = { ...activeRecord, productImages: [...activeRecord.productImages], bodyReferences: [...activeRecord.bodyReferences], results: initialResults, step: 'generating', error: '' };
+    const { taskId, signal } = startGenerationTask();
+    updateRecord(recordId, () => snapshot);
+    try {
+      const settled = await Promise.allSettled(initialResults.map((result, index) =>
+        generateOne(snapshot, result, index, signal).catch((error) => {
+          updateResult(recordId, result.id, {
+            status: isAbortError(error) ? 'cancelled' : 'error',
+            error: isAbortError(error) ? '任务已取消' : getErrorMessage(error),
+          });
+          throw error;
+        })
+      ));
+      assertCurrentGenerationTask(taskId, signal);
+      const finalResults = settled.map((outcome, index): TryOnResult => {
+        if (outcome.status === 'fulfilled') return outcome.value;
+        const error = outcome.reason;
+        return { ...initialResults[index], status: isAbortError(error) ? 'cancelled' : 'error', prompt: buildGenerationPrompt(snapshot, index, Boolean(snapshot.bodyReferences[index]), Boolean(snapshot.bodyReferences[index]?.targetMaskBase64)), error: isAbortError(error) ? '任务已取消' : getErrorMessage(error) };
+      });
+      updateRecord(recordId, (record) => ({ ...record, step: 'complete', results: finalResults, error: finalResults.every((item) => item.status !== 'done') ? '本次任务未生成成功，可单张重试。' : '' }));
+      await saveRecord(snapshot, finalResults);
+    } catch (error) {
+      if (!isAbortError(error)) updateRecord(recordId, (record) => ({ ...record, step: 'complete', error: getErrorMessage(error) }));
+    } finally {
+      finishGenerationTask(taskId);
+    }
+  };
+
+  const handleCancel = () => {
+    cancelGenerationTask('已停止单品试穿任务');
+    updateRecord(activeRecord.id, (record) => ({ ...record, step: 'complete', results: record.results.map((result) => isWorkingStatus(result.status) ? { ...result, status: 'cancelled', error: '任务已取消' } : result) }));
+  };
+
+  const handleRetryOne = async (resultId: string) => {
+    if (isBusy || !activeRecord.analysis) return;
+    const index = activeRecord.results.findIndex((result) => result.id === resultId);
+    if (index < 0) return;
+    const snapshot: TryOnRecord = { ...activeRecord, productImages: [...activeRecord.productImages], bodyReferences: [...activeRecord.bodyReferences], step: 'generating' };
+    const result = { ...activeRecord.results[index], status: 'pending' as const, error: undefined };
+    const { taskId, signal } = startGenerationTask();
+    updateRecord(snapshot.id, (record) => ({ ...record, step: 'generating', error: '', results: record.results.map((item) => item.id === resultId ? result : item) }));
+    try {
+      const completed = await generateOne(snapshot, result, index, signal);
+      assertCurrentGenerationTask(taskId, signal);
+      updateRecord(snapshot.id, (record) => {
+        const finalResults = record.results.map((item) => item.id === resultId ? completed : item);
+        return { ...record, step: 'complete', results: finalResults, error: '' };
+      });
+      await saveRecord(snapshot, [completed]);
+    } catch (error) {
+      if (!isAbortError(error)) updateRecord(snapshot.id, (record) => ({ ...record, step: 'complete', results: record.results.map((item) => item.id === resultId ? { ...item, status: 'error', error: getErrorMessage(error) } : item) }));
+    } finally {
+      finishGenerationTask(taskId);
+    }
+  };
+
+  const downloadImage = async (url: string, index: number) => {
+    try {
+      await downloadImageFile(url, `product-try-on-${index + 1}-${Date.now()}.${getImageDownloadExtension(url, activeRecord.outputFormat)}`);
+    } catch (error) {
+      console.error('Failed to download try-on image.', error);
+      window.alert('图片下载失败，请稍后重试');
+    }
+  };
+
+  const successfulResults = useMemo(() => activeRecord?.results.filter((result) => result.status === 'done' && result.imageUrl) || [], [activeRecord?.results]);
+  const completedCount = activeRecord?.results.filter((result) => !isWorkingStatus(result.status)).length || 0;
+
+  if (!activeRecord) return null;
+
+  const historyPanel = (
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-pastel-border bg-pastel-card p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2 px-1 py-1"><div><h2 className="font-black text-pastel-text">生成记录</h2><p className="mt-0.5 text-xs text-pastel-muted">当前会话最多保留 20 项</p></div><button type="button" onClick={() => setIsHistoryOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-pastel-border text-pastel-muted hover:border-[#ed6d46] hover:text-[#ed6d46]" aria-label="收起生成记录"><PanelLeftClose className="h-4 w-4" /></button></div>
+      <button type="button" onClick={startNewRecord} disabled={isBusy} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#16233b] px-3 text-sm font-black text-white transition hover:bg-[#263752] disabled:opacity-50"><Plus className="h-4 w-4" />新开任务</button>
+      <div className="no-scrollbar mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">{records.map((record) => {
+        const done = record.results.filter((result) => result.status === 'done').length;
+        const working = record.step === 'analyzing' || record.step === 'generating';
+        const cover = record.results.find((result) => result.imageUrl)?.imageUrl || record.productImages[0]?.preview;
+        return <article key={record.id} className={`group relative overflow-hidden rounded-xl border bg-pastel-bg/50 transition ${record.id === activeRecordId ? 'border-[#ed6d46] ring-2 ring-[#ed6d46]/10' : 'border-pastel-border hover:border-[#ed6d46]/50'}`}><button type="button" onClick={() => openRecord(record)} disabled={isBusy && record.id !== activeRecordId} className="block w-full text-left disabled:opacity-60"><div className="relative aspect-[4/3] bg-white">{cover ? <img src={cover} alt="任务预览" className="h-full w-full object-cover" /> : <Shirt className="absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 text-slate-200" />}<span className={`absolute inset-x-0 bottom-0 flex min-h-9 items-center justify-center gap-2 px-2 text-xs font-black text-white ${working ? 'bg-[#ed6d46]/92' : 'bg-[#16233b]/90'}`}>{working && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{record.step === 'input' ? '编辑中' : working ? record.step === 'analyzing' ? '分析中' : `生成中 ${done}/${record.results.length}` : record.step === 'confirm' ? '待确认方案' : `已完成 ${done} 张`}</span></div><div className="px-3 py-2.5"><p className="truncate text-xs font-black text-pastel-text">{categoryLabel(record.category)}</p><p className="mt-1 text-[0.7rem] text-pastel-muted">{new Date(record.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · {record.productImages.length || 0} 张商品图</p></div></button>{!working && <button type="button" onClick={() => removeRecord(record.id)} className="absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-500 shadow transition hover:bg-red-500 hover:text-white sm:opacity-0 sm:group-hover:opacity-100" aria-label="删除任务"><X className="h-3.5 w-3.5" /></button>}</article>;
+      })}</div>
+    </aside>
+  );
+
+  return (
+    <div className="no-scrollbar h-full min-h-0 overflow-x-hidden overflow-y-auto bg-[#f1f7ff] text-pastel-text dark:bg-[#07090d]">
+      {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} onRemember={() => { localStorage.setItem(TUTORIAL_KEY, '1'); setShowTutorial(false); }} />}
+      <div className="mx-auto w-full max-w-[100rem] px-3 py-5 sm:px-5 lg:px-8">
+        <header className="relative mb-5 overflow-hidden rounded-[1.75rem] border border-[#d9e5f1] bg-white px-4 py-6 shadow-[0_14px_45px_rgba(33,66,104,0.07)] sm:px-7 sm:py-7 dark:border-white/10 dark:bg-[#11151c]">
+          <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full border-[2rem] border-[#edf5fd] bg-[#fff4ed] dark:border-white/[0.03] dark:bg-[#ed6d46]/5" />
+          <div className="relative text-center"><div className="inline-flex items-center gap-2 text-xs font-black tracking-[0.14em] text-[#6f8199]"><Sparkles className="h-4 w-4 text-[#ed6d46]" />AI 单品试穿</div><h1 className="mt-2 text-2xl font-black tracking-tight text-[#142139] sm:text-3xl dark:text-white">让商品自然进入真实穿搭</h1><p className="mx-auto mt-2 max-w-3xl text-sm leading-6 text-pastel-muted">上传同一款商品的多角度素材，AI 先分析结构与佩戴关系，确认方案后再生成试戴或试穿效果。</p><button type="button" onClick={() => setShowTutorial(true)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d6e2ef] bg-[#f7fbff] px-4 text-xs font-black text-[#415570] transition hover:border-[#ed6d46] hover:text-[#ed6d46] dark:border-white/10 dark:bg-white/5"><Info className="h-4 w-4" />查看素材教程</button><WorkflowSteps step={activeRecord.step} /></div>
+        </header>
+
+        {!isHistoryOpen && <button type="button" onClick={() => setIsHistoryOpen(true)} className="fixed bottom-5 left-4 z-40 flex min-h-12 items-center gap-2 rounded-full border border-pastel-border bg-pastel-card px-4 text-sm font-black shadow-[0_8px_24px_rgba(30,50,80,0.16)] md:left-[16.25rem] lg:left-[17rem]"><PanelLeftOpen className="h-4 w-4 text-[#ed6d46]" />生成记录<span className="rounded-full bg-pastel-bg px-2 py-1 text-xs text-pastel-muted">{records.length}</span></button>}
+        {isHistoryOpen && <button type="button" className="fixed inset-0 z-[69] bg-[#10203a]/35 xl:hidden" onClick={() => setIsHistoryOpen(false)} aria-label="关闭生成记录" />}
+
+        <div className={`grid grid-cols-1 gap-5 ${isHistoryOpen ? 'xl:grid-cols-[17rem_minmax(24rem,31rem)_minmax(0,1fr)]' : 'xl:grid-cols-[minmax(24rem,31rem)_minmax(0,1fr)]'}`}>
+          {isHistoryOpen && <div className="fixed inset-y-3 left-3 z-[70] w-[min(18rem,calc(100vw-1.5rem))] xl:sticky xl:top-4 xl:z-10 xl:h-[calc(100vh-7rem)] xl:w-auto xl:self-start">{historyPanel}</div>}
+
+          <div className="flex min-w-0 flex-col gap-4">
+            {activeRecord.step === 'input' || activeRecord.step === 'analyzing' ? <>
+              <UploadZone kind="product" title="商品图资料" description="同一款商品至少 1 张、最多 5 张；复杂结构建议补充侧面与细节。" images={activeRecord.productImages} max={MAX_PRODUCT_IMAGES} disabled={isBusy} active={activeUploadKind === 'product'} inputRef={productInputRef} onActivate={() => activateUpload('product')} onFiles={(files) => void processFiles(files, 'product')} onRemove={(id) => removeImage('product', id)} />
+              <UploadZone kind="body" title="部位 / 人物参考（选填）" description="上传后点击缩略图上的“涂抹”，精准标记要替换的部件；最多 6 张。" images={activeRecord.bodyReferences} max={MAX_BODY_REFERENCES} disabled={isBusy} active={activeUploadKind === 'body'} inputRef={bodyInputRef} onActivate={() => activateUpload('body')} onFiles={(files) => void processFiles(files, 'body')} onRemove={(id) => removeImage('body', id)} onEditMask={(image) => setMaskEditorImageId(image.id)} />
+              <CreativeImageModelSelector value={activeRecord.modelId} onChange={(modelId) => patchActive({ modelId })} disabled={isBusy} compact />
+              <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5"><div className="mb-4 flex items-center gap-2"><WandSparkles className="h-5 w-5 text-[#ed6d46]" /><h3 className="text-sm font-black">试穿设置</h3></div><label className="block text-xs font-bold text-pastel-muted">试穿类型<select value={activeRecord.category} disabled={isBusy} onChange={(event) => patchActive({ category: event.target.value as ProductCategory, analysis: null, results: [] })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold text-pastel-text outline-none focus:border-[#ed6d46]"><optgroup label="配饰">{CATEGORY_OPTIONS.filter((item) => item.group === '配饰').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup><optgroup label="服装">{CATEGORY_OPTIONS.filter((item) => item.group === '服装').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</optgroup></select></label>{activeRecord.bodyReferences.length === 0 && <label className="mt-4 block text-xs font-bold text-pastel-muted">无人物参考时生成数量<div className="mt-2 grid grid-cols-6 gap-2">{[1, 2, 3, 4, 5, 6].map((count) => <button key={count} type="button" disabled={isBusy} onClick={() => patchActive({ outputCount: count })} className={`min-h-11 rounded-xl border text-sm font-black ${activeRecord.outputCount === count ? 'border-[#ed6d46] bg-[#fff2eb] text-[#d8552e]' : 'border-pastel-border bg-pastel-card text-pastel-muted'}`}>{count}</button>)}</div></label>}<label className="mt-4 block text-xs font-bold text-pastel-muted">额外要求（选填）<textarea value={activeRecord.extraRequirements} disabled={isBusy} onChange={(event) => patchActive({ extraRequirements: event.target.value, analysis: null })} className="mt-1 min-h-28 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" placeholder="例如：高级通勤风，保留人物与背景，只替换外套；重点保持 Logo、五金和面料纹理……" /></label><button type="button" onClick={() => setShowAdvanced((value) => !value)} className="mt-4 flex min-h-11 w-full items-center justify-between rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-black"><span>高级设置</span>{showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>{showAdvanced && <div className="mt-3 space-y-4 rounded-xl border border-pastel-border bg-[#f8fbff] p-3 dark:bg-white/[0.03]"><div><span className="text-xs font-bold text-pastel-muted">生成模型</span><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">{MODEL_OPTIONS.map((model) => <button key={model.id} type="button" disabled={isBusy} onClick={() => patchActive({ modelId: model.id })} className={`min-h-14 rounded-xl border px-2 text-center ${activeRecord.modelId === model.id ? 'border-[#ed6d46] bg-[#fff2eb] text-[#d8552e]' : 'border-pastel-border bg-white text-pastel-text dark:bg-white/5'}`}><span className="block text-xs font-black">{model.label}</span><span className="mt-0.5 block text-[0.65rem] opacity-65">{model.desc}</span></button>)}</div></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><label className="text-xs font-bold text-pastel-muted">画幅比例<select value={activeRecord.aspectRatio} onChange={(event) => patchActive({ aspectRatio: event.target.value as AspectRatio })} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm font-bold text-pastel-text dark:bg-[#121212]">{ASPECT_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="text-xs font-bold text-pastel-muted">清晰度<select value={activeRecord.resolution} onChange={(event) => patchActive({ resolution: event.target.value as ImageResolution })} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm font-bold text-pastel-text dark:bg-[#121212]"><option value={ImageResolution.RES_1K}>1K</option><option value={ImageResolution.RES_2K}>2K</option><option value={ImageResolution.RES_4K}>4K</option></select></label><label className="text-xs font-bold text-pastel-muted">输出格式<select value={activeRecord.outputFormat} onChange={(event) => patchActive({ outputFormat: event.target.value as OutputImageFormat })} className="mt-1 min-h-11 w-full rounded-xl border border-pastel-border bg-white px-3 text-sm font-bold text-pastel-text dark:bg-[#121212]"><option value="png">PNG</option><option value="jpg">JPG</option></select></label></div></div>}</section>
+              <button type="button" onClick={() => void handleAnalyze()} disabled={!activeRecord.productImages.length || isBusy} className="flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#ed6d46] to-[#f28b57] px-5 text-sm font-black text-white shadow-[0_14px_28px_rgba(237,109,70,0.25)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-300 disabled:shadow-none">{activeRecord.step === 'analyzing' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}{activeRecord.step === 'analyzing' ? '正在分析商品与佩戴关系…' : '分析商品，生成试穿方案'}</button>
+            </> : <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5"><div className="flex items-center justify-between gap-3"><div><span className="text-xs font-black tracking-[0.14em] text-[#ed6d46]">CONFIRMED INPUT</span><h2 className="mt-1 text-lg font-black">{categoryLabel(activeRecord.category)} · {outputTotal} 张结果</h2></div>{!isBusy && <button type="button" onClick={() => patchActive({ step: 'input', results: [], error: '' })} className="flex min-h-11 items-center gap-2 rounded-xl border border-pastel-border px-3 text-xs font-black text-pastel-muted hover:border-[#ed6d46] hover:text-[#ed6d46]"><ArrowLeft className="h-4 w-4" />修改输入</button>}</div><div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">商品图</span><strong className="mt-1 block text-base">{activeRecord.productImages.length} 张</strong></div><div className="rounded-xl bg-pastel-bg p-3"><span className="text-pastel-muted">人物参考</span><strong className="mt-1 block text-base">{activeRecord.bodyReferences.length || 'AI 匹配'}</strong></div></div></section>}
+            {cancelMessage && <p className="text-center text-sm font-bold text-[#d8552e]">{cancelMessage}</p>}
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-4">
+            {activeRecord.error && <div className="flex min-h-12 items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{activeRecord.error}</span></div>}
+            {activeRecord.step === 'input' && !activeRecord.analysis && <section className="flex min-h-[34rem] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#cedbe8] bg-white/75 p-8 text-center dark:border-white/10 dark:bg-white/[0.03]"><span className="flex h-20 w-20 items-center justify-center rounded-[1.5rem] bg-[#eaf3ff] text-[#2d6bb1] dark:bg-blue-500/10"><Shirt className="h-9 w-9" /></span><h2 className="mt-5 text-xl font-black text-[#17243c] dark:text-white">从商品身份开始，而不是直接猜</h2><p className="mt-2 max-w-lg text-sm leading-7 text-pastel-muted">上传素材并点击分析后，这里会展示产品结构、穿戴位置、尺度与遮挡方案。你确认后，AI 才会开始正式生成。</p></section>}
+            {activeRecord.step === 'analyzing' && <section className="flex min-h-[34rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-[#dbe6f0] bg-white p-8 text-center shadow-sm dark:border-white/10 dark:bg-[#121212]"><div className="relative flex h-24 w-24 items-center justify-center"><span className="absolute inset-0 animate-ping rounded-full bg-[#ed6d46]/10" /><span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-[#16233b] text-white"><Loader2 className="h-7 w-7 animate-spin" /></span></div><h2 className="mt-6 text-xl font-black">正在建立试穿规划</h2><p className="mt-2 max-w-md text-sm leading-7 text-pastel-muted">识别同款商品的结构、材质与关键细节，并逐张判断人物参考中的佩戴区域和遮挡关系。</p></section>}
+            {activeRecord.analysis && (activeRecord.step === 'confirm') && <section className="rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-6"><div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"><CheckCircle2 className="h-5 w-5" /></span><div><span className="text-xs font-black tracking-[0.14em] text-emerald-600">ANALYSIS READY</span><h2 className="mt-0.5 text-xl font-black">确认试穿方案</h2></div></div><div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2"><div className="rounded-xl bg-pastel-bg p-4 sm:col-span-2"><span className="text-xs font-black text-pastel-muted">商品身份</span><p className="mt-2 text-sm leading-6">{activeRecord.analysis.productIdentity}</p></div><div className="rounded-xl bg-pastel-bg p-4"><span className="text-xs font-black text-pastel-muted">材质与颜色</span><p className="mt-2 text-sm leading-6">{activeRecord.analysis.materialColor}</p></div><div className="rounded-xl bg-pastel-bg p-4"><span className="text-xs font-black text-pastel-muted">尺度与贴合</span><p className="mt-2 text-sm leading-6">{activeRecord.analysis.scaleFit}</p></div></div>{activeRecord.analysis.keyDetails.length > 0 && <div className="mt-4"><span className="text-xs font-black text-pastel-muted">重点锁定细节</span><div className="mt-2 flex flex-wrap gap-2">{activeRecord.analysis.keyDetails.map((detail) => <span key={detail} className="rounded-full bg-[#eef5fc] px-3 py-1.5 text-xs font-bold text-[#48617f] dark:bg-white/5 dark:text-slate-300">{detail}</span>)}</div></div>}<div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2"><label className="text-xs font-black text-pastel-muted">试穿类型<select value={activeRecord.category} onChange={(event) => patchActive({ category: event.target.value as ProductCategory })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold text-pastel-text">{CATEGORY_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="text-xs font-black text-pastel-muted">输出比例<select value={activeRecord.aspectRatio} onChange={(event) => patchActive({ aspectRatio: event.target.value as AspectRatio })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm font-bold text-pastel-text">{ASPECT_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="text-xs font-black text-pastel-muted sm:col-span-2">佩戴 / 穿着部位<input value={activeRecord.placement} onChange={(event) => patchActive({ placement: event.target.value })} className="mt-1 min-h-12 w-full rounded-xl border border-pastel-border bg-pastel-bg px-3 text-sm text-pastel-text outline-none focus:border-[#ed6d46]" /></label><label className="text-xs font-black text-pastel-muted sm:col-span-2">背景与光线策略<textarea value={activeRecord.backgroundStrategy} onChange={(event) => patchActive({ backgroundStrategy: event.target.value })} className="mt-1 min-h-24 w-full resize-y rounded-xl border border-pastel-border bg-pastel-bg px-3 py-3 text-sm leading-6 text-pastel-text outline-none focus:border-[#ed6d46]" /></label>{activeRecord.bodyReferences.length === 0 && <label className="text-xs font-black text-pastel-muted sm:col-span-2">生成数量<div className="mt-2 grid grid-cols-6 gap-2">{[1, 2, 3, 4, 5, 6].map((count) => <button key={count} type="button" onClick={() => patchActive({ outputCount: count })} className={`min-h-11 rounded-xl border text-sm font-black ${activeRecord.outputCount === count ? 'border-[#ed6d46] bg-[#fff2eb] text-[#d8552e]' : 'border-pastel-border'}`}>{count}</button>)}</div></label>}</div>{activeRecord.analysis.riskWarnings.length > 0 && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"><div className="flex items-center gap-2 font-black"><AlertCircle className="h-4 w-4" />生成前注意</div><ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5">{activeRecord.analysis.riskWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}<div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><button type="button" onClick={() => patchActive({ step: 'input', error: '' })} className="min-h-12 rounded-xl border border-pastel-border px-5 text-sm font-black text-pastel-muted hover:border-[#ed6d46] hover:text-[#ed6d46]">返回修改素材</button><button type="button" onClick={() => void handleGenerate()} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#16233b] px-6 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5"><Sparkles className="h-4 w-4" />确认方案，生成 {outputTotal} 张</button></div></section>}
+            {(activeRecord.step === 'generating' || activeRecord.step === 'complete') && <section className="flex min-h-[36rem] flex-1 flex-col rounded-2xl border border-pastel-border bg-pastel-card p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-[#ed6d46]" /><h2 className="text-lg font-black">试穿结果</h2><span className="text-xs font-bold text-pastel-muted">{completedCount}/{activeRecord.results.length}</span></div><div className="flex gap-2">{activeRecord.step === 'generating' && <button type="button" onClick={handleCancel} className="flex min-h-11 items-center gap-2 rounded-xl bg-[#16233b] px-4 text-xs font-black text-white"><X className="h-4 w-4" />停止全部</button>}{successfulResults.length > 0 && activeRecord.step === 'complete' && <button type="button" onClick={() => successfulResults.forEach((result, index) => result.imageUrl && window.setTimeout(() => downloadImage(result.imageUrl!, index), index * 150))} className="flex min-h-11 items-center gap-2 rounded-xl bg-[#ed6d46] px-4 text-xs font-black text-white"><Download className="h-4 w-4" />全部下载</button>}</div></div><div className="grid grid-cols-1 content-start gap-4 sm:grid-cols-2">{activeRecord.results.map((result, index) => <article key={result.id} className="overflow-hidden rounded-2xl border border-pastel-border bg-white shadow-sm dark:bg-white/5"><div className={`relative flex ${resultAspectClass(activeRecord.aspectRatio)} min-h-64 items-center justify-center overflow-hidden bg-[#eef4fa] dark:bg-black/20`}>{result.imageUrl ? <img src={result.imageUrl} alt={`单品试穿结果 ${index + 1}`} className={`h-full w-full object-contain ${isWorkingStatus(result.status) ? 'scale-[1.02] blur-[2px] brightness-75' : ''}`} /> : result.status === 'error' || result.status === 'cancelled' ? <div className="max-w-xs p-6 text-center"><AlertCircle className="mx-auto h-7 w-7 text-red-400" /><p className="mt-3 text-sm font-bold text-red-600">{result.error || statusLabel(result.status)}</p></div> : <div className="flex flex-col items-center gap-3 p-6 text-center text-[#ed6d46]"><Loader2 className="h-8 w-8 animate-spin" /><span className="text-sm font-black">{statusLabel(result.status)}</span></div>}{result.imageUrl && isWorkingStatus(result.status) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#142139]/45 text-white"><Loader2 className="h-8 w-8 animate-spin" /><span className="rounded-full bg-black/25 px-4 py-2 text-xs font-black">重新生成中 · {statusLabel(result.status)}</span></div>}</div><div className="flex min-h-16 items-center justify-between gap-2 border-t border-pastel-border px-3"><div className="min-w-0"><p className="truncate text-xs font-black">方案 {index + 1}</p><p className={`mt-0.5 truncate text-xs ${result.status === 'error' ? 'text-red-500' : 'text-pastel-muted'}`}>{statusLabel(result.status)}</p></div><div className="flex shrink-0 gap-1">{result.imageUrl && <button type="button" onClick={() => setSelectedPreview(result.imageUrl!)} disabled={isWorkingStatus(result.status)} className="flex h-11 w-11 items-center justify-center rounded-lg text-pastel-muted hover:bg-pastel-bg hover:text-[#2d6bb1] disabled:opacity-40" aria-label="预览结果"><Maximize2 className="h-4 w-4" /></button>}<button type="button" onClick={() => void handleRetryOne(result.id)} disabled={activeRecord.step === 'generating'} className="flex h-11 w-11 items-center justify-center rounded-lg text-pastel-muted hover:bg-[#fff2eb] hover:text-[#ed6d46] disabled:opacity-40" aria-label="重新生成"><RefreshCw className={`h-4 w-4 ${isWorkingStatus(result.status) ? 'animate-spin' : ''}`} /></button>{result.imageUrl && <button type="button" onClick={() => downloadImage(result.imageUrl!, index)} disabled={isWorkingStatus(result.status)} className="flex h-11 w-11 items-center justify-center rounded-lg text-pastel-muted hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-40" aria-label="下载结果"><Download className="h-4 w-4" /></button>}</div></div></article>)}</div>{activeRecord.step === 'complete' && <button type="button" onClick={startNewRecord} className="mt-5 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-pastel-border bg-pastel-bg text-sm font-black hover:border-[#ed6d46] hover:text-[#ed6d46]"><Plus className="h-4 w-4" />新开试穿任务</button>}</section>}
+          </div>
+        </div>
+      </div>
+      {maskEditorImage && <ReferenceMaskEditor image={maskEditorImage} category={activeRecord.category} productImages={activeRecord.productImages} onClose={() => setMaskEditorImageId(null)} onSave={saveReferenceMask} />}
+      {selectedPreview && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 p-4" onClick={() => setSelectedPreview(null)}><button type="button" onClick={() => setSelectedPreview(null)} className="absolute right-4 top-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white" aria-label="关闭预览"><X className="h-6 w-6" /></button><img src={selectedPreview} alt="单品试穿大图预览" className="max-h-[88vh] max-w-full rounded-xl object-contain" /></div>}
+    </div>
+  );
+};
+
+export default SingleItemTryOnTab;

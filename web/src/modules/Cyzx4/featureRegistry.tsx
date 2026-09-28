@@ -1,0 +1,336 @@
+import React, { lazy } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  Camera,
+  Crop,
+  Expand,
+  Film,
+  ImagePlus,
+  Layers3,
+  PackageCheck,
+  Paintbrush,
+  Palette,
+  ScanSearch,
+  Scissors,
+  Sparkles,
+  Store,
+  UserRoundCog,
+  Shirt,
+  LayoutTemplate,
+  Aperture,
+} from 'lucide-react';
+import { AppMode } from './types';
+
+export type FeatureCategory = 'core' | 'marketing' | 'model' | 'tools';
+
+export interface CreativeFeature {
+  mode: AppMode;
+  title: string;
+  englishTitle: string;
+  description: string;
+  category: FeatureCategory;
+  keywords: string[];
+  cover: string;
+  badge?: string;
+  icon: LucideIcon;
+  component: React.LazyExoticComponent<React.ComponentType<any>>;
+}
+
+export const FEATURE_CATEGORIES: Array<{
+  id: FeatureCategory;
+  label: string;
+  eyebrow: string;
+}> = [
+  { id: 'core', label: '核心创作', eyebrow: 'CREATE' },
+  { id: 'marketing', label: '电商营销', eyebrow: 'COMMERCE' },
+  { id: 'model', label: '模特服装', eyebrow: 'FASHION' },
+  { id: 'tools', label: '效率工具', eyebrow: 'UTILITY' },
+];
+
+const FusionTab = lazy(() => import('./components/FusionTab'));
+const ProductSwapTab = lazy(() => import('./components/ProductSwapTab'));
+const InpaintingTab = lazy(() => import('./components/InpaintingTab'));
+const ImageCleanTab = lazy(() => import('./components/ImageCleanTab'));
+const WhiteBackgroundRetouchTab = lazy(() => import('./components/WhiteBackgroundRetouchTab'));
+const ProductVideoTab = lazy(() => import('./components/ProductVideoTab'));
+const SceneGenerationTab = lazy(() => import('./components/SceneGenerationTab'));
+const PhotographyLabTab = lazy(() => import('./components/PhotographyLabTab'));
+const StyleReplicateTab = lazy(() => import('./components/StyleReplicateTab'));
+const ModelTransferTab = lazy(() => import('./components/ModelTransferTab'));
+const SingleItemTryOnTab = lazy(() => import('./components/SingleItemTryOnTab'));
+const VirtualModelTab = lazy(() => import('./components/VirtualModelTab'));
+const EcommerceHeroTab = lazy(() => import('./components/EcommerceHeroTab'));
+const ModelPoseFissionTab = lazy(() => import('./components/ModelPoseFissionTab'));
+const ModelSceneFissionTab = lazy(() => import('./components/ModelSceneFissionTab'));
+const ModelAngleControlTab = lazy(() => import('./components/ModelAngleControlTab'));
+const ModelOriginalPasteBackTab = lazy(() => import('./components/ModelOriginalPasteBackTab'));
+const ModelFaceSwapTab = lazy(() => import('./components/ModelFaceSwapTab'));
+const OutfitExtractionTab = lazy(() => import('./components/OutfitExtractionTab'));
+const OutfitDeconstructionStudio = lazy(() =>
+  import('../../components/OutfitDeconstructionStudio').then((module) => ({ default: module.OutfitDeconstructionStudio })),
+);
+const UniversalTryOnTab = lazy(() => import('./components/UniversalTryOnTab'));
+const HDUpscaleTab = lazy(() => import('./components/HDUpscaleTab'));
+const AspectRatioTab = lazy(() => import('./components/AspectRatioTab'));
+
+export const CREATIVE_FEATURES: CreativeFeature[] = [
+  {
+    mode: AppMode.VIRTUAL_MODEL,
+    title: '生成虚拟模特',
+    englishTitle: 'Virtual Model Studio',
+    description: '按喜好生成专属虚拟模特，支持参考人像、动作多选及手部、耳部、脚部等部位生成。',
+    category: 'model',
+    keywords: ['虚拟模特', 'AI模特', '生成模特', '人体部位', '手部', '耳部', '脚部'],
+    cover: './creative-covers/virtual-model.png?v=20260905',
+    badge: '+上新',
+    icon: UserRoundCog,
+    component: VirtualModelTab,
+  },
+  {
+    mode: AppMode.FUSION,
+    title: '图像生成',
+    englishTitle: 'Image Studio',
+    description: '融合多张参考素材，快速构建完整商业画面。',
+    category: 'core',
+    keywords: ['生图', '融合', '参考图', '商业图片'],
+    cover: './creative-covers/image-studio.webp?v=20260802',
+    icon: Layers3,
+    component: FusionTab,
+  },
+  {
+    mode: AppMode.PRODUCT_SWAP,
+    title: '产品替换',
+    englishTitle: 'Product Swap',
+    description: '保留原图构图与氛围，一键替换画面产品。',
+    category: 'core',
+    keywords: ['换产品', '产品迁移', '替换商品'],
+    cover: './creative-covers/product-swap.webp?v=20260802',
+    icon: ArrowLeftRight,
+    component: ProductSwapTab,
+  },
+  {
+    mode: AppMode.INPAINTING,
+    title: '局部替换',
+    englishTitle: 'Smart Inpainting',
+    description: '精确圈选局部区域，按指令完成自然替换。',
+    category: 'core',
+    keywords: ['局部修改', '重绘', '蒙版', '替换'],
+    cover: './creative-covers/inpainting.webp?v=20260802',
+    icon: Paintbrush,
+    component: InpaintingTab,
+  },
+  {
+    mode: AppMode.WHITE_BG_RETOUCH,
+    title: '通用白底图精修',
+    englishTitle: 'White Packshot',
+    description: '面向八大商品品类，批量生成专业白底精修图。',
+    category: 'marketing',
+    keywords: ['白底图', '产品精修', '珠宝', '五金', '美妆', '3C', '服饰', '鞋类'],
+    cover: './creative-covers/white-packshot.webp?v=20260802',
+    icon: PackageCheck,
+    component: WhiteBackgroundRetouchTab,
+  },
+  {
+    mode: AppMode.PRODUCT_VIDEO,
+    title: 'AI生成产品视频',
+    englishTitle: 'Product Motion',
+    description: '从产品素材到分镜方案，批量生成商业展示视频。',
+    category: 'marketing',
+    keywords: ['产品视频', '展示视频', '图生视频', '分镜', '视频生成'],
+    cover: './creative-covers/product-video.webp?v=20260802',
+    icon: Film,
+    component: ProductVideoTab,
+  },
+  {
+    mode: AppMode.IMAGE_CLEAN,
+    title: '主图生成',
+    englishTitle: 'Hero Image',
+    description: '面向电商平台，生成清晰聚焦的高转化主图。',
+    category: 'marketing',
+    keywords: ['电商主图', '白底图', '商品图', '首图'],
+    cover: './creative-covers/hero-image.webp?v=20260802',
+    icon: ImagePlus,
+    component: ImageCleanTab,
+  },
+  {
+    mode: AppMode.ECOMMERCE_HERO,
+    title: '生成电商主图',
+    englishTitle: 'Ecommerce Hero',
+    description: '融合产品信息、目标平台与多语言文案，生成高转化电商主视觉。',
+    category: 'marketing',
+    keywords: ['生成电商主图', '电商主图', '平台主图', '多语言', '淘宝', '亚马逊', 'SHEIN'],
+    cover: './creative-covers/ecommerce-hero.webp?v=20260802',
+    icon: LayoutTemplate,
+    component: EcommerceHeroTab,
+  },
+  {
+    mode: AppMode.SCENE_GENERATION,
+    title: '场景图生成',
+    englishTitle: 'Scene Builder',
+    description: '将产品自然放入匹配卖点的商业生活场景。',
+    category: 'marketing',
+    keywords: ['场景图', '商品场景', '营销图', '生活方式'],
+    cover: './creative-covers/scene-builder.webp?v=20260802',
+    icon: Store,
+    component: SceneGenerationTab,
+  },
+  {
+    mode: AppMode.INSTAGRAM_SCENE,
+    title: '摄影实验室',
+    englishTitle: 'Shooting Preset Lab',
+    description: '组合相机、镜头与胶片预设，批量生成统一摄影语言的商业成片。',
+    category: 'marketing',
+    keywords: ['摄影预设', '胶片', '相机', '镜头', 'COSTA 135', '批量调色', 'Lookbook'],
+    cover: './creative-covers/photography-lab.png?v=20260814-v1',
+    icon: Aperture,
+    component: PhotographyLabTab,
+  },
+  {
+    mode: AppMode.COPYWRITING,
+    title: '风格复刻',
+    englishTitle: 'Style Replica',
+    description: '提取参考图片语言，复刻统一的商业视觉风格。',
+    category: 'marketing',
+    keywords: ['风格迁移', '复刻', '参考图', '同款'],
+    cover: './creative-covers/style-replica.webp?v=20260802',
+    icon: Palette,
+    component: StyleReplicateTab,
+  },
+  {
+    mode: AppMode.UNIVERSAL_TRY_ON,
+    title: '万物上身',
+    englishTitle: 'Universal Try-On',
+    description: '模特换装、人台试穿、鞋靴上脚，Agent 全流程高保真拟真拟合交付。',
+    category: 'model',
+    keywords: ['万物上身', '模特换衣', '模特试衣', '人台换衣', '鞋靴试穿', '虚拟试穿', '换装'],
+    cover: './creative-covers/universal-try-on.webp?v=20260802',
+    icon: Shirt,
+    component: UniversalTryOnTab,
+  },
+  {
+    mode: AppMode.SINGLE_ITEM_TRY_ON,
+    title: '单品试穿',
+    englishTitle: 'Product Try-On',
+    description: '从商品多角度素材出发，生成自然可信的试戴与试穿效果。',
+    category: 'model',
+    keywords: ['试穿', '试戴', '首饰', '配饰', '服装', '鞋包', '虚拟试穿'],
+    cover: './creative-covers/single-item-try-on.webp?v=20260802',
+    icon: Shirt,
+    component: SingleItemTryOnTab,
+  },
+  {
+    mode: AppMode.MODEL_TRANSFER,
+    title: '模特迁移',
+    englishTitle: 'Model Transfer',
+    description: '迁移服装与模特呈现，扩展商品拍摄素材。',
+    category: 'model',
+    keywords: ['换模特', '服装迁移', '人物', '试穿'],
+    cover: './creative-covers/model-transfer.webp?v=20260802',
+    icon: UserRoundCog,
+    component: ModelTransferTab,
+  },
+  {
+    mode: AppMode.MODEL_FACE_SWAP,
+    title: '模特换脸',
+    englishTitle: 'Face Swap',
+    description: '上传带模特图与参考人脸，支持模特库与场景深度定制，一键批量自然换脸。',
+    category: 'model',
+    keywords: ['模特换脸', '换脸', '人脸迁移', '人脸替换', '服装模特'],
+    cover: './creative-covers/face-swap.webp?v=20260802',
+    icon: UserRoundCog,
+    component: ModelFaceSwapTab,
+  },
+  {
+    mode: AppMode.MODEL_POSE_FISSION,
+    title: '模特姿势裂变',
+    englishTitle: 'Pose Fission',
+    description: '基于同一模特生成多角度、多姿势商品素材。',
+    category: 'model',
+    keywords: ['姿势', '动作', '裂变', '多角度'],
+    cover: './creative-covers/pose-fission.webp?v=20260802',
+    icon: Sparkles,
+    component: ModelPoseFissionTab,
+  },
+  {
+    mode: AppMode.MODEL_SCENE_FISSION,
+    title: '模特场景图裂变',
+    englishTitle: 'Scene Photo Fission',
+    description: '单张图裂变生成 9 个不同机位、景别与动作姿势的高清大图。',
+    category: 'model',
+    keywords: ['模特裂变', '景别裂变', '多机位', '多姿势', '九宫格', '9图裂变'],
+    cover: './creative-covers/scene-fission.webp?v=20260802',
+    icon: Sparkles,
+    component: ModelSceneFissionTab,
+  },
+  {
+    mode: AppMode.MODEL_ANGLE_CONTROL,
+    title: '模特角度控制',
+    englishTitle: 'Model Angle Control',
+    description: '精准控制 AI 模特拍摄视角、身体朝向、头部姿势与眼睛视线。',
+    category: 'model',
+    keywords: ['模特角度控制', '相机角度', '视角控制', '方位角', '视线控制', '3D摄影'],
+    cover: './creative-covers/pose-fission.webp?v=20260802',
+    icon: Camera,
+    component: ModelAngleControlTab,
+  },
+  {
+    mode: AppMode.MODEL_ORIGINAL_PASTE_BACK,
+    title: '模特原图贴回',
+    englishTitle: 'Detail Restore',
+    description: '将原图细节精准贴回，修复生成图关键区域。',
+    category: 'model',
+    keywords: ['贴回', '高清修复', '原图', '细节'],
+    cover: './creative-covers/detail-restore.webp?v=20260802',
+    icon: ScanSearch,
+    component: ModelOriginalPasteBackTab,
+  },
+  {
+    mode: AppMode.OUTFIT_EXTRACTION,
+    title: '搭配提取',
+    englishTitle: 'Outfit Extract',
+    description: '从模特造型中提取单品与整套搭配信息。',
+    category: 'model',
+    keywords: ['搭配', '服装提取', '单品', '穿搭'],
+    cover: './creative-covers/outfit-extract.webp?v=20260802',
+    icon: Scissors,
+    component: OutfitExtractionTab,
+  },
+  {
+    mode: AppMode.OUTFIT_DECONSTRUCTION,
+    title: '一键分离模特穿搭',
+    englishTitle: 'Outfit Breakdown',
+    description: '上传一张人物穿搭图，自动识别全部可见单品并生成 2:3 纯白底搭配全览。',
+    category: 'model',
+    keywords: ['一键分离', '穿搭拆解', '模特服饰分离', '白底搭配全览', 'Outfit Breakdown', 'Get The Look'],
+    cover: './creative-covers/outfit-deconstruction-v2.png?v=20260826-v2',
+    badge: '+上新',
+    icon: Scissors,
+    component: OutfitDeconstructionStudio,
+  },
+  {
+    mode: AppMode.RETOUCHING,
+    title: '高清放大',
+    englishTitle: 'HD Upscale',
+    description: '提升图片分辨率，增强商品纹理与边缘细节。',
+    category: 'tools',
+    keywords: ['放大', '高清', '清晰度', '修复', '分辨率'],
+    cover: './creative-covers/hd-upscale.webp?v=20260802',
+    icon: Expand,
+    component: HDUpscaleTab,
+  },
+  {
+    mode: AppMode.RATIO_QUERY,
+    title: '比例查询',
+    englishTitle: 'Ratio Guide',
+    description: '快速分析画幅比例，并获得常用平台尺寸建议。',
+    category: 'tools',
+    keywords: ['尺寸', '比例', '画幅', '像素', '裁切'],
+    cover: './creative-covers/ratio-guide.webp?v=20260802',
+    icon: Crop,
+    component: AspectRatioTab,
+  },
+];
+
+export const getFeatureByMode = (mode: AppMode | null) =>
+  CREATIVE_FEATURES.find((feature) => feature.mode === mode);

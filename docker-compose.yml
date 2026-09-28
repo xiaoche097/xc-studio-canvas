@@ -1,10 +1,39 @@
 services:
-  xcai-studio:
+  # 真实的 Go 语言后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: xcai-backend-go
+    ports:
+      - "8081:8080"
+    environment:
+      - PORT=8080
+      - DATA_DIR=/app/data
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - IMGBB_API_KEY=${IMGBB_API_KEY:-}
+    volumes:
+      - backend_data:/app/data
+    restart: always
+
+  # 前端 Web 界面服务 (Nginx SPA + 反向代理 /api/ 到 Go 后端)
+  frontend:
     build:
       context: .
+      dockerfile: Dockerfile
       args:
         GEMINI_API_KEY: ${GEMINI_API_KEY:-${VITE_GEMINI_API_KEY:-}}
         VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
+    container_name: xcai-frontend
     ports:
       - "8080:80"
+    volumes:
+      - ./web/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
     restart: always
+
+volumes:
+  backend_data:
+    driver: local

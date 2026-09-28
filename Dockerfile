@@ -8,14 +8,14 @@ ARG VITE_GEMINI_API_KEY
 ENV GEMINI_API_KEY=$GEMINI_API_KEY
 ENV VITE_GEMINI_API_KEY=$VITE_GEMINI_API_KEY
 
-# Copy package files
-COPY package*.json ./
+# Copy package files from web directory
+COPY web/package*.json ./
 
 # Install dependencies
 RUN npm ci
 
-# Copy source files
-COPY . .
+# Copy source files from web directory
+COPY web/ ./
 
 # Build the application
 RUN npm run build
