@@ -49,6 +49,7 @@ import { ImageHostServiceSettings } from './ImageHostServiceSettings';
 import { DataOverviewDashboard } from './DataOverviewDashboard';
 import { UserManagementPage } from './UserManagementPage';
 import { PluginManagementPage } from './PluginManagementPage';
+import { PromptTemplateManagementPage } from './PromptTemplateManagementPage';
 import {
   getUserProtocolConfigs,
   saveUserProtocolConfig,
@@ -86,9 +87,9 @@ export type UnifiedSettingsTab =
   | 'users'
   | 'protocols'
   | 'plugins'
+  | 'prompts'
   | 'virse'
   | 'relays'
-  | 'agent'
   | 'cache'
   | 'image-host'
   | 'storage';
@@ -1019,13 +1020,22 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
           </button>
 
           <button
-            onClick={() => showToast('当前系统全部模型通道均已在信任名单内')}
-            className="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-white/[0.02] font-medium text-xs transition-all text-left"
+            onClick={() => setActiveTab('prompts')}
+            className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition-all font-bold text-xs ${
+              activeTab === 'prompts'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5'
+            }`}
           >
             <div className="flex items-center gap-3">
-              <ShieldCheck className="h-4 w-4" />
-              <span>模型白名单</span>
+              <Sparkles className="h-4 w-4" />
+              <span>提示词模板</span>
             </div>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+              activeTab === 'prompts' ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-white/10 text-slate-500'
+            }`}>
+              版本
+            </span>
           </button>
 
           <button
@@ -1103,18 +1113,6 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('agent')}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all font-bold text-xs ${
-              activeTab === 'agent'
-                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5'
-            }`}
-          >
-            <Bot className="h-4 w-4" />
-            <span>智能体设定</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('cache')}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all font-bold text-xs ${
               activeTab === 'cache'
@@ -1140,7 +1138,7 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
 
         {/* Right Tab Content View */}
         <main className={`flex-1 overflow-hidden ${
-          activeTab === 'overview' || activeTab === 'users' || activeTab === 'protocols' || activeTab === 'plugins' || activeTab === 'storage' || activeTab === 'image-host'
+          activeTab === 'overview' || activeTab === 'users' || activeTab === 'protocols' || activeTab === 'plugins' || activeTab === 'prompts' || activeTab === 'storage' || activeTab === 'image-host'
             ? 'flex flex-col'
             : 'overflow-y-auto p-6 md:p-8 lg:p-10'
         }`}>
@@ -1162,6 +1160,11 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
           {/* TAB 2.5: 插件管理 (图 1, 2, 3 规范与真实协议) */}
           {activeTab === 'plugins' && (
             <PluginManagementPage onNotify={showToast} />
+          )}
+
+          {/* TAB 2.6: 提示词模板 (完全复刻图 1、图 3，包含图 4 全部 22 个能力) */}
+          {activeTab === 'prompts' && (
+            <PromptTemplateManagementPage onNotify={showToast} />
           )}
           {false && activeTab === 'protocols' && (
             <div className="max-w-6xl mx-auto space-y-6">
@@ -1826,74 +1829,6 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
             </div>
           )}
 
-          {/* TAB 3: 智能体设定 */}
-          {activeTab === 'agent' && (
-            <div className="max-w-3xl mx-auto space-y-6">
-              <div className="rounded-2xl border border-slate-200/80 dark:border-white/10 bg-white dark:bg-[#12161F] p-6 shadow-sm space-y-5">
-                <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-500/10 flex items-center justify-center text-brand-orange">
-                    <Bot className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white">首席电商视觉策划师智能体设定</h3>
-                    <p className="text-xs text-slate-400">配置工作台 Agent 身份、背景与思维推理偏好</p>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
-                    智能体名称
-                  </label>
-                  <input
-                    type="text"
-                    value={agentName}
-                    onChange={(e) => setAgentName(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm font-medium focus:outline-none focus:border-brand-orange"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
-                    角色设定与系统指令
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={agentRole}
-                    onChange={(e) => setAgentRole(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm font-medium focus:outline-none focus:border-brand-orange custom-scrollbar"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
-                    核心能力清单
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={agentCapabilities}
-                    onChange={(e) => setAgentCapabilities(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 text-sm font-medium focus:outline-none focus:border-brand-orange custom-scrollbar"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-4 rounded-xl border border-slate-200/80 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02]">
-                  <div>
-                    <div className="text-sm font-bold text-slate-900 dark:text-white">深度思考模式 (Deep Thinking)</div>
-                    <div className="text-xs text-slate-400">开启后使用完整的推理链与更高 Token 上限进行复杂策划</div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={deepThinkingEnabled}
-                      onChange={(e) => setDeepThinkingEnabled(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-white/10 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-orange" />
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* TAB 4: 缓存磁盘 */}
           {activeTab === 'cache' && (

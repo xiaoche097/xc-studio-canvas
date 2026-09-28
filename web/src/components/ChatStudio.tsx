@@ -33,6 +33,7 @@ import {
   GenerationCard,
   FinalReportCard
 } from './ActionCards';
+import { promptTemplateService } from '../services/promptTemplateService';
 
 const LOCAL_PROMPTS: Partial<Record<WorkflowStep, string>> = {
   [WorkflowStep.LAUNCH_PACKAGE]: launchPrompt,
@@ -148,14 +149,23 @@ export const ChatStudio: React.FC<ChatStudioProps> = ({ initialInput, initialIma
 
     let systemPrompt = AGENT_PROMPTS[step]?.systemPrompt || "";
     
-    // Inject Custom Agent Settings
-    const customRole = localStorage.getItem('agentRole');
+    // Inject Custom Agent Settings from Prompt Template Service
+    const templateRole = promptTemplateService.getAgentRolePrompt('agent_director');
+    const customRole = localStorage.getItem('agentRole') || templateRole;
     const customCaps = localStorage.getItem('agentCapabilities');
-    if (customRole || customCaps) {
+    
+    // 对应步骤能力的专属提示词（如主图生成、产品替换等）
+    let stepSpecificPrompt = '';
+    if (step === WorkflowStep.P3_MAIN_IMAGE) {
+      stepSpecificPrompt = promptTemplateService.getAgentRolePrompt('ecommerce_main');
+    }
+
+    if (customRole || customCaps || stepSpecificPrompt) {
       const customConfig = `
-【智能体全局设定】
-${customRole ? `角色设定：\n${customRole}\n` : ''}
-${customCaps ? `核心能力与指令：\n${customCaps}\n` : ''}
+【Agent 角色与系统指令（来自提示词模板中心）】
+${customRole ? `角色定义：\n${customRole}\n` : ''}
+${customCaps ? `能力清单：\n${customCaps}\n` : ''}
+${stepSpecificPrompt ? `当前专项能力执行规范：\n${stepSpecificPrompt}\n` : ''}
 -----------------------
 `;
       systemPrompt = customConfig + systemPrompt;
