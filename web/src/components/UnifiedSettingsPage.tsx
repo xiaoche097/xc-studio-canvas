@@ -48,6 +48,7 @@ import { StorageServiceSettings } from './StorageServiceSettings';
 import { ImageHostServiceSettings } from './ImageHostServiceSettings';
 import { DataOverviewDashboard } from './DataOverviewDashboard';
 import { UserManagementPage } from './UserManagementPage';
+import { PluginManagementPage } from './PluginManagementPage';
 import {
   getUserProtocolConfigs,
   saveUserProtocolConfig,
@@ -84,6 +85,7 @@ export type UnifiedSettingsTab =
   | 'overview'
   | 'users'
   | 'protocols'
+  | 'plugins'
   | 'virse'
   | 'relays'
   | 'agent'
@@ -998,13 +1000,22 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
           </button>
 
           <button
-            onClick={() => showToast('插件管理模块正在开放中')}
-            className="flex items-center justify-between px-3 py-2.5 rounded-xl text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-white/[0.02] font-medium text-xs transition-all text-left"
+            onClick={() => setActiveTab('plugins')}
+            className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition-all font-bold text-xs ${
+              activeTab === 'plugins'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5'
+            }`}
           >
             <div className="flex items-center gap-3">
               <Plug className="h-4 w-4" />
               <span>插件管理</span>
             </div>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+              activeTab === 'plugins' ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-white/10 text-slate-500'
+            }`}>
+              扩展
+            </span>
           </button>
 
           <button
@@ -1129,7 +1140,7 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
 
         {/* Right Tab Content View */}
         <main className={`flex-1 overflow-hidden ${
-          activeTab === 'overview' || activeTab === 'users' || activeTab === 'protocols' || activeTab === 'storage' || activeTab === 'image-host'
+          activeTab === 'overview' || activeTab === 'users' || activeTab === 'protocols' || activeTab === 'plugins' || activeTab === 'storage' || activeTab === 'image-host'
             ? 'flex flex-col'
             : 'overflow-y-auto p-6 md:p-8 lg:p-10'
         }`}>
@@ -1146,6 +1157,11 @@ export const UnifiedSettingsPage: React.FC<UnifiedSettingsPageProps> = ({
           {/* TAB 2: 系统渠道与模型管理 (图 2, 3, 4 架构) */}
           {activeTab === 'protocols' && (
             <SystemChannelSettings onNotify={showToast} />
+          )}
+
+          {/* TAB 2.5: 插件管理 (图 1, 2, 3 规范与真实协议) */}
+          {activeTab === 'plugins' && (
+            <PluginManagementPage onNotify={showToast} />
           )}
           {false && activeTab === 'protocols' && (
             <div className="max-w-6xl mx-auto space-y-6">

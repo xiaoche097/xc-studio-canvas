@@ -65,7 +65,20 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
   const [selectedRecentProject, setSelectedRecentProject] = useState<Project | null>(null);
 
   const [activeNav, setActiveNav] = useState<string>('create');
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved) return saved === 'dark';
+    return document.documentElement.classList.contains('dark');
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'light') {
+      document.documentElement.classList.remove('dark');
+    } else {
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   interface UserAccount {
@@ -344,18 +357,18 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
 
   return (
     <div
-      className="flex flex-col h-full w-full bg-[#0a0a0a] text-[#eaeaea] font-sans overflow-hidden"
+      className="flex flex-col h-full w-full bg-white text-gray-900 dark:bg-[#0a0a0a] dark:text-[#eaeaea] font-sans overflow-hidden transition-colors duration-300"
       style={{
-        backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)',
+        backgroundImage: isDark ? 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)' : 'radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px)',
         backgroundSize: '24px 24px',
       }}
     >
       {/* TOP NAV */}
-      <header className="shrink-0 h-16 flex items-center justify-between px-5 border-b border-white/[0.06] relative z-30 bg-[#0a0a0a]/80 backdrop-blur">
+      <header className="shrink-0 h-16 flex items-center justify-between px-5 border-b border-gray-200 dark:border-white/[0.06] relative z-30 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur">
         {/* Logo */}
         <div className="flex items-center gap-2.5 w-[220px]">
           <img src="/jingche-logo.png" alt="境彻" className="w-8 h-8 rounded-lg object-cover" />
-          <span className="text-[17px] font-semibold text-white tracking-tight">境彻</span>
+          <span className="text-[17px] font-semibold text-gray-900 dark:text-white tracking-tight">境彻</span>
         </div>
 
         {/* Center tabs */}
@@ -368,8 +381,8 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
                 onClick={() => handleNav(tab.key)}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-[15px] transition-colors ${
                   isActive
-                    ? 'bg-white/[0.08] text-white font-medium'
-                    : 'text-white/50 hover:text-white/80'
+                    ? 'bg-gray-200 text-gray-900 font-medium dark:bg-white/[0.08] dark:text-white'
+                    : 'text-gray-500 hover:text-gray-900 dark:text-white/50 dark:hover:text-white/80'
                 }`}
               >
                 {tab.icon}
@@ -383,7 +396,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
         <div className="flex items-center gap-2 w-[280px] justify-end">
           <button
             onClick={() => setShowMessageModal(true)}
-            className="relative p-2 rounded-full text-white/50 hover:text-white/80 transition-colors"
+            className="relative p-2 rounded-full text-gray-500 hover:text-gray-900 dark:text-white/50 dark:hover:text-white/80 transition-colors"
             title="我的消息"
           >
             <Bell className="w-4.5 h-4.5" />
@@ -393,7 +406,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
           </button>
           <button
             onClick={toggleTheme}
-            className="p-1.5 rounded-full text-white/50 hover:text-white/80 transition-colors"
+            className="p-1.5 rounded-full text-gray-500 hover:text-gray-900 dark:text-white/50 dark:hover:text-white/80 transition-colors"
             title={isDark ? '切换到浅色' : '切换到深色'}
           >
             {isDark ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
@@ -414,49 +427,49 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
           <div className="relative" ref={profileRef}>
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
-              className="flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] transition-colors"
+              className="flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.1] transition-colors"
             >
-              <span className="text-[14px] text-white/80 max-w-[90px] truncate">{currentUser?.displayName || currentUser?.username}</span>
-              <ChevronDown className="w-4 h-4 text-white/50" />
+              <span className="text-[14px] text-gray-700 dark:text-white/80 max-w-[90px] truncate">{currentUser?.displayName || currentUser?.username}</span>
+              <ChevronDown className="w-4 h-4 text-gray-400 dark:text-white/50" />
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white text-[11px] font-bold">
                 {(currentUser?.displayName || currentUser?.username || "?")[0].toUpperCase()}
               </div>
             </button>
 
             {showProfileMenu && (
-              <div className="absolute right-0 top-[calc(100%+8px)] w-72 rounded-2xl bg-[#1a1a1a] border border-white/[0.08] shadow-2xl p-2 z-50">
+              <div className="absolute right-0 top-[calc(100%+8px)] w-72 rounded-2xl bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/[0.08] shadow-2xl p-2 z-50">
                 <div className="flex items-center gap-3 p-3">
                   <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white text-[14px] font-bold shrink-0">
                     {(currentUser?.displayName || currentUser?.username || "?")[0].toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[14px] font-semibold text-white truncate">{currentUser?.displayName}</span>
+                      <span className="text-[14px] font-semibold text-gray-900 dark:text-white truncate">{currentUser?.displayName}</span>
                       {currentUser?.role === 'admin' && (
                         <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-amber-400/20 text-amber-300 border border-amber-400/30 shrink-0">
                           👑 开发者
                         </span>
                       )}
                     </div>
-                    <div className="text-[11.5px] text-white/40 truncate">{currentUser?.email || `${currentUser?.username}@jingche`}</div>
+                    <div className="text-[11.5px] text-gray-400 dark:text-white/40 truncate">{currentUser?.email || `${currentUser?.username}@jingche`}</div>
                   </div>
                 </div>
 
-                <div className="mx-3 mb-2 rounded-xl bg-white/[0.04] p-3">
+                <div className="mx-3 mb-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] p-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-[13px] text-white">
-                      <CreditCard className="w-3.5 h-3.5 text-white/60" />
+                    <div className="flex items-center gap-1.5 text-[13px] text-gray-900 dark:text-white">
+                      <CreditCard className="w-3.5 h-3.5 text-gray-500 dark:text-white/60" />
                       <span className="font-semibold">{currentUser?.credits ?? 0}</span>
-                      <span className="text-[10px] text-white/40 font-medium">{currentUser?.role === 'admin' ? 'DEV' : 'FREE'}</span>
+                      <span className="text-[10px] text-gray-400 dark:text-white/40 font-medium">{currentUser?.role === 'admin' ? 'DEV' : 'FREE'}</span>
                     </div>
                   </div>
-                  <div className="mt-1 text-[11px] text-white/50">{currentUser?.role === 'admin' ? '开发者特权 / 无额度限制' : '无额度限制'}</div>
-                  <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="mt-1 text-[11px] text-gray-500 dark:text-white/50">{currentUser?.role === 'admin' ? '开发者特权 / 无额度限制' : '无额度限制'}</div>
+                  <div className="mt-2 h-1 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
                     <div className="h-full w-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full" />
                   </div>
                 </div>
 
-                <div className="my-1 border-t border-white/[0.06]" />
+                <div className="my-1 border-t border-gray-200 dark:border-white/[0.06]" />
 
                 {PROFILE_MENU.map((item: any) => (
                   <button
@@ -464,12 +477,12 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
                     onClick={() => item.action?.()}
                     className={`w-full flex items-center justify-between px-3 py-2 text-[13px] rounded-lg transition-colors ${
                       item.isHighlight
-                        ? 'text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/15'
-                        : 'text-white/70 hover:bg-white/[0.04]'
+                        ? 'text-cyan-700 bg-cyan-500/10 hover:bg-cyan-500/15 dark:text-cyan-300'
+                        : 'text-gray-700 hover:bg-gray-100 dark:text-white/70 dark:hover:bg-white/[0.04]'
                     }`}
                   >
                     <span className="flex items-center gap-2.5">
-                      <span className={item.isHighlight ? 'text-cyan-400' : 'text-white/50'}>{item.icon}</span>
+                      <span className={item.isHighlight ? 'text-cyan-600 dark:text-cyan-400' : 'text-gray-400 dark:text-white/50'}>{item.icon}</span>
                       <span className={item.isHighlight ? 'font-medium' : ''}>{item.label}</span>
                     </span>
                     <div className="flex items-center gap-1.5">
@@ -478,7 +491,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
                           {item.badge}
                         </span>
                       )}
-                      {item.hasArrow && <ChevronDown className="w-3.5 h-3.5 text-white/30" />}
+                      {item.hasArrow && <ChevronDown className="w-3.5 h-3.5 text-gray-300 dark:text-white/30" />}
                     </div>
                   </button>
                 ))}
@@ -494,25 +507,25 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
         {/* Hero */}
         <div className="mx-auto w-full max-w-[880px] px-6 pt-10">
           <div className="flex items-center justify-center gap-2.5 mb-6">
-            <Sparkles className="w-6 h-6 text-white" />
-            <h1 className="text-[31px] font-semibold text-white tracking-tight">今天要做点什么？</h1>
+            <Sparkles className="w-6 h-6 text-gray-900 dark:text-white" />
+            <h1 className="text-[31px] font-semibold text-gray-900 dark:text-white tracking-tight">今天要做点什么？</h1>
           </div>
 
           {/* Input card */}
-          <div className="rounded-2xl bg-[#141414] border border-white/[0.06] p-5">
+          <div className="rounded-2xl bg-gray-50 dark:bg-[#141414] border border-gray-200 dark:border-white/[0.06] p-5">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="根据我的偏好创建专属 Skill"
               rows={2}
-              className="w-full bg-transparent border-none outline-none resize-none text-[18px] text-white placeholder-white/30 leading-relaxed"
+              className="w-full bg-transparent border-none outline-none resize-none text-[18px] text-gray-900 placeholder-gray-400 dark:text-white dark:placeholder-white/30 leading-relaxed"
             />
 
             {images.length > 0 && (
               <div className="flex gap-2 mb-3 flex-wrap">
                 {images.map((img, idx) => (
-                  <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10">
+                  <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 dark:border-white/10">
                     <img src={img} alt="参考" className="w-full h-full object-cover" />
                     <button
                       onClick={() => removeImage(idx)}
@@ -527,24 +540,24 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
 
             <div className="flex items-center justify-between mt-3">
               <div className="flex items-center gap-2">
-                <label className="p-2 rounded-full text-white/50 hover:text-white hover:bg-white/5 cursor-pointer transition-colors" title="添加">
+                <label className="p-2 rounded-full text-gray-500 hover:text-gray-900 hover:bg-gray-200 cursor-pointer transition-colors dark:text-white/50 dark:hover:text-white dark:hover:bg-white/5" title="添加">
                   <Plus className="w-5 h-5" />
                   <input type="file" multiple className="hidden" onChange={handleImageUpload} accept="image/*" />
                 </label>
-                <button className="flex items-center gap-1.5 px-3 py-2 rounded-full text-[14px] text-white/60 hover:bg-white/5 transition-colors">
+                <button className="flex items-center gap-1.5 px-3 py-2 rounded-full text-[14px] text-gray-600 hover:bg-gray-200 transition-colors dark:text-white/60 dark:hover:bg-white/5">
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>手动确认</span>
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-2 rounded-full text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="语音">
+                <button className="p-2 rounded-full text-gray-500 hover:text-gray-900 hover:bg-gray-200 transition-colors dark:text-white/50 dark:hover:text-white dark:hover:bg-white/5" title="语音">
                   <Mic className="w-5 h-5" />
                 </button>
                 <button
                   onClick={handleStart}
                   disabled={!input && images.length === 0}
-                  className="w-10 h-10 rounded-full bg-[#2a2a2a] text-white flex items-center justify-center hover:bg-[#3a3a3a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-10 h-10 rounded-full bg-gray-200 text-gray-900 flex items-center justify-center hover:bg-gray-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed dark:bg-[#2a2a2a] dark:text-white dark:hover:bg-[#3a3a3a]"
                   title="发送"
                 >
                   <ArrowUpRight className="w-5 h-5 rotate-45" />
@@ -559,7 +572,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
               {QUICK_PILLS.map((pill) => (
                 <button
                   key={pill}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-[14px] text-white/60 transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-[14px] text-gray-600 transition-colors dark:bg-white/[0.04] dark:hover:bg-white/[0.08] dark:text-white/60"
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>{pill}</span>
@@ -567,7 +580,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[14px] text-white/30">技能</span>
+              <span className="text-[14px] text-gray-400 dark:text-white/30">技能</span>
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5 rounded bg-gradient-to-br from-blue-400 to-purple-400" />
                 <div className="w-5 h-5 rounded bg-gradient-to-br from-pink-400 to-orange-400" />
@@ -577,7 +590,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
 
           {/* Project cards */}
           <div className="grid grid-cols-4 gap-4 mt-7">
-            <button className="aspect-[4/3] rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] flex flex-col items-center justify-center gap-2 text-white/40 hover:text-white/70 transition-colors">
+            <button className="aspect-[4/3] rounded-xl bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/[0.06] hover:bg-gray-100 dark:hover:bg-white/[0.06] flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-white/40 dark:hover:text-white/70 transition-colors">
               <Plus className="w-5 h-5" />
               <span className="text-[12.5px]">新建项目</span>
             </button>
@@ -598,7 +611,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
             ))}
           </div>
           <div className="flex justify-center mt-4">
-            <button className="text-[15px] text-white/40 hover:text-white/70 transition-colors">
+            <button className="text-[15px] text-gray-400 hover:text-gray-700 transition-colors dark:text-white/40 dark:hover:text-white/70">
               所有项目 →
             </button>
           </div>
@@ -606,7 +619,7 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
 
         {/* Bento showcase - centered container */}
         <section className="mx-auto w-full max-w-[1400px] px-5 mt-10 pb-10">
-          <div className="rounded-3xl overflow-hidden bg-[#111111] border border-white/[0.04] flex">
+          <div className="rounded-3xl overflow-hidden bg-gray-50 dark:bg-[#111111] border border-gray-200 dark:border-white/[0.04] flex">
             {/* Left banner */}
             <div
               className="relative w-[38%] min-h-[570px] flex flex-col p-10 overflow-hidden shrink-0"
@@ -666,27 +679,27 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
 
       {/* Login / Register Modal */}
       {showLoginModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}>
-          <div className="w-[420px] rounded-2xl bg-[#1a1a1a] border border-white/[0.08] shadow-2xl p-7" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}>
+          <div className="w-[420px] rounded-2xl bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/[0.08] shadow-2xl p-7" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-[20px] font-semibold text-white">{loginMode === 'login' ? '登录' : '注册'}</h2>
-              <button onClick={() => setShowLoginModal(false)} className="text-white/40 hover:text-white/70 transition-colors">
+              <h2 className="text-[20px] font-semibold text-gray-900 dark:text-white">{loginMode === 'login' ? '登录' : '注册'}</h2>
+              <button onClick={() => setShowLoginModal(false)} className="text-gray-400 hover:text-gray-700 transition-colors dark:text-white/40 dark:hover:text-white/70">
                 <span className="text-xl leading-none">×</span>
               </button>
             </div>
 
             {/* Mode toggle */}
-            <div className="flex gap-1 mb-5 p-1 rounded-lg bg-white/[0.04]">
+            <div className="flex gap-1 mb-5 p-1 rounded-lg bg-gray-100 dark:bg-white/[0.04]">
               <button
                 onClick={() => setLoginMode('login')}
-                className={`flex-1 py-1.5 rounded-md text-[13px] transition-colors ${loginMode === 'login' ? 'bg-white/[0.08] text-white font-medium' : 'text-white/50'}`}
+                className={`flex-1 py-1.5 rounded-md text-[13px] transition-colors ${loginMode === 'login' ? 'bg-gray-200 text-gray-900 font-medium dark:bg-white/[0.08] dark:text-white' : 'text-gray-500 dark:text-white/50'}`}
               >
                 登录
               </button>
               <button
                 onClick={() => setLoginMode('register')}
-                className={`flex-1 py-1.5 rounded-md text-[13px] transition-colors ${loginMode === 'register' ? 'bg-white/[0.08] text-white font-medium' : 'text-white/50'}`}
+                className={`flex-1 py-1.5 rounded-md text-[13px] transition-colors ${loginMode === 'register' ? 'bg-gray-200 text-gray-900 font-medium dark:bg-white/[0.08] dark:text-white' : 'text-gray-500 dark:text-white/50'}`}
               >
                 注册
               </button>
@@ -696,12 +709,12 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
             {loginMode === 'register' && (
               <div className="mb-4 p-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-[12px] font-medium text-white/90">开发者特权说明</span>
-                  <span className="px-1.5 py-0.5 rounded bg-white/[0.08] text-[10px] text-white/50">
+                  <span className="text-[12px] font-medium text-gray-900 dark:text-white/90">开发者特权说明</span>
+                  <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[10px] text-gray-500 dark:bg-white/[0.08] dark:text-white/50">
                     首位生效
                   </span>
                 </div>
-                <p className="text-[12px] text-white/60 leading-relaxed">
+                <p className="text-[12px] text-gray-600 leading-relaxed dark:text-white/60">
                   系统第一个注册的用户将自动视为开发者，享有最高系统权限，注册成功后可直接解锁并进入【开发者后台】管理模型密钥、通道与全局参数；后续注册账号为普通用户。
                 </p>
               </div>
@@ -716,14 +729,14 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
                   placeholder="用户名"
                   value={loginForm.username}
                   onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[14px] placeholder-white/30 outline-none focus:border-white/20"
+                  className="w-full px-4 py-2.5 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[14px] placeholder-gray-400 dark:placeholder-white/30 outline-none focus:border-gray-400 dark:focus:border-white/20"
                 />
                 <input
                   type={showPwd ? 'text' : 'password'}
                   placeholder="密码"
                   value={loginForm.password}
                   onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[14px] placeholder-white/30 outline-none focus:border-white/20"
+                  className="w-full px-4 py-2.5 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[14px] placeholder-gray-400 dark:placeholder-white/30 outline-none focus:border-gray-400 dark:focus:border-white/20"
                 />
                 <button
                   onClick={handleLoginSubmit}
@@ -736,78 +749,78 @@ export const AgentHome: React.FC<AgentHomeProps> = ({ onStart, onOpenSettings })
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] text-white/50 mb-1 block">用户名</label>
+                    <label className="text-[11px] text-gray-500 dark:text-white/50 mb-1 block">用户名</label>
                     <input
                       type="text"
                       placeholder="3-32 位字符"
                       value={regForm.username}
                       onChange={(e) => setRegForm({ ...regForm, username: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] placeholder-white/25 outline-none focus:border-white/20"
+                      className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-white/25 outline-none focus:border-gray-400 dark:focus:border-white/20"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] text-white/50 mb-1 block">显示名称</label>
+                    <label className="text-[11px] text-gray-500 dark:text-white/50 mb-1 block">显示名称</label>
                     <input
                       type="text"
                       placeholder="不填则使用用户名"
                       value={regForm.displayName}
                       onChange={(e) => setRegForm({ ...regForm, displayName: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] placeholder-white/25 outline-none focus:border-white/20"
+                      className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-white/25 outline-none focus:border-gray-400 dark:focus:border-white/20"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="text-[11px] text-white/50 mb-1 block">邮箱</label>
+                  <label className="text-[11px] text-gray-500 dark:text-white/50 mb-1 block">邮箱</label>
                   <input
                     type="email"
                     placeholder="用于登录与安全验证"
                     value={regForm.email}
                     onChange={(e) => setRegForm({ ...regForm, email: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] placeholder-white/25 outline-none focus:border-white/20"
+                    className="w-full px-3 py-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-white/25 outline-none focus:border-gray-400 dark:focus:border-white/20"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-white/50 mb-1 block">邮箱验证码</label>
+                  <label className="text-[11px] text-gray-500 dark:text-white/50 mb-1 block">邮箱验证码</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       placeholder="6 位验证码"
                       value={regForm.code}
                       onChange={(e) => setRegForm({ ...regForm, code: e.target.value })}
-                      className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] placeholder-white/25 outline-none focus:border-white/20"
+                      className="flex-1 px-3 py-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-white/25 outline-none focus:border-gray-400 dark:focus:border-white/20"
                     />
-                    <button className="px-3 py-2 rounded-xl bg-white/[0.06] text-white/70 text-[12px] hover:bg-white/[0.1] whitespace-nowrap transition-colors">
+                    <button className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-[12px] hover:bg-gray-200 whitespace-nowrap transition-colors dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.1]">
                       获取验证码
                     </button>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] text-white/50 mb-1 block">密码</label>
+                    <label className="text-[11px] text-gray-500 dark:text-white/50 mb-1 block">密码</label>
                     <div className="relative">
                       <input
                         type={showPwd ? 'text' : 'password'}
                         placeholder="至少 8 位"
                         value={regForm.password}
                         onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
-                        className="w-full px-3 py-2 pr-9 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] placeholder-white/25 outline-none focus:border-white/20"
+                        className="w-full px-3 py-2 pr-9 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-white/25 outline-none focus:border-gray-400 dark:focus:border-white/20"
                       />
-                      <button onClick={() => setShowPwd(!showPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30">
+                      <button onClick={() => setShowPwd(!showPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/30">
                         {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11px] text-white/50 mb-1 block">确认密码</label>
+                    <label className="text-[11px] text-gray-500 dark:text-white/50 mb-1 block">确认密码</label>
                     <div className="relative">
                       <input
                         type={showConfirmPwd ? 'text' : 'password'}
                         placeholder="再次输入密码"
                         value={regForm.confirmPassword}
                         onChange={(e) => setRegForm({ ...regForm, confirmPassword: e.target.value })}
-                        className="w-full px-3 py-2 pr-9 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-[13px] placeholder-white/25 outline-none focus:border-white/20"
+                        className="w-full px-3 py-2 pr-9 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-white/25 outline-none focus:border-gray-400 dark:focus:border-white/20"
                       />
-                      <button onClick={() => setShowConfirmPwd(!showConfirmPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30">
+                      <button onClick={() => setShowConfirmPwd(!showConfirmPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/30">
                         {showConfirmPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
